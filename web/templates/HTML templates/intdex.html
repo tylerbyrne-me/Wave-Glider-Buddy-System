@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Wave Glider Status - {{ mission }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-4">
+  <h1>Mission {{ mission }} Status</h1>
+
+  <h2>Power</h2>
+  <ul>
+    <li>Battery: {{ power.BatteryWattHours or "N/A" }}</li>
+    <li>Solar Input: {{ power.SolarInputWatts or "N/A" }}</li>
+    <li>Power Draw: {{ power.PowerDrawWatts or "N/A" }}</li>
+  </ul>
+
+  <h2>CTD</h2>
+  <ul>
+    <li>Temperature: {{ ctd.Temperature or "N/A" }}</li>
+    <li>Salinity: {{ ctd.Salinity or "N/A" }}</li>
+  </ul>
+
+  <h2>Weather</h2>
+  <ul>
+    <li>Temp: {{ weather.Temp or "N/A" }}</li>
+    <li>Wind: {{ weather.WindSpeed or "N/A" }}</li>
+  </ul>
+
+  <h2>Wave</h2>
+  <ul>
+    <li>Wave Height: {{ waves.Height or "N/A" }}</li>
+  </ul>
+
+  <h2>AIS</h2>
+  <ul>
+    {% for v in ais %}
+      <li>{{ v.name }} ({{ v.mmsi }}) — {{ v.last_seen }}</li>
+    {% endfor %}
+  </ul>
+
+  <h2>Errors</h2>
+  <ul>
+    {% for err in errors %}
+      <li>{{ err.timeStamp }} — {{ err.message[:60] }}...</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>
