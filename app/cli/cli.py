@@ -10,7 +10,14 @@ from pathlib import Path
 
 # Define default data sources
 DEFAULT_LOCAL_DATA_PATH = Path(r"C:\Users\ty225269\Documents\Python Playground\Data")
-DEFAULT_REMOTE_DATA_URL = "http://129.173.20.180:8086/output_realtime_missions/"
+# base URL
+DEFAULT_REMOTE_DATA_BASE_URL = "http://129.173.20.180:8086/output_realtime_missions/"
+
+# If remote folder names differ from the simple mission IDs (e.g., "m203")
+REMOTE_MISSION_FOLDER_MAP = {
+    "m203": "m203-SV3-1070 (C34164NS)",
+    # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
+}
 
 parser = argparse.ArgumentParser(description="Wave Glider System Check")
 parser.add_argument("--mission", required=True, help="Mission ID (e.g., m204)")
@@ -44,30 +51,37 @@ def load_data_interactive(report_type: str, mission_id: str):
     3. If local not found or user opts for remote, tries remote URL.
     """
     # 1. Try local
+    df_local =None
     try:
         console.print(f"Attempting to load {report_type} for {mission_id} from local path: {DEFAULT_LOCAL_DATA_PATH}...")
-        df = mission_core.load_report(report_type, mission_id, base_path=DEFAULT_LOCAL_DATA_PATH)
+        df_local = mission_core.load_report(report_type, mission_id, base_path=DEFAULT_LOCAL_DATA_PATH)
         console.print(f"[green]Successfully loaded {report_type} from local path.[/green]")
         while True:
             choice = console.input(f"Use local data for {report_type}? (y/n, 'n' to try remote): ").strip().lower()
             if choice == 'y':
-                return df
+                return df_local
             elif choice == 'n':
                 console.print("Opted to try remote URL.")
-                break 
+                break # proceed to remote load
             else:
                 console.print("[yellow]Invalid choice. Please enter 'y' or 'n'.[/yellow]")
+        # If user chose 'n', df_local will be discarded and we proceed to remote
     except FileNotFoundError:
         console.print(f"[yellow]Local file for {report_type} not found. Defaulting to remote URL.[/yellow]")
+        # Proceed to remote load
     except Exception as e:
         console.print(f"[yellow]Failed to load {report_type} from local path ({e}). Trying remote URL.[/yellow]")
+        # Proceed to remote load
 
-    # 2. Try remote (if local failed or user chose 'n')
+
+    # 2. Try remote (if local failed, not found, or user chose 'n')
     try:
-        console.print(f"Attempting to load {report_type} for {mission_id} from remote URL: {DEFAULT_REMOTE_DATA_URL}...")
-        df = mission_core.load_report(report_type, mission_id, base_url=DEFAULT_REMOTE_DATA_URL)
+        # Determine the actual folder name for the remote server
+        remote_folder_name = REMOTE_MISSION_FOLDER_MAP.get(mission_id, mission_id)
+        console.print(f"Attempting to load {report_type} for mission '{mission_id}' (remote folder: '{remote_folder_name}') from base URL: {DEFAULT_REMOTE_DATA_BASE_URL}...")
+        df_remote = mission_core.load_report(report_type, mission_id=remote_folder_name, base_url=DEFAULT_REMOTE_DATA_BASE_URL)
         console.print(f"[green]Successfully loaded {report_type} from remote URL.[/green]")
-        return df
+        return df_remote
     except Exception as e:
         console.print(f"[red]❌ Failed to load {report_type} from remote URL: {e}[/red]")
         return pd.DataFrame() # Return empty DataFrame on failure to avoid None downstream
@@ -191,12 +205,11 @@ def check_ais(mission_id, hours_back=24):
     df_ais = load_data_interactive("ais", mission_id)
     vessels = get_ais_summary(df_ais, max_age_hours=hours_back)
 
-    console.rule("🛥️ Nearby Vessels (AIS)")
-
     if not vessels:
         console.print("[yellow]⚠ No recent AIS data[/yellow]")
         return
 
+    console.rule("🛥️ Nearby Vessels (AIS)")
     table = Table()
     table.add_column("Ship")
     table.add_column("MMSI", justify="right")
@@ -225,12 +238,11 @@ def check_errors(mission_id, hours_back=24):
     df_errors = load_data_interactive("errors", mission_id)
     errors = get_recent_errors(df_errors, max_age_hours=hours_back)
 
-    console.rule("⚠️ Recent System Errors")
-
     if not errors:
         console.print("[green]✅ No recent errors in last 24 hours[/green]")
         return
 
+    console.rule("⚠️ Recent System Errors")
     table = Table()
     table.add_column("Time")
     table.add_column("System")
