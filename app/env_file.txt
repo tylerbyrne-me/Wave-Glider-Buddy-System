@@ -1,0 +1,3 @@
+# .env file
+# REMOTE_DATA_URL=http://your-production-url/output_realtime_missions
+# LOCAL_DATA_BASE_PATH=/path/to/production/data

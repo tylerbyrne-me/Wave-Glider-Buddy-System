@@ -1,13 +1,16 @@
-from mission_core import load_report, get_power_status, generate_power_plot, generate_ctd_plot, get_ctd_status, get_weather_status, generate_weather_plot, get_wave_status, generate_wave_plot, get_ais_summary, get_recent_errors, get_open_meteo_forecast, display_weather_forecast
-from rich.console import Console
+from .. import mission_core # Use this to call mission_core.load_report etc.
+from ..mission_core import get_power_status, generate_power_plot, generate_ctd_plot, get_ctd_status, get_weather_status, generate_weather_plot, get_wave_status, generate_wave_plot, get_ais_summary, get_recent_errors, get_open_meteo_forecast, display_weather_forecast
+from rich.console import Console # Keep this
 from rich.table import Table
 from datetime import datetime, timedelta
 import pandas as pd
 import argparse
 import math
+from pathlib import Path
 
-# Set to None for local, or URL for remote
-BASE_URL = None
+# Define default data sources
+DEFAULT_LOCAL_DATA_PATH = Path(r"C:\Users\ty225269\Documents\Python Playground\Data")
+DEFAULT_REMOTE_DATA_URL = "http://129.173.20.180:8086/output_realtime_missions/"
 
 parser = argparse.ArgumentParser(description="Wave Glider System Check")
 parser.add_argument("--mission", required=True, help="Mission ID (e.g., m204)")
@@ -33,11 +36,44 @@ def main():
     if args.forecast:
         check_forecast_with_inference(args.mission, args.lat, args.lon)
 
-def load_mission_report(report_type, mission_id):
-    return load_report(report_type, mission_id, base_url=BASE_URL)
+def load_data_interactive(report_type: str, mission_id: str):
+    """
+    Attempts to load data:
+    1. Tries local path.
+    2. If local found, prompts user to use it or try remote.
+    3. If local not found or user opts for remote, tries remote URL.
+    """
+    # 1. Try local
+    try:
+        console.print(f"Attempting to load {report_type} for {mission_id} from local path: {DEFAULT_LOCAL_DATA_PATH}...")
+        df = mission_core.load_report(report_type, mission_id, base_path=DEFAULT_LOCAL_DATA_PATH)
+        console.print(f"[green]Successfully loaded {report_type} from local path.[/green]")
+        while True:
+            choice = console.input(f"Use local data for {report_type}? (y/n, 'n' to try remote): ").strip().lower()
+            if choice == 'y':
+                return df
+            elif choice == 'n':
+                console.print("Opted to try remote URL.")
+                break 
+            else:
+                console.print("[yellow]Invalid choice. Please enter 'y' or 'n'.[/yellow]")
+    except FileNotFoundError:
+        console.print(f"[yellow]Local file for {report_type} not found. Defaulting to remote URL.[/yellow]")
+    except Exception as e:
+        console.print(f"[yellow]Failed to load {report_type} from local path ({e}). Trying remote URL.[/yellow]")
+
+    # 2. Try remote (if local failed or user chose 'n')
+    try:
+        console.print(f"Attempting to load {report_type} for {mission_id} from remote URL: {DEFAULT_REMOTE_DATA_URL}...")
+        df = mission_core.load_report(report_type, mission_id, base_url=DEFAULT_REMOTE_DATA_URL)
+        console.print(f"[green]Successfully loaded {report_type} from remote URL.[/green]")
+        return df
+    except Exception as e:
+        console.print(f"[red]❌ Failed to load {report_type} from remote URL: {e}[/red]")
+        return pd.DataFrame() # Return empty DataFrame on failure to avoid None downstream
 
 def check_power(mission_id, hours_back=72):
-    df_power = load_mission_report("power", mission_id)
+    df_power = load_data_interactive("power", mission_id)
     power_status = get_power_status(df_power)
     if not power_status:
         console.print("[red]❌ No power data available[/red]")
@@ -46,21 +82,20 @@ def check_power(mission_id, hours_back=72):
     # Display the table
     console.rule("🔌 Power System Status")
     table_data = [
-        ("Battery (watt-hours)", power_status["BatteryWattHours"]),
-        ("Solar Input (W)", power_status["SolarInputWatts"]),
-        ("Output Power (W)", power_status["PowerDrawWatts"]),
-        ("Net Power (W)", power_status["NetPower"]),
+        ("Battery (Wh)", power_status.get("BatteryWattHours")),
+        ("Solar Input (W)", power_status.get("SolarInputWatts")),
+        ("Power Draw (W)", power_status.get("PowerDrawWatts")), # Changed label for clarity
+        ("Net Power (W)", power_status.get("NetPowerWatts")),   # Key is NetPowerWatts
     ]
 
-    from rich.table import Table
-    table = Table()
+    power_table = Table() # Use a more specific name to avoid conflict if Table is imported at top
     for label, _ in table_data:
-        table.add_column(label, justify="right")
+        power_table.add_column(label, justify="right")
 
-    table.add_row(*[f"{val:.2f}" if val is not None else "N/A" for _, val in table_data])
-    console.print(table)
+    power_table.add_row(*[f"{val:.2f}" if val is not None else "N/A" for _, val in table_data])
+    console.print(power_table)
 
-    if power_status["NetPower"] is not None and power_status["NetPower"] < 0:
+    if power_status.get("NetPowerWatts") is not None and power_status["NetPowerWatts"] < 0:
         console.print("⚠ Battery is discharging")
 
     # Generate and report the plot
@@ -69,7 +104,7 @@ def check_power(mission_id, hours_back=72):
         console.print(f"[green]✅ Power trend plot saved to {plot_path}[/green]")
 
 def check_ctd(mission_id, hours_back=24):
-    df_ctd = load_mission_report("ctd", mission_id)
+    df_ctd = load_data_interactive("ctd", mission_id)
     status = get_ctd_status(df_ctd)
 
     if not status:
@@ -78,18 +113,18 @@ def check_ctd(mission_id, hours_back=24):
 
     console.rule("🔬 Latest CTD Reading")
     table = Table(title="Latest CTD Reading")
-    table.add_column("Temp (°C)")
+    table.add_column("Water Temp (°C)") # Changed key
     table.add_column("Salinity (PSU)")
     table.add_column("Conductivity (S/m)")
-    table.add_column("O₂ (Hz)")
-    table.add_column("Depth (m)")
+    table.add_column("O₂ (Hz)") # Corresponds to DissolvedOxygen
+    table.add_column("Pressure (dbar)") # Changed from Depth to Pressure
 
     table.add_row(
-        f"{status['Temperature']:.2f}" if status['Temperature'] else "N/A",
-        f"{status['Salinity']:.2f}" if status['Salinity'] else "N/A",
-        f"{status['Conductivity']:.2f}" if status['Conductivity'] else "N/A",
-        f"{status['DissolvedOxygen']:.2f}" if status['DissolvedOxygen'] else "N/A",
-        f"{status['Depth']:.1f}" if status['Depth'] else "N/A",
+        f"{status.get('WaterTemperature'):.2f}" if status.get('WaterTemperature') is not None else "N/A",
+        f"{status.get('Salinity'):.2f}" if status.get('Salinity') is not None else "N/A",
+        f"{status.get('Conductivity'):.2f}" if status.get('Conductivity') is not None else "N/A",
+        f"{status.get('DissolvedOxygen'):.2f}" if status.get('DissolvedOxygen') is not None else "N/A", # Assuming this is the desired output
+        f"{status.get('Pressure'):.1f}" if status.get('Pressure') is not None else "N/A", # Changed from Depth to Pressure
     )
 
     console.print(table)
@@ -99,7 +134,7 @@ def check_ctd(mission_id, hours_back=24):
         console.print(f"[green]✅ CTD trend plot saved to {plot_path}[/green]")
 
 def check_weather(mission_id, hours_back=72):
-    df_weather = load_mission_report("weather", mission_id)
+    df_weather = load_data_interactive("weather", mission_id)
     status = get_weather_status(df_weather)
 
     if not status:
@@ -108,16 +143,16 @@ def check_weather(mission_id, hours_back=72):
 
     console.rule("⛅ Current Weather Conditions")
     table = Table()
-    table.add_column("Temp (°C)")
+    table.add_column("Air Temp (°C)") # Changed key
     table.add_column("Wind (kt)")
     table.add_column("Gust (kt)")
     table.add_column("Direction (°)")
 
     table.add_row(
-        f"{status['Temp']:.1f}" if status['Temp'] else "N/A",
-        f"{status['WindSpeed']:.1f}" if status['WindSpeed'] else "N/A",
-        f"{status['Gust']:.1f}" if status['Gust'] else "N/A",
-        f"{int(status['Direction'])}" if status['Direction'] else "N/A",
+        f"{status.get('AirTemperature'):.1f}" if status.get('AirTemperature') is not None else "N/A",
+        f"{status.get('WindSpeed'):.1f}" if status.get('WindSpeed') is not None else "N/A",
+        f"{status.get('WindGust'):.1f}" if status.get('WindGust') is not None else "N/A",
+        f"{int(status.get('WindDirection'))}" if status.get('WindDirection') is not None else "N/A",
     )
 
     console.print(table)
@@ -127,7 +162,7 @@ def check_weather(mission_id, hours_back=72):
         console.print(f"[green]✅ Weather trend plot saved to {plot_path}[/green]")
 
 def check_waves(mission_id, hours_back=72):
-    df_waves = load_mission_report("waves", mission_id)
+    df_waves = load_data_interactive("waves", mission_id)
     status = get_wave_status(df_waves)
 
     if not status:
@@ -136,14 +171,14 @@ def check_waves(mission_id, hours_back=72):
 
     console.rule("🌊 Current Wave Conditions")
     table = Table()
-    table.add_column("Wave Height (m)")
+    table.add_column("Sig. Wave Height (m)") # Changed key
     table.add_column("Period (s)")
-    table.add_column("Direction (°)")
+    table.add_column("Mean Direction (°)") # Changed key
 
     table.add_row(
-        f"{status['Height']:.2f}" if status["Height"] else "N/A",
-        f"{status['Period']:.1f}" if status["Period"] else "N/A",
-        f"{status['Direction']:.2f}" if status["Direction"] else "N/A",
+        f"{status.get('SignificantWaveHeight'):.2f}" if status.get("SignificantWaveHeight") is not None else "N/A",
+        f"{status.get('WavePeriod'):.1f}" if status.get("WavePeriod") is not None else "N/A",
+        f"{status.get('MeanWaveDirection'):.0f}" if status.get("MeanWaveDirection") is not None else "N/A", # .0f for direction
     )
 
     console.print(table)
@@ -153,7 +188,7 @@ def check_waves(mission_id, hours_back=72):
         console.print(f"[green]✅ Wave trend plot saved to {plot_path}[/green]")
 
 def check_ais(mission_id, hours_back=24):
-    df_ais = load_mission_report("ais", mission_id)
+    df_ais = load_data_interactive("ais", mission_id)
     vessels = get_ais_summary(df_ais, max_age_hours=hours_back)
 
     console.rule("🛥️ Nearby Vessels (AIS)")
@@ -170,7 +205,7 @@ def check_ais(mission_id, hours_back=24):
     table.add_column("Last Seen")
 
     for vessel in vessels:
-        age = datetime.now() - vessel["last_seen"]
+        age = datetime.now() - vessel["LastSeenTimestamp"] # Changed key
         last_seen_str = (
             f"{age.days} days ago"
             if age.days > 0
@@ -178,17 +213,16 @@ def check_ais(mission_id, hours_back=24):
         )
 
         table.add_row(
-            vessel["name"],
-            str(vessel["mmsi"]) if vessel["mmsi"] else "N/A",
-            f"{vessel['sog']:.1f}" if vessel["sog"] else "N/A",
-            f"{vessel['cog']:.0f}" if vessel["cog"] else "N/A",
+            vessel.get("ShipName", "Unknown"),
+            str(vessel.get("MMSI")) if vessel.get("MMSI") is not None else "N/A",
+            f"{vessel.get('SpeedOverGround'):.1f}" if vessel.get("SpeedOverGround") is not None else "N/A",
+            f"{vessel.get('CourseOverGround'):.0f}" if vessel.get("CourseOverGround") is not None else "N/A",
             last_seen_str
         )
-
     console.print(table)
 
 def check_errors(mission_id, hours_back=24):
-    df_errors = load_mission_report("errors", mission_id)
+    df_errors = load_data_interactive("errors", mission_id)
     errors = get_recent_errors(df_errors, max_age_hours=hours_back)
 
     console.rule("⚠️ Recent System Errors")
@@ -203,9 +237,8 @@ def check_errors(mission_id, hours_back=24):
     table.add_column("Self Corrected")
     table.add_column("Message")
 
-    # MAKE histogram of historical errors to look at rates and severity to define a limit
     for err in errors[:20]:  # limit to most recent 20
-        ts = err.get("timeStamp", None)
+        ts = err.get("Timestamp", None) # Changed key
         if ts is not None:
             # Convert pandas Timestamp/datetime to formatted string
             ts = pd.to_datetime(ts)
@@ -213,26 +246,26 @@ def check_errors(mission_id, hours_back=24):
         else:
             ts_str = "N/A"
 
-# Convert boolean to Yes/No with color
-    self_corrected = err.get("selfCorrected", None)
-    if isinstance(self_corrected, bool):
-        severity_str = "[yellow]Yes[/yellow]" if self_corrected else "[red]No[/red]"
-    else:
-        # Handle "TRUE"/"FALSE" string case (from CSV)
-        sc_str = str(self_corrected).strip().upper()
-        if sc_str == "TRUE":
+        # Convert boolean to Yes/No with color - This block was incorrectly indented
+        self_corrected = err.get("SelfCorrected", None) # Changed key
+        if isinstance(self_corrected, bool):
             severity_str = "[yellow]Yes[/yellow]"
-        elif sc_str == "FALSE":
-            severity_str = "[red]No[/red]"
         else:
-            severity_str = "N/A"
+            # Handle "TRUE"/"FALSE" string case (from CSV)
+            sc_str = str(self_corrected).strip().upper()
+            if sc_str == "TRUE":
+                severity_str = "[yellow]Yes[/yellow]"
+            elif sc_str == "FALSE":
+                severity_str = "[red]No[/red]"
+            else:
+                severity_str = "N/A"
 
-    table.add_row(
-        ts_str,
-        str(err.get("vehicleName", "N/A")),
-        severity_str,
-        str(err.get("error_Message", "N/A")),
-    )
+        table.add_row(
+            ts_str,
+            str(err.get("VehicleName", "N/A")), # Changed key
+            severity_str,
+            str(err.get("ErrorMessage", "N/A")), # Changed key
+        )
     console.print(table)
 
 def check_forecast(lat, lon):
@@ -245,7 +278,12 @@ def check_forecast(lat, lon):
 def check_forecast_with_inference(mission_id, lat=None, lon=None):
     if lat is None or lon is None:
         try:
-            df_telemetry = load_report("telemetry", mission_id, base_url=BASE_URL)
+            df_telemetry = load_data_interactive("telemetry", mission_id)
+            if df_telemetry is None or df_telemetry.empty:
+                console.print(f"[red]❌ Telemetry data for {mission_id} could not be loaded. Cannot infer location.[/red]")
+                return
+
+
             df_telemetry["lastLocationFix"] = pd.to_datetime(df_telemetry["lastLocationFix"], errors="coerce")
             df_telemetry = df_telemetry.dropna(subset=["lastLocationFix"])
 
@@ -266,14 +304,3 @@ def check_forecast_with_inference(mission_id, lat=None, lon=None):
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
