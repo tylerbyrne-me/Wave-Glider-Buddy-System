@@ -11,18 +11,26 @@ document.addEventListener('DOMContentLoaded', function() {
     const chartTextColor = 'rgba(255, 255, 255, 0.8)';
     const chartGridColor = 'rgba(255, 255, 255, 0.1)';
 
+    function displayGlobalError(message) {
+        const errorDiv = document.getElementById('generalErrorDisplay');
+        errorDiv.textContent = message || 'An error occurred. Please check console or try again later.';
+        errorDiv.style.display = 'block';
+    }
+
     async function fetchChartData(reportType, mission, hours) {
         try {
             const response = await fetch(`/api/data/${reportType}/${mission}?hours_back=${hours}`);
             if (!response.ok) {
-                console.error(`Error fetching ${reportType} data: ${response.statusText}`);
                 const errorText = await response.text();
-                console.error(`Server response: ${errorText}`);
+                const errorMessage = `Error fetching ${reportType} data: ${response.statusText}. Server: ${errorText}`;
+                console.error(errorMessage);
+                displayGlobalError(`Failed to load ${reportType} chart data.`);
                 return null;
             }
             return await response.json();
         } catch (error) {
             console.error(`Network error fetching ${reportType} data:`, error);
+            displayGlobalError(`Network error while fetching ${reportType} chart data.`);
             return null;
         }
     }
@@ -83,45 +91,130 @@ document.addEventListener('DOMContentLoaded', function() {
             // We can add lat/lon here if we want to allow manual override later
             const response = await fetch(`/api/forecast/${mission}`);
             if (!response.ok) {
-                console.error(`Error fetching forecast data: ${response.statusText}`);
                 const errorText = await response.text();
-                console.error(`Server response: ${errorText}`);
+                const errorMessage = `Error fetching forecast data: ${response.statusText}. Server: ${errorText}`;
+                console.error(errorMessage);
+                displayGlobalError('Failed to load weather forecast.');
                 return null;
             }
             return await response.json();
         } catch (error) {
             console.error(`Network error fetching forecast data:`, error);
+            displayGlobalError('Network error while fetching weather forecast.');
             return null;
         }
     }
 
+    // WMO Weather code descriptions (simplified)
+    // Source: https://open-meteo.com/en/docs (Weather WMO Code Table)
+    const WMO_WEATHER_CODES = {
+        0: 'Clear sky',
+        1: 'Mainly clear',
+        2: 'Partly cloudy',
+        3: 'Overcast',
+        45: 'Fog',
+        48: 'Depositing rime fog',
+        51: 'Light drizzle',
+        53: 'Moderate drizzle',
+        55: 'Dense drizzle',
+        56: 'Light freezing drizzle',
+        57: 'Dense freezing drizzle',
+        61: 'Slight rain',
+        63: 'Moderate rain',
+        65: 'Heavy rain',
+        66: 'Light freezing rain',
+        67: 'Heavy freezing rain',
+        71: 'Slight snow fall',
+        73: 'Moderate snow fall',
+        75: 'Heavy snow fall',
+        77: 'Snow grains',
+        80: 'Slight rain showers',
+        81: 'Moderate rain showers',
+        82: 'Violent rain showers',
+        85: 'Slight snow showers',
+        86: 'Heavy snow showers',
+        95: 'Thunderstorm', // Slight or moderate
+        96: 'Thunderstorm with slight hail',
+        99: 'Thunderstorm with heavy hail',
+    };
+
+    function getWeatherDescription(code) {
+        return WMO_WEATHER_CODES[code] || 'Unknown';
+    }
+
+
     function renderForecast(forecastData) {
-        const forecastContainer = document.getElementById('forecastDisplay');
+        const initialContainer = document.getElementById('forecastInitial');
+        const extendedContainer = document.getElementById('forecastExtendedContent');
+        const toggleButton = document.getElementById('toggleForecastBtn');
+
         if (!forecastData || !forecastData.hourly || !forecastData.hourly.time || forecastData.hourly.time.length === 0) {
-            forecastContainer.innerHTML = '<p class="text-muted">Forecast data is currently unavailable.</p>';
+            initialContainer.innerHTML = '<p class="text-muted">Forecast data is currently unavailable.</p>';
+            if (extendedContainer) extendedContainer.innerHTML = '';
+            if (toggleButton) toggleButton.style.display = 'none';
             return;
         }
 
         const hourly = forecastData.hourly;
-        let tableHtml = '<table class="table table-sm table-striped table-hover">';
-        tableHtml += '<thead><tr><th>Time</th><th>Temp (°C)</th><th>Precip (mm)</th><th>Wind (m/s)</th><th>Weather</th></tr></thead>';
-        tableHtml += '<tbody>';
+        const totalHoursAvailable = hourly.time.length;
 
-        // Display up to 24 hours of forecast or available data
-        const displayLimit = Math.min(hourly.time.length, 24);
+        const createTableHtml = (startHour, endHour) => {
+            let tableHtml = '<table class="table table-sm table-striped table-hover">';
+            tableHtml += '<thead><tr><th>Time</th><th>Temp (°C)</th><th>Precip (mm)</th><th>Wind (m/s)</th><th>Weather</th></tr></thead>';
+            tableHtml += '<tbody>';
 
-        for (let i = 0; i < displayLimit; i++) {
-            const time = new Date(hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-            const temp = hourly.temperature_2m[i] !== null ? hourly.temperature_2m[i].toFixed(1) : 'N/A';
-            const precip = hourly.precipitation[i] !== null ? hourly.precipitation[i].toFixed(1) : 'N/A';
-            const wind = hourly.windspeed_10m[i] !== null ? hourly.windspeed_10m[i].toFixed(1) : 'N/A';
-            // You might want a mapping for weathercode to a description or icon
-            const weatherCode = hourly.weathercode[i] !== null ? hourly.weathercode[i] : 'N/A';
+            for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
+                const time = new Date(hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const temp = hourly.temperature_2m[i] !== null ? hourly.temperature_2m[i].toFixed(1) : 'N/A';
+                const precip = hourly.precipitation[i] !== null ? hourly.precipitation[i].toFixed(1) : 'N/A';
+                const wind = hourly.windspeed_10m[i] !== null ? hourly.windspeed_10m[i].toFixed(1) : 'N/A';
+                
+                const weatherCode = hourly.weathercode[i] !== null ? hourly.weathercode[i] : 'N/A';
+                let weatherDisplay;
+                const description = getWeatherDescription(weatherCode);
 
-            tableHtml += `<tr><td>${time}</td><td>${temp}</td><td>${precip}</td><td>${wind}</td><td>${weatherCode}</td></tr>`;
+                if (description !== 'Unknown') {
+                    weatherDisplay = description;
+                } else if (weatherCode !== 'N/A') {
+                    weatherDisplay = `Code: ${weatherCode}`;
+                } else {
+                    weatherDisplay = 'N/A';
+                }
+
+                tableHtml += `<tr><td>${time}</td><td>${temp}</td><td>${precip}</td><td>${wind}</td><td>${weatherDisplay}</td></tr>`;
+            }
+            tableHtml += '</tbody></table>';
+            return tableHtml;
+        };
+
+        const initialHours = 12;
+        initialContainer.innerHTML = createTableHtml(0, initialHours);
+
+        const extendedStartHour = initialHours;
+        const maxExtendedHours = 24; // Show up to 24 hours total when expanded (can be increased up to 48 or totalHoursAvailable)
+
+        if (totalHoursAvailable > initialHours) {
+            extendedContainer.innerHTML = createTableHtml(extendedStartHour, Math.min(totalHoursAvailable, maxExtendedHours));
+            toggleButton.style.display = 'block'; // Show the button
+            
+            const collapseElement = document.getElementById('forecastExtended');
+            // Listener to update button text (optional, Bootstrap handles aria-expanded)
+            collapseElement.addEventListener('show.bs.collapse', function () {
+                toggleButton.textContent = 'Show Less';
+            });
+            collapseElement.addEventListener('hide.bs.collapse', function () {
+                toggleButton.textContent = 'Show More';
+            });
+            // Set initial text based on current state (e.g. if it was previously expanded and page reloaded)
+            if (!collapseElement.classList.contains('show')) {
+                 toggleButton.textContent = 'Show More';
+            } else {
+                 toggleButton.textContent = 'Show Less';
+            }
+        } else {
+            if (extendedContainer) extendedContainer.innerHTML = '';
+            if (toggleButton) toggleButton.style.display = 'none'; // Hide button if no more data
         }
-        tableHtml += '</tbody></table>';
-        forecastContainer.innerHTML = tableHtml;
     }
 
     // Fetch and render forecast

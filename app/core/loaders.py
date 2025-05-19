@@ -1,12 +1,13 @@
 from pathlib import Path
 import pandas as pd
-import requests
+# import requests # disabled in favor of httpx
+import httpx #async http requests
 import io
 import logging
 
 # logger = logging.getLogger(__name__) # Optional: configure if needed
 
-def load_report(report_type: str, mission_id: str, base_path: Path = None, base_url: str = None):
+async def load_report(report_type: str, mission_id: str, base_path: Path = None, base_url: str = None, client: httpx.AsyncClient = None):
     reports = {
         "power": "Amps Power Summary Report.csv",
         "solar": "Amps Solar Input Port Report.csv",
@@ -25,11 +26,18 @@ def load_report(report_type: str, mission_id: str, base_path: Path = None, base_
 
     if base_path:
         file_path = Path(base_path) / mission_id / filename
-        return pd.read_csv(file_path)
+         # Reading file is synchronous, keep the function async for consistency if remote is an option
+        try:
+            return pd.read_csv(file_path)
+        except FileNotFoundError:
+            # If base_url is also provided, we might want to fall back.
+            # For now, if base_path is given, we assume it's the primary target.
+            raise
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        return pd.read_csv(io.StringIO(response.text))
+        async with client if client else httpx.AsyncClient() as current_client:
+            response = await current_client.get(url, timeout=10)
+            response.raise_for_status()
+            return pd.read_csv(io.StringIO(response.text))
     else:
         raise ValueError("Either base_path or base_url must be provided to load_report.")

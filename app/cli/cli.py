@@ -12,17 +12,12 @@ import pandas as pd
 import argparse
 import math
 from pathlib import Path
+from ..config import settings # Import settings
 
 # Define default data sources
 DEFAULT_LOCAL_DATA_PATH = Path(r"C:\Users\ty225269\Documents\Python Playground\Data")
 # base URL
 DEFAULT_REMOTE_DATA_BASE_URL = "http://129.173.20.180:8086/output_realtime_missions/"
-
-# If remote folder names differ from the simple mission IDs (e.g., "m203")
-REMOTE_MISSION_FOLDER_MAP = {
-    "m203": "m203-SV3-1070 (C34164NS)",
-    # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
-}
 
 parser = argparse.ArgumentParser(description="Wave Glider System Check")
 parser.add_argument("--mission", required=True, help="Mission ID (e.g., m204)")
@@ -82,7 +77,7 @@ def load_data_interactive(report_type: str, mission_id: str):
     # 2. Try remote (if local failed, not found, or user chose 'n')
     try:
         # Determine the actual folder name for the remote server
-        remote_folder_name = REMOTE_MISSION_FOLDER_MAP.get(mission_id, mission_id)
+        remote_folder_name = settings.remote_mission_folder_map.get(mission_id, mission_id)
         console.print(f"Attempting to load {report_type} for mission '{mission_id}' (remote folder: '{remote_folder_name}') from base URL: {DEFAULT_REMOTE_DATA_BASE_URL}...")
         df_remote = loaders.load_report(report_type, mission_id=remote_folder_name, base_url=DEFAULT_REMOTE_DATA_BASE_URL)
         console.print(f"[green]Successfully loaded {report_type} from remote URL.[/green]")

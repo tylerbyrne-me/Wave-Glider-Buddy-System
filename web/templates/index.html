@@ -9,6 +9,10 @@
 </head>
 <body class="container py-4" data-mission-id="{{ mission }}">
   <h1>Current Mission Status: {{ mission }}</h1>
+  <!-- General Error Display Area -->
+  <div id="generalErrorDisplay" class="alert alert-danger" style="display: none;" role="alert">
+    An error occurred. Please check console for details or try again later.
+  </div>
 
   <h2>Power</h2>
   <ul>
@@ -56,8 +60,21 @@
   <!-- Weather Forecast Section -->
   <div class="mt-4">
     <h2>Weather Forecast</h2>
-    <div id="forecastDisplay" class="table-responsive">
-      <p>Loading forecast...</p>
+    <div id="forecastDisplay">
+      <!-- Initial 12 hours will be rendered here by JS -->
+      <div id="forecastInitial" class="table-responsive">
+          <p class="text-muted">Loading initial forecast...</p>
+      </div>
+      <!-- Button to toggle more forecast data -->
+      <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#forecastExtended" aria-expanded="false" aria-controls="forecastExtended" id="toggleForecastBtn" style="display: none;">
+        Show More
+      </button>
+      <!-- Collapsible container for extended forecast -->
+      <div class="collapse mt-2" id="forecastExtended">
+        <div id="forecastExtendedContent" class="table-responsive">
+          <!-- Extended forecast will be rendered here by JS -->
+        </div>
+      </div>
     </div>
   </div>
 
@@ -88,6 +105,7 @@
   </ul>
 
   <!-- Link to external JavaScript File -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/static/js/dashboard.js"></script>
 
 </body>

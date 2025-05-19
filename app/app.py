@@ -9,6 +9,7 @@ import pandas as pd # For DataFrame operations
 import numpy as np # For numeric operations if needed
 from pathlib import Path
 import asyncio # For concurrent loading if operations become async
+import httpx # For async client in load_data_source
 from typing import Optional # For optional query parameters
 from .config import settings # Use relative import if config.py is in the same 'app' package
 
@@ -29,24 +30,25 @@ app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "web" / "static"))
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# If remote folder names differ from the simple mission IDs (e.g., "m203")
-REMOTE_MISSION_FOLDER_MAP = {
-    "m203": "m203-SV3-1070 (C34164NS)",
-    # Add other mappings here from your cli.py or as needed
-}
-
-# Consider making load_report in mission_core async if it involves I/O
-# For this example, we'll assume load_report remains synchronous for now,
-# but show how to adapt if it were async.
-
-def load_data_source(report_type: str, mission_id: str):
+# ---
+async def load_data_source(report_type: str, mission_id: str, client: Optional[httpx.AsyncClient] = None):
     """Attempts to load data, trying remote then local sources."""
+    # Determine if we need to manage the client's lifecycle here or if it's passed
+    managed_client = False
+    if client is None:
+        client = httpx.AsyncClient()
+        managed_client = True
+
     try:
-        # Try remote URL first
         logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
-        # Pass base_path to core.loaders.load_report
-        return loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
+        # loaders.load_report is async, but local file reading is synchronous.
+        # We await it here as the function signature is async.
+        # The actual pd.read_csv inside loaders.load_report for local files is blocking.
+        # For true non-blocking local file I/O, asyncio.to_thread would be needed there.
+        df = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=client)
+        if managed_client:
+            await client.aclose()
+        return df
     except FileNotFoundError:
         logger.warning(f"Local file for {report_type} ({mission_id}) not found at {settings.local_data_base_path}. Falling back to remote.")
     except Exception as e:
@@ -54,41 +56,37 @@ def load_data_source(report_type: str, mission_id: str):
 
     # Fallback to remote if local fails or not found
     try:
-        # Use the mapping for remote folder names
-        remote_mission_folder = REMOTE_MISSION_FOLDER_MAP.get(mission_id, mission_id)
+        remote_mission_folder = settings.remote_mission_folder_map.get(mission_id, mission_id)
         logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from {settings.remote_data_url}")
-        # Pass base_url to core.loaders.load_report
-        return loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=settings.remote_data_url)
+        df = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=settings.remote_data_url, client=client)
+        if managed_client:
+            await client.aclose()
+        return df
     except Exception as e_remote:
         logger.error(f"Remote load also failed for {report_type} ({mission_id}): {e_remote}")
-        # Return None or an empty DataFrame, or raise a custom error
+        if managed_client:
+            await client.aclose()
         return None # Or pd.DataFrame() if preferred to avoid None checks later
-
+# ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, mission: str = "m203", hours: int = 72):
-    # If load_report (and thus load_data_source) were async:
-    # results = await asyncio.gather(
-    #     load_data_source("power", mission),
-    #     load_data_source("ctd", mission),
-    #     load_data_source("weather", mission),
-    #     load_data_source("waves", mission),
-    #     load_data_source("ais", mission),
-    #     load_data_source("errors", mission),
-    #     return_exceptions=True # To handle individual load failures
-    # )
-    # df_power, df_ctd, df_weather, df_waves, df_ais, df_errors = results
-    # Then check if any result is an exception or None
+    async with httpx.AsyncClient() as client: # Create a client session for all requests
+        results = await asyncio.gather(
+            load_data_source("power", mission, client=client),
+            load_data_source("ctd", mission, client=client),
+            load_data_source("weather", mission, client=client),
+            load_data_source("waves", mission, client=client),
+            load_data_source("ais", mission, client=client),
+            load_data_source("errors", mission, client=client),
+            return_exceptions=True # To handle individual load failures
+        )
 
-    # Synchronous loading (current approach)
-    df_power = load_data_source("power", mission)
-    df_ctd = load_data_source("ctd", mission)
-    df_weather = load_data_source("weather", mission)
-    df_waves = load_data_source("waves", mission)
-    df_ais = load_data_source("ais", mission)
-    df_errors = load_data_source("errors", mission)
+    # Unpack results, checking for exceptions
+    df_power, df_ctd, df_weather, df_waves, df_ais, df_errors = [
+        res if not isinstance(res, Exception) else None for res in results
+    ]
 
     # Get status using the new standardized functions
-    # The keys in these dicts now match our defined standard
     power_status = summaries.get_power_status(df_power) if df_power is not None and not df_power.empty else None
     ctd_status = summaries.get_ctd_status(df_ctd) if df_ctd is not None and not df_ctd.empty else None
     weather_status = summaries.get_weather_status(df_weather) if df_weather is not None and not df_weather.empty else None
@@ -119,7 +117,7 @@ async def get_report_data_for_plotting(
     Provides processed time-series data for a given report type,
     suitable for frontend plotting.
     """
-    df = load_data_source(report_type, mission_id)
+    df = await load_data_source(report_type, mission_id) # Await the async call
 
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"Data not found for {report_type}, mission {mission_id}")
@@ -170,8 +168,7 @@ async def get_report_data_for_plotting(
     # Replace NaN with None for JSON compatibility
     hourly_data = hourly_data.replace({np.nan: None})
     return JSONResponse(content=hourly_data.to_dict(orient="records"))
-
-
+# ---
 @app.get("/api/forecast/{mission_id}")
 async def get_weather_forecast(
     mission_id: str,
@@ -186,7 +183,7 @@ async def get_weather_forecast(
 
     if final_lat is None or final_lon is None:
         logger.info(f"Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission {mission_id}.")
-        df_telemetry = load_data_source("telemetry", mission_id)
+        df_telemetry = await load_data_source("telemetry", mission_id) # Await the async call
 
         if df_telemetry is None or df_telemetry.empty:
             logger.warning(f"Telemetry data for mission {mission_id} not found or empty. Cannot infer location.")
