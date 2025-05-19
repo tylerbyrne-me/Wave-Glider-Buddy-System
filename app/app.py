@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from .core import loaders, summaries, processors, forecast
@@ -21,6 +22,9 @@ PROJECT_ROOT = APP_DIR.parent
 # Construct the path to the templates directory
 TEMPLATES_DIR = PROJECT_ROOT / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Mount the static files directory
+app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "web" / "static")), name="static")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -137,16 +141,34 @@ async def get_report_data_for_plotting(
     if processed_df.empty or "Timestamp" not in processed_df.columns:
         raise HTTPException(status_code=404, detail=f"No processable data after preprocessing for {report_type}, mission {mission_id}")
 
-    # Filter by time
-    recent_data = processed_df[processed_df["Timestamp"] > datetime.now() - timedelta(hours=hours_back)]
+    # Determine the most recent timestamp in the data
+    max_timestamp = processed_df["Timestamp"].max()
+
+    if pd.isna(max_timestamp):
+        logger.warning(f"No valid timestamps found in processed data for {report_type}, mission {mission_id} after preprocessing.")
+        raise HTTPException(status_code=404, detail=f"No valid timestamps in data for {report_type}, mission {mission_id}")
+
+    # Calculate the cutoff time based on the most recent data point
+    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
     if recent_data.empty:
+        logger.info(f"No data found for {report_type}, mission {mission_id} within {hours_back} hours of its latest data point ({max_timestamp}).")
         return [] # Return empty list if no recent data, or raise 404
+        
+    
 
     # Resample to hourly mean (similar to your plotting scripts)
     data_to_resample = recent_data.set_index("Timestamp")
     numeric_cols = data_to_resample.select_dtypes(include=[np.number])
     hourly_data = numeric_cols.resample('1h').mean().reset_index() # reset_index to make Timestamp a column again
 
+    # Convert Timestamp objects to ISO 8601 strings for JSON serialization
+    if "Timestamp" in hourly_data.columns:
+        hourly_data["Timestamp"] = hourly_data["Timestamp"].dt.strftime('%Y-%m-%dT%H:%M:%S')
+
+    
+    # Replace NaN with None for JSON compatibility
+    hourly_data = hourly_data.replace({np.nan: None})
     return JSONResponse(content=hourly_data.to_dict(orient="records"))
 
 
