@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Wave Glider Status - {{ mission }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-4">
+  <h1>Mission {{ mission }} Status</h1>
+
+  <h2>Power</h2>
+  <ul>
+    <li>Battery (Wh): {{ power.BatteryWattHours if power.BatteryWattHours is not none else "N/A" }}</li>
+    <li>Solar Input (W): {{ power.SolarInputWatts if power.SolarInputWatts is not none else "N/A" }}</li>
+    <li>Power Draw (W): {{ power.PowerDrawWatts if power.PowerDrawWatts is not none else "N/A" }}</li>
+    <li>Net Power (W): {{ power.NetPowerWatts if power.NetPowerWatts is not none else "N/A" }}</li>
+    <li>Timestamp: {{ power.Timestamp or "N/A" }}</li>
+  </ul>
+
+  <h2>CTD</h2>
+  <ul>
+    <li>Water Temperature (°C): {{ ctd.WaterTemperature if ctd.WaterTemperature is not none else "N/A" }}</li>
+    <li>Salinity (PSU): {{ ctd.Salinity if ctd.Salinity is not none else "N/A" }}</li>
+    <li>Conductivity (S/m): {{ ctd.Conductivity if ctd.Conductivity is not none else "N/A" }}</li>
+    <li>Dissolved Oxygen (Hz): {{ ctd.DissolvedOxygen if ctd.DissolvedOxygen is not none else "N/A" }}</li>
+    <li>Pressure (dbar): {{ ctd.Pressure if ctd.Pressure is not none else "N/A" }}</li>
+    <li>Timestamp: {{ ctd.Timestamp or "N/A" }}</li>
+  </ul>
+
+  <h2>Weather</h2>
+  <ul>
+    <li>Air Temperature (°C): {{ weather.AirTemperature if weather.AirTemperature is not none else "N/A" }}</li>
+    <li>Wind Speed (kt): {{ weather.WindSpeed if weather.WindSpeed is not none else "N/A" }}</li>
+    <li>Wind Gust (kt): {{ weather.WindGust if weather.WindGust is not none else "N/A" }}</li>
+    <li>Wind Direction (°): {{ weather.WindDirection if weather.WindDirection is not none else "N/A" }}</li>
+    <li>Timestamp: {{ weather.Timestamp or "N/A" }}</li>
+  </ul>
+
+  <h2>Wave</h2>
+  <ul>
+    <li>Significant Wave Height (m): {{ waves.SignificantWaveHeight if waves.SignificantWaveHeight is not none else "N/A" }}</li>
+    <li>Wave Period (s): {{ waves.WavePeriod if waves.WavePeriod is not none else "N/A" }}</li>
+    <li>Mean Wave Direction (°): {{ waves.MeanWaveDirection if waves.MeanWaveDirection is not none else "N/A" }}</li>
+    <li>Timestamp: {{ waves.Timestamp or "N/A" }}</li>
+  </ul>
+
+  <h2>AIS</h2>
+  <ul>
+    {% for v in ais %}
+      <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp or "N/A" }}</li>
+    {% endfor %}
+  </ul>
+
+  <h2>Errors</h2>
+  <ul>
+    {% for err in errors %}
+      <li>{{ err.Timestamp or "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

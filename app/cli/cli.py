@@ -1,5 +1,10 @@
-from .. import mission_core # Use this to call mission_core.load_report etc.
-from ..mission_core import get_power_status, generate_power_plot, generate_ctd_plot, get_ctd_status, get_weather_status, generate_weather_plot, get_wave_status, generate_wave_plot, get_ais_summary, get_recent_errors, get_open_meteo_forecast, display_weather_forecast
+from ..core import (
+    loaders, summaries, plotting, forecast
+)
+# Specific plotting functions are still useful to import directly if only they are used from plotting
+from ..core.plotting import (
+    generate_power_plot, generate_ctd_plot, generate_weather_plot, generate_wave_plot
+)
 from rich.console import Console # Keep this
 from rich.table import Table
 from datetime import datetime, timedelta
@@ -54,7 +59,7 @@ def load_data_interactive(report_type: str, mission_id: str):
     df_local =None
     try:
         console.print(f"Attempting to load {report_type} for {mission_id} from local path: {DEFAULT_LOCAL_DATA_PATH}...")
-        df_local = mission_core.load_report(report_type, mission_id, base_path=DEFAULT_LOCAL_DATA_PATH)
+        df_local = loaders.load_report(report_type, mission_id, base_path=DEFAULT_LOCAL_DATA_PATH)
         console.print(f"[green]Successfully loaded {report_type} from local path.[/green]")
         while True:
             choice = console.input(f"Use local data for {report_type}? (y/n, 'n' to try remote): ").strip().lower()
@@ -79,7 +84,7 @@ def load_data_interactive(report_type: str, mission_id: str):
         # Determine the actual folder name for the remote server
         remote_folder_name = REMOTE_MISSION_FOLDER_MAP.get(mission_id, mission_id)
         console.print(f"Attempting to load {report_type} for mission '{mission_id}' (remote folder: '{remote_folder_name}') from base URL: {DEFAULT_REMOTE_DATA_BASE_URL}...")
-        df_remote = mission_core.load_report(report_type, mission_id=remote_folder_name, base_url=DEFAULT_REMOTE_DATA_BASE_URL)
+        df_remote = loaders.load_report(report_type, mission_id=remote_folder_name, base_url=DEFAULT_REMOTE_DATA_BASE_URL)
         console.print(f"[green]Successfully loaded {report_type} from remote URL.[/green]")
         return df_remote
     except Exception as e:
@@ -88,7 +93,7 @@ def load_data_interactive(report_type: str, mission_id: str):
 
 def check_power(mission_id, hours_back=72):
     df_power = load_data_interactive("power", mission_id)
-    power_status = get_power_status(df_power)
+    power_status = summaries.get_power_status(df_power)
     if not power_status:
         console.print("[red]❌ No power data available[/red]")
         return
@@ -119,7 +124,7 @@ def check_power(mission_id, hours_back=72):
 
 def check_ctd(mission_id, hours_back=24):
     df_ctd = load_data_interactive("ctd", mission_id)
-    status = get_ctd_status(df_ctd)
+    status = summaries.get_ctd_status(df_ctd)
 
     if not status:
         console.print("[red]❌ No CTD data available[/red]")
@@ -149,7 +154,7 @@ def check_ctd(mission_id, hours_back=24):
 
 def check_weather(mission_id, hours_back=72):
     df_weather = load_data_interactive("weather", mission_id)
-    status = get_weather_status(df_weather)
+    status = summaries.get_weather_status(df_weather)
 
     if not status:
         console.print("[red]❌ No weather data available[/red]")
@@ -177,7 +182,7 @@ def check_weather(mission_id, hours_back=72):
 
 def check_waves(mission_id, hours_back=72):
     df_waves = load_data_interactive("waves", mission_id)
-    status = get_wave_status(df_waves)
+    status = summaries.get_wave_status(df_waves)
 
     if not status:
         console.print("[red]❌ No wave data available[/red]")
@@ -203,7 +208,7 @@ def check_waves(mission_id, hours_back=72):
 
 def check_ais(mission_id, hours_back=24):
     df_ais = load_data_interactive("ais", mission_id)
-    vessels = get_ais_summary(df_ais, max_age_hours=hours_back)
+    vessels = summaries.get_ais_summary(df_ais, max_age_hours=hours_back)
 
     if not vessels:
         console.print("[yellow]⚠ No recent AIS data[/yellow]")
@@ -236,7 +241,7 @@ def check_ais(mission_id, hours_back=24):
 
 def check_errors(mission_id, hours_back=24):
     df_errors = load_data_interactive("errors", mission_id)
-    errors = get_recent_errors(df_errors, max_age_hours=hours_back)
+    errors = summaries.get_recent_errors(df_errors, max_age_hours=hours_back)
 
     if not errors:
         console.print("[green]✅ No recent errors in last 24 hours[/green]")
@@ -280,12 +285,35 @@ def check_errors(mission_id, hours_back=24):
         )
     console.print(table)
 
+def display_cli_forecast(forecast_data_json):
+    """Helper to display forecast using Rich, specific to CLI."""
+    if not forecast_data_json:
+        console.print("[red]❌ Unable to retrieve weather forecast data[/red]")
+        return
+
+    hourly = forecast_data_json.get("hourly", {})
+    times = hourly.get("time", [])
+    temps = hourly.get("temperature_2m", [])
+    winds = hourly.get("windspeed_10m", []) # Assuming API returns m/s, convert if needed or adjust label
+    precip = hourly.get("precipitation", [])
+
+    if not times:
+        console.print("[yellow]⚠ Forecast data received but no time points found.[/yellow]")
+        return
+
+    table = Table(title="48-hour Weather Forecast")
+    table.add_column("Time")
+    table.add_column("Temp (°C)")
+    table.add_column("Wind (m/s)") # Or convert to kt and change label
+    table.add_column("Precip (mm)")
+    display_limit = 48
+    for i in range(min(len(times), display_limit)):
+        table.add_row(times[i], f"{temps[i]:.1f}", f"{winds[i]:.1f}", f"{precip[i]:.1f}")
+    console.print(table)
+
 def check_forecast(lat, lon):
-    forecast_data = get_open_meteo_forecast(lat, lon)
-    if forecast_data:
-        display_weather_forecast(forecast_data)
-    else:
-        console.print("[red]❌ Unable to retrieve weather forecast[/red]")
+    forecast_data_json = forecast.get_open_meteo_forecast(lat, lon)
+    display_cli_forecast(forecast_data_json)
 
 def check_forecast_with_inference(mission_id, lat=None, lon=None):
     if lat is None or lon is None:
