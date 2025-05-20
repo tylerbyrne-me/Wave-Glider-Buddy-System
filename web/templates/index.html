@@ -5,104 +5,315 @@
   <!-- Include Chart.js and its date adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+      <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/custom.css">
 </head>
-<body class="container py-4" data-mission-id="{{ mission }}">
-  <h1>Current Mission Status: {{ mission }}</h1>
-  <!-- General Error Display Area -->
-  <div id="generalErrorDisplay" class="alert alert-danger" style="display: none;" role="alert">
-    An error occurred. Please check console for details or try again later.
-  </div>
-
-  <h2>Power</h2>
-  <ul>
-    <li>Battery (Wh): {{ power.BatteryWattHours if power.BatteryWattHours is not none else "N/A" }}</li>
-    <li>Solar Input (W): {{ power.SolarInputWatts if power.SolarInputWatts is not none else "N/A" }}</li>
-    <li>Power Draw (W): {{ power.PowerDrawWatts if power.PowerDrawWatts is not none else "N/A" }}</li>
-    <li>Net Power (W): {{ power.NetPowerWatts if power.NetPowerWatts is not none else "N/A" }}</li>
-    <li>Timestamp: {{ power.Timestamp or "N/A" }}</li>
-  </ul>
-  <!-- Chart container for Power Trends -->
-  <div class="mt-3 mb-4" style="position: relative; height: 350px; width: 100%">
-    <h4>Power Trends (Last 72 hours)</h4>
-    <canvas id="powerChart"></canvas>
-  </div>
-
-  <h2>CTD</h2>
-  <ul>
-    <li>Water Temperature (°C): {{ ctd.WaterTemperature if ctd.WaterTemperature is not none else "N/A" }}</li>
-    <li>Salinity (PSU): {{ ctd.Salinity if ctd.Salinity is not none else "N/A" }}</li>
-    <li>Conductivity (S/m): {{ ctd.Conductivity if ctd.Conductivity is not none else "N/A" }}</li>
-    <li>Dissolved Oxygen (Hz): {{ ctd.DissolvedOxygen if ctd.DissolvedOxygen is not none else "N/A" }}</li>
-    <li>Pressure (dbar): {{ ctd.Pressure if ctd.Pressure is not none else "N/A" }}</li>
-    <li>Timestamp: {{ ctd.Timestamp or "N/A" }}</li>
-  </ul>
-  <!-- Chart container for CTD Trends -->
-  <div class="mt-3 mb-4" style="position: relative; height: 350px; width: 100%;">
-    <h4>CTD Trends (Last 72 hours)</h4>
-    <canvas id="ctdChart"></canvas>
-  </div>
-
-  <h2>Weather</h2>
-  <ul>
-    <li>Air Temperature (°C): {{ weather.AirTemperature if weather.AirTemperature is not none else "N/A" }}</li>
-    <li>Wind Speed (kt): {{ weather.WindSpeed if weather.WindSpeed is not none else "N/A" }}</li>
-    <li>Wind Gust (kt): {{ weather.WindGust if weather.WindGust is not none else "N/A" }}</li>
-    <li>Wind Direction (°): {{ weather.WindDirection if weather.WindDirection is not none else "N/A" }}</li>
-    <li>Timestamp: {{ weather.Timestamp or "N/A" }}</li>
-  </ul>
-<!-- Chart container for Weather Sensor Trends -->
-  <div class="mt-3 mb-4" style="position: relative; height: 350px; width: 100%;">
-    <h4>Weather Sensor Trends (Last 72 hours)</h4>
-    <canvas id="weatherSensorChart"></canvas>
-  </div>
-
-  <!-- Weather Forecast Section -->
-  <div class="mt-4">
-    <h2>Weather Forecast</h2>
-    <div id="forecastDisplay">
-      <!-- Initial 12 hours will be rendered here by JS -->
-      <div id="forecastInitial" class="table-responsive">
-          <p class="text-muted">Loading initial forecast...</p>
+<body class="container-fluid py-4" data-mission-id="{{ mission }}">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1>Current Mission Status: <span id="currentMissionDisplay">{{ mission }}</span></h1>
+      <h6 class="text-muted fst-italic" id="dataSourceIndicator">
+        Data Source: 
+        {% if current_source == 'local' %}
+          Local Path: {{ current_local_path if current_local_path else default_local_data_path }}
+        {% elif current_source == 'remote' or not current_source %}
+          Remote (Fallback to Default Local Path: {{ default_local_data_path }})
+        {% else %}
+          Unknown
+        {% endif %}
+      </h6>
+    </div>
+    <div class="d-flex align-items-center">
+      <div id="utcClock" class="me-3" style="font-size: 0.9rem; color: #adb5bd;">
+        Loading UTC time...
       </div>
-      <!-- Button to toggle more forecast data -->
-      <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#forecastExtended" aria-expanded="false" aria-controls="forecastExtended" id="toggleForecastBtn" style="display: none;">
-        Show More
+      <label for="missionSelector" class="form-label me-2">Select Mission:</label>
+      <select id="missionSelector" class="form-select form-select-sm d-inline-block" style="width: auto;">
+        {% for m_id in available_missions %}
+          <option value="{{ m_id }}" {% if m_id == mission %}selected{% endif %}>
+            {{ m_id }}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-sm btn-info ms-2" data-bs-toggle="modal" data-bs-target="#dataSourceModal">
+        Change Data Source
       </button>
-      <!-- Collapsible container for extended forecast -->
-      <div class="collapse mt-2" id="forecastExtended">
-        <div id="forecastExtendedContent" class="table-responsive">
-          <!-- Extended forecast will be rendered here by JS -->
+    </div>
+  </div>
+
+  <!-- Data Source Modal -->
+  <div class="modal fade" id="dataSourceModal" tabindex="-1" aria-labelledby="dataSourceModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="dataSourceModalLabel">Select Data Source</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceRemote" value="remote" {% if not current_source or current_source == 'remote' %}checked{% endif %}>
+            <label class="form-check-label" for="sourceRemote">
+              Remote Data (Default: Remote first, then local fallback)
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceLocal" value="local" {% if current_source == 'local' %}checked{% endif %}>
+            <label class="form-check-label" for="sourceLocal">
+              Local Data Only
+            </label>
+          </div>
+          <div class="mt-3" id="localPathInputGroup" style="display: {% if current_source == 'local' %}block{% else %}none{% endif %};">
+            <label for="customLocalPath" class="form-label">Custom Local Data Path (optional):</label>
+            <input type="text" class="form-control" id="customLocalPath" placeholder="e.g., C:\my_glider_data" value="{{ current_local_path or '' }}">
+            <small class="form-text text-muted">If blank, uses default local path from system config.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="applyDataSource">Apply</button>
         </div>
       </div>
     </div>
   </div>
 
-  <h2>Wave</h2>
-  <ul>
-    <li>Significant Wave Height (m): {{ waves.SignificantWaveHeight if waves.SignificantWaveHeight is not none else "N/A" }}</li>
-    <li>Wave Period (s): {{ waves.WavePeriod if waves.WavePeriod is not none else "N/A" }}</li>
-    <li>Mean Wave Direction (°): {{ waves.MeanWaveDirection if waves.MeanWaveDirection is not none else "N/A" }}</li>
-    <li>Timestamp: {{ waves.Timestamp or "N/A" }}</li>
-  </ul>
-<!-- Chart container for Wave Trends -->
-  <div class="mt-3 mb-4" style="position: relative; height: 350px; width: 100%;">
-    <h4>Wave Trends (Last 72 hours)</h4>
-    <canvas id="waveChart"></canvas>
+  <!-- General Error Display Area -->
+  <div id="generalErrorDisplay" class="alert alert-danger" style="display: none;" role="alert">
+    An error occurred. Please check console for details or try again later.
   </div>
-  <h2>AIS</h2>
-  <ul>
-    {% for v in ais %}
-      <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp or "N/A" }}</li>
-    {% endfor %}
-  </ul>
 
-  <h2>Errors</h2>
-  <ul>
-    {% for err in errors %}
-      <li>{{ err.Timestamp or "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
-    {% endfor %}
-  </ul>
+  <div class="row">
+    <!-- Power Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>Power</h2>
+        </div>
+        <div class="card-body">
+          <ul>
+            <li class="{% if power.BatteryWattHours is not none and power.BatteryWattHours < 200 %}text-danger fw-bold{% elif power.BatteryWattHours is not none and power.BatteryWattHours < 400 %}text-warning{% endif %}">
+              Battery (Wh): {{ "%.2f"|format(power.BatteryWattHours) if power.BatteryWattHours is not none else "N/A" }}
+            </li>
+            <li>
+              Solar Input (W): {{ "%.2f"|format(power.SolarInputWatts) if power.SolarInputWatts is not none else "N/A" }}
+            </li>
+            <li>
+              Power Draw (W): {{ "%.2f"|format(power.PowerDrawWatts) if power.PowerDrawWatts is not none else "N/A" }}
+            </li>
+            <li class="{% if power.NetPowerWatts is not none and power.NetPowerWatts < 0 %}text-warning{% elif power.NetPowerWatts is not none and power.NetPowerWatts > 5 %}text-success{% endif %}">
+              Net Power (W): {{ "%.2f"|format(power.NetPowerWatts) if power.NetPowerWatts is not none else "N/A" }}
+              {% if power.NetPowerWatts is not none and power.NetPowerWatts < 0 %}
+                <span class="badge bg-warning text-dark ms-1">Discharging</span>
+              {% elif power.NetPowerWatts is not none and power.NetPowerWatts > 0 %}
+                <span class="badge bg-success ms-1">Charging</span>
+              {% endif %}
+            </li>
+            <li>Timestamp: {{ power.Timestamp or "N/A" }}</li>
+          </ul>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
+            <h5>Power Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="powerChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTD Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>CTD</h2>
+        </div>
+        <div class="card-body">
+          <ul>
+            <li class="{% if ctd.WaterTemperature is not none and (ctd.WaterTemperature < 5 or ctd.WaterTemperature > 30) %}text-warning{% endif %}">
+              Water Temperature (°C): {{ "%.2f"|format(ctd.WaterTemperature) if ctd.WaterTemperature is not none else "N/A" }}
+            </li>
+            <li>
+              Salinity (PSU): {{ "%.2f"|format(ctd.Salinity) if ctd.Salinity is not none else "N/A" }}
+            </li>
+            <li>
+              Conductivity (S/m): {{ "%.2f"|format(ctd.Conductivity) if ctd.Conductivity is not none else "N/A" }}
+            </li>
+            <li>
+              Dissolved Oxygen (Hz): {{ "%.2f"|format(ctd.DissolvedOxygen) if ctd.DissolvedOxygen is not none else "N/A" }}
+            </li>
+            <li>
+              Pressure (dbar): {{ "%.1f"|format(ctd.Pressure) if ctd.Pressure is not none else "N/A" }}
+            </li>
+            <li>Timestamp: {{ ctd.Timestamp or "N/A" }}</li>
+          </ul>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>CTD Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="ctdChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of first row -->
+
+  <div class="row">
+    <!-- Weather Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>Weather Sensor</h2>
+        </div>
+        <div class="card-body">
+          <ul>
+            <li>
+              Air Temperature (°C): {{ "%.1f"|format(weather.AirTemperature) if weather.AirTemperature is not none else "N/A" }}
+            </li>
+            <li class="{% if weather.WindSpeed is not none and weather.WindSpeed > 20 %}text-warning{% elif weather.WindSpeed is not none and weather.WindSpeed > 30 %}text-danger fw-bold{% endif %}">
+              Wind Speed (kt): {{ "%.1f"|format(weather.WindSpeed) if weather.WindSpeed is not none else "N/A" }}
+            </li>
+            <li class="{% if weather.WindGust is not none and weather.WindGust > 25 %}text-warning{% elif weather.WindGust is not none and weather.WindGust > 35 %}text-danger fw-bold{% endif %}">
+              Wind Gust (kt): {{ "%.1f"|format(weather.WindGust) if weather.WindGust is not none else "N/A" }}
+            </li>
+            <li>
+              Wind Direction (°): {{ "%.0f"|format(weather.WindDirection) if weather.WindDirection is not none else "N/A" }}
+            </li>
+            <li>Timestamp: {{ weather.Timestamp or "N/A" }}</li>
+          </ul>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>Weather Sensor Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="weatherSensorChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wave Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>Wave</h2>
+        </div>
+        <div class="card-body">
+          <ul>
+            <li class="{% if waves.SignificantWaveHeight is not none and waves.SignificantWaveHeight > 2 %}text-warning{% elif waves.SignificantWaveHeight is not none and waves.SignificantWaveHeight > 3.5 %}text-danger fw-bold{% endif %}">
+              Significant Wave Height (m): {{ "%.2f"|format(waves.SignificantWaveHeight) if waves.SignificantWaveHeight is not none else "N/A" }}
+            </li>
+            <li>
+              Wave Period (s): {{ "%.1f"|format(waves.WavePeriod) if waves.WavePeriod is not none else "N/A" }}
+            </li>
+            <li>
+              Mean Wave Direction (°): {{ "%.0f"|format(waves.MeanWaveDirection) if waves.MeanWaveDirection is not none else "N/A" }}
+            </li>
+            <li>Timestamp: {{ waves.Timestamp or "N/A" }}</li>
+          </ul>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>Wave Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="waveChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of second row -->
+
+  <!-- Weather Forecast Section Card (Full Width) -->
+  <div class="row">
+    <div class="col-12 mb-4">
+      <div class="card">
+        <div class="card-header">
+          <h2>Weather Forecast</h2>
+        </div>
+        <div class="card-body">
+          <div id="forecastDisplay">
+            <div id="forecastInitial" class="table-responsive" style="display: none;"> <!-- Initially hidden -->
+                <p class="text-muted">Loading initial forecast...</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#forecastExtended" aria-expanded="false" aria-controls="forecastExtended" id="toggleForecastBtn" style="display: none;">
+              Show More
+            </button>
+            <div class="collapse mt-2" id="forecastExtended">
+              <div id="forecastExtendedContent" class="table-responsive">
+                <!-- Extended forecast will be rendered here by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of forecast row -->
+
+  <div class="row">
+    <!-- AIS Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card">
+        <div class="card-header">
+          <h2>AIS</h2>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            {% if ais %}
+              {% for v in ais %}
+                <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp or "N/A" }}</li>
+              {% endfor %}
+            {% else %}
+              <li>No AIS data available.</li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Errors Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card">
+        <div class="card-header">
+          <h2>Errors</h2>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            {% if errors %}
+              {% for err in errors %}
+                <li>{{ err.Timestamp or "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
+              {% endfor %}
+            {% else %}
+              <li>No recent errors.</li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of AIS/Errors row -->
+
+  <hr>
+  <footer class="mt-4 mb-4">
+    <small class="text-muted">
+      Weather forecast data generated using ICON Wave forecast from the German Weather Service DWD.
+      <a href="https://open-meteo.com/" target="_blank">Open-Meteo.com</a>.
+    </small>
+  </footer>
+
+  <style>
+    .chart-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .chart-spinner {
+      position: absolute; /* Position spinner in the center of the chart area */
+      /* Adjust top/left if needed, or use flex properties on parent */
+    }
+  </style>
 
   <!-- Link to external JavaScript File -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

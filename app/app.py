@@ -31,53 +31,75 @@ app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "web" / "static"))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # ---
-async def load_data_source(report_type: str, mission_id: str, client: Optional[httpx.AsyncClient] = None):
+async def load_data_source(
+    report_type: str,
+    mission_id: str,
+    client: Optional[httpx.AsyncClient] = None,
+    source_preference: Optional[str] = None, # 'local' or 'remote'
+    custom_local_path: Optional[str] = None
+):
     """Attempts to load data, trying remote then local sources."""
-    # Determine if we need to manage the client's lifecycle here or if it's passed
     managed_client = False
     if client is None:
         client = httpx.AsyncClient()
         managed_client = True
 
-    try:
-        logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
-        # loaders.load_report is async, but local file reading is synchronous.
-        # We await it here as the function signature is async.
-        # The actual pd.read_csv inside loaders.load_report for local files is blocking.
-        # For true non-blocking local file I/O, asyncio.to_thread would be needed there.
-        df = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=client)
-        if managed_client:
-            await client.aclose()
-        return df
-    except FileNotFoundError:
-        logger.warning(f"Local file for {report_type} ({mission_id}) not found at {settings.local_data_base_path}. Falling back to remote.")
-    except Exception as e:
-        logger.warning(f"Local load failed for {report_type} ({mission_id}): {e}. Falling back to remote.")
+    df = None
+    load_attempted = False
 
-    # Fallback to remote if local fails or not found
-    try:
-        remote_mission_folder = settings.remote_mission_folder_map.get(mission_id, mission_id)
-        logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from {settings.remote_data_url}")
-        df = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=settings.remote_data_url, client=client)
-        if managed_client:
-            await client.aclose()
-        return df
-    except Exception as e_remote:
-        logger.error(f"Remote load also failed for {report_type} ({mission_id}): {e_remote}")
-        if managed_client:
-            await client.aclose()
-        return None # Or pd.DataFrame() if preferred to avoid None checks later
+    if source_preference == 'local':
+        load_attempted = True
+        if custom_local_path:
+            try:
+                logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}")
+                df = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path), client=client)
+            except FileNotFoundError:
+                logger.warning(f"Custom local file for {report_type} ({mission_id}) not found at {custom_local_path}. Trying default local.")
+            except Exception as e:
+                logger.warning(f"Custom local load failed for {report_type} ({mission_id}) from {custom_local_path}: {e}. Trying default local.")
+        
+        if df is None: # If custom path failed or wasn't provided
+            try:
+                logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from default local path: {settings.local_data_base_path}")
+                df = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=client)
+            except FileNotFoundError:
+                logger.warning(f"Default local file for {report_type} ({mission_id}) not found at {settings.local_data_base_path}.")
+            except Exception as e:
+                logger.warning(f"Default local load failed for {report_type} ({mission_id}): {e}.")
+        # If 'local' was preferred, we don't automatically fall back to remote here.
+
+    elif source_preference == 'remote' or source_preference is None: # Default to remote-first, then local fallback
+        load_attempted = True
+        try:
+            remote_mission_folder = settings.remote_mission_folder_map.get(mission_id, mission_id)
+            logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from {settings.remote_data_url}")
+            df = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=settings.remote_data_url, client=client)
+        except Exception as e_remote:
+            logger.warning(f"Remote load failed for {report_type} ({mission_id}): {e_remote}. Falling back to default local.")
+            try:
+                logger.info(f"Attempting fallback local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
+                df = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=client)
+            except Exception as e_local_fallback:
+                logger.error(f"Fallback local load also failed for {report_type} ({mission_id}): {e_local_fallback}")
+
+    if not load_attempted: # Should not happen with current logic, but as a safeguard
+         logger.error(f"No load attempt made for {report_type} ({mission_id}) with preference '{source_preference}'. This is unexpected.")
+
+    if managed_client:
+        await client.aclose()
+    return df
 # ---
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request, mission: str = "m203", hours: int = 72):
+async def home(request: Request, mission: str = "m203", hours: int = 72, source: Optional[str] = None, local_path: Optional[str] = None):
+    available_missions = list(settings.remote_mission_folder_map.keys())
     async with httpx.AsyncClient() as client: # Create a client session for all requests
         results = await asyncio.gather(
-            load_data_source("power", mission, client=client),
-            load_data_source("ctd", mission, client=client),
-            load_data_source("weather", mission, client=client),
-            load_data_source("waves", mission, client=client),
-            load_data_source("ais", mission, client=client),
-            load_data_source("errors", mission, client=client),
+            load_data_source("power", mission, client=client, source_preference=source, custom_local_path=local_path),
+            load_data_source("ctd", mission, client=client, source_preference=source, custom_local_path=local_path),
+            load_data_source("weather", mission, client=client, source_preference=source, custom_local_path=local_path),
+            load_data_source("waves", mission, client=client, source_preference=source, custom_local_path=local_path),
+            load_data_source("ais", mission, client=client, source_preference=source, custom_local_path=local_path),
+            load_data_source("errors", mission, client=client, source_preference=source, custom_local_path=local_path),
             return_exceptions=True # To handle individual load failures
         )
 
@@ -97,6 +119,10 @@ async def home(request: Request, mission: str = "m203", hours: int = 72):
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mission": mission,
+        "available_missions": available_missions,
+        "current_source": source, # Pass current source to template
+        "default_local_data_path": str(settings.local_data_base_path), # Pass default path
+        "current_local_path": local_path, # Pass current local_path
         "power": power_status if power_status else "Data unavailable",
         "ctd": ctd_status if ctd_status else "Data unavailable",
         "weather": weather_status if weather_status else "Data unavailable",
@@ -111,16 +137,19 @@ async def home(request: Request, mission: str = "m203", hours: int = 72):
 async def get_report_data_for_plotting(
     report_type: str,
     mission_id: str,
-    hours_back: int = 72
+    hours_back: int = 72,
+    source: Optional[str] = None, # Add source preference
+    local_path: Optional[str] = None # Add custom local path
 ):
     """
     Provides processed time-series data for a given report type,
     suitable for frontend plotting.
     """
-    df = await load_data_source(report_type, mission_id) # Await the async call
+    df = await load_data_source(report_type, mission_id, source_preference=source, custom_local_path=local_path)
 
     if df is None or df.empty:
-        raise HTTPException(status_code=404, detail=f"Data not found for {report_type}, mission {mission_id}")
+        # Return empty list for charts instead of 404 to allow chart to render "no data"
+        return JSONResponse(content=[]) 
 
     # Preprocess based on report type
     # This mirrors the preprocessing steps in your plotting.py and summaries.py
@@ -134,37 +163,41 @@ async def get_report_data_for_plotting(
         processed_df = processors.preprocess_wave_df(df)
     # Add other report types as needed
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported report type: {report_type}")
+        # Should not happen if report_type is validated by frontend, but good practice
+        raise HTTPException(status_code=400, detail=f"Unsupported report type for plotting: {report_type}")
 
     if processed_df.empty or "Timestamp" not in processed_df.columns:
-        raise HTTPException(status_code=404, detail=f"No processable data after preprocessing for {report_type}, mission {mission_id}")
+        logger.warning(f"No processable data after preprocessing for {report_type}, mission {mission_id}")
+        return JSONResponse(content=[])
 
     # Determine the most recent timestamp in the data
     max_timestamp = processed_df["Timestamp"].max()
 
     if pd.isna(max_timestamp):
         logger.warning(f"No valid timestamps found in processed data for {report_type}, mission {mission_id} after preprocessing.")
-        raise HTTPException(status_code=404, detail=f"No valid timestamps in data for {report_type}, mission {mission_id}")
+        return JSONResponse(content=[])
 
     # Calculate the cutoff time based on the most recent data point
     cutoff_time = max_timestamp - timedelta(hours=hours_back)
     recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
     if recent_data.empty:
         logger.info(f"No data found for {report_type}, mission {mission_id} within {hours_back} hours of its latest data point ({max_timestamp}).")
-        return [] # Return empty list if no recent data, or raise 404
+        return JSONResponse(content=[])
         
     
-
     # Resample to hourly mean (similar to your plotting scripts)
     data_to_resample = recent_data.set_index("Timestamp")
     numeric_cols = data_to_resample.select_dtypes(include=[np.number])
+    # Ensure numeric_cols is not empty before resampling
+    if numeric_cols.empty:
+        logger.info(f"No numeric data to resample for {report_type}, mission {mission_id} after filtering.")
+        return JSONResponse(content=[])
     hourly_data = numeric_cols.resample('1h').mean().reset_index() # reset_index to make Timestamp a column again
 
     # Convert Timestamp objects to ISO 8601 strings for JSON serialization
     if "Timestamp" in hourly_data.columns:
         hourly_data["Timestamp"] = hourly_data["Timestamp"].dt.strftime('%Y-%m-%dT%H:%M:%S')
 
-    
     # Replace NaN with None for JSON compatibility
     hourly_data = hourly_data.replace({np.nan: None})
     return JSONResponse(content=hourly_data.to_dict(orient="records"))
@@ -173,7 +206,9 @@ async def get_report_data_for_plotting(
 async def get_weather_forecast(
     mission_id: str,
     lat: Optional[float] = None,
-    lon: Optional[float] = None
+    lon: Optional[float] = None,
+    source: Optional[str] = None, # Add source preference for telemetry
+    local_path: Optional[str] = None # Add custom local path for telemetry
 ):
     """
     Provides a weather forecast.
@@ -183,7 +218,8 @@ async def get_weather_forecast(
 
     if final_lat is None or final_lon is None:
         logger.info(f"Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission {mission_id}.")
-        df_telemetry = await load_data_source("telemetry", mission_id) # Await the async call
+        # Pass source preference to telemetry loading
+        df_telemetry = await load_data_source("telemetry", mission_id, source_preference=source, custom_local_path=local_path)
 
         if df_telemetry is None or df_telemetry.empty:
             logger.warning(f"Telemetry data for mission {mission_id} not found or empty. Cannot infer location.")

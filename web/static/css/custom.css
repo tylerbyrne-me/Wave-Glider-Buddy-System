@@ -1,0 +1,62 @@
+body {
+  /* You can set a global font family here if you want to override Bootstrap's default */
+  font-family: 'Roboto', sans-serif; /* Example: Using Roboto */
+}
+
+.card {
+  /* Add a subtle border that works with the dark theme */
+  border: 1px solid rgba(255, 255, 255, 0.125);
+  /* You could add a very subtle box-shadow if desired, but be careful not to overdo it */
+  /* box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); */
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out; /* For hover effect */
+}
+
+.card:hover {
+  transform: translateY(-2px); /* Slight lift on hover */
+  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15); /* Slightly more pronounced shadow on hover */
+}
+
+.card-header h2, .card-header h5 {
+  margin-bottom: 0; /* Remove default bottom margin from headings in card headers */
+  font-size: 1.25rem; /* Slightly smaller header for cards */
+}
+
+.card-body ul {
+  padding-left: 1.2rem; /* Adjust padding for lists inside cards if needed */
+  margin-bottom: 1rem; /* Ensure some space below lists before charts */
+}
+
+.card-body li {
+  margin-bottom: 0.3rem; /* Add a little space between list items */
+}
+
+/* Refined chart container to ensure spinner is centered */
+.chart-container {
+  min-height: 300px; /* Ensure container has a minimum height for spinner visibility */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.chart-spinner {
+  position: absolute; /* Position spinner in the center of the chart area */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%); /* Precise centering */
+}
+
+footer .text-muted {
+  font-size: 0.875em; /* Make footer text slightly smaller */
+  text-align: center; /* Center footer text if desired */
+  display: block; /* To allow text-align: center to work */
+}
+
+.na-value {
+  color: #999; /* Lighter grey for N/A, adjust for dark theme if needed */
+  font-style: italic;
+}
+
+.scrollable-list-card {
+  max-height: 250px; /* Adjust as needed */
+  overflow-y: auto;
+}

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     remote_data_url: str = "http://129.173.20.180:8086/output_realtime_missions/"
     remote_mission_folder_map: dict[str, str] = {
         "m203": "m203-SV3-1070 (C34164NS)",
+        "m204": "m204-SV3-1070 (C34164NS)",
         # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
     }
 
