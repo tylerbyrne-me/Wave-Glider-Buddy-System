@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const missionId = document.body.dataset.missionId; // Get mission ID from body's data attribute
     const hoursBack = 72; // Default lookback period for charts
     const missionSelector = document.getElementById('missionSelector');
+    const isRealtimeMission = document.body.dataset.isRealtime === 'true'; // Get realtime status from body's data attribute
     const urlParams = new URLSearchParams(window.location.search);
 
     let powerChartInstance = null; // Use let as these will be reassigned
@@ -16,6 +17,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const currentSource = urlParams.get('source') || 'remote'; // Default to remote
     const currentLocalPath = urlParams.get('local_path') || '';
 
+    // Auto-refresh and Countdown variables
+    const autoRefreshIntervalMinutes = 5; // Must match the interval logic
+    let countdownTimer = null;
+
     function updateUtcClock() {
         const clockElement = document.getElementById('utcClock');
         if (clockElement) {
@@ -29,7 +34,36 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             clockElement.textContent = `Current UTC Time: ${utcString}`;
         }
-    } // <-- This closing brace should be here
+    }
+
+    function startCountdownTimer() {
+        const countdownElement = document.getElementById('refreshCountdown');
+        if (!countdownElement) return;
+
+        let remainingSeconds = autoRefreshIntervalMinutes * 60;
+        countdownElement.style.display = 'block'; // Show the countdown element
+
+        function updateCountdownDisplay() {
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            const display = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            countdownElement.textContent = `Next refresh in ${display}`;
+
+            if (remainingSeconds <= 0) {
+                clearInterval(countdownTimer); // Stop the countdown
+                // The page reload is handled by the setTimeout below
+            } else {
+                remainingSeconds--;
+            }
+        }
+
+        // Initial display update
+        updateCountdownDisplay();
+
+        // Update every second
+        countdownTimer = setInterval(updateCountdownDisplay, 1000);
+    }
+
 
 
     if (missionSelector) {
@@ -85,12 +119,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Auto-refresh logic for real-time missions
+    if (isRealtimeMission) {
+        console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
+        startCountdownTimer(); // Start the countdown immediately
+
+        setTimeout(function() {
+            // Check if a modal is open, don't refresh if it is to avoid interrupting user
+            if (!document.querySelector('.modal.show')) {
+                window.location.reload(true); // true forces a reload from the server, not cache
+            }
+        }, autoRefreshIntervalMinutes * 60 * 1000); // Schedule the page reload
+    }
     function displayGlobalError(message) {
         const errorDiv = document.getElementById('generalErrorDisplay');
         errorDiv.textContent = message || 'An error occurred. Please check console or try again later.';
         errorDiv.style.display = 'block';
     }
 
+    // Refresh Data Button Logic
     /**
      * Fetches chart data from the API for a given report type and mission.
      * @param {string} reportType - The type of report (e.g., 'power', 'ctd').
@@ -108,6 +155,10 @@ document.addEventListener('DOMContentLoaded', function() {
             apiUrl += `&source=${currentSource}`;
             if (currentSource === 'local' && currentLocalPath) {
                 apiUrl += `&local_path=${encodeURIComponent(currentLocalPath)}`;
+            }
+            // Check if the main page URL has a refresh parameter, and pass it along to API calls
+            if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
+                apiUrl += `&refresh=true`;
             }
             const response = await fetch(apiUrl);
             if (!response.ok) {
@@ -427,6 +478,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (currentSource === 'local' && currentLocalPath) {
                 forecastParams.append('local_path', currentLocalPath);
             }
+            // Pass refresh parameter to forecast API if present in main page URL
+            if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
+                forecastParams.append('refresh', 'true');
+            }
             const response = await fetch(`${forecastApiUrl}?${forecastParams.toString()}`);
             if (!response.ok) {
                 const errorText = await response.text();
@@ -699,6 +754,15 @@ document.addEventListener('DOMContentLoaded', function() {
         renderWaveChart(data);
     }); // This call was missing in the previous diff
     
+    // Refresh Data Button Logic (Moved here for better organization)
+    const refreshDataBtn = document.getElementById('refreshDataBtn');
+    if (refreshDataBtn) {
+        refreshDataBtn.addEventListener('click', function() {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('refresh', 'true'); // Add refresh parameter
+            window.location.href = currentUrl.toString(); // Reload the page
+        });
+    }
     // Reminder: Revisit threshold highlighting values
     // console.log("Reminder: Revisit and fine-tune threshold highlighting values in index.html for summaries.");
 

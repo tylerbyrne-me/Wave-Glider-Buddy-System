@@ -22,6 +22,10 @@ class Settings(BaseSettings):
         "m204": "m204-SV3-1070 (C34164NS)",
         # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
     }
+    active_realtime_missions: list[str] = ["m203", "m204"] # Example: List of mission IDs considered active
+    # In a real scenario, this list might be managed dynamically or via another config source.
+    # These are the missions whose data in 'output_realtime_missions' will be proactively cached.
+    background_cache_refresh_interval_minutes: int = 60
 
     class Config:
         env_file = ".env" 

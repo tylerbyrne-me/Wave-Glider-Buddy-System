@@ -1,0 +1,669 @@
+2025-05-21 18:04:18.313 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-05-21 18:04:18.314 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-05-21 18:04:18.314 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-05-21 18:04:18.314 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-05-21 18:04:28.702 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:04:28.703 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.722 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:04:28.723 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.732 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:04:28.732 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.745 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:04:28.745 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.761 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:04:28.761 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.777 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:04:28.777 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:28.861 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:04:28.861 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.869 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:04:28.869 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.878 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ais (m204). Will try next path.
+2025-05-21 18:04:28.879 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.889 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:04:28.890 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.905 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:04:28.906 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.920 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for errors (m204). Will try next path.
+2025-05-21 18:04:28.921 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:28.980 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:28.981 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:04:28.981 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.003 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.009 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.009 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:04:29.009 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.144 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.145 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.145 UTC | WARNING  | app.app                   | All remote load attempts failed for ais (m204). Falling back to default local.
+2025-05-21 18:04:29.145 UTC | INFO     | app.app                   | Attempting fallback local load for ais (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.163 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.164 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.164 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:04:29.164 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.173 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.174 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.174 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:04:29.174 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.183 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.185 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.185 UTC | WARNING  | app.app                   | All remote load attempts failed for errors (m204). Falling back to default local.
+2025-05-21 18:04:29.185 UTC | INFO     | app.app                   | Attempting fallback local load for errors (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.187 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.275 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:04:29.275 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:04:29.275 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:04:29.275 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:04:29.275 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:04:29.382 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:04:29.382 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:29.396 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:04:29.397 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:29.407 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:04:29.407 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:29.419 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:04:29.419 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:29.433 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:04:29.433 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:04:29.433 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:04:29.477 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:04:29.477 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:29.525 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:04:29.525 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:29.535 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for telemetry (m204). Will try next path.
+2025-05-21 18:04:29.535 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:29.544 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:04:29.544 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:29.555 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:04:29.555 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:04:29.602 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.602 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:04:29.602 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.610 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.656 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:29.657 UTC | WARNING  | app.app                   | All remote load attempts failed for telemetry (m204). Falling back to default local.
+2025-05-21 18:04:29.657 UTC | INFO     | app.app                   | Attempting fallback local load for telemetry (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:29.685 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:29.696 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:04:29.697 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:04:30.328 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:30.328 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:04:30.329 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:04:30.952 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:30.952 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:04:30.952 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:30.960 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:30.969 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:30.969 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:04:30.969 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:30.984 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Data not loaded) into cache.
+2025-05-21 18:04:30.996 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:04:30.996 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:04:30.996 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:04:31.113 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Data not loaded) into cache.
+2025-05-21 18:08:55.388 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-05-21 18:08:55.389 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-05-21 18:16:07.760 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-05-21 18:16:07.761 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-05-21 18:16:07.761 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-05-21 18:16:07.761 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-05-21 18:16:15.871 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:16:15.871 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:15.897 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:16:15.897 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:15.918 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:16:15.918 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:15.935 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:16:15.935 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:15.945 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:16:15.945 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:15.976 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:16:15.976 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:16.072 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:16:16.072 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.088 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:16:16.088 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.104 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:16:16.111 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.129 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:16:16.129 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.152 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ais (m204). Will try next path.
+2025-05-21 18:16:16.152 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.173 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for errors (m204). Will try next path.
+2025-05-21 18:16:16.173 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:16.231 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.236 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:16:16.236 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.422 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.429 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.429 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:16:16.429 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.453 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.453 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.453 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:16:16.453 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.469 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.469 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.469 UTC | WARNING  | app.app                   | All remote load attempts failed for ais (m204). Falling back to default local.
+2025-05-21 18:16:16.469 UTC | INFO     | app.app                   | Attempting fallback local load for ais (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.491 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.491 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.491 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:16:16.494 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.505 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.534 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:16.534 UTC | WARNING  | app.app                   | All remote load attempts failed for errors (m204). Falling back to default local.
+2025-05-21 18:16:16.534 UTC | INFO     | app.app                   | Attempting fallback local load for errors (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:16.540 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:16.657 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:16:16.657 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:16:16.657 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:16:16.657 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:16:16.657 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:16:16.882 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:16:16.882 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:16.906 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:16:16.906 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:16.933 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:16:16.933 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:16.949 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:16:16.949 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:16:16.949 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:16.977 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:16:16.977 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:17.070 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:16:17.070 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:17.101 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for telemetry (m204). Will try next path.
+2025-05-21 18:16:17.101 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:17.125 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:16:17.125 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:17.150 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:16:17.156 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:17.183 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:16:17.183 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:17.259 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:17.259 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:16:17.259 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:17.269 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:17.335 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:17.335 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:16:17.337 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:17.716 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:17.781 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:17.781 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:16:17.781 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:17.797 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:17.823 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:17.823 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:16:17.823 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:17.848 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:17.873 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:17.873 UTC | WARNING  | app.app                   | All remote load attempts failed for telemetry (m204). Falling back to default local.
+2025-05-21 18:16:17.876 UTC | INFO     | app.app                   | Attempting fallback local load for telemetry (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:17.926 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:17.941 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:16:17.941 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:16:18.665 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:18.665 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:16:18.665 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:16:20.221 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:16:20.221 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.240 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:16:20.240 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.254 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:16:20.254 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.267 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:16:20.275 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.293 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:16:20.293 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.307 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:16:20.307 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:20.403 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:16:20.403 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.427 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:16:20.427 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.437 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:16:20.437 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.472 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:16:20.472 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.488 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ais (m204). Will try next path.
+2025-05-21 18:16:20.488 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.508 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for errors (m204). Will try next path.
+2025-05-21 18:16:20.508 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:20.550 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.550 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:16:20.550 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.580 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.580 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.580 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:16:20.580 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.593 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.593 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.593 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:16:20.593 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.609 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.612 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.612 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:16:20.612 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.783 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.783 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.783 UTC | WARNING  | app.app                   | All remote load attempts failed for ais (m204). Falling back to default local.
+2025-05-21 18:16:20.783 UTC | INFO     | app.app                   | Attempting fallback local load for ais (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.799 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.799 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:20.799 UTC | WARNING  | app.app                   | All remote load attempts failed for errors (m204). Falling back to default local.
+2025-05-21 18:16:20.799 UTC | INFO     | app.app                   | Attempting fallback local load for errors (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:20.815 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:20.926 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:16:20.926 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:16:20.942 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:16:20.942 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:16:20.942 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:16:21.339 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:16:21.339 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:21.365 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:16:21.365 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:21.386 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:16:21.386 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:21.402 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:16:21.402 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:16:21.402 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:21.427 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:16:21.427 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:16:21.496 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:16:21.496 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:21.518 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:16:21.518 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:21.581 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:16:21.581 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:21.592 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:16:21.608 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:21.628 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for telemetry (m204). Will try next path.
+2025-05-21 18:16:21.628 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:16:21.685 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:21.685 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:16:21.685 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:21.697 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:21.718 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:21.718 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:16:21.722 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:22.085 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:22.154 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:22.154 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:16:22.154 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:22.163 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:22.182 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:22.182 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:16:22.182 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:22.208 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:22.224 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:22.238 UTC | WARNING  | app.app                   | All remote load attempts failed for telemetry (m204). Falling back to default local.
+2025-05-21 18:16:22.238 UTC | INFO     | app.app                   | Attempting fallback local load for telemetry (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:16:22.301 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:16:22.309 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:16:22.317 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:16:22.985 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:16:22.985 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:16:22.985 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:17:12.515 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:12.520 UTC | INFO     | app.app                   | Attempting local load for power (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.533 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.536 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:12.536 UTC | INFO     | app.app                   | Attempting local load for ctd (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.736 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.738 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:12.738 UTC | INFO     | app.app                   | Attempting local load for weather (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.764 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.764 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:12.764 UTC | INFO     | app.app                   | Attempting local load for waves (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.790 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.790 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:17:12.791 UTC | INFO     | app.app                   | Attempting local load for ais (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.807 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.807 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:17:12.807 UTC | INFO     | app.app                   | Attempting local load for errors (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:12.807 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:12.921 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:17:12.921 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:17:12.921 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:17:12.921 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:17:12.921 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:17:13.008 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:13.008 UTC | INFO     | app.app                   | Attempting local load for power (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:13.019 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:13.031 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:13.031 UTC | INFO     | app.app                   | Attempting local load for ctd (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:13.216 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:13.264 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:17:13.264 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:17:13.264 UTC | INFO     | app.app                   | Attempting local load for telemetry (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:13.316 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:13.325 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:17:13.325 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:17:14.160 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:14.160 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:17:14.160 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:17:14.794 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:14.794 UTC | INFO     | app.app                   | Attempting local load for waves (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:14.801 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:14.817 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:14.817 UTC | INFO     | app.app                   | Attempting local load for weather (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:14.840 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:20.629 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:20.629 UTC | INFO     | app.app                   | Attempting local load for power (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:20.659 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:20.662 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:20.662 UTC | INFO     | app.app                   | Attempting local load for ctd (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.118 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.124 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:21.124 UTC | INFO     | app.app                   | Attempting local load for weather (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | Attempting local load for waves (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:17:21.150 UTC | INFO     | app.app                   | Attempting local load for ais (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.180 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.180 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:17:21.181 UTC | INFO     | app.app                   | Attempting local load for errors (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.186 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.285 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:17:21.285 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:17:21.285 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:17:21.285 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:17:21.286 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:17:21.419 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:21.419 UTC | INFO     | app.app                   | Attempting local load for power (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.440 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.463 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:21.464 UTC | INFO     | app.app                   | Attempting local load for weather (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.498 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.533 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:17:21.533 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:17:21.533 UTC | INFO     | app.app                   | Attempting local load for telemetry (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:21.608 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:21.634 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:17:21.640 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:17:22.742 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:22.742 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:17:22.742 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:17:23.378 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:23.378 UTC | INFO     | app.app                   | Attempting local load for waves (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:23.396 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:23.430 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:23.430 UTC | INFO     | app.app                   | Attempting local load for ctd (mission: m204) from default local path: C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:23.609 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:28.680 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:28.680 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.697 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:28.697 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.712 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:28.712 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.727 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:28.727 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.748 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:17:28.748 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.772 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:17:28.772 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:28.863 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:17:28.863 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:28.876 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ais (m204). Will try next path.
+2025-05-21 18:17:28.876 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:28.892 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:17:28.892 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:28.912 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for errors (m204). Will try next path.
+2025-05-21 18:17:28.912 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:28.934 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:17:28.934 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:28.954 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:17:28.954 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.051 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.051 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:17:29.051 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.065 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.065 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.065 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:17:29.067 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.235 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.235 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.235 UTC | WARNING  | app.app                   | All remote load attempts failed for ais (m204). Falling back to default local.
+2025-05-21 18:17:29.241 UTC | INFO     | app.app                   | Attempting fallback local load for ais (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.252 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.252 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.252 UTC | WARNING  | app.app                   | All remote load attempts failed for errors (m204). Falling back to default local.
+2025-05-21 18:17:29.252 UTC | INFO     | app.app                   | Attempting fallback local load for errors (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.258 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.258 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.258 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:17:29.258 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.267 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.267 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.267 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:17:29.267 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.285 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.378 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:17:29.378 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:17:29.378 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:17:29.378 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:17:29.378 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:17:29.472 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:17:29.472 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:29.484 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:17:29.486 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:29.494 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:17:29.494 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:29.505 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:17:29.505 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:29.521 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:17:29.521 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:17:29.521 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:17:29.582 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:17:29.582 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.635 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:17:29.635 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.655 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:17:29.655 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.665 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for telemetry (m204). Will try next path.
+2025-05-21 18:17:29.665 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.695 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:17:29.695 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:17:29.747 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.747 UTC | WARNING  | app.app                   | All remote load attempts failed for power (m204). Falling back to default local.
+2025-05-21 18:17:29.747 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.755 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.798 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:29.798 UTC | WARNING  | app.app                   | All remote load attempts failed for telemetry (m204). Falling back to default local.
+2025-05-21 18:17:29.798 UTC | INFO     | app.app                   | Attempting fallback local load for telemetry (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:29.836 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:29.849 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:17:29.849 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:17:30.472 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:30.472 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:17:30.472 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:17:31.093 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:31.093 UTC | WARNING  | app.app                   | All remote load attempts failed for waves (m204). Falling back to default local.
+2025-05-21 18:17:31.093 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:31.102 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:31.109 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:31.109 UTC | WARNING  | app.app                   | All remote load attempts failed for ctd (m204). Falling back to default local.
+2025-05-21 18:17:31.109 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:31.247 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:17:31.284 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:17:31.284 UTC | WARNING  | app.app                   | All remote load attempts failed for weather (m204). Falling back to default local.
+2025-05-21 18:17:31.284 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:17:31.308 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:15.038 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-05-21 18:20:15.038 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-05-21 18:20:17.446 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-05-21 18:20:17.448 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-05-21 18:20:17.448 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-05-21 18:20:17.448 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-05-21 18:20:17.516 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-05-21 18:20:17.535 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-05-21 18:20:19.886 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-05-21 18:20:19.888 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-05-21 18:20:19.888 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-05-21 18:20:19.888 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-05-21 18:20:20.669 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:20:20.669 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.703 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:20:20.703 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.716 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:20:20.716 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.723 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:20:20.732 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.741 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-05-21 18:20:20.741 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.756 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-05-21 18:20:20.756 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:20.840 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:20:20.840 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:20.856 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:20:20.856 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:20.866 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:20:20.866 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:20.879 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ais (m204). Will try next path.
+2025-05-21 18:20:20.879 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:20.906 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:20:20.907 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:20.932 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for errors (m204). Will try next path.
+2025-05-21 18:20:20.932 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:21.001 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.001 UTC | WARNING  | app.app                   | No usable remote data found for ais (m204). Falling back to default local.
+2025-05-21 18:20:21.001 UTC | INFO     | app.app                   | Attempting fallback local load for ais (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.026 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.027 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.027 UTC | WARNING  | app.app                   | No usable remote data found for waves (m204). Falling back to default local.
+2025-05-21 18:20:21.027 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.033 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.033 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.033 UTC | WARNING  | app.app                   | No usable remote data found for power (m204). Falling back to default local.
+2025-05-21 18:20:21.033 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.049 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.049 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.049 UTC | WARNING  | app.app                   | No usable remote data found for ctd (m204). Falling back to default local.
+2025-05-21 18:20:21.049 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.270 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.270 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.270 UTC | WARNING  | app.app                   | No usable remote data found for weather (m204). Falling back to default local.
+2025-05-21 18:20:21.270 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.301 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.301 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:21.301 UTC | WARNING  | app.app                   | No usable remote data found for errors (m204). Falling back to default local.
+2025-05-21 18:20:21.301 UTC | INFO     | app.app                   | Attempting fallback local load for errors (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:21.309 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:21.427 UTC | INFO     | app.app                   | --- Debugging Template Context ---
+2025-05-21 18:20:21.433 UTC | INFO     | app.app                   | Type of power_info: <class 'dict'>
+2025-05-21 18:20:21.433 UTC | INFO     | app.app                   | Keys in power_info: ['values', 'latest_timestamp_str', 'time_ago_str']
+2025-05-21 18:20:21.433 UTC | INFO     | app.app                   | Type of power_info['values']: <class 'dict'>
+2025-05-21 18:20:21.433 UTC | INFO     | app.app                   | Keys in power_info['values']: ['BatteryWattHours', 'SolarInputWatts', 'PowerDrawWatts', 'NetPowerWatts', 'Timestamp']
+2025-05-21 18:20:21.802 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-05-21 18:20:21.802 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:21.813 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-05-21 18:20:21.813 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:21.842 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-05-21 18:20:21.842 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:21.864 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-05-21 18:20:21.864 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:21.872 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-05-21 18:20:21.888 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-05-21 18:20:21.888 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions (client=None)
+2025-05-21 18:20:21.965 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for ctd (m204). Will try next path.
+2025-05-21 18:20:21.967 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:21.991 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for power (m204). Will try next path.
+2025-05-21 18:20:21.991 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:22.024 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for weather (m204). Will try next path.
+2025-05-21 18:20:22.025 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:22.051 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for waves (m204). Will try next path.
+2025-05-21 18:20:22.051 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:22.078 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m204-SV3-1070 (C34164NS) for telemetry (m204). Will try next path.
+2025-05-21 18:20:22.078 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m204, remote folder: m204-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions (client=None)
+2025-05-21 18:20:22.148 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:22.148 UTC | WARNING  | app.app                   | No usable remote data found for power (m204). Falling back to default local.
+2025-05-21 18:20:22.148 UTC | INFO     | app.app                   | Attempting fallback local load for power (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:22.170 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:22.189 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:22.189 UTC | WARNING  | app.app                   | No usable remote data found for ctd (m204). Falling back to default local.
+2025-05-21 18:20:22.189 UTC | INFO     | app.app                   | Attempting fallback local load for ctd (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:22.545 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:22.613 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:22.613 UTC | WARNING  | app.app                   | No usable remote data found for weather (m204). Falling back to default local.
+2025-05-21 18:20:22.614 UTC | INFO     | app.app                   | Attempting fallback local load for weather (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:22.647 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:22.673 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:22.674 UTC | WARNING  | app.app                   | No usable remote data found for waves (m204). Falling back to default local.
+2025-05-21 18:20:22.674 UTC | INFO     | app.app                   | Attempting fallback local load for waves (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:22.717 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:22.733 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions (client=None) failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:22.733 UTC | WARNING  | app.app                   | No usable remote data found for telemetry (m204). Falling back to default local.
+2025-05-21 18:20:22.733 UTC | INFO     | app.app                   | Attempting fallback local load for telemetry (mission: m204) from C:\Users\ty225269\Documents\Python Playground\Data
+2025-05-21 18:20:22.801 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m204 (from Local (Default Fallback): C:\Users\ty225269\Documents\Python Playground\Data\m204) into cache.
+2025-05-21 18:20:22.815 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=45.59302324, Lon=-61.95577816
+2025-05-21 18:20:22.815 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation&timezone=GMT
+2025-05-21 18:20:23.484 UTC | WARNING  | app.core.forecast         | HTTPStatusError when fetching https://api.open-meteo.com/v1/marine: 404 - Client error '404 Not Found' for url 'https://api.open-meteo.com/v1/marine?latitude=45.59302324&longitude=-61.95577816&hourly=wave_height%2Cwave_direction%2Cwave_period%2Cwindspeed_10m%2Cwinddirection_10m%2Cocean_current_velocity%2Cocean_current_direction%2Cweathercode%2Ctemperature_2m%2Cprecipitation&timezone=GMT'
+For more information check: https://httpstatuses.com/404
+2025-05-21 18:20:23.485 UTC | WARNING  | app.core.forecast         | Marine forecast API returned 404 for lat=45.59302324, lon=-61.95577816. Falling back to general forecast.
+2025-05-21 18:20:23.485 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast?latitude=45.59302324&longitude=-61.95577816&hourly=temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m&timezone=GMT
+2025-05-21 18:20:53.879 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-05-21 18:20:53.881 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
