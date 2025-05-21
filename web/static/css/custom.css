@@ -60,3 +60,32 @@ footer .text-muted {
   max-height: 250px; /* Adjust as needed */
   overflow-y: auto;
 }
+
+.summary-content-area {
+  min-height: 140px; /* Adjust this value as needed */
+  /* You can add a subtle border for debugging alignment if you like:
+     border: 1px solid red; 
+     Remove it once you're happy with the alignment.
+  */
+}
+
+/* Ensure chart containers themselves don't have varying top margins
+   that could affect alignment. The `mt-3` class already provides
+   a consistent top margin for the chart container itself.
+*/
+.chart-container {
+  /* height: 300px; is already set inline, which is good for consistent plot size */
+  /* width: 100%; is already set inline */
+}
+
+/* Optional: If the "Loading data..." or "Data unavailable." paragraphs
+   need specific styling within the summary-content-area to better match
+   the height of the <ul> lists.
+*/
+.summary-content-area > p {
+  /* If these paragraphs are too short, you might want to ensure they also
+     contribute to filling the min-height, or style them to appear
+     vertically centered if the min-height is significantly larger.
+     For now, the min-height on the parent div should be sufficient.
+  */
+}
