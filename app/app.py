@@ -33,7 +33,11 @@ class UTCFormatter(logging.Formatter):
     converter = time.gmtime
 
 # --- Configure Logging ---
-LOG_FILE_PATH = PROJECT_ROOT / "app.log" # Define log file path at project root
+# Use path from settings, defaulting to project root if relative path is in settings and .env is not used
+if settings.log_file_path.is_absolute():
+    LOG_FILE_PATH = settings.log_file_path
+else:
+    LOG_FILE_PATH = PROJECT_ROOT / settings.log_file_path
 
 # Get the root logger
 root_logger = logging.getLogger()
@@ -68,7 +72,6 @@ CACHE_EXPIRY_MINUTES = settings.background_cache_refresh_interval_minutes
 async def load_data_source(
     report_type: str,
     mission_id: str,
-    client: Optional[httpx.AsyncClient] = None,
     source_preference: Optional[str] = None, # 'local' or 'remote'
     custom_local_path: Optional[str] = None,
     force_refresh: bool = False # New parameter to bypass cache
@@ -108,7 +111,7 @@ async def load_data_source(
             _attempted_custom_local = False
             try:
                 logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}")
-                df_attempt = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path), client=None)
+                df_attempt = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path))
                 _attempted_custom_local = True # File was accessed or attempted beyond FNF
                 if df_attempt is not None and not df_attempt.empty:
                     df = df_attempt
@@ -129,7 +132,7 @@ async def load_data_source(
             _attempted_default_local = False
             try:
                 logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from default local path: {settings.local_data_base_path}")
-                df_attempt = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=None)
+                df_attempt = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
                 _attempted_default_local = True
                 if df_attempt is not None and not df_attempt.empty:
                     df = df_attempt
@@ -162,35 +165,35 @@ async def load_data_source(
         df = None 
         last_accessed_remote_path_if_empty = None # Track if a remote file was found but empty
         for constructed_base_url in remote_base_urls_to_try:
-            # The `async with` block for remote_client was here but not used due to indentation.
-            # loaders.load_report is called with client=None below.
-            try:
-                logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url} (client=None)")
-                df_attempt = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=None)
-                if df_attempt is not None and not df_attempt.empty:
-                    df = df_attempt
-                    actual_source_path = f"Remote: {constructed_base_url}/{remote_mission_folder}"
-                    logger.info(f"Successfully loaded {report_type} for mission {mission_id} from {actual_source_path}")
-                    break # Data found, no need to try other remote paths
-                elif df_attempt is not None: # File found and read, but resulted in an empty DataFrame
-                    last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}" # Mark path as "touched"
-                    logger.info(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next path or fallback.")
-            except httpx.HTTPStatusError as e_http: # Catch HTTPStatusError specifically
-                if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
-                    logger.info(f"File not found in realtime path (expected for past missions): {constructed_base_url}/{remote_mission_folder} for {report_type} ({mission_id}). Will try next path.")
-                else: # Other HTTP errors or 404s from other paths remain warnings
-                    logger.warning(f"Remote load attempt from {constructed_base_url} (client=None) failed for {report_type} ({mission_id}): {e_http}")
-            except Exception as e_remote_attempt:
-                logger.warning(f"General remote load attempt from {constructed_base_url} (client=None) failed for {report_type} ({mission_id}): {e_remote_attempt}")
-        
+            # Manage client internally for each remote attempt
+            async with httpx.AsyncClient() as current_client:
+                try:
+                    logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
+                    df_attempt = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=current_client)
+                    if df_attempt is not None and not df_attempt.empty:
+                        df = df_attempt
+                        actual_source_path = f"Remote: {constructed_base_url}/{remote_mission_folder}"
+                        logger.info(f"Successfully loaded {report_type} for mission {mission_id} from {actual_source_path}")
+                        break # Data found, no need to try other remote paths
+                    elif df_attempt is not None: # File found and read, but resulted in an empty DataFrame
+                        last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}" # Mark path as "touched"
+                        logger.info(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next path or fallback.")
+                except httpx.HTTPStatusError as e_http: # Catch HTTPStatusError specifically
+                    if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
+                        logger.info(f"File not found in realtime path (expected for past missions): {constructed_base_url}/{remote_mission_folder} for {report_type} ({mission_id}). Will try next path.")
+                    else: # Other HTTP errors or 404s from other paths remain warnings
+                        logger.warning(f"Remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_http}")
+                except Exception as e_remote_attempt:
+                    logger.warning(f"General remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_remote_attempt}")
+
         if df is None or df.empty: # If all remote attempts failed
             logger.warning(f"No usable remote data found for {report_type} ({mission_id}). Falling back to default local.")
-            if client: await client.aclose() # Close if an external client was passed and not used for remote.
+            # No external client to close here as it's managed internally or not passed by home route
             _local_fallback_path_str = f"Local (Default Fallback): {settings.local_data_base_path / mission_id}"
             _attempted_local_fallback = False
             try:
                 logger.info(f"Attempting fallback local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
-                df_fallback = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path, client=None)
+                df_fallback = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
                 _attempted_local_fallback = True
                 if df_fallback is not None and not df_fallback.empty:
                     df = df_fallback
@@ -198,12 +201,15 @@ async def load_data_source(
                 elif _attempted_local_fallback: # Local file accessed but was empty
                     actual_source_path = _local_fallback_path_str
             except FileNotFoundError:
-                logger.info(f"Fallback local file not found for {report_type} ({mission_id}) at {settings.local_data_base_path / mission_id}")
+                _msg = f"Fallback local file not found for {report_type} ({mission_id}) at {settings.local_data_base_path / mission_id}"
+                logger.info(_msg)
                 if last_accessed_remote_path_if_empty and actual_source_path == "Data not loaded": # If a remote file was found but empty, and local fallback FNF
                     actual_source_path = last_accessed_remote_path_if_empty
+                elif actual_source_path == "Data not loaded": # If no remote file was touched either
+                    actual_source_path = f"Local (Default Fallback): File Not Found - {_local_fallback_path_str.split(':', 1)[1].strip()}"
             except Exception as e_local_fallback: # Other error during local fallback
                 logger.error(f"Fallback local load also failed for {report_type} ({mission_id}): {e_local_fallback}")
-                if _attempted_local_fallback: # Path was attempted, but an error occurred
+                if _attempted_local_fallback and actual_source_path == "Data not loaded": # Path was attempted, but an error occurred
                     actual_source_path = _local_fallback_path_str
                 df = None # Ensure df is None on other errors
         elif last_accessed_remote_path_if_empty and actual_source_path == "Data not loaded": # If df was populated by remote, but an earlier remote attempt found an empty file
@@ -211,12 +217,6 @@ async def load_data_source(
 
     if not load_attempted: # Should not happen with current logic, but as a safeguard
          logger.error(f"No load attempt made for {report_type} ({mission_id}) with preference '{source_preference}'. This is unexpected.")
-    # Ensure any externally passed client is closed if this function didn't use it for remote and it wasn't closed already.
-    # This is a bit tricky because the home route no longer passes a client.
-    # The `client` parameter to `load_data_source` is now effectively unused by the main `home` route.
-    # If it were to be used by another part of the system that *does* pass a client,
-    # that calling code would be responsible for managing that client's lifecycle.
-    # For now, the explicit `if client: await client.aclose()` in the fallback sections handles it if it was passed.
 
     if df is not None and not df.empty:
         logger.info(f"CACHE STORE: Storing {report_type} for {mission_id} (from {actual_source_path}) into cache.")
@@ -257,8 +257,8 @@ async def startup_event():
     scheduler.add_job(refresh_active_mission_cache, 'interval', minutes=settings.background_cache_refresh_interval_minutes, id="active_mission_refresh_job")
     scheduler.start()
     logger.info("APScheduler started for background cache refresh.")
-    # Trigger an initial refresh shortly after startup if desired
-    # asyncio.create_task(refresh_active_mission_cache())
+    # Trigger an initial refresh shortly after startup
+    asyncio.create_task(refresh_active_mission_cache())
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -273,12 +273,12 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     is_current_mission_realtime = mission in settings.active_realtime_missions
     # Client will now be managed by each load_data_source call individually
     results = await asyncio.gather(
-        load_data_source("power", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("ctd", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("weather", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("power", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
+        load_data_source("ctd", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),   # No client passed
+        load_data_source("weather", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),# No client passed
+        load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
+        load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),   # No client passed
+        load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
         return_exceptions=True # To handle individual load failures
     )
 
@@ -395,7 +395,7 @@ async def get_report_data_for_plotting(
     suitable for frontend plotting.
     """
     # Unpack the DataFrame and the source path; we only need the DataFrame here
-    df, _ = await load_data_source(report_type, mission_id, source_preference=source, custom_local_path=local_path, force_refresh=refresh)
+    df, _ = await load_data_source(report_type, mission_id, source_preference=source, custom_local_path=local_path, force_refresh=refresh) # No client passed
 
     if df is None or df.empty:
         # Return empty list for charts instead of 404 to allow chart to render "no data"
@@ -470,7 +470,7 @@ async def get_weather_forecast(
     if final_lat is None or final_lon is None:
         logger.info(f"Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission {mission_id}.")
         # Pass source preference to telemetry loading
-        # Unpack the DataFrame and the source path; we only need the DataFrame here, pass refresh
+        # Unpack the DataFrame and the source path; we only need the DataFrame here, pass refresh. No client passed.
         df_telemetry, _ = await load_data_source("telemetry", mission_id, source_preference=source, custom_local_path=local_path, force_refresh=refresh)
 
         if df_telemetry is None or df_telemetry.empty:
