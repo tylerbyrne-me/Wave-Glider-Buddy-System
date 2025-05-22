@@ -35,9 +35,18 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
             raise
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
-        async with client if client else httpx.AsyncClient() as current_client:
-            response = await current_client.get(url, timeout=10)
+        # If an external client is provided, use it directly without an additional 'async with'.
+        # If no client is provided, create one for this specific operation.
+        if client:
+            response = await client.get(url, timeout=10) # Use the provided client
             response.raise_for_status()
             return pd.read_csv(io.StringIO(response.text))
+        else:
+            # This case should ideally not be hit if app.py always provides a client for remote calls.
+            # However, as a fallback or for direct CLI usage:
+            async with httpx.AsyncClient() as current_client: # Fallback to create a client
+                response = await current_client.get(url, timeout=10)
+                response.raise_for_status()
+                return pd.read_csv(io.StringIO(response.text))
     else:
         raise ValueError("Either base_path or base_url must be provided to load_report.")
