@@ -165,10 +165,11 @@ async def load_data_source(
         df = None 
         last_accessed_remote_path_if_empty = None # Track if a remote file was found but empty
         for constructed_base_url in remote_base_urls_to_try:
-            # Manage client internally for each remote attempt
-            async with httpx.AsyncClient() as current_client:
+            # THIS IS THE CRUCIAL PART: Ensure client is managed per-attempt
+            async with httpx.AsyncClient() as current_client: # Client is created and closed for each URL in the loop
                 try:
                     logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
+                    # Pass this specific client to loaders.load_report
                     df_attempt = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=current_client)
                     if df_attempt is not None and not df_attempt.empty:
                         df = df_attempt
@@ -183,7 +184,7 @@ async def load_data_source(
                         logger.info(f"File not found in realtime path (expected for past missions): {constructed_base_url}/{remote_mission_folder} for {report_type} ({mission_id}). Will try next path.")
                     else: # Other HTTP errors or 404s from other paths remain warnings
                         logger.warning(f"Remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_http}")
-                except Exception as e_remote_attempt:
+                except Exception as e_remote_attempt: # This will catch the "Cannot open a client instance more than once" if client is misused
                     logger.warning(f"General remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_remote_attempt}")
 
         if df is None or df.empty: # If all remote attempts failed
