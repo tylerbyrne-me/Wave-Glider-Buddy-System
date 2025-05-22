@@ -1,6 +1,7 @@
 import httpx # Changed from requests to httpx
 import logging # type: ignore # Keep type: ignore if needed for your linter
 from typing import Optional, Dict, Any # For type hinting
+from datetime import datetime, timezone # Added for fetch timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,12 @@ def get_open_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
         data = _fetch_forecast_data(MARINE_API_BASE_URL, marine_params)
         if data is None: # If _fetch_forecast_data returned None due to RequestError or other non-HTTPStatusError
             raise Exception("Marine forecast fetch failed with non-HTTP error, trying general.")
+        # Add metadata
+        data['latitude_used'] = lat
+        data['longitude_used'] = lon
+        data['fetched_at_utc'] = datetime.now(timezone.utc).isoformat()
         data['forecast_type'] = 'marine' # Add type for frontend if needed
+
         return data
     except httpx.HTTPStatusError as e: # Catch HTTPStatusError specifically from _fetch_forecast_data
         if e.response.status_code == 404: # Check if it's a 404
@@ -70,6 +76,10 @@ def get_open_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
                 if data is None: # If general forecast also fails with non-HTTP error
                     logger.error("General forecast API also failed after marine 404.")
                     return None
+                # Add metadata
+                data['latitude_used'] = lat
+                data['longitude_used'] = lon
+                data['fetched_at_utc'] = datetime.now(timezone.utc).isoformat()
                 data['forecast_type'] = 'general' # Add type for frontend
                 return data
             except httpx.HTTPStatusError as e_general_http: # General forecast also had an HTTP error
