@@ -8,26 +8,25 @@ logger = logging.getLogger(__name__)
 MARINE_API_BASE_URL = "https://api.open-meteo.com/v1/marine"
 GENERAL_API_BASE_URL = "https://api.open-meteo.com/v1/forecast"
 
-MARINE_API_HOURLY_PARAMS = "wave_height"
+MARINE_API_HOURLY_PARAMS = "wave_height,wave_direction,wave_period,windspeed_10m,winddirection_10m,ocean_current_velocity,ocean_current_direction,weathercode,temperature_2m,precipitation"
 GENERAL_API_HOURLY_PARAMS = "temperature_2m,weathercode,precipitation,windspeed_10m,winddirection_10m"
 
-DEFAULT_TIMEOUT = 30.0  # seconds (Temporarily increased for debugging)
+DEFAULT_TIMEOUT = 15.0  # seconds (Revert to original or keep reasonable)
 RETRY_COUNT = 3         # Number of retries
 BACKOFF_FACTOR = 0.5    # Backoff factor for retries (delay = backoff_factor * (2 ** (retry_attempt - 1)))
 
-def _fetch_forecast_data(api_url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def _fetch_forecast_data(api_url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Helper function to fetch forecast data with retries."""
     try:
         # Simpler retry configuration: httpx.HTTPTransport handles retries based on the integer value.
-        # It has a default backoff mechanism.
-        # For more complex retry strategies (like custom status_forcelist with backoff),
-        # one might need to use a more advanced setup or ensure the httpx.Retry class is correctly accessible.
+        # Use AsyncClient for consistency with FastAPI/asyncio
         transport = httpx.HTTPTransport(
             retries=RETRY_COUNT 
         )
-        with httpx.Client(timeout=DEFAULT_TIMEOUT, transport=transport) as client:
+        # Use async with for AsyncClient
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, transport=transport) as client:
             logger.debug(f"Fetching data from {api_url} with params {params} using {RETRY_COUNT} retries and backoff {BACKOFF_FACTOR}")
-            response = client.get(api_url, params=params)
+            response = await client.get(api_url, params=params) # Make the get call asynchronous
             logger.debug(f"Response status from {api_url}: {response.status_code}")
             response.raise_for_status()  # Raise an exception for 4XX or 5XX status codes
             return response.json()
@@ -42,7 +41,7 @@ def _fetch_forecast_data(api_url: str, params: Dict[str, Any]) -> Optional[Dict[
         logger.error(f"Unexpected error when fetching {api_url}: {e}")
         return None
 
-def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) -> Optional[Dict[str, Any]]:
+async def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) -> Optional[Dict[str, Any]]:
     marine_url = (
         f"{MARINE_API_BASE_URL}" # Base URL, params will be passed separately
     )
@@ -53,8 +52,8 @@ def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) 
     # --- For Debugging Marine API: Start with minimal parameters ---
     # Original:
     # marine_hourly_params_to_request = MARINE_API_HOURLY_PARAMS
-    # Simplified for testing (e.g., just wave height and temp):
-    marine_hourly_params_to_request = "wave_height,temperature_2m" 
+    # Revert to full parameters since simplified didn't fix 404
+    marine_hourly_params_to_request = MARINE_API_HOURLY_PARAMS
     # You can gradually add more parameters back from MARINE_API_HOURLY_PARAMS to see which one might cause an issue.
     # --- End Debugging Section ---
 
@@ -63,7 +62,7 @@ def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) 
 
     try:
         logger.info(f"Attempting to fetch marine forecast from: {marine_url}")
-        data = _fetch_forecast_data(MARINE_API_BASE_URL, marine_params)
+        data = await _fetch_forecast_data(MARINE_API_BASE_URL, marine_params) # Await the async helper
         if data is None: # If _fetch_forecast_data returned None due to RequestError or other non-HTTPStatusError
             raise Exception("Marine forecast fetch failed with non-HTTP error, trying general.")
         # Add metadata
@@ -78,7 +77,7 @@ def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) 
             logger.warning(f"Marine forecast API returned 404 for lat={lat}, lon={lon}. Falling back to general forecast.")
             try:
                 logger.info(f"Attempting to fetch general forecast from: {general_forecast_url}")
-                data = _fetch_forecast_data(GENERAL_API_BASE_URL, general_params)
+                data = await _fetch_forecast_data(GENERAL_API_BASE_URL, general_params)
                 if data is None: # If general forecast also fails with non-HTTP error
                     logger.error("General forecast API also failed after marine 404.")
                     return None
