@@ -6,6 +6,9 @@ import io
 import logging
 
 # logger = logging.getLogger(__name__) # Optional: configure if needed
+DEFAULT_TIMEOUT = 10.0  # seconds
+RETRY_COUNT = 2         # Number of retries for loaders
+
 
 async def load_report(report_type: str, mission_id: str, base_path: Path = None, base_url: str = None, client: httpx.AsyncClient = None):
     reports = {
@@ -38,14 +41,16 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
         # If an external client is provided, use it directly without an additional 'async with'.
         # If no client is provided, create one for this specific operation.
         if client:
-            response = await client.get(url, timeout=10) # Use the provided client
+            # Assuming the client passed in might have its own transport/retry config
+            response = await client.get(url, timeout=DEFAULT_TIMEOUT) 
             response.raise_for_status()
             return pd.read_csv(io.StringIO(response.text))
         else:
             # This case should ideally not be hit if app.py always provides a client for remote calls.
             # However, as a fallback or for direct CLI usage:
-            async with httpx.AsyncClient() as current_client: # Fallback to create a client
-                response = await current_client.get(url, timeout=10)
+            transport = httpx.HTTPTransport(retries=RETRY_COUNT)
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, transport=transport) as current_client: # Fallback to create a client
+                response = await current_client.get(url)
                 response.raise_for_status()
                 return pd.read_csv(io.StringIO(response.text))
     else:
