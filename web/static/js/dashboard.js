@@ -662,6 +662,29 @@ document.addEventListener('DOMContentLoaded', function() {
         // Ensure spinner is hidden and content area is visible
         // Spinner management removed for forecast
         initialContainer.style.display = 'block';
+
+        // Populate forecast metadata
+        const metaInfoContainer = document.getElementById('forecastMetaInfo');
+        if (metaInfoContainer) {
+            if (forecastData && forecastData.fetched_at_utc && forecastData.latitude_used !== undefined && forecastData.longitude_used !== undefined) {
+                const fetchedDate = new Date(forecastData.fetched_at_utc);
+                const formattedTime = fetchedDate.toLocaleTimeString('en-US', {
+                    timeZone: 'UTC',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                const lat = parseFloat(forecastData.latitude_used).toFixed(3);
+                const lon = parseFloat(forecastData.longitude_used).toFixed(3);
+                metaInfoContainer.textContent = `Forecast fetched: ${formattedTime} UTC for Lat: ${lat}, Lon: ${lon}`;
+                metaInfoContainer.style.display = 'block'; // Ensure it's visible
+            } else {
+                metaInfoContainer.textContent = ''; // Clear if no data
+                metaInfoContainer.style.display = 'none'; // Hide if no data
+            }
+        }
     }
 
     // Fetch and render forecast
