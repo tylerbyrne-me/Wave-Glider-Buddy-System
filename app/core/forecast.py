@@ -42,7 +42,7 @@ def _fetch_forecast_data(api_url: str, params: Dict[str, Any]) -> Optional[Dict[
         logger.error(f"Unexpected error when fetching {api_url}: {e}")
         return None
 
-def get_open_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
+def get_open_meteo_forecast(lat: float, lon: float, force_marine: bool = False) -> Optional[Dict[str, Any]]:
     marine_url = (
         f"{MARINE_API_BASE_URL}?latitude={lat}&longitude={lon}"
         f"&hourly={MARINE_API_HOURLY_PARAMS}&timezone=GMT"
@@ -68,7 +68,7 @@ def get_open_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
 
         return data
     except httpx.HTTPStatusError as e: # Catch HTTPStatusError specifically from _fetch_forecast_data
-        if e.response.status_code == 404: # Check if it's a 404
+        if e.response.status_code == 404 and not force_marine: # Check if it's a 404 AND we are not forcing marine
             logger.warning(f"Marine forecast API returned 404 for lat={lat}, lon={lon}. Falling back to general forecast.")
             try:
                 logger.info(f"Attempting to fetch general forecast from: {general_forecast_url}")
@@ -88,9 +88,12 @@ def get_open_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
             except Exception as e_general_other: # General forecast had another error
                 logger.error(f"General forecast API also failed with other error: {e_general_other}")
                 return None
-        else:
+        elif force_marine:
+            logger.error(f"Marine forecast API HTTP error (force_marine=True, no fallback): {e.response.status_code} - {e}")
+            return None # Do not fallback if force_marine is true
+        else: # Other HTTP errors for marine and not forcing marine (though _fetch_forecast_data might return None before this for non-404s)
             logger.error(f"Marine forecast API HTTP error (not 404): {e.response.status_code} - {e}")
             return None
-    except Exception as e: # Catches other errors, like the re-raised one from _fetch_forecast_data if marine fetch failed early
+    except Exception as e: # Catches other errors, like the re-raised one from _fetch_forecast_data if marine fetch failed early, or if force_marine is true and marine fetch failed with non-HTTP error
         logger.error(f"Generic forecast API error (possibly after marine fetch failed before HTTPStatusError): {e}")
         return None

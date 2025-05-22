@@ -460,7 +460,8 @@ async def get_weather_forecast(
     lon: Optional[float] = None,
     source: Optional[str] = None, # Add source preference for telemetry
     local_path: Optional[str] = None, # Add custom local path for telemetry
-    refresh: bool = False # Add refresh parameter
+    refresh: bool = False, # Add refresh parameter
+    force_marine: Optional[bool] = False # New parameter to force marine forecast
 ):
     """
     Provides a weather forecast.
@@ -496,7 +497,7 @@ async def get_weather_forecast(
     if final_lat is None or final_lon is None:
         raise HTTPException(status_code=400, detail="Latitude and Longitude are required for forecast and could not be inferred from telemetry.")
 
-    forecast_data = forecast.get_open_meteo_forecast(final_lat, final_lon)
+    forecast_data = forecast.get_open_meteo_forecast(final_lat, final_lon, force_marine=force_marine or False)
     if forecast_data is None:
         raise HTTPException(status_code=503, detail="Weather forecast service unavailable or failed to retrieve data.")
 
