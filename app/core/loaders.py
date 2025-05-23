@@ -19,7 +19,9 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
         "waves": "GPS Waves Sensor Data.csv",
         "ais"  : "AIS Report.csv",
         "telemetry" : "Telemetry 6 Report by WGMS Datetime.csv",
-        "errors": "Vehicle Error Report.csv"
+        "errors": "Vehicle Error Report.csv",
+        "vr2c": "Vemco VR2c Status.csv",
+        "fluorometer": "Fluorometer Samples 2.csv" # New C3 Fluorometer
     }
 
     if report_type not in reports:
