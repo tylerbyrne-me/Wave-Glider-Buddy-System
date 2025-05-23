@@ -50,7 +50,7 @@ formatter = UTCFormatter(
 )
 
 # Create file handler and set formatter
-file_handler = logging.FileHandler(LOG_FILE_PATH, mode='a')
+file_handler = logging.FileHandler(LOG_FILE_PATH, mode='w') # 'a' appends, 'w' write/overwrite
 file_handler.setFormatter(formatter)
 root_logger.addHandler(file_handler)
 
