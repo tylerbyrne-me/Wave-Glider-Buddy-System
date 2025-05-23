@@ -234,7 +234,7 @@ async def refresh_active_mission_cache():
     active_missions = settings.active_realtime_missions
     # Define report types typically found in real-time missions
     # You might want to make this configurable or more dynamic
-    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors"]
+    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors", "vr2c", "fluorometer"]
 
     for mission_id in active_missions:
         logger.info(f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}")
@@ -274,19 +274,24 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     is_current_mission_realtime = mission in settings.active_realtime_missions
     # Client will now be managed by each load_data_source call individually
     results = await asyncio.gather(
-        load_data_source("power", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
-        load_data_source("ctd", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),   # No client passed
-        load_data_source("weather", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),# No client passed
-        load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
-        load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),   # No client passed
-        load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # No client passed
+        load_data_source("power", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("ctd", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("weather", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        # Corrected order to match report_types_order for vr2c and fluorometer
+        load_data_source("vr2c", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), 
+        load_data_source("fluorometer", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         return_exceptions=True # To handle individual load failures
     )
 
     # Unpack results and source paths
     data_frames: Dict[str, Optional[pd.DataFrame]] = {}
     source_paths_map: Dict[str, str] = {}
-    report_types_order = ["power", "ctd", "weather", "waves", "ais", "errors"]
+    # Ensure "error_frequency" is NOT in this list for the main page load.
+    # This list is for data that populates the status cards and initial summaries.
+    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "fluorometer", "ais", "errors"]
 
     for i, report_type in enumerate(report_types_order):
         if isinstance(results[i], Exception):
@@ -302,6 +307,8 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     df_waves = data_frames["waves"]
     df_ais = data_frames["ais"]
     df_errors = data_frames["errors"]
+    df_vr2c = data_frames["vr2c"] # New sensor
+    df_fluorometer = data_frames["fluorometer"] # C3 Fluorometer
 
     # Determine the primary display_source_path based on success and priority
     display_source_path = "Data Source: Information unavailable or all loads failed"
@@ -337,12 +344,18 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     ctd_info = summaries.get_ctd_status(df_ctd) # Assuming you refactor this
     weather_info = summaries.get_weather_status(df_weather) # Assuming you refactor this
     wave_info = summaries.get_wave_status(df_waves) # Assuming you refactor this
+    vr2c_info = summaries.get_vr2c_status(df_vr2c) # New sensor
+    fluorometer_info = summaries.get_fluorometer_status(df_fluorometer) # C3 Fluorometer
     
     # For AIS and Errors, get summary list and then derive update info from original DFs
     ais_summary_data = summaries.get_ais_summary(df_ais, max_age_hours=hours) if df_ais is not None else []
     ais_update_info = utils.get_df_latest_update_info(df_ais, timestamp_col="LastSeenTimestamp") # Adjust col if needed 
     recent_errors_list = summaries.get_recent_errors(df_errors, max_age_hours=hours)[:20] if df_errors is not None else []
     errors_update_info = utils.get_df_latest_update_info(df_errors, timestamp_col="Timestamp") # Adjust col if needed
+
+    # Flags for template to control collapse state and indicators
+    has_ais_data = bool(ais_summary_data)
+    has_errors_data = bool(recent_errors_list)
 
     # --- Add this debugging block ---
     logger.info("--- Debugging Template Context ---")
@@ -356,10 +369,42 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
             else:
                 logger.info(f"Content of power_info['values']: {power_info['values']}")
         else:
-            logger.info("'values' key NOT found in power_info. power_info content: %s", power_info)
+            logger.info("'values' key NOT found in power_info. power_info content: %s", power_info) # No change needed here, was fine
     else:
         logger.info(f"power_info is not a dictionary. Content: {power_info}")
     # --- End of debugging block ---
+
+    # --- Debugging block for VR2C ---
+    logger.info("--- Debugging VR2C Info ---")
+    logger.info(f"Type of vr2c_info: {type(vr2c_info)}")
+    if isinstance(vr2c_info, dict):
+        logger.info(f"Keys in vr2c_info: {list(vr2c_info.keys())}")
+        if "values" in vr2c_info:
+            logger.info(f"Type of vr2c_info['values']: {type(vr2c_info['values'])}")
+            if isinstance(vr2c_info["values"], dict):
+                logger.info(f"Content of vr2c_info['values']: {vr2c_info['values']}")
+            else:
+                logger.info(f"vr2c_info['values'] is not a dict. Content: {vr2c_info['values']}")
+        else:
+            logger.info("'values' key NOT found in vr2c_info. vr2c_info content: %s", vr2c_info)
+    else:
+        logger.info(f"vr2c_info is not a dictionary. Content: {vr2c_info}")
+
+    # --- Debugging block for Fluorometer ---
+    logger.info("--- Debugging Fluorometer Info ---")
+    logger.info(f"Type of fluorometer_info: {type(fluorometer_info)}")
+    if isinstance(fluorometer_info, dict):
+        logger.info(f"Keys in fluorometer_info: {list(fluorometer_info.keys())}")
+        if "values" in fluorometer_info:
+            logger.info(f"Type of fluorometer_info['values']: {type(fluorometer_info['values'])}")
+            if isinstance(fluorometer_info["values"], dict):
+                logger.info(f"Content of fluorometer_info['values']: {fluorometer_info['values']}")
+            else:
+                logger.info(f"fluorometer_info['values'] is not a dict. Content: {fluorometer_info['values']}")
+        else:
+            logger.info("'values' key NOT found in fluorometer_info. fluorometer_info content: %s", fluorometer_info)
+    else:
+        logger.info(f"fluorometer_info is not a dictionary. Content: {fluorometer_info}")
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -378,6 +423,10 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         "ais_update_info": ais_update_info,
         "errors_summary_data": recent_errors_list,
         "errors_update_info": errors_update_info,
+        "has_ais_data": has_ais_data, #check
+        "has_errors_data": has_errors_data, #check
+        "fluorometer_info": fluorometer_info, # C3 Fluorometer
+        "vr2c_info": vr2c_info, # Mrx
     })
 
 # --- API Endpoints ---
@@ -412,6 +461,10 @@ async def get_report_data_for_plotting(
         processed_df = processors.preprocess_weather_df(df)
     elif report_type == "waves":
         processed_df = processors.preprocess_wave_df(df)
+    elif report_type == "vr2c": # New sensor
+        processed_df = processors.preprocess_vr2c_df(df)
+    elif report_type == "fluorometer": # C3 Fluorometer
+        processed_df = processors.preprocess_fluorometer_df(df)
     # Add other report types as needed
     else:
         # Should not happen if report_type is validated by frontend, but good practice
@@ -443,8 +496,14 @@ async def get_report_data_for_plotting(
     if numeric_cols.empty:
         logger.info(f"No numeric data to resample for {report_type}, mission {mission_id} after filtering.")
         return JSONResponse(content=[])
-    hourly_data = numeric_cols.resample('1h').mean().reset_index() # reset_index to make Timestamp a column again
+    
+    # Resample to hourly mean
+    hourly_data = numeric_cols.resample('1h').mean().reset_index()
 
+    if report_type == "vr2c" and "PingCount" in hourly_data.columns:
+        hourly_data = hourly_data.sort_values(by="Timestamp") # Ensure sorted for correct diff
+        hourly_data["PingCountDelta"] = hourly_data["PingCount"].diff()
+        # The first PingCountDelta will be NaN, which is fine for plotting (Chart.js handles nulls)
     # Convert Timestamp objects to ISO 8601 strings for JSON serialization
     if "Timestamp" in hourly_data.columns:
         hourly_data["Timestamp"] = hourly_data["Timestamp"].dt.strftime('%Y-%m-%dT%H:%M:%S')
@@ -453,6 +512,7 @@ async def get_report_data_for_plotting(
     hourly_data = hourly_data.replace({np.nan: None})
     return JSONResponse(content=hourly_data.to_dict(orient="records"))
 # ---
+
 @app.get("/api/forecast/{mission_id}")
 async def get_weather_forecast(
     mission_id: str,
@@ -497,7 +557,7 @@ async def get_weather_forecast(
     if final_lat is None or final_lon is None:
         raise HTTPException(status_code=400, detail="Latitude and Longitude are required for forecast and could not be inferred from telemetry.")
 
-    forecast_data = forecast.get_open_meteo_forecast(final_lat, final_lon, force_marine=force_marine or False)
+    forecast_data = await forecast.get_open_meteo_forecast(final_lat, final_lon, force_marine=force_marine or False)
     if forecast_data is None:
         raise HTTPException(status_code=503, detail="Weather forecast service unavailable or failed to retrieve data.")
 

@@ -98,6 +98,84 @@
     An error occurred. Please check console for details or try again later.
   </div>
 
+  <!-- New Row for AIS (Full Width) -->
+  <div class="row">
+    <!-- --- AIS Section Card --- -->
+    <div class="col-12 mb-4">
+      <div class="card"> {# Removed h-100 as it's a full row now #}
+        <div class="card-header">
+          <h2 class="mb-0">
+            <button class="btn btn-link text-decoration-none text-light p-0" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAIS" aria-expanded="{{ 'true' if has_ais_data else 'false' }}" aria-controls="collapseAIS">
+              AIS
+              {% if has_ais_data %}
+                <span class="text-danger ms-2">❗</span>
+              {% endif %}
+            </button>
+          </h2>
+        </div>
+        <div id="collapseAIS" class="collapse {% if has_ais_data %}show{% endif %}">
+          <div class="card-body">
+             <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
+              {% if ais_summary_data %} {# Updated variable name #}
+                {% for v in ais_summary_data %} {# Updated variable name #}
+                  <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if v.LastSeenTimestamp else "N/A" }}</li>
+                {% endfor %}
+              {% else %}
+                Last data: N/A
+            {% endif %}
+          </div>
+          </ul>
+        </div>
+        <div class="card-footer text-muted small">
+          {% if ais_update_info and ais_update_info.latest_timestamp_str != "N/A" %}
+            Last data: {{ ais_update_info.latest_timestamp_str }} ({{ ais_update_info.time_ago_str }})
+          {% else %}
+            Last data: N/A
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of AIS row -->
+
+  <!-- New Row for Errors (Full Width) -->
+  <div class="row">
+    <!-- --- Errors Section Card --- -->
+    <div class="col-12 mb-4">
+      <div class="card"> {# Removed h-100 as it's a full row now #}
+        <div class="card-header">
+          <h2 class="mb-0">
+            <button class="btn btn-link text-decoration-none text-light p-0" type="button" data-bs-toggle="collapse" data-bs-target="#collapseErrors" aria-expanded="{{ 'true' if has_errors_data else 'false' }}" aria-controls="collapseErrors">
+              Errors
+              {% if has_errors_data %}
+                <span class="text-danger ms-2">❗</span>
+              {% endif %}
+            </button>
+          </h2>
+        </div>
+        <div id="collapseErrors" class="collapse {% if has_errors_data %}show{% endif %}">
+          <div class="card-body">
+               <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
+              {% if errors_summary_data %} {# Updated variable name #}
+                {% for err in errors_summary_data %} {# Updated variable name #}
+                  <li>{{ err.Timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if err.Timestamp else "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
+                {% endfor %}
+              {% else %}
+                <li>No recent errors.</li> {# Corrected message #}
+              {% endif %} {# Close the if/else for errors_summary_data #}
+            </ul>
+          </div>
+          <div class="card-footer text-muted small">
+            {% if errors_update_info and errors_update_info.latest_timestamp_str != "N/A" %}
+              Last data: {{ errors_update_info.latest_timestamp_str }} ({{ errors_update_info.time_ago_str }})
+            {% else %}
+              Last data: N/A
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of Errors row -->
+
   <div class="row">
     <!-- Power Section Card -->
     <!-- --- Power Section Card --- -->
@@ -299,6 +377,100 @@
     </div>
   </div> <!-- End of second row -->
 
+  <!-- New Row for VR2C and future sensor -->
+  <div class="row">
+    <!-- VR2C Section Card -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>VR2C-MRx Acoustic Receiver</h2>
+        </div>
+        <div class="card-body">
+          <div class="summary-content-area">
+            {% if vr2c_info and vr2c_info['values'] is not none %}
+            <ul class="list-unstyled mb-3">
+              <li>
+                Serial Number: {{ vr2c_info['values']['SerialNumber'] if vr2c_info['values']['SerialNumber'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+              <li>
+                Detection Count (DC): {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+              <li>
+                Ping Count (PC): {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+            </ul>
+            {% elif vr2c_info and vr2c_info.latest_timestamp_str == "N/A" %}
+            <p>Data unavailable.</p>
+            {% else %}
+            <p>Loading data...</p>
+            {% endif %}
+          </div>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>VR2C Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="vr2cChart"></canvas>
+          </div>
+        </div>
+        <div class="card-footer text-muted small">
+          {% if vr2c_info and vr2c_info.latest_timestamp_str != "N/A" %}
+            Last data: {{ vr2c_info.latest_timestamp_str }} ({{ vr2c_info.time_ago_str }})
+          {% else %}
+            Last data: N/A
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <!-- Placeholder for the next sensor card -->
+    <div class="col-md-6 mb-4">
+      <!-- C3 Fluorometer Section Card -->
+      <div class="card h-100">
+        <div class="card-header">
+          <h2>C3 Fluorometer</h2>
+        </div>
+        <div class="card-body">
+          <div class="summary-content-area">
+            {% if fluorometer_info and fluorometer_info['values'] is not none %}
+            <ul class="list-unstyled mb-3">
+              <li>
+                C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+              <li>
+                C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values']['C2_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+              <li>
+                C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values']['C3_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+              <li>
+                Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else '<span class="na-value">N/A</span>' | safe }}
+              </li>
+            </ul>
+            {% elif fluorometer_info and fluorometer_info.latest_timestamp_str == "N/A" %}
+            <p>Data unavailable.</p>
+            {% else %}
+            <p>Loading data...</p>
+            {% endif %}
+          </div>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>Fluorometer Trends (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="fluorometerChart"></canvas>
+          </div>
+        </div>
+        <div class="card-footer text-muted small">
+          {% if fluorometer_info and fluorometer_info.latest_timestamp_str != "N/A" %}
+            Last data: {{ fluorometer_info.latest_timestamp_str }} ({{ fluorometer_info.time_ago_str }})
+          {% else %}
+            Last data: N/A
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div> <!-- End of VR2C and future sensor row -->
+
   <!-- Weather Forecast Section Card (Full Width) -->
   <div class="row">
   <!-- --- Weather Forecast Section Card --- -->
@@ -328,64 +500,6 @@
       </div>
     </div>
   </div> <!-- End of forecast row -->
-
-  <div class="row">
-    <!-- AIS Section Card -->
-    <!-- --- AIS Section Card --- -->
-    <div class="col-md-6 mb-4">
-      <div class="card h-100">
-        <div class="card-header">
-          <h2>AIS</h2>
-        </div>
-        <div class="card-body">
-           <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
-            {% if ais_summary_data %} {# Updated variable name #}
-              {% for v in ais_summary_data %} {# Updated variable name #}
-                <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp or "N/A" }}</li>
-              {% endfor %}
-            {% else %}
-              <li>No AIS data available.</li>
-            {% endif %}
-          </ul>
-        </div>
-        <div class="card-footer text-muted small">
-          {% if ais_update_info and ais_update_info.latest_timestamp_str != "N/A" %}
-            Last data: {{ ais_update_info.latest_timestamp_str }} ({{ ais_update_info.time_ago_str }})
-          {% else %}
-            Last data: N/A
-          {% endif %}
-        </div>
-      </div>
-    </div>
-
-    <!-- Errors Section Card -->
-    <!-- --- Errors Section Card --- -->
-    <div class="col-md-6 mb-4">
-      <div class="card h-100">
-        <div class="card-header">
-          <h2>Errors</h2>
-        </div>
-        <div class="card-body">
-             <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
-            {% if errors_summary_data %} {# Updated variable name #}
-              {% for err in errors_summary_data %} {# Updated variable name #}
-                <li>{{ err.Timestamp or "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
-              {% endfor %}
-            {% else %}
-              <li>No recent errors.</li> {# Corrected message #}
-            {% endif %} {# Close the if/else for errors_summary_data #}
-          </ul>
-        </div>
-        <div class="card-footer text-muted small">
-          {% if errors_update_info and errors_update_info.latest_timestamp_str != "N/A" %}
-            Last data: {{ errors_update_info.latest_timestamp_str }} ({{ errors_update_info.time_ago_str }})
-          {% else %}
-            Last data: N/A
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div> <!-- End of AIS/Errors row -->
 
   <!-- --- Footer --- -->
   <hr>

@@ -18,17 +18,14 @@ BACKOFF_FACTOR = 0.5    # Backoff factor for retries (delay = backoff_factor * (
 async def _fetch_forecast_data(api_url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Helper function to fetch forecast data with retries."""
     try:
-        # Simpler retry configuration: httpx.HTTPTransport handles retries based on the integer value.
-        # Use AsyncClient for consistency with FastAPI/asyncio
-        transport = httpx.HTTPTransport(
-            retries=RETRY_COUNT 
+        transport_config = httpx.AsyncHTTPTransport( # Use AsyncHTTPTransport for AsyncClient
+            retries=RETRY_COUNT
         )
-        # Use async with for AsyncClient
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, transport=transport) as client:
+        async with httpx.AsyncClient(transport=transport_config, timeout=DEFAULT_TIMEOUT) as client:
             logger.debug(f"Fetching data from {api_url} with params {params} using {RETRY_COUNT} retries and backoff {BACKOFF_FACTOR}")
-            response = await client.get(api_url, params=params) # Make the get call asynchronous
+            response = await client.get(api_url, params=params)
             logger.debug(f"Response status from {api_url}: {response.status_code}")
-            response.raise_for_status()  # Raise an exception for 4XX or 5XX status codes
+            response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
         # Specific handling for HTTP status errors (like 404) is done by the caller

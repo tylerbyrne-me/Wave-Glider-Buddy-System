@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let ctdChartInstance = null;
     let weatherSensorChartInstance = null;
     let waveChartInstance = null;
+    let vr2cChartInstance = null; // New chart instance for VR2C
+    let fluorometerChartInstance = null; // New chart instance for Fluorometer
 
     // Define colors for dark mode charts
     const chartTextColor = 'rgba(255, 255, 255, 0.8)';
@@ -776,7 +778,159 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchChartData('waves', missionId, hoursBack).then(data => {
         renderWaveChart(data);
     }); // This call was missing in the previous diff
-    
+
+    /**
+     * Renders the VR2C Chart using Chart.js.
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     */
+    function renderVr2cChart(chartData) {
+        console.log('Attempting to render VR2C Chart. Data received:', chartData);
+        const ctx = document.getElementById('vr2cChart').getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            console.log('No data or empty data array for VR2C Chart.');
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "grey";
+            ctx.textAlign = "center";
+            ctx.fillText("No VR2C trend data available to display.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (vr2cChartInstance) { vr2cChartInstance.destroy(); vr2cChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        if (chartData.some(d => d.DetectionCount !== null && d.DetectionCount !== undefined)) {
+            datasets.push({
+                label: 'Detection Count (DC)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.DetectionCount })),
+                borderColor: 'rgba(75, 192, 192, 1)', // Teal
+                yAxisID: 'yCounts',
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.PingCountDelta !== null && d.PingCountDelta !== undefined)) {
+            datasets.push({
+                label: 'Ping Count Delta (ΔPC/hr)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.PingCountDelta })),
+                borderColor: 'rgba(255, 99, 132, 1)', // Red
+                yAxisID: 'yDelta', // Assign to new right-hand Y-axis
+                tension: 0.1, fill: false, // No fill for delta
+                borderDash: [5, 5] // Optional: make it dashed
+            });
+        }
+
+        if (datasets.length === 0) {
+            console.warn('VR2C Chart: No valid datasets could be formed from the provided chartData.');
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "grey";
+            ctx.textAlign = "center";
+            ctx.fillText("No plottable VR2C data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (vr2cChartInstance) { vr2cChartInstance.destroy(); vr2cChartInstance = null; }
+            return;
+        }
+
+        if (vr2cChartInstance) {
+            vr2cChartInstance.destroy();
+        }
+
+        vr2cChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    yCounts: { type: 'linear', position: 'left', title: { display: true, text: 'Detection Count (DC)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
+                    yDelta: { type: 'linear', position: 'right', title: { display: true, text: 'Ping Count Delta (ΔPC/hr)', color: chartTextColor }, ticks: { color: chartTextColor /* beginAtZero: false might be better for deltas */ }, grid: { drawOnChartArea: false } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
+    // Fetch and render the VR2C chart on page load
+    fetchChartData('vr2c', missionId, hoursBack).then(data => {
+        renderVr2cChart(data);
+    });
+
+    /**
+     * Renders the Fluorometer Chart using Chart.js.
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     */
+    function renderFluorometerChart(chartData) {
+        console.log('Attempting to render Fluorometer Chart. Data received:', chartData);
+        const ctx = document.getElementById('fluorometerChart').getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            console.log('No data or empty data array for Fluorometer Chart.');
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "grey";
+            ctx.textAlign = "center";
+            ctx.fillText("No Fluorometer trend data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (fluorometerChartInstance) { fluorometerChartInstance.destroy(); fluorometerChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        const avgColors = ['rgba(75, 192, 192, 1)', 'rgba(255, 159, 64, 1)', 'rgba(153, 102, 255, 1)']; // Teal, Orange, Purple
+
+        ['C1_Avg', 'C2_Avg', 'C3_Avg'].forEach((key, index) => {
+            if (chartData.some(d => d[key] !== null && d[key] !== undefined)) {
+                datasets.push({
+                    label: `${key.replace('_', ' ')}`,
+                    data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item[key] })),
+                    borderColor: avgColors[index % avgColors.length],
+                    yAxisID: 'yAvg',
+                    tension: 0.1, fill: false
+                });
+            }
+        });
+
+        if (chartData.some(d => d.Temperature_Fluor !== null && d.Temperature_Fluor !== undefined)) {
+            datasets.push({
+                label: 'Temperature (°C)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Temperature_Fluor })),
+                borderColor: 'rgba(255, 99, 132, 1)', // Red
+                yAxisID: 'yTempFluor',
+                tension: 0.1, fill: false,
+                borderDash: [5, 5]
+            });
+        }
+
+        if (datasets.length === 0) {
+            console.warn('Fluorometer Chart: No valid datasets could be formed.');
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No plottable Fluorometer data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (fluorometerChartInstance) { fluorometerChartInstance.destroy(); fluorometerChartInstance = null; }
+            return;
+        }
+
+        if (fluorometerChartInstance) { fluorometerChartInstance.destroy(); }
+
+        fluorometerChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    yAvg: { type: 'linear', position: 'left', title: { display: true, text: 'Channel Avg', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
+                    yTempFluor: { type: 'linear', position: 'right', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
+    // Fetch and render the Fluorometer chart on page load
+    fetchChartData('fluorometer', missionId, hoursBack).then(data => {
+        renderFluorometerChart(data);
+    });
+
     // Refresh Data Button Logic (Moved here for better organization)
     const refreshDataBtn = document.getElementById('refreshDataBtn');
     if (refreshDataBtn) {
