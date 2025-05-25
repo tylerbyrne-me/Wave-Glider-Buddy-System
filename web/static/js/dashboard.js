@@ -1,26 +1,48 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const missionId = document.body.dataset.missionId; // Get mission ID from body's data attribute
-    const hoursBack = 72; // Default lookback period for charts
+    const missionId = document.body.dataset.missionId;
+    const hoursBack = 72; // update as need in hours
     const missionSelector = document.getElementById('missionSelector');
-    const isRealtimeMission = document.body.dataset.isRealtime === 'true'; // Get realtime status from body's data attribute
+    const isRealtimeMission = document.body.dataset.isRealtime === 'true';
     const urlParams = new URLSearchParams(window.location.search);
 
-    let powerChartInstance = null; // Use let as these will be reassigned
+    let powerChartInstance = null;
     let ctdChartInstance = null;
     let weatherSensorChartInstance = null;
     let waveChartInstance = null;
-    let vr2cChartInstance = null; // New chart instance for VR2C
-    let fluorometerChartInstance = null; // New chart instance for Fluorometer
+    let vr2cChartInstance = null;
+    let solarPanelChartInstance = null; // Instance for the new solar panel chart
+    let fluorometerChartInstance = null;
 
     // Define colors for dark mode charts
+    const miniChartInstances = {};
+
     const chartTextColor = 'rgba(255, 255, 255, 0.8)';
     const chartGridColor = 'rgba(255, 255, 255, 0.1)';
+    const miniChartLineColor = 'rgba(150, 180, 255, 0.8)'; // A neutral light blue for mini charts
 
-    const currentSource = urlParams.get('source') || 'remote'; // Default to remote
+    // Centralized Chart Colors
+    const CHART_COLORS = {
+        POWER_BATTERY: 'rgba(54, 162, 235, 1)',
+        POWER_SOLAR: 'rgba(255, 159, 64, 1)',
+        POWER_DRAW: 'rgba(255, 99, 132, 1)',
+        CTD_TEMP: 'rgba(0, 191, 255, 1)',
+        CTD_SALINITY: 'rgba(255, 105, 180, 1)',
+        WEATHER_AIR_TEMP: 'rgba(255, 99, 71, 1)',
+        WEATHER_WIND_SPEED: 'rgba(60, 179, 113, 1)',
+        WAVES_SIG_HEIGHT: 'rgba(255, 206, 86, 1)',
+        WAVES_PERIOD: 'rgba(153, 102, 255, 1)',
+        VR2C_DETECTION: 'rgba(75, 192, 192, 1)', // Teal
+        FLUORO_C_AVG_PRIMARY: 'rgba(75, 192, 192, 1)', // Teal for C1_Avg
+        SOLAR_PANEL_1: 'rgba(255, 215, 0, 1)', // Gold
+        SOLAR_PANEL_2: 'rgba(173, 216, 230, 1)', // Light Blue
+        SOLAR_PANEL_4: 'rgba(144, 238, 144, 1)', // Light Green
+        FLUORO_TEMP: 'rgba(255, 99, 132, 1)', // Red for Fluorometer Temp
+    };
+
+    const currentSource = urlParams.get('source') || 'remote';
     const currentLocalPath = urlParams.get('local_path') || '';
-
-    // Auto-refresh and Countdown variables
-    const autoRefreshIntervalMinutes = 5; // Must match the interval logic
+    // auotrefresh timer and countdown
+    const autoRefreshIntervalMinutes = 5;
     let countdownTimer = null;
 
     function updateUtcClock() {
@@ -53,37 +75,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (remainingSeconds <= 0) {
                 clearInterval(countdownTimer); // Stop the countdown
-                // The page reload is handled by the setTimeout below
             } else {
                 remainingSeconds--;
             }
         }
-
-        // Initial display update
         updateCountdownDisplay();
-
-        // Update every second
         countdownTimer = setInterval(updateCountdownDisplay, 1000);
     }
 
-
-
     if (missionSelector) {
-        missionSelector.addEventListener('change', function() {
+                missionSelector.addEventListener('change', function() {
             const newMissionId = this.value;
             const currentUrl = new URL(window.location.href);
             currentUrl.searchParams.set('mission', newMissionId);
-            // missionId variable updated for current session if needed, though page reload handles it
             window.location.href = currentUrl.toString();
         });
     }
 
-    // Data Source Modal Logic
     const dataSourceModal = document.getElementById('dataSourceModal');
     if (dataSourceModal) {
         const localPathInputGroup = document.getElementById('localPathInputGroup');
-        const sourceLocalRadio = document.getElementById('sourceLocal');
-        const sourceRemoteRadio = document.getElementById('sourceRemote');
         const customLocalPathInput = document.getElementById('customLocalPath');
         const applyDataSourceBtn = document.getElementById('applyDataSource');
 
@@ -99,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         applyDataSourceBtn.addEventListener('click', function() {
             const selectedSource = document.querySelector('input[name="dataSourceOption"]:checked').value;
-            let newLocalPath = ''; // Use let as it might be reassigned
+            let newLocalPath = '';
             if (selectedSource === 'local') {
                 newLocalPath = customLocalPathInput.value.trim();
             }
@@ -111,34 +122,30 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 currentUrl.searchParams.delete('local_path');
             }
-            // Bootstrap 5 modal needs to be hidden manually before page reload
-            const modalInstance = bootstrap.Modal.getInstance(dataSourceModal); // Use const
+            const modalInstance = bootstrap.Modal.getInstance(dataSourceModal);
             if (modalInstance) {
                 modalInstance.hide();
             }
-            // Add a slight delay for modal to hide before redirecting
             setTimeout(() => { window.location.href = currentUrl.toString(); }, 150);
         });
     }
 
-    // Auto-refresh logic for real-time missions
     if (isRealtimeMission) {
         console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
-        startCountdownTimer(); // Start the countdown immediately
+        startCountdownTimer(); 
 
         setTimeout(function() {
-            // Check if a modal is open, don't refresh if it is to avoid interrupting user
             if (!document.querySelector('.modal.show')) {
-                window.location.reload(true); // true forces a reload from the server, not cache
+                window.location.reload(true); 
             }
-        }, autoRefreshIntervalMinutes * 60 * 1000); // Schedule the page reload
+        }, autoRefreshIntervalMinutes * 60 * 1000);
     }
+
     function displayGlobalError(message) {
         const errorDiv = document.getElementById('generalErrorDisplay');
         errorDiv.textContent = message || 'An error occurred. Please check console or try again later.';
         errorDiv.style.display = 'block';
     }
-
     // Refresh Data Button Logic
     /**
      * Fetches chart data from the API for a given report type and mission.
@@ -148,7 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * @returns {Promise<Array<Object>|null>} A promise that resolves with the chart data array or null if fetching fails.
      */
     async function fetchChartData(reportType, mission, hours) {
-        const chartCanvas = document.getElementById(`${reportType}Chart`); // Assuming chart IDs match reportType + "Chart"
+        const chartCanvas = document.getElementById(`${reportType}Chart`); 
         const spinner = chartCanvas ? chartCanvas.parentElement.querySelector('.chart-spinner') : null;
         if (spinner) spinner.style.display = 'block';
 
@@ -158,7 +165,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (currentSource === 'local' && currentLocalPath) {
                 apiUrl += `&local_path=${encodeURIComponent(currentLocalPath)}`;
             }
-            // Check if the main page URL has a refresh parameter, and pass it along to API calls
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 apiUrl += `&refresh=true`;
             }
@@ -181,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * Renders the Power Chart using Chart.js.
+     * Renders the LARGE Power Chart using Chart.js.
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderPowerChart(chartData) {
@@ -208,18 +214,8 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Battery (Wh)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.BatteryWattHours })),
-                borderColor: 'rgba(54, 162, 235, 1)', // Blue - Keep
+                borderColor: CHART_COLORS.POWER_BATTERY,
                 yAxisID: 'yBattery', // Assign to new right-hand Y-axis
-                tension: 0.1, fill: false
-            });
-        }
-        if (chartData.some(d => d.SolarInputWatts !== null && d.SolarInputWatts !== undefined)) {
-            datasets.push({
-                label: 'Solar Input (W)',
-                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.SolarInputWatts })),
-                borderColor: 'rgba(255, 159, 64, 0.7)', // Orange, semi-transparent
-                yAxisID: 'ySolar', // Assign to left-hand Y-axis
-                borderDash: [5, 5], // Dotted line
                 tension: 0.1, fill: false
             });
         }
@@ -227,7 +223,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Power Draw (W)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.PowerDrawWatts })),
-                borderColor: 'rgba(255, 99, 132, 1)', // Red
+                borderColor: CHART_COLORS.POWER_DRAW,
                 yAxisID: 'ySolar', // Share with Solar Input
                 tension: 0.1, fill: false
             });
@@ -274,11 +270,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Fetch and render the power chart on page load
-    fetchChartData('power', missionId, hoursBack).then(data => {
-        renderPowerChart(data); // data can be null or empty array, renderPowerChart handles this
-    });
-
     /**
      * Renders the CTD Chart using Chart.js.
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
@@ -304,7 +295,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Water Temp (°C)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.WaterTemperature })),
-                borderColor: 'rgba(0, 191, 255, 1)', // Deep Sky Blue (was Wave Height color)
+                borderColor: CHART_COLORS.CTD_TEMP,
                 yAxisID: 'yTemp', // Assign to a specific Y axis
                 tension: 0.1, fill: false
             });
@@ -313,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Salinity (PSU)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Salinity })),
-                borderColor: 'rgba(255, 105, 180, 1)', // Hot Pink (was Wave Period color)
+                borderColor: CHART_COLORS.CTD_SALINITY,
                 yAxisID: 'ySalinity', // Assign to a different Y axis
                 tension: 0.1, fill: false
             });
@@ -365,17 +356,25 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchChartData('ctd', missionId, hoursBack).then(data => {
         renderCtdChart(data);
     });
-
-    /**
-     * Renders the Weather Sensor Chart using Chart.js.
-     * @param {Array<Object>|null} chartData - The data array fetched from the API.
-     */
     // Fetch and render the Weather Sensor chart on page load
     fetchChartData('weather', missionId, hoursBack).then(data => {
         renderWeatherSensorChart(data);
     });
 
-
+    // Fetch Power and Solar data concurrently, then render their charts
+    Promise.all([
+        fetchChartData('power', missionId, hoursBack),
+        fetchChartData('solar', missionId, hoursBack)
+    ]).then(([powerData, solarData]) => {
+        renderPowerChart(powerData); // Renders power chart (now without total solar)
+        renderSolarPanelChart(solarData, powerData); // Pass both solar (individual) and power (for total solar) data
+    }).catch(error => {
+        console.error("Error fetching initial power or solar data for combined rendering:", error);
+        // Fallback: render charts with null to show "no data" messages
+        renderPowerChart(null);
+        renderSolarPanelChart(null, null);
+    });
+    
     function renderWeatherSensorChart(chartData) { // This function was missing in the previous diff
         console.log('Attempting to render Weather Chart. Data received:', chartData);
         const ctx = document.getElementById('weatherSensorChart').getContext('2d');
@@ -397,7 +396,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Air Temp (°C)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.AirTemperature })),
-                borderColor: 'rgba(255, 99, 71, 1)', // Tomato Red for Weather Temp
+                borderColor: CHART_COLORS.WEATHER_AIR_TEMP,
                 yAxisID: 'yTemp',
                 tension: 0.1, fill: false
             });
@@ -406,7 +405,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Wind Speed (kt)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.WindSpeed })),
-                borderColor: 'rgba(60, 179, 113, 1)', // Medium Sea Green for Wind Speed
+                borderColor: CHART_COLORS.WEATHER_WIND_SPEED,
                 yAxisID: 'yWind',
                 tension: 0.1, fill: false
             });
@@ -415,7 +414,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Wind Gust (kt)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.WindGust })),
-                borderColor: 'rgba(144, 238, 144, 0.7)', // Lighter, semi-transparent green for Gusts
+                borderColor: CHART_COLORS.WEATHER_WIND_SPEED.replace('1)', '0.7)'), // Lighter version of wind speed
                 borderDash: [5, 5], // Dashed line for gusts
                 yAxisID: 'yWind', // Share axis with WindSpeed
                 tension: 0.1, fill: false
@@ -718,7 +717,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Sig. Wave Height (m)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.SignificantWaveHeight })),
-                borderColor: 'rgba(255, 206, 86, 1)', // Yellow (was CTD Temp color)
+                borderColor: CHART_COLORS.WAVES_SIG_HEIGHT,
                 yAxisID: 'yHeight',
                 tension: 0.1, fill: false
             });
@@ -727,7 +726,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Wave Period (s)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.WavePeriod })),
-                borderColor: 'rgba(153, 102, 255, 1)', // Purple (was CTD Salinity color)
+                borderColor: CHART_COLORS.WAVES_PERIOD,
                 yAxisID: 'yPeriod',
                 tension: 0.1, fill: false
             });
@@ -804,7 +803,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Detection Count (DC)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.DetectionCount })),
-                borderColor: 'rgba(75, 192, 192, 1)', // Teal
+                borderColor: CHART_COLORS.VR2C_DETECTION,
                 yAxisID: 'yCounts',
                 tension: 0.1, fill: false
             });
@@ -813,7 +812,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Ping Count Delta (ΔPC/hr)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.PingCountDelta })),
-                borderColor: 'rgba(255, 99, 132, 1)', // Red
+                borderColor: CHART_COLORS.POWER_DRAW, // Re-use a contrasting color like red
                 yAxisID: 'yDelta', // Assign to new right-hand Y-axis
                 tension: 0.1, fill: false, // No fill for delta
                 borderDash: [5, 5] // Optional: make it dashed
@@ -876,7 +875,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const datasets = [];
-        const avgColors = ['rgba(75, 192, 192, 1)', 'rgba(255, 159, 64, 1)', 'rgba(153, 102, 255, 1)']; // Teal, Orange, Purple
+        const avgColors = [CHART_COLORS.FLUORO_C_AVG_PRIMARY, CHART_COLORS.POWER_SOLAR, CHART_COLORS.WAVES_PERIOD]; // Example re-use
 
         ['C1_Avg', 'C2_Avg', 'C3_Avg'].forEach((key, index) => {
             if (chartData.some(d => d[key] !== null && d[key] !== undefined)) {
@@ -894,7 +893,7 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets.push({
                 label: 'Temperature (°C)',
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Temperature_Fluor })),
-                borderColor: 'rgba(255, 99, 132, 1)', // Red
+                borderColor: CHART_COLORS.FLUORO_TEMP,
                 yAxisID: 'yTempFluor',
                 tension: 0.1, fill: false,
                 borderDash: [5, 5]
@@ -931,6 +930,104 @@ document.addEventListener('DOMContentLoaded', function() {
         renderFluorometerChart(data);
     });
 
+    /**
+     * Renders the Solar Panel Chart using Chart.js.
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     * @param {Array<Object>|null} powerData - The data array for the main power report, used for total solar input.
+     */
+    function renderSolarPanelChart(chartData, powerData) {
+        console.log('Attempting to render Solar Panel Chart. Data received:', chartData);
+        const ctx = document.getElementById('solarPanelChart')?.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            console.log('No data or empty data array for Solar Panel Chart.');
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "grey";
+            ctx.textAlign = "center";
+            ctx.fillText("No solar panel trend data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (solarPanelChartInstance) { solarPanelChartInstance.destroy(); solarPanelChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        // Add Total Solar Input from powerData
+        if (powerData && powerData.some(d => d.SolarInputWatts !== null && d.SolarInputWatts !== undefined)) {
+            datasets.push({
+                label: 'Total Solar Input (W)',
+                data: powerData.map(item => ({ x: new Date(item.Timestamp), y: item.SolarInputWatts })),
+                borderColor: CHART_COLORS.POWER_SOLAR, // Use the existing color for total solar
+                yAxisID: 'yTotalSolar', // Assign to the new right y-axis
+                borderDash: [5, 5], // Optional: Differentiate with a dashed line
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.Panel1Power !== null && d.Panel1Power !== undefined)) {
+            datasets.push({
+                label: 'Panel 1 Power (W)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Panel1Power })),
+                borderColor: CHART_COLORS.SOLAR_PANEL_1,
+                yAxisID: 'yIndividualPanels', // Assign to the left y-axis
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.Panel2Power !== null && d.Panel2Power !== undefined)) {
+            datasets.push({
+                label: 'Panel 2 Power (W)', // Corresponds to panelPower3 from CSV
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Panel2Power })),
+                borderColor: CHART_COLORS.SOLAR_PANEL_2,
+                yAxisID: 'yIndividualPanels', // Assign to the left y-axis
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.Panel4Power !== null && d.Panel4Power !== undefined)) {
+            datasets.push({
+                label: 'Panel 4 Power (W)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Panel4Power })),
+                borderColor: CHART_COLORS.SOLAR_PANEL_4,
+                yAxisID: 'yIndividualPanels', // Assign to the left y-axis
+                tension: 0.1, fill: false
+            });
+        }
+
+        if (datasets.length === 0) {
+            console.warn('Solar Panel Chart: No valid datasets could be formed.');
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No plottable solar panel data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (solarPanelChartInstance) { solarPanelChartInstance.destroy(); solarPanelChartInstance = null; }
+            return;
+        }
+
+        if (solarPanelChartInstance) { solarPanelChartInstance.destroy(); }
+
+        solarPanelChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    yIndividualPanels: { // Y-axis for individual panel powers
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Panel Power (W)', color: chartTextColor },
+                        ticks: { color: chartTextColor, beginAtZero: true },
+                        grid: { color: chartGridColor }
+                    },
+                    yTotalSolar: { // New Y-axis for Total Solar Input
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Total Solar (W)', color: chartTextColor },
+                        ticks: { color: chartTextColor, beginAtZero: true },
+                        grid: { drawOnChartArea: false } // Only draw grid lines for the primary y-axis (left)
+                    }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
     // Refresh Data Button Logic (Moved here for better organization)
     const refreshDataBtn = document.getElementById('refreshDataBtn');
     if (refreshDataBtn) {
@@ -946,4 +1043,184 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize and update the UTC clock
     updateUtcClock(); // Initial call
     setInterval(updateUtcClock, 1000); // Update every second
+
+    
+    // --- NEW: Mini Chart Rendering ---
+    function renderMiniChart(canvasId, trendData, chartColor = miniChartLineColor) {
+        console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+            console.error(`Mini chart canvas with ID ${canvasId} not found.`);
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+
+        if (miniChartInstances[canvasId]) {
+            miniChartInstances[canvasId].destroy();
+        }
+
+        if (!trendData || trendData.length === 0) { // Check moved to caller, but safe to keep
+            console.log(`No data points to render for mini chart ${canvasId}.`);
+            return;
+        }
+
+        const dataPoints = trendData.map(item => ({
+            x: new Date(item.Timestamp), // Ensure Timestamp is parsed as Date
+            y: item.value
+        }));
+
+        // Log first few parsed dates to check validity
+        if (dataPoints.length > 0) {
+            console.log(`  First 3 parsed timestamps for ${canvasId}:`, dataPoints.slice(0, 3).map(p => p.x));
+        }
+
+        // Calculate min and max for y-axis to "stretch" the view
+        let yMin = Infinity;
+        let yMax = -Infinity;
+        dataPoints.forEach(point => {
+            if (point.y < yMin) yMin = point.y;
+            if (point.y > yMax) yMax = point.y;
+        });
+
+        let yAxisMin, yAxisMax;
+        const range = yMax - yMin;
+
+        if (range === 0) { // Handle flat line data
+            yAxisMin = yMin - 1; // Add some arbitrary padding
+            yAxisMax = yMax + 1;
+        } else {
+            const padding = range * 0.10; // 10% padding
+            yAxisMin = yMin - padding;
+            yAxisMax = yMax + padding;
+        }
+
+        console.log(`Rendering Chart.js instance for ${canvasId}`);
+        miniChartInstances[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    data: dataPoints,
+                    borderColor: chartColor, // Use the passed chartColor
+                    borderWidth: 1.5, // Keep it slightly thicker
+                    pointRadius: 0, // No points on mini charts
+                    tension: 0.1,   // straight line for mini trend
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false, // No animation for mini charts
+                scales: {
+                    x: {
+                        type: 'time', 
+                        display: false, // Final: Hide x-axis
+                        // ticks: { color: 'lime', font: { size: 7 }, autoSkip: true, maxRotation: 0, minRotation: 0 }, // TEMPORARY: For x-axis debugging
+                        grid: { display: false } // Optionally hide x-axis grid lines for mini chart
+                    }, 
+                    y: { 
+                        display: false, // Keep y-axis hidden for final appearance
+                        min: yAxisMin, // Set calculated min
+                        max: yAxisMax, // Set calculated max
+                        // grace: '10%' // Not needed if min/max are manually set with padding
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        display: false // Keep legend hidden
+                    }, 
+                    tooltip: { enabled: false } // Keep tooltips disabled
+                },
+                layout: {
+                    padding: { // Minimal padding
+                        left: 1,
+                        right: 1,
+                        top: 3,
+                        bottom: 1
+                    }
+                }
+            }
+        });
+        console.log(`Mini chart ${canvasId} should be rendered.`);
+    }
+
+    // --- NEW: Initialize Mini Charts ---
+    function initializeMiniCharts() {
+        console.log("Initializing mini charts...");
+        const summaryCards = document.querySelectorAll('#left-nav-panel .summary-card');
+        summaryCards.forEach(card => {
+            const category = card.dataset.category;
+            const miniChartCanvasId = `mini${category === 'waves' ? 'Wave' : category.charAt(0).toUpperCase() + category.slice(1)}Chart`;
+            const canvasElement = document.getElementById(miniChartCanvasId);
+            console.log(`Processing mini chart for category: ${category}, canvas ID: ${miniChartCanvasId}`);
+
+            if (canvasElement) { // Only try to render if a canvas exists
+                const trendDataJson = card.dataset.miniTrend;
+                console.log(`  Raw mini-trend JSON for ${category}:`, trendDataJson);
+                if (trendDataJson) {
+                    // Ensure the string is not empty before trying to parse
+                    if (trendDataJson.trim() === "") {
+                        console.log(`  Skipping empty mini-trend JSON for ${category}.`);
+                        return; // Skip to the next card
+                    }
+                    try {
+                        const trendData = JSON.parse(trendDataJson);
+                        if (trendData && trendData.length > 0) {
+                            let specificColor = miniChartLineColor; // Default color
+                            // Assign specific colors based on category, matching large charts
+                            switch (category) {
+                                case 'power': // NetPowerWatts mini-trend. Using SolarInputWatts color as a proxy.
+                                    specificColor = CHART_COLORS.POWER_SOLAR;
+                                    break;
+                                case 'ctd': // WaterTemperature mini-trend
+                                    specificColor = CHART_COLORS.CTD_TEMP;
+                                    break;
+                                case 'weather': // WindSpeed mini-trend
+                                    specificColor = CHART_COLORS.WEATHER_WIND_SPEED;
+                                    break;
+                                case 'waves': // SignificantWaveHeight mini-trend
+                                    specificColor = CHART_COLORS.WAVES_SIG_HEIGHT;
+                                    break;
+                                case 'vr2c': // DetectionCount mini-trend
+                                    specificColor = CHART_COLORS.VR2C_DETECTION;
+                                    break;
+                                case 'fluorometer': // C1_Avg mini-trend
+                                    specificColor = CHART_COLORS.FLUORO_C_AVG_PRIMARY;
+                                    break;
+                            }
+                            renderMiniChart(miniChartCanvasId, trendData, specificColor);
+                        } else {
+                            console.log(`  No data points to render for mini chart ${category} (data is empty or null).`);
+                        }
+                    } catch (e) {
+                        console.error(`Error parsing mini-trend data for ${category}:`, e, `Problematic JSON: "${trendDataJson}"`);
+                    }
+                }
+            }
+        });
+    }
+
+    // --- NEW: Left Panel Click Handler ---
+    function handleLeftPanelClicks() {
+        const summaryCards = document.querySelectorAll('#left-nav-panel .summary-card');
+        const detailViews = document.querySelectorAll('#main-display-area .category-detail-view');
+
+        summaryCards.forEach(card => {
+            card.addEventListener('click', function() {
+                summaryCards.forEach(c => c.classList.remove('active-card'));
+                this.classList.add('active-card');
+                const category = this.dataset.category;
+                detailViews.forEach(view => view.style.display = 'none');
+                const activeDetailView = document.getElementById(`detail-${category}`);
+                if (activeDetailView) {
+                    activeDetailView.style.display = 'block';
+                }
+            });
+        });
+    }
+
+    // Initialize new UI features
+    initializeMiniCharts();
+    handleLeftPanelClicks();
+    console.log("Dashboard setup complete");
 });

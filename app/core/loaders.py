@@ -12,8 +12,8 @@ RETRY_COUNT = 2         # Number of retries for loaders
 
 async def load_report(report_type: str, mission_id: str, base_path: Path = None, base_url: str = None, client: httpx.AsyncClient = None):
     reports = {
-        "power": "Amps Power Summary Report.csv",
-        "solar": "Amps Solar Input Port Report.csv",
+        "power": "Amps Power Summary Report.csv", # Existing
+        "solar": "Amps Solar Input Port Report.csv", # New solar panel report
         "ctd"  : "Seabird CTD Records with D.O..csv",
         "weather" : "Weather Records 2.csv",
         "waves": "GPS Waves Sensor Data.csv",

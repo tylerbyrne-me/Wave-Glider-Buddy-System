@@ -280,6 +280,7 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         # Corrected order to match report_types_order for vr2c and fluorometer
         load_data_source("vr2c", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), 
+        load_data_source("solar", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # Load solar data
         load_data_source("fluorometer", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
@@ -291,7 +292,7 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     source_paths_map: Dict[str, str] = {}
     # Ensure "error_frequency" is NOT in this list for the main page load.
     # This list is for data that populates the status cards and initial summaries.
-    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "fluorometer", "ais", "errors"]
+    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "solar", "fluorometer", "ais", "errors"]
 
     for i, report_type in enumerate(report_types_order):
         if isinstance(results[i], Exception):
@@ -308,6 +309,7 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     df_ais = data_frames["ais"]
     df_errors = data_frames["errors"]
     df_vr2c = data_frames["vr2c"] # New sensor
+    df_solar = data_frames["solar"] # New solar data
     df_fluorometer = data_frames["fluorometer"] # C3 Fluorometer
 
     # Determine the primary display_source_path based on success and priority
@@ -339,13 +341,25 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         if found_primary_path_for_display:
             break # Exit outer loop once a primary path is found
 
-    # Get status and update info using the refactored summary functions
-    power_info = summaries.get_power_status(df_power)
-    ctd_info = summaries.get_ctd_status(df_ctd) # Assuming you refactor this
-    weather_info = summaries.get_weather_status(df_weather) # Assuming you refactor this
-    wave_info = summaries.get_wave_status(df_waves) # Assuming you refactor this
-    vr2c_info = summaries.get_vr2c_status(df_vr2c) # New sensor
-    fluorometer_info = summaries.get_fluorometer_status(df_fluorometer) # C3 Fluorometer
+    # Get status and update info using the refactored summary functions, add mini-trend dataframes
+
+    power_info = summaries.get_power_status(df_power, df_solar) # Pass df_solar
+    power_info["mini_trend"] = summaries.get_power_mini_trend(df_power)
+
+    ctd_info = summaries.get_ctd_status(df_ctd)
+    ctd_info["mini_trend"] = summaries.get_ctd_mini_trend(df_ctd)
+
+    weather_info = summaries.get_weather_status(df_weather)
+    weather_info["mini_trend"] = summaries.get_weather_mini_trend(df_weather)
+
+    wave_info = summaries.get_wave_status(df_waves)
+    wave_info["mini_trend"] = summaries.get_wave_mini_trend(df_waves)
+    
+    vr2c_info = summaries.get_vr2c_status(df_vr2c)
+    vr2c_info["mini_trend"] = summaries.get_vr2c_mini_trend(df_vr2c)
+
+    fluorometer_info = summaries.get_fluorometer_status(df_fluorometer)
+    fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(df_fluorometer)
     
     # For AIS and Errors, get summary list and then derive update info from original DFs
     ais_summary_data = summaries.get_ais_summary(df_ais, max_age_hours=hours) if df_ais is not None else []
@@ -463,6 +477,8 @@ async def get_report_data_for_plotting(
         processed_df = processors.preprocess_wave_df(df)
     elif report_type == "vr2c": # New sensor
         processed_df = processors.preprocess_vr2c_df(df)
+    elif report_type == "solar": # New solar panel data
+        processed_df = processors.preprocess_solar_df(df)
     elif report_type == "fluorometer": # C3 Fluorometer
         processed_df = processors.preprocess_fluorometer_df(df)
     # Add other report types as needed

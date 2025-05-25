@@ -298,3 +298,29 @@ def preprocess_fluorometer_df(df):
             
     logger.info(f"Fluorometer Preprocessing: After to_numeric (first 5 rows of C1_Avg, Temp):\nC1_Avg:\n{df_processed['C1_Avg'].head() if 'C1_Avg' in df_processed.columns else 'N/A'}\nTemperature_Fluor:\n{df_processed['Temperature_Fluor'].head() if 'Temperature_Fluor' in df_processed.columns else 'N/A'}")
     return df_processed
+
+def preprocess_solar_df(df: pd.DataFrame) -> pd.DataFrame:
+    timestamp_col = "Timestamp" # Standardized name
+    # Note: The raw CSV uses "timeStamp" which _initial_dataframe_setup will handle
+    df_processed = _initial_dataframe_setup(df, timestamp_col)
+    if df_processed.empty:
+        # Ensure even an empty DF has the expected columns
+        for col in [timestamp_col, "Panel1Power", "Panel2Power", "Panel4Power"]: # Panel3Power is intentionally Panel2Power
+            if col not in df_processed.columns:
+                 df_processed[col] = np.nan if col != timestamp_col else pd.Series(dtype='datetime64[ns, UTC]')
+        return df_processed
+
+    rename_map = {
+        "panelPower1": "Panel1Power",
+        "panelPower3": "Panel2Power", # As per request: panelPower3 is labeled Panel 2
+        "panelPower4": "Panel4Power"
+    }
+    df_processed = df_processed.rename(columns=rename_map)
+
+    expected_final_cols = [timestamp_col, "Panel1Power", "Panel2Power", "Panel4Power"]
+    for target_col in expected_final_cols:
+        if target_col not in df_processed.columns:
+            df_processed[target_col] = np.nan
+        elif target_col != timestamp_col: # Convert data columns to numeric
+            df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
+    return df_processed
