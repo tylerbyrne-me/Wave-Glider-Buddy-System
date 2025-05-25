@@ -11,6 +11,7 @@
       <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/custom.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body class="container-fluid py-4" data-mission-id="{{ mission }}" data-is-realtime="{{ is_current_mission_realtime | lower }}">
   <!-- Project Title -->
@@ -98,69 +99,226 @@
     An error occurred. Please check console for details or try again later.
   </div>
 
-  <!-- New Row for AIS (Full Width) -->
-  <div class="row">
-    <!-- --- AIS Section Card --- -->
-    <div class="col-12 mb-4">
-      <div class="card"> {# Removed h-100 as it's a full row now #}
-        <div class="card-header">
-          <h2 class="mb-0">
-            <button class="btn btn-link text-decoration-none text-light p-0" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAIS" aria-expanded="{{ 'true' if has_ais_data else 'false' }}" aria-controls="collapseAIS">
-              AIS
-              {% if has_ais_data %}
-                <span class="text-danger ms-2">❗</span>
-              {% endif %}
-            </button>
-          </h2>
+    <!-- New Two-Column Layout for Dashboard Content -->
+  <div class="row" id="dashboard-main-content">
+    <!-- Left Navigation Panel (Summary Cards) -->
+    <div class="col-md-3" id="left-nav-panel">
+      <!-- Power Summary Card -->
+      <div class="summary-card active-card" data-category="power" data-mini-trend='{{ power_info.mini_trend | tojson | safe if power_info and "mini_trend" in power_info and power_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniPowerChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>Power</h5>
+            <div class="mini-summary">
+              {% if power_info and power_info['values'] is not none %}
+                Batt: {{ "%.0f"|format(power_info['values'].get('BatteryPercentage')) if power_info['values'].get('BatteryPercentage') is not none else 'N/A' }}%<br>
+                Net: {{ "%.0f"|format(power_info['values']['NetPowerWatts']) if power_info['values']['NetPowerWatts'] is not none else 'N/A' }} W
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
         </div>
-        <div id="collapseAIS" class="collapse {% if has_ais_data %}show{% endif %}">
+        <div class="summary-card-footer text-muted small">
+          {{ power_info.time_ago_str if power_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- CTD Summary Card -->
+      <div class="summary-card" data-category="ctd" data-mini-trend='{{ ctd_info.mini_trend | tojson | safe if ctd_info and "mini_trend" in ctd_info and ctd_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniCtdChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>CTD</h5>
+            <div class="mini-summary">
+              {% if ctd_info and ctd_info['values'] is not none %}
+                Temp: {{ "%.1f"|format(ctd_info['values']['WaterTemperature']) if ctd_info['values']['WaterTemperature'] is not none else 'N/A' }} °C<br>
+                Sal: {{ "%.1f"|format(ctd_info['values']['Salinity']) if ctd_info['values']['Salinity'] is not none else 'N/A' }} PSU
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ ctd_info.time_ago_str if ctd_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- Weather Summary Card -->
+      <div class="summary-card" data-category="weather" data-mini-trend='{{ weather_info.mini_trend | tojson | safe if weather_info and "mini_trend" in weather_info and weather_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniWeatherChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>Weather</h5>
+            <div class="mini-summary">
+              {% if weather_info and weather_info['values'] is not none %}
+                Air: {{ "%.1f"|format(weather_info['values']['AirTemperature']) if weather_info['values']['AirTemperature'] is not none else 'N/A' }} °C<br>
+                Wind: {{ "%.1f"|format(weather_info['values']['WindSpeed']) if weather_info['values']['WindSpeed'] is not none else 'N/A' }} kt
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ weather_info.time_ago_str if weather_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- Waves Summary Card -->
+      <div class="summary-card" data-category="waves" data-mini-trend='{{ wave_info.mini_trend | tojson | safe if wave_info and "mini_trend" in wave_info and wave_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniWaveChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>Waves</h5>
+            <div class="mini-summary">
+              {% if wave_info and wave_info['values'] is not none %}
+                Hs: {{ "%.1f"|format(wave_info['values']['SignificantWaveHeight']) if wave_info['values']['SignificantWaveHeight'] is not none else 'N/A' }} m<br>
+                Dp: {{ "%.0f"|format(wave_info['values']['MeanDirection']) if wave_info['values']['MeanDirection'] is not none else 'N/A' }} °
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ wave_info.time_ago_str if wave_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- VR2C Summary Card -->
+      <div class="summary-card" data-category="vr2c" data-mini-trend='{{ vr2c_info.mini_trend | tojson | safe if vr2c_info and "mini_trend" in vr2c_info and vr2c_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniVr2cChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>VR2C-MRx</h5>
+            <div class="mini-summary">
+              {% if vr2c_info and vr2c_info['values'] is not none %}
+                DC: {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else 'N/A' }}<br>
+                PC: {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else 'N/A' }}
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ vr2c_info.time_ago_str if vr2c_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- Fluorometer Summary Card -->
+      <div class="summary-card" data-category="fluorometer" data-mini-trend='{{ fluorometer_info.mini_trend | tojson | safe if fluorometer_info and "mini_trend" in fluorometer_info and fluorometer_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniFluorometerChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>Fluorometer</h5>
+            <div class="mini-summary">
+              {% if fluorometer_info and fluorometer_info['values'] is not none %}
+                C1: {{ "%.1f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else 'N/A' }}<br>
+                Temp: {{ "%.1f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else 'N/A' }} °C
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ fluorometer_info.time_ago_str if fluorometer_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- AIS Summary Card -->
+      <div class="summary-card" data-category="ais">
+        <div class="summary-card-main-content">
+          <div class="mini-chart-placeholder"></div> <!-- Placeholder for chart area -->
+          <div class="summary-card-text-content">   <!-- Removed full-width -->
+            <h5>AIS Contacts</h5>
+            <div class="mini-summary">
+              {% if ais_summary_data %}
+                {{ ais_summary_data | length }} recent
+              {% else %}
+                No recent
+              {% endif %}
+              {% if has_ais_data %}
+                <span class="text-danger ms-1">❗</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ ais_update_info.time_ago_str if ais_update_info else 'N/A' }}
+        </div>
+      </div>
+
+      <!-- Errors Summary Card -->
+      <div class="summary-card" data-category="errors">
+        <div class="summary-card-main-content">
+          <div class="mini-chart-placeholder"></div> <!-- Placeholder for chart area -->
+          <div class="summary-card-text-content">   <!-- Removed full-width -->
+            <h5>Errors</h5>
+            <div class="mini-summary">
+              {% if errors_summary_data %}
+                {{ errors_summary_data | length }} recent
+              {% else %}
+                No recent
+              {% endif %}
+              {% if has_errors_data %}
+                <span class="text-danger ms-1">❗</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ errors_update_info.time_ago_str if errors_update_info else 'N/A' }}
+        </div>
+      </div>
+
+    </div> <!-- End Left Navigation Panel -->
+
+    <!-- Right Main Display Area -->
+    <div class="col-md-9" id="main-display-area">
+      <div class="category-detail-view card mb-4" id="detail-ais" style="display: none;">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="mb-0">AIS Contacts</h2>
+          </div>
           <div class="card-body">
-             <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
+            <ul class="list-unstyled scrollable-list-card">
               {% if ais_summary_data %} {# Updated variable name #}
                 {% for v in ais_summary_data %} {# Updated variable name #}
                   <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if v.LastSeenTimestamp else "N/A" }}</li>
                 {% endfor %}
               {% else %}
-                Last data: N/A
+                <li>No recent AIS contacts.</li>
+              {% endif %}
+            </ul>
+          </div>
+          <div class="card-footer text-muted small">
+            {% if ais_update_info and ais_update_info.latest_timestamp_str != "N/A" %}
+              Last data: {{ ais_update_info.latest_timestamp_str }} ({{ ais_update_info.time_ago_str }})
+            {% else %}
+              Last data: N/A
             {% endif %}
           </div>
-          </ul>
-        </div>
-        <div class="card-footer text-muted small">
-          {% if ais_update_info and ais_update_info.latest_timestamp_str != "N/A" %}
-            Last data: {{ ais_update_info.latest_timestamp_str }} ({{ ais_update_info.time_ago_str }})
-          {% else %}
-            Last data: N/A
-          {% endif %}
         </div>
       </div>
-    </div>
-  </div> <!-- End of AIS row -->
 
-  <!-- New Row for Errors (Full Width) -->
-  <div class="row">
-    <!-- --- Errors Section Card --- -->
-    <div class="col-12 mb-4">
-      <div class="card"> {# Removed h-100 as it's a full row now #}
-        <div class="card-header">
-          <h2 class="mb-0">
-            <button class="btn btn-link text-decoration-none text-light p-0" type="button" data-bs-toggle="collapse" data-bs-target="#collapseErrors" aria-expanded="{{ 'true' if has_errors_data else 'false' }}" aria-controls="collapseErrors">
-              Errors
-              {% if has_errors_data %}
-                <span class="text-danger ms-2">❗</span>
-              {% endif %}
-            </button>
-          </h2>
-        </div>
-        <div id="collapseErrors" class="collapse {% if has_errors_data %}show{% endif %}">
+      <!-- Errors Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-errors" style="display: none;">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="mb-0">Errors</h2>
+          </div>
           <div class="card-body">
-               <ul class="list-unstyled scrollable-list-card"> {# Added scrollable class #}
+            <ul class="list-unstyled scrollable-list-card">
               {% if errors_summary_data %} {# Updated variable name #}
                 {% for err in errors_summary_data %} {# Updated variable name #}
                   <li>{{ err.Timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if err.Timestamp else "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
                 {% endfor %}
               {% else %}
-                <li>No recent errors.</li> {# Corrected message #}
+                <li>No recent errors.</li>
               {% endif %} {# Close the if/else for errors_summary_data #}
             </ul>
           </div>
@@ -173,13 +331,8 @@
           </div>
         </div>
       </div>
-    </div>
-  </div> <!-- End of Errors row -->
-
-  <div class="row">
-    <!-- Power Section Card -->
-    <!-- --- Power Section Card --- -->
-    <div class="col-md-6 mb-4">
+   <!-- Power Detail View (Initially Displayed or as per JS logic) -->
+      <div class="category-detail-view card mb-4" id="detail-power" style="display: block;"> <!-- Default visible -->
       <div class="card h-100">
         <div class="card-header">
           <h2>Power</h2>
@@ -187,24 +340,57 @@
         <div class="card-body">
           <div class="summary-content-area">
             {% if power_info and power_info['values'] is not none %}
-            <ul class="list-unstyled mb-3">
-              <li class="{% if power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 200 %}text-danger fw-bold{% elif power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 400 %}text-warning{% endif %}">
-                Battery (Wh): {{ "%.2f"|format(power_info['values']['BatteryWattHours']) if power_info['values']['BatteryWattHours'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li>
-                Solar Input (W): {{ "%.2f"|format(power_info['values']['SolarInputWatts']) if power_info['values']['SolarInputWatts'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li>
-               Power Draw (W): {{ "%.2f"|format(power_info['values']['PowerDrawWatts']) if power_info['values']['PowerDrawWatts'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-               <li class="{% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}text-warning{% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 5 %}text-success{% endif %}">
-                Net Power (W): {{ "%.2f"|format(power_info['values']['NetPowerWatts']) if power_info['values']['NetPowerWatts'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-                {% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}
-                  <span class="badge bg-warning text-dark ms-1">Discharging</span>
-               {% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 0 %}
-                  <span class="badge bg-success ms-1">Charging</span>
-                {% endif %}
-            </ul>
+            <div class="row mb-2"> <!-- First row of summary items -->
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li class="{% if power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 200 %}text-danger fw-bold{% elif power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 400 %}text-warning{% endif %}">
+                    Batt (Wh): {{ "%.0f"|format(power_info['values']['BatteryWattHours']) if power_info['values']['BatteryWattHours'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  </li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li class="{% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}text-warning{% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 5 %}text-success{% endif %}">
+                    Net (W): {{ "%.1f"|format(power_info['values']['NetPowerWatts']) if power_info['values']['NetPowerWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                    {% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}
+                      <span class="badge bg-warning text-dark ms-1 sm-badge">Discharging</span>
+                    {% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 0 %}
+                      <span class="badge bg-success ms-1 sm-badge">Charging</span>
+                    {% endif %}
+                  </li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li>Draw (W): {{ "%.1f"|format(power_info['values']['PowerDrawWatts']) if power_info['values']['PowerDrawWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}</li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0"><li>&nbsp;</li></ul> <!-- Placeholder -->
+              </div>
+            </div>
+            <div class="row"> <!-- Second row of summary items -->
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li>Solar (W): {{ "%.1f"|format(power_info['values']['SolarInputWatts']) if power_info['values']['SolarInputWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}</li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li>Panel 1 (W): {{ "%.1f"|format(power_info['values'].get('Panel1Power')) if power_info['values'].get('Panel1Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li>Panel 2 (W): {{ "%.1f"|format(power_info['values'].get('Panel2Power')) if power_info['values'].get('Panel2Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
+                </ul>
+              </div>
+              <div class="col-md-3">
+                <ul class="list-unstyled mb-0">
+                  <li>Panel 4 (W): {{ "%.1f"|format(power_info['values'].get('Panel4Power')) if power_info['values'].get('Panel4Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
+                </ul>
+              </div>
+            </div>
             {% elif power_info and power_info.latest_timestamp_str == "N/A" %} {# Check if info exists but no valid data #}
             <p>Data unavailable.</p>
             {% else %}
@@ -218,6 +404,15 @@
             </div>
             <canvas id="powerChart"></canvas>
           </div>
+          <!-- New Solar Panel Chart -->
+          <hr class="my-4">
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
+            <h5>Individual Solar Panel Power (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="solarPanelChart"></canvas>
+          </div>
         </div>
          <div class="card-footer text-muted small">
           <!-- Ensure this footer content is not affecting the main body height for alignment -->
@@ -230,9 +425,8 @@
       </div>
     </div>
 
-    <!-- CTD Section Card -->
-    <!-- --- CTD Section Card --- -->
-    <div class="col-md-6 mb-4">
+      <!-- CTD Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-ctd" style="display: none;">
       <div class="card h-100">
         <div class="card-header">
           <h2>CTD</h2>
@@ -280,12 +474,9 @@
         </div>
       </div>
     </div>
-  </div> <!-- End of first row -->
-
-  <div class="row">
-    <!-- Weather Section Card -->
-    <!-- --- Weather Section Card --- -->
-    <div class="col-md-6 mb-4">
+  
+      <!-- Weather Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-weather" style="display: none;">
       <div class="card h-100">
         <div class="card-header">
           <h2>Weather Sensor</h2>
@@ -320,6 +511,27 @@
             </div>
             <canvas id="weatherSensorChart"></canvas>
           </div>
+          <!-- Weather Forecast Embedded -->
+          <hr class="my-4"> <!-- Add a visual separator -->
+          <h4 class="mb-3">Weather Forecast</h4>
+          <div id="forecastDisplay">
+            <div id="forecastInitial" class="table-responsive" style="display: none;">
+                <p class="text-muted">Loading initial forecast...</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#forecastExtended" aria-expanded="false" aria-controls="forecastExtended" id="toggleForecastBtn" style="display: none;">
+              Show More
+            </button>
+            <div class="collapse mt-2" id="forecastExtended">
+              <div id="forecastExtendedContent" class="table-responsive">
+                <!-- Extended forecast will be rendered here by JS -->
+              </div>
+            </div>
+          </div>
+          <div class="text-muted small mt-2" id="forecastMetaInfo" style="display: none;">
+            <!-- Forecast metadata will be injected here by JavaScript -->
+          </div>
+          <!-- End Weather Forecast Embedded -->
+
         </div>
         <div class="card-footer text-muted small">
           {% if weather_info and weather_info.latest_timestamp_str != "N/A" %}
@@ -330,10 +542,8 @@
         </div>
       </div>
     </div>
-
-    <!-- Wave Section Card -->
-    <div class="col-md-6 mb-4">
-    <!-- --- Wave Section Card --- -->
+      <!-- Wave Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-waves" style="display: none;">
       <div class="card h-100">
         <div class="card-header">
           <h2>Wave</h2>
@@ -375,12 +585,9 @@
         </div>
       </div>
     </div>
-  </div> <!-- End of second row -->
 
-  <!-- New Row for VR2C and future sensor -->
-  <div class="row">
-    <!-- VR2C Section Card -->
-    <div class="col-md-6 mb-4">
+      <!-- VR2C Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-vr2c" style="display: none;">
       <div class="card h-100">
         <div class="card-header">
           <h2>VR2C-MRx Acoustic Receiver</h2>
@@ -422,9 +629,9 @@
         </div>
       </div>
     </div>
-    <!-- Placeholder for the next sensor card -->
-    <div class="col-md-6 mb-4">
-      <!-- C3 Fluorometer Section Card -->
+    
+      <!-- Fluorometer Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-fluorometer" style="display: none;">
       <div class="card h-100">
         <div class="card-header">
           <h2>C3 Fluorometer</h2>
@@ -469,44 +676,15 @@
         </div>
       </div>
     </div>
-  </div> <!-- End of VR2C and future sensor row -->
-
-  <!-- Weather Forecast Section Card (Full Width) -->
-  <div class="row">
-  <!-- --- Weather Forecast Section Card --- -->
-    <div class="col-12 mb-4">
-      <div class="card">
-        <div class="card-header">
-          <h2>Weather Forecast</h2>
-        </div>
-        <div class="card-body">
-          <div id="forecastDisplay">
-            <div id="forecastInitial" class="table-responsive" style="display: none;"> <!-- Initially hidden -->
-                <p class="text-muted">Loading initial forecast...</p>
-            </div>
-            <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#forecastExtended" aria-expanded="false" aria-controls="forecastExtended" id="toggleForecastBtn" style="display: none;">
-              Show More
-            </button>
-            <div class="collapse mt-2" id="forecastExtended">
-              <div id="forecastExtendedContent" class="table-responsive">
-                <!-- Extended forecast will be rendered here by JS -->
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="card-footer text-muted small" id="forecastMetaInfo" style="display: none;">
-          <!-- Forecast metadata will be injected here by JavaScript -->
-        </div>
-      </div>
-    </div>
-  </div> <!-- End of forecast row -->
-
-  <!-- --- Footer --- -->
+    </div> <!-- End Right Main Display Area -->
+  </div> <!-- End New Two-Column Layout / End Right Main Display Area -->
+    <!-- --- Footer --- -->
   <hr>
   <footer class="mt-4 mb-4">
     <small class="text-muted">
       Weather forecast data generated using ICON Wave forecast from the German Weather Service DWD.
       <a href="https://open-meteo.com/" target="_blank">Open-Meteo.com</a>.
+      Development assisted by Google's Gemini models.
     </small>
   </footer>
 
