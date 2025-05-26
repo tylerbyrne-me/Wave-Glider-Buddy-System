@@ -5,7 +5,7 @@ import httpx #async http requests
 import io
 import logging
 
-# logger = logging.getLogger(__name__) # Optional: configure if needed
+logger = logging.getLogger(__name__) # Keep this for actual operational logging
 DEFAULT_TIMEOUT = 10.0  # seconds
 RETRY_COUNT = 2         # Number of retries for loaders
 
@@ -34,10 +34,12 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
          # Reading file is synchronous, keep the function async for consistency if remote is an option
         try:
             return pd.read_csv(file_path)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             # If base_url is also provided, we might want to fall back.
             # For now, if base_path is given, we assume it's the primary target.
-            raise
+            # Log this as it's an important operational detail if a file is expected but not found.
+            logger.info(f"File not found at local path: {file_path}. Error: {e}")
+            raise # Re-raise the exception so the caller (app.py) can handle it
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
         # If an external client is provided, use it directly without an additional 'async with'.

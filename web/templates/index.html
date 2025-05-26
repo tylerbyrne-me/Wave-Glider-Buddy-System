@@ -114,7 +114,7 @@
             <div class="mini-summary">
               {% if power_info and power_info['values'] is not none %}
                 Batt: {{ "%.0f"|format(power_info['values'].get('BatteryPercentage')) if power_info['values'].get('BatteryPercentage') is not none else 'N/A' }}%<br>
-                Net: {{ "%.0f"|format(power_info['values']['NetPowerWatts']) if power_info['values']['NetPowerWatts'] is not none else 'N/A' }} W
+                Net: {{ "%.1f"|format(power_info['values'].get('BatteryChargeRateW')) if power_info['values'].get('BatteryChargeRateW') is not none else 'N/A' }} W
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -255,17 +255,27 @@
       <!-- Errors Summary Card -->
       <div class="summary-card" data-category="errors">
         <div class="summary-card-main-content">
-          <div class="mini-chart-placeholder"></div> <!-- Placeholder for chart area -->
+          <div class="mini-chart-placeholder"> <!-- Error list will go here -->
+            {% if not errors_summary_data %}
+              <span class="no-errors-message">No recent errors.</span>
+            {% else %}
+              <ul class="error-message-list">
+                {% for err in errors_summary_data[:2] %} {# Display up to the two most recent errors #}
+                  <li>
+                    <small class="text-muted">{{ err.Timestamp.strftime('%m/%d %H:%M') if err.Timestamp else "N/A" }}:</small>
+                    {{ err.ErrorMessage[:25] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 25 %}...{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
           <div class="summary-card-text-content">   <!-- Removed full-width -->
-            <h5>Errors</h5>
+            <h5>Errors {% if has_errors_data %}<span class="text-danger ms-1 position-absolute top-0 end-0 mt-1 me-1">❗</span>{% endif %}</h5>
             <div class="mini-summary">
               {% if errors_summary_data %}
                 {{ errors_summary_data | length }} recent
               {% else %}
-                No recent
-              {% endif %}
-              {% if has_errors_data %}
-                <span class="text-danger ms-1">❗</span>
+                0 recent
               {% endif %}
             </div>
           </div>
@@ -339,57 +349,58 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if power_info and power_info['values'] is not none %}
-            <div class="row mb-2"> <!-- First row of summary items -->
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li class="{% if power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 200 %}text-danger fw-bold{% elif power_info['values']['BatteryWattHours'] is not none and power_info['values']['BatteryWattHours'] < 400 %}text-warning{% endif %}">
-                    Batt (Wh): {{ "%.0f"|format(power_info['values']['BatteryWattHours']) if power_info['values']['BatteryWattHours'] is not none else '<span class="na-value">N/A</span>' | safe }}
-                  </li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li class="{% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}text-warning{% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 5 %}text-success{% endif %}">
-                    Net (W): {{ "%.1f"|format(power_info['values']['NetPowerWatts']) if power_info['values']['NetPowerWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}
-                    {% if power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] < 0 %}
-                      <span class="badge bg-warning text-dark ms-1 sm-badge">Discharging</span>
-                    {% elif power_info['values']['NetPowerWatts'] is not none and power_info['values']['NetPowerWatts'] > 0 %}
-                      <span class="badge bg-success ms-1 sm-badge">Charging</span>
-                    {% endif %}
-                  </li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li>Draw (W): {{ "%.1f"|format(power_info['values']['PowerDrawWatts']) if power_info['values']['PowerDrawWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}</li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0"><li>&nbsp;</li></ul> <!-- Placeholder -->
-              </div>
-            </div>
-            <div class="row"> <!-- Second row of summary items -->
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li>Solar (W): {{ "%.1f"|format(power_info['values']['SolarInputWatts']) if power_info['values']['SolarInputWatts'] is not none else '<span class="na-value">N/A</span>' | safe }}</li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li>Panel 1 (W): {{ "%.1f"|format(power_info['values'].get('Panel1Power')) if power_info['values'].get('Panel1Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li>Panel 2 (W): {{ "%.1f"|format(power_info['values'].get('Panel2Power')) if power_info['values'].get('Panel2Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
-                </ul>
-              </div>
-              <div class="col-md-3">
-                <ul class="list-unstyled mb-0">
-                  <li>Panel 4 (W): {{ "%.1f"|format(power_info['values'].get('Panel4Power')) if power_info['values'].get('Panel4Power') is not none else '<span class="na-value">N/A</span>' | safe }}</li>
-                </ul>
-              </div>
+            {% if power_info and power_info['values'] %} {# Use bracket notation for checking the item #}
+            <div class="power-task-manager-summary mb-3"> {# Added mb-3 for spacing before chart #}
+                <div class="row">
+                    <!-- Column 1 -->
+                    <div class="col-md-4 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Battery</div>
+                            <div class="power-summary-value-large" id="power-battery-soc">
+                                {{ "%.1f%%"|format(power_info['values'].BatteryPercentage) if power_info['values'].BatteryPercentage is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Charge Rate</div>
+                            <div class="power-summary-value-large" id="power-battery-charge-rate">
+                                {{ "%.1f W"|format(power_info['values'].BatteryChargeRateW) if power_info['values'].BatteryChargeRateW is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Time to Full</div>
+                            <div class="power-summary-value-large {% if power_info['values'].TimeToChargeStr == 'Fully Charged' %}status-text-success{% elif 'Discharging' in power_info['values'].TimeToChargeStr or 'Stalled' in power_info['values'].TimeToChargeStr %}status-text-warning{% elif 'h' not in power_info['values'].TimeToChargeStr and 'm' not in power_info['values'].TimeToChargeStr and power_info['values'].TimeToChargeStr != 'N/A' %}status-text-info{% endif %}" id="power-time-to-charge">
+                                {{ power_info['values'].TimeToChargeStr if power_info['values'].TimeToChargeStr is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 2 -->
+                    <div class="col-md-3 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Capacity</div>
+                            <div class="power-summary-value-large" id="power-battery-wh">
+                                {{ "%.0f Wh"|format(power_info['values'].BatteryWattHours) if power_info['values'].BatteryWattHours is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Avg Output (24h)</div>
+                            <div class="power-summary-value-large" id="power-avg-output">
+                                {{ "%.1f W"|format(power_info['values'].AvgOutputPortPower24hrW) if power_info['values'].AvgOutputPortPower24hrW is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 3 -->
+                    <div class="col-md-5 power-summary-column">
+                        <ul class="list-unstyled power-summary-details-list">
+                            <li><span class="power-summary-label">Solar (Now):</span><span class="power-summary-value-right" id="power-solar-now">{{ "%.1f W"|format(power_info['values'].SolarInputWatts) if power_info['values'].SolarInputWatts is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Solar (Avg 24h):</span><span class="power-summary-value-right" id="power-solar-avg-24h">{{ "%.1f W"|format(power_info['values'].AvgSolarInput24hrW) if power_info['values'].AvgSolarInput24hrW is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 1:</span><span class="power-summary-value-right" id="power-panel1">{{ "%.1f W"|format(power_info['values'].Panel1Power) if power_info['values'].Panel1Power is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 2:</span><span class="power-summary-value-right" id="power-panel2">{{ "%.1f W"|format(power_info['values'].Panel2Power) if power_info['values'].Panel2Power is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 3:</span><span class="power-summary-value-right" id="power-panel3">{{ "%.1f W"|format(power_info['values'].Panel4Power) if power_info['values'].Panel4Power is not none else 'N/A' }}</span></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
             {% elif power_info and power_info.latest_timestamp_str == "N/A" %} {# Check if info exists but no valid data #}
             <p>Data unavailable.</p>
@@ -433,24 +444,42 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if ctd_info and ctd_info['values'] is not none %}
-            <ul class="list-unstyled mb-3">
-              <li class="{% if ctd_info['values']['WaterTemperature'] is not none and (ctd_info['values']['WaterTemperature'] < 5 or ctd_info['values']['WaterTemperature'] > 30) %}text-warning{% endif %}"> {# Added warning threshold #}
-                Water Temperature (°C): {{ "%.2f"|format(ctd_info['values']['WaterTemperature']) if ctd_info['values']['WaterTemperature'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li>
-               Salinity (PSU): {{ "%.2f"|format(ctd_info['values']['Salinity']) if ctd_info['values']['Salinity'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li>
-                Conductivity (S/m): {{ "%.2f"|format(ctd_info['values']['Conductivity']) if ctd_info['values']['Conductivity'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li>
-                Dissolved Oxygen (Hz): {{ "%.2f"|format(ctd_info['values']['DissolvedOxygen']) if ctd_info['values']['DissolvedOxygen'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-               <li>
-                Pressure (dbar): {{ "%.1f"|format(ctd_info['values']['Pressure']) if ctd_info['values']['Pressure'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-            </ul>
+            {% if ctd_info and ctd_info['values'] %} {# Use bracket notation for checking the item #}
+            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+                <div class="row">
+                    <!-- Column 1: Water Temp, Conductivity, Salinity -->
+                    <div class="col-md-6 power-summary-column"> {# Adjust col-md-X as needed #}
+                        <div class="text-center">
+                            <div class="power-summary-header">Water Temperature</div>
+                            <div class="power-summary-value-large" id="ctd-water-temp">
+                                {{ "%.2f °C"|format(ctd_info['values'].WaterTemperature) if ctd_info['values'].WaterTemperature is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Conductivity</div>
+                            <div class="power-summary-value-large" id="ctd-conductivity">
+                                {{ "%.3f S/m"|format(ctd_info['values'].Conductivity) if ctd_info['values'].Conductivity is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Salinity</div>
+                            <div class="power-summary-value-large" id="ctd-salinity">
+                                {{ "%.2f PSU"|format(ctd_info['values'].Salinity) if ctd_info['values'].Salinity is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 2: Dissolved Oxygen, Hi/Lo Temp, Pressure -->
+                    <div class="col-md-6 power-summary-column"> {# Adjust col-md-X as needed #}
+                        <ul class="list-unstyled power-summary-details-list">
+                            <li><span class="power-summary-label">Dissolved Oxygen:</span><span class="power-summary-value-right" id="ctd-do">{{ "%.1f Hz"|format(ctd_info['values'].DissolvedOxygen) if ctd_info['values'].DissolvedOxygen is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Highest Temp (24h):</span><span class="power-summary-value-right" id="ctd-hi-temp">{{ "%.2f °C"|format(ctd_info['values'].HighestWaterTemperature24h) if ctd_info['values'].HighestWaterTemperature24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Lowest Temp (24h):</span><span class="power-summary-value-right" id="ctd-lo-temp">{{ "%.2f °C"|format(ctd_info['values'].LowestWaterTemperature24h) if ctd_info['values'].LowestWaterTemperature24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure:</span><span class="power-summary-value-right" id="ctd-pressure">{{ "%.1f dbar"|format(ctd_info['values'].Pressure) if ctd_info['values'].Pressure is not none else 'N/A' }}</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
             {% elif ctd_info and ctd_info.latest_timestamp_str == "N/A" %} {# Check if info exists but no valid data #}
             <p>Data unavailable.</p>
             {% else %} 
@@ -463,6 +492,15 @@
               <span class="visually-hidden">Loading...</span>
             </div>
             <canvas id="ctdChart"></canvas>
+          </div>
+          <!-- New CTD Profile Chart -->
+          <hr class="my-4">
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>CTD Profile Aux (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="ctdProfileChart"></canvas>
           </div>
         </div>
          <div class="card-footer text-muted small">
@@ -483,21 +521,54 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if weather_info and weather_info['values'] is not none %} {# Check if info and values exist #}
-            <ul class="list-unstyled mb-3">
-              <li> {# No specific threshold for Air Temp #}
-                Air Temperature (°C): {{ "%.1f"|format(weather_info['values']['AirTemperature']) if weather_info['values']['AirTemperature'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-               <li class="{% if weather_info['values']['WindSpeed'] is not none and weather_info['values']['WindSpeed'] > 20 %}text-warning{% elif weather_info['values']['WindSpeed'] is not none and weather_info['values']['WindSpeed'] > 30 %}text-danger fw-bold{% endif %}">
-                Wind Speed (kt): {{ "%.1f"|format(weather_info['values']['WindSpeed']) if weather_info['values']['WindSpeed'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-               <li class="{% if weather_info['values']['WindGust'] is not none and weather_info['values']['WindGust'] > 25 %}text-warning{% elif weather_info['values']['WindGust'] is not none and weather_info['values']['WindGust'] > 35 %}text-danger fw-bold{% endif %}">
-                Wind Gust (kt): {{ "%.1f"|format(weather_info['values']['WindGust']) if weather_info['values']['WindGust'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li> {# No specific threshold for Wind Dir #}
-                Wind Direction (°): {{ "%.0f"|format(weather_info['values']['WindDirection']) if weather_info['values']['WindDirection'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-            </ul>
+            {% if weather_info and weather_info['values'] %}
+            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+                <div class="row">
+                    <!-- Column 1: Wind Speed, Wind Direction -->
+                    <div class="col-md-4 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Wind Speed</div>
+                            <div class="power-summary-value-large" id="weather-wind-speed">
+                                {{ "%.1f kt"|format(weather_info['values'].WindSpeed) if weather_info['values'].WindSpeed is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Wind Direction</div>
+                            <div class="power-summary-value-large" id="weather-wind-dir">
+                                {{ "%.0f °"|format(weather_info['values'].WindDirection) if weather_info['values'].WindDirection is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 2: Gust Speed, Gust Direction -->
+                    <div class="col-md-4 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Gust Speed</div>
+                            <div class="power-summary-value-large" id="weather-gust-speed">
+                                {{ "%.1f kt"|format(weather_info['values'].WindGust) if weather_info['values'].WindGust is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Gust Direction</div>
+                            <div class="power-summary-value-large" id="weather-gust-dir">
+                                {{ "%.0f °"|format(weather_info['values'].GustDirection) if weather_info['values'].GustDirection is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 3: Air Temp & Pressure Details -->
+                    <div class="col-md-4 power-summary-column">
+                        <ul class="list-unstyled power-summary-details-list">
+                            <li><span class="power-summary-label">Air Temp (Now):</span><span class="power-summary-value-right" id="weather-air-temp-now">{{ "%.1f °C"|format(weather_info['values'].AirTemperature) if weather_info['values'].AirTemperature is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Air Temp High (24h):</span><span class="power-summary-value-right" id="weather-air-temp-high">{{ "%.1f °C"|format(weather_info['values'].AirTemperatureHigh24h) if weather_info['values'].AirTemperatureHigh24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Air Temp Low (24h):</span><span class="power-summary-value-right" id="weather-air-temp-low">{{ "%.1f °C"|format(weather_info['values'].AirTemperatureLow24h) if weather_info['values'].AirTemperatureLow24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure (Now):</span><span class="power-summary-value-right" id="weather-pressure-now">{{ "%.1f mbar"|format(weather_info['values'].BarometricPressure) if weather_info['values'].BarometricPressure is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure High (24h):</span><span class="power-summary-value-right" id="weather-pressure-high">{{ "%.1f mbar"|format(weather_info['values'].PressureHigh24h) if weather_info['values'].PressureHigh24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure Low (24h):</span><span class="power-summary-value-right" id="weather-pressure-low">{{ "%.1f mbar"|format(weather_info['values'].PressureLow24h) if weather_info['values'].PressureLow24h is not none else 'N/A' }}</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
             {% elif weather_info and weather_info.latest_timestamp_str == "N/A" %} {# Check if info exists but no valid data #}
             <p>Data unavailable.</p> {# Display this if weather_info exists but has no valid data #}
             {% else %}
@@ -550,18 +621,53 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if wave_info and wave_info['values'] is not none %} {# Check if info and values exist #}
-            <ul class="list-unstyled mb-3">
-              <li class="{% if wave_info['values']['SignificantWaveHeight'] is not none and wave_info['values']['SignificantWaveHeight'] > 2 %}text-warning{% elif wave_info['values']['SignificantWaveHeight'] is not none and wave_info['values']['SignificantWaveHeight'] > 3.5 %}text-danger fw-bold{% endif %}">
-                Significant Wave Height (m): {{ "%.2f"|format(wave_info['values']['SignificantWaveHeight']) if wave_info['values']['SignificantWaveHeight'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li> {# No specific threshold for Wave Period #}
-               Wave Period (s): {{ "%.1f"|format(wave_info['values']['WavePeriod']) if wave_info['values']['WavePeriod'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-              <li> {# No specific threshold for Mean Wave Direction #}
-                Mean Wave Direction (°): {{ "%.0f"|format(wave_info['values']['MeanDirection']) if wave_info['values']['MeanDirection'] is not none else '<span class="na-value">N/A</span>' | safe }} {# Use safe filter for HTML #}
-              </li>
-            </ul>
+            {% if wave_info and wave_info['values'] %}
+            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+                <div class="row">
+                    <!-- Column 1: Wave Height, Wave Height 24hr Avg -->
+                    <div class="col-md-4 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Wave Height (Hs)</div>
+                            <div class="power-summary-value-large" id="wave-height-now">
+                                {{ "%.2f m"|format(wave_info['values'].SignificantWaveHeight) if wave_info['values'].SignificantWaveHeight is not none else 'N/A' }}
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <div class="power-summary-header">Avg Hs (24h)</div>
+                            <div class="power-summary-value-large" id="wave-height-avg-24h">
+                                {{ "%.2f m"|format(wave_info['values'].SignificantWaveHeightAvg24h) if wave_info['values'].SignificantWaveHeightAvg24h is not none else 'N/A' }}
+                            </div>
+                        </div>
+                    </div>
+            
+                    <!-- Column 2: Wave Direction -->
+                    <div class="col-md-4 power-summary-column">
+                        <div class="text-center">
+                            <div class="power-summary-header">Wave Direction (Dp)</div>
+                            <div class="power-summary-value-large" id="wave-direction">
+                                {{ "%.0f °"|format(wave_info['values'].MeanDirection) if wave_info['values'].MeanDirection is not none else 'N/A' }}
+                            </div>
+                            {% if wave_info['values'].MeanDirection is not none %}
+                            <div class="wave-propagation-arrow-container">
+                                <span class="wave-propagation-arrow" 
+                                      style="transform: rotate({{ (wave_info['values'].MeanDirection + 180) % 360 }}deg);">
+                                    &uarr; {# Unicode for upward arrow #}
+                                </span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+            
+                    <!-- Column 3: Amplitude, Period, Sample Gaps -->
+                    <div class="col-md-4 power-summary-column">
+                        <ul class="list-unstyled power-summary-details-list">
+                            <li><span class="power-summary-label">Amplitude (A):</span><span class="power-summary-value-right" id="wave-amplitude">{{ "%.2f m"|format(wave_info['values'].WaveAmplitude) if wave_info['values'].WaveAmplitude is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Period (Tp):</span><span class="power-summary-value-right" id="wave-period">{{ "%.1f s"|format(wave_info['values'].WavePeriod) if wave_info['values'].WavePeriod is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Sample Gaps:</span><span class="power-summary-value-right {% if wave_info['values'].SampleGaps is not none and wave_info['values'].SampleGaps > 10 %}text-danger fw-bold{% elif wave_info['values'].SampleGaps is not none and wave_info['values'].SampleGaps > 2 %}text-warning{% endif %}" id="wave-sample-gaps">{{ "%.0f"|format(wave_info['values'].SampleGaps) if wave_info['values'].SampleGaps is not none else 'N/A' }}</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
             {% elif wave_info and wave_info.latest_timestamp_str == "N/A" %} {# Check if info exists but no valid data #}
             <p>Data unavailable.</p>
             {% else %}
@@ -574,6 +680,34 @@
               <span class="visually-hidden">Loading...</span>
             </div>
             <canvas id="waveChart"></canvas>
+          </div>
+          <!-- New Wave Chart: Height vs Direction -->
+          <hr class="my-4">
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>Wave Height & Direction (Last 72 hours, 1-hour avg)</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <canvas id="waveHeightDirectionChart"></canvas>
+          </div>
+
+          <!-- New Row for Amplitude Charts -->
+          <hr class="my-4">
+          <div class="row mt-3">
+            <div class="col-md-6">
+              <div class="chart-container" style="position: relative; height: 250px; width: 100%;">
+                <h5>Wave Amplitude (A) (Last 72 hours, 1-hour avg)</h5>
+                <div class="chart-spinner spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>
+                <canvas id="waveAmplitudeLeftChart"></canvas>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="chart-container" style="position: relative; height: 250px; width: 100%;">
+                <h5>Wave Amplitude (A) - Alt Axis (Last 72 hours, 1-hour avg)</h5>
+                <div class="chart-spinner spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>
+                <canvas id="waveAmplitudeRightChart"></canvas>
+              </div>
+            </div>
           </div>
         </div>
         <div class="card-footer text-muted small">

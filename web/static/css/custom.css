@@ -1,3 +1,9 @@
+html {
+  /* Reduce base font size to scale rem and em units accordingly */
+  /* 100% is typically 16px. 16px * 0.67 = ~10.72px. Using % is often smoother. */
+  font-size: 67%;
+}
+
 body {
   /* You can set a global font family here if you want to override Bootstrap's default */
   font-family: 'Roboto', sans-serif; /* Example: Using Roboto */
@@ -5,25 +11,26 @@ body {
 
 .card {
   /* Add a subtle border that works with the dark theme */
-  border: 1px solid rgba(255, 255, 255, 0.125);
+  /* 1px * 0.67 = 0.67px. Consider keeping at 1px if too thin, or use a lighter color for perceived thinness. */
+  border: 1px solid rgba(255, 255, 255, 0.125); /* Kept at 1px for visibility, adjust if needed */
   /* You could add a very subtle box-shadow if desired, but be careful not to overdo it */
   /* box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); */
   transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out; /* For hover effect */
 }
 
 .card:hover {
-  transform: translateY(-2px); /* Slight lift on hover */
+  transform: translateY(-1px); /* Scaled: -2px * 0.67 = -1.34px, rounded to -1px */
   box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15); /* Slightly more pronounced shadow on hover */
 }
 
 .card-header h2, .card-header h5 {
   margin-bottom: 0; /* Remove default bottom margin from headings in card headers */
-  font-size: 1.25rem; /* Slightly smaller header for cards */
+  font-size: 1.25rem; /* Will scale with html font-size. Original: 20px, New: ~13.4px */
 }
 
 .card-body ul {
-  padding-left: 1.2rem; /* Adjust padding for lists inside cards if needed */
-  margin-bottom: 1rem; /* Ensure some space below lists before charts */
+  padding-left: 1.2rem; /* Will scale */
+  margin-bottom: 1rem; /* Will scale */
 }
 
 .card-body li {
@@ -32,7 +39,7 @@ body {
 
 /* Refined chart container to ensure spinner is centered */
 .chart-container {
-  /* min-height: 300px; /* Ensure container has a minimum height for spinner visibility */
+  /* min-height: 201px; /* Scaled: 300px * 0.67 = 201px */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -57,12 +64,12 @@ footer .text-muted {
 }
 
 .scrollable-list-card {
-  max-height: 250px; /* Adjust as needed */
+  max-height: 168px; /* Scaled: 250px * 0.67 = 167.5px, rounded */
   overflow-y: auto;
 }
 
 .summary-content-area {
-  min-height: 150px; /* Adjust this value as needed */
+  min-height: 101px; /* Scaled: 150px * 0.67 = 100.5px, rounded */
   /* You can add a subtle border for debugging alignment if you like:
      border: 1px solid red; 
      Remove it once you're happy with the alignment.
@@ -90,20 +97,20 @@ footer .text-muted {
 
 #left-nav-panel {
   /* background-color: #2c3e50; */ /* Slightly different background for distinction */
-  padding: 15px;
-  height: calc(100vh - 250px); /* Adjust based on your header/footer height */
+  padding: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
+  height: calc(100vh - 168px); /* Scaled: 250px * 0.67 = 167.5px, rounded */
   overflow-y: auto;
   border-right: 1px solid #444; /* Separator line */
   display: flex;
   flex-direction: column;
-  gap: 10px; /* Space between summary cards */
+  gap: 7px; /* Scaled: 10px * 0.67 = 6.7px, rounded */
 }
 
 .summary-card {
   background-color: var(--bs-card-bg); /* Use Bootstrap card background */
-  border: 1px solid var(--bs-border-color);
+  border: 1px solid var(--bs-border-color); /* Kept at 1px */
   border-radius: var(--bs-card-border-radius);
-  padding: 10px;
+  padding: 7px; /* Scaled: 10px * 0.67 = 6.7px, rounded */
   cursor: pointer;
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
@@ -116,11 +123,11 @@ footer .text-muted {
 .summary-card.active-card {
   background-color: #3a3f44; /* A subtle, slightly lighter grey for dark mode active state */
   border-color: #52585f;     /* A slightly more pronounced border for the active card */
-  border-left-width: 3px;    /* Emphasize the left border */
+  border-left-width: 2px;    /* Scaled: 3px * 0.67 = 2.01px, rounded */
   border-left-color: rgba(150, 180, 255, 0.8); /* Accent color for the left border, (default miniChartLineColor) */
   /* The main text color is handled by the more specific rules below to ensure readability */
   /* Ensure padding is consistent or adjusted for the new internal layout */
-  padding: 8px; /* Slightly reduced padding for the card itself */
+  padding: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
 }
 
 .summary-card.active-card h5,
@@ -142,12 +149,13 @@ footer .text-muted {
   display: flex;
   flex-direction: row; /* Chart and text side-by-side */
   align-items: center; /* Vertically align chart and text block */
-  margin-bottom: 8px; /* Space before the footer */
+  margin-bottom: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
 }
 
 .summary-card-text-content {
   flex-grow: 1; /* Allow text content to take remaining space */
-  padding-left: 10px; /* Space between chart and text */
+  padding-left: 7px; /* Scaled: 10px * 0.67 = 6.7px, rounded */
+  position: relative; /* Establish positioning context for absolute children like the error icon */
 }
 
 .summary-card-text-content.full-width { /* For cards without a chart like AIS/Errors */
@@ -156,19 +164,19 @@ footer .text-muted {
 }
 
 .summary-card h5 {
-  margin-bottom: 5px;
-  font-size: 1.25rem;
+  margin-bottom: 3px; /* Scaled: 5px * 0.67 = 3.35px, rounded */
+  font-size: 1.25rem; /* Will scale with html font-size */
   font-weight: 500;
 }
 
 .mini-summary {
-  font-size: 0.85rem;
-  margin-bottom: 8px;
+  font-size: 0.85rem; /* Will scale */
+  margin-bottom: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
   line-height: 1.3;
 }
 
 .mini-chart-container {
-  height: 70px; /* Increased height slightly */
+  height: 47px; /* Scaled: 70px * 0.67 = 46.9px, rounded */
   width: 80%;  /* Chart takes about 35% of the main content width - adjust as needed */
   /* margin-bottom: 5px; /* This might not be needed if align-items: center is working well */
   /* background-color: rgba(0,0,0,0.1); */ /* Optional: slight bg for chart area */
@@ -176,8 +184,15 @@ footer .text-muted {
 
 .mini-chart-placeholder {
   width: 80%; /* Match the width of .mini-chart-container */
-  height: 1px; /* Minimal height, as it's just a spacer. Or match .mini-chart-container's height if vertical alignment needs it. */
+  height: 47px; /* Match .mini-chart-container height */
   flex-shrink: 0; /* Prevent it from shrinking */
+  display: flex;
+  flex-direction: column; /* Stack items vertically */
+  justify-content: center; /* Center "No errors" message / align list */
+  align-items: flex-start; /* Align list to the start */
+  padding: 2px 4px; /* Minimal padding */
+  overflow: hidden; /* Hide overflow for the placeholder itself */
+  /* background-color: rgba(255,255,255,0.05); /* Optional: for debugging area */
 }
 
 .mini-chart-container canvas {
@@ -186,17 +201,45 @@ footer .text-muted {
   width: 100% !important;
 }
 
+.mini-chart-placeholder .error-message-list { /* Target ul inside placeholder */
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 100%; /* List takes full width of placeholder */
+  font-size: 0.75rem; /* Approx 8px with 67% root font. Adjust as needed. */
+  line-height: 1.3; /* Adjust for readability */
+  max-height: 100%; /* Ensure list doesn't overflow placeholder height */
+  overflow-y: auto; /* Add scroll if content exceeds max-height */
+}
+
+.mini-chart-placeholder .error-message-list li {
+  margin-bottom: 1px; /* Very tight spacing */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-chart-placeholder .error-message-list li small.text-muted {
+    font-size: 0.9em; /* Slightly smaller for the timestamp part */
+}
+
+.mini-chart-placeholder .no-errors-message { /* Target span for "no errors" */
+  font-size: 0.85rem; /* Similar to .mini-summary font size */
+  color: #888; /* Muted color */
+  text-align: center;
+  width: 100%;
+}
+
 .summary-card-footer {
   font-size: 0.75rem;
-  border-top: 1px solid #444;
-  padding-top: 5px;
-  margin-top: 8px;
+  border-top: 1px solid #444; /* Kept at 1px */
+  padding-top: 3px; /* Scaled: 5px * 0.67 = 3.35px, rounded */
+  margin-top: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
 }
 
 #main-display-area {
-  padding: 15px;
+  padding: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   overflow-y: auto; /* If content in right panel might also overflow */
-  height: calc(100vh - 250px); /* Match left panel or adjust */
+  height: calc(100vh - 168px); /* Scaled: 250px * 0.67 = 167.5px, rounded */
 }
 
 /* Ensure category detail views fill the card height if their content is short */
@@ -206,11 +249,80 @@ footer .text-muted {
 
 /* Adjust chart container height in the main display area if needed */
 #main-display-area .chart-container {
-  height: 600px; /* Significantly increased height for large charts */
-  min-height: 400px; /* Ensure it has a good minimum height too */
+  height: 402px; /* Scaled: 600px * 0.67 = 402px */
+  min-height: 268px; /* Scaled: 400px * 0.67 = 268px */
   /* The canvas itself will be managed by Chart.js to fill this container */
   margin-top: 1.5rem !important; /* Ensure a bit more space above the chart */
 }
+
+/* Power Task Manager Summary Styles */
+.power-task-manager-summary {
+  /* border: 1px solid #444; */ /* Optional: for visual separation */
+  /* padding: 10px; */ /* Scaled: 15px * 0.67 = 10px */
+}
+
+.power-summary-column .text-center .power-summary-header {
+  font-size: 0.9rem; /* Will scale with html font-size: 67% */
+  color: #adb5bd; /* Muted text color from Bootstrap's default dark theme */
+  margin-bottom: 0.1rem; /* Small space */
+  text-transform: uppercase;
+  letter-spacing: 0.5px; /* Slight letter spacing for headers */
+  font-weight: 400;
+}
+
+.power-summary-column .text-center .power-summary-value-large {
+  font-size: 2.2rem; /* Large font, will scale. (e.g., 2.2 * 16px * 0.67 = ~23.5px) */
+  font-weight: 300; /* Lighter font weight for large numbers */
+  color: #e9ecef; /* Brighter text color */
+  line-height: 1.1; /* Adjust line height for large font */
+}
+
+.power-summary-details-list {
+  font-size: 0.9rem; /* Base size for this list, will scale */
+  padding-left: 0; /* Remove default ul padding */
+}
+
+.power-summary-details-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0; /* Approx 3px scaled */
+  border-bottom: 1px solid #394046; /* Subtle separator for dark theme */
+}
+.power-summary-details-list li:last-child {
+  border-bottom: none;
+}
+
+.power-summary-label {
+  color: #adb5bd; /* Muted text color for labels */
+}
+
+.power-summary-value-right {
+  font-weight: 500; /* Slightly bolder for values */
+  color: #e9ecef; /* Brighter text color */
+}
+
+/* Status text styling for Time To Charge if it's not a numeric time */
+.status-text-success { color: var(--bs-success-text-emphasis) !important; font-size: 1.5rem; font-weight: 400; } /* Adjusted font-size for status text */
+.status-text-warning { color: var(--bs-warning-text-emphasis) !important; font-size: 1.5rem; font-weight: 400; } /* Adjusted font-size for status text */
+.status-text-info { color: var(--bs-info-text-emphasis) !important; font-size: 1.5rem; font-weight: 400; } /* Adjusted font-size for status text */
+
+.wave-propagation-arrow-container {
+  margin-top: 1rem; /* Provides a little space below the numeric direction */
+}
+
+.wave-propagation-arrow {
+  display: inline-block; /* Allows transform and respects line height */
+  font-size: 3.5rem;     /* Arrow size, scales with root font-size. (1.8 * 16px * 0.67 = ~19.3px) */
+  line-height: 1;        /* Prevents extra vertical space due to large font size */
+  color: #ced4da;       /* Arrow color, adjust as needed for dark theme */
+}
+
+/* .wave-propagation-label {
+  font-size: 0.9rem;     /* Label size, similar to .power-summary-header. (0.9 * 16px * 0.67 = ~9.6px) 
+  color: #adb5bd;       /* Muted color for the label 
+  display: block;        /* Ensures it takes its own line if needed 
+  margin-top: -0.3rem;   /* Fine-tune vertical position relative to the arrow 
+} */
 
 .sm-badge {
     font-size: 1.0em; /* Adjust as needed */
@@ -225,11 +337,11 @@ footer .text-muted {
 
   #left-nav-panel {
     height: auto; /* Allow left panel to size to content */
-    max-height: 300px; /* Or a preferred max height with scroll */
+    max-height: 201px; /* Scaled: 300px * 0.67 = 201px */
     overflow-y: auto;
     border-right: none;
     border-bottom: 1px solid #444; /* Separator line when stacked */
-    margin-bottom: 15px;
+    margin-bottom: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   }
 
   #main-display-area {
