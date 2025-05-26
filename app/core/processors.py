@@ -11,10 +11,10 @@ def standardize_timestamp_column(df: pd.DataFrame, preferred: str = "Timestamp")
     for col in df.columns:
         lower_col = col.lower()
         if "time" in lower_col or col in ["timeStamp", "gliderTimeStamp", "lastLocationFix"]:
+            # logger.debug(f"Standardized timestamp column: '{col}' to '{preferred}'.")
             df = df.rename(columns={col: preferred})
-            logger.debug(f"Standardized timestamp column: '{col}' to '{preferred}'.")
             return df
-    logger.debug(f"No standardizable timestamp column found for preferred name '{preferred}'. Columns: {df.columns.tolist()}")
+    # logger.debug(f"No standardizable timestamp column found for preferred name '{preferred}'. Columns: {df.columns.tolist()}")
     return df
 
 def _initial_dataframe_setup(df: pd.DataFrame, target_timestamp_col: str) -> pd.DataFrame:
@@ -24,7 +24,7 @@ def _initial_dataframe_setup(df: pd.DataFrame, target_timestamp_col: str) -> pd.
     Returns an empty DataFrame if input is invalid or processing results in an empty DataFrame.
     """
     if df is None or df.empty:
-        logger.debug(f"Input DataFrame for '{target_timestamp_col}' processing is None or empty.")
+        # logger.debug(f"Input DataFrame for '{target_timestamp_col}' processing is None or empty.")
         return pd.DataFrame()
 
     df_processed = df.copy() # Work on a copy to avoid modifying the original DataFrame
@@ -37,8 +37,8 @@ def _initial_dataframe_setup(df: pd.DataFrame, target_timestamp_col: str) -> pd.
     df_processed[target_timestamp_col] = pd.to_datetime(df_processed[target_timestamp_col], errors='coerce', utc=True)
     df_processed = df_processed.dropna(subset=[target_timestamp_col])
 
-    if df_processed.empty:
-        logger.debug(f"DataFrame became empty after timestamp processing for '{target_timestamp_col}'.")
+    # if df_processed.empty:
+        # logger.debug(f"DataFrame became empty after timestamp processing for '{target_timestamp_col}'.")
     return df_processed
 
 def preprocess_power_df(df):
@@ -63,18 +63,39 @@ def preprocess_power_df(df):
         elif new_name not in df_processed.columns : # Ensure new_name column exists if old_name wasn't there
              df_processed[new_name] = np.nan
 
+    # Handle battery_charging_power_w
+    # The raw column from AMPS data is typically 'batteryChargingPower'
+    raw_battery_charge_col = 'batteryChargingPower'
+    target_battery_charge_col = 'battery_charging_power_w'
+    if raw_battery_charge_col in df_processed.columns:
+        df_processed[target_battery_charge_col] = pd.to_numeric(df_processed[raw_battery_charge_col], errors='coerce') / 1000.0 # Convert mW to W
+        # Optionally drop the raw column if it's different and not needed elsewhere,
+        # but ensure it's not one of the columns already processed in transformations.
+        if raw_battery_charge_col != target_battery_charge_col and raw_battery_charge_col not in [t[0] for t in transformations if t[1] == raw_battery_charge_col]:
+            df_processed = df_processed.drop(columns=[raw_battery_charge_col], errors='ignore')
+    elif target_battery_charge_col not in df_processed.columns: # If raw wasn't there, ensure target exists as NaN
+        df_processed[target_battery_charge_col] = np.nan
+
+    # Handle output_port_power_w
+    # This should be the same data as PowerDrawWatts, which was derived from the raw 'outputPortPower'
+    target_output_power_col = 'output_port_power_w'
+    if 'PowerDrawWatts' in df_processed.columns:
+        df_processed[target_output_power_col] = df_processed['PowerDrawWatts'] # Already numeric
+    elif target_output_power_col not in df_processed.columns:
+        df_processed[target_output_power_col] = np.nan
+
     # Calculate NetPowerWatts safely
     solar_watts = pd.to_numeric(df_processed.get("SolarInputWatts"), errors='coerce')
     power_draw = pd.to_numeric(df_processed.get("PowerDrawWatts"), errors='coerce')
 
     # Check if original columns for calculation existed to decide if NetPower can be calculated
     if "SolarInputWatts" in df_processed.columns and "PowerDrawWatts" in df_processed.columns:
-        # Ensure both are numeric before subtraction; NaNs will propagate correctly
         df_processed["NetPowerWatts"] = solar_watts - power_draw
     else:
         df_processed["NetPowerWatts"] = np.nan
 
-    expected_cols = ["Timestamp", "BatteryWattHours", "SolarInputWatts", "PowerDrawWatts", "NetPowerWatts"]
+    expected_cols = ["Timestamp", "BatteryWattHours", "SolarInputWatts", "PowerDrawWatts", "NetPowerWatts",
+                     target_battery_charge_col, target_output_power_col]
     for col in expected_cols:
         if col not in df_processed.columns:
             df_processed[col] = np.nan
@@ -114,10 +135,12 @@ def preprocess_weather_df(df):
         "avgWindSpeed(kt)": "WindSpeed",
         "gustSpeed(kt)": "WindGust",
         "avgWindDir(deg)": "WindDirection",
+        "avgPress(mbar)": "BarometricPressure", # Changed to use avgPress(mbar) from CSV
     }
     df_processed = df_processed.rename(columns=rename_map)
 
     expected_final_cols = [timestamp_col] + list(rename_map.values())
+    
     for target_col in expected_final_cols:
         if target_col not in df_processed.columns:
             df_processed[target_col] = np.nan
@@ -135,6 +158,7 @@ def preprocess_wave_df(df):
         "hs (m)": "SignificantWaveHeight",
         "tp (s)": "WavePeriod",
         "dp (deg)": "MeanWaveDirection",
+        "sample Gaps": "SampleGaps", # Corrected to match CSV header "sample Gaps"
     }
     df_processed = df_processed.rename(columns=rename_map)
 
@@ -209,7 +233,7 @@ def preprocess_error_df(df):
 
 def preprocess_vr2c_df(df):
     timestamp_col = "Timestamp"
-    logger.info(f"VR2C Preprocessing: Initial df columns: {df.columns.tolist()}")
+    # logger.info(f"VR2C Preprocessing: Initial df columns: {df.columns.tolist()}")
     
     df_processed = _initial_dataframe_setup(df, timestamp_col)
     if df_processed.empty:
@@ -242,13 +266,13 @@ def preprocess_vr2c_df(df):
         
         # Apply the parsing function
         parsed_data = df_processed['status String'].apply(parse_status_string)
-        logger.info(f"VR2C Preprocessing: Parsed data from 'status String' (first 5 rows):\n{parsed_data.head()}")
+        # logger.info(f"VR2C Preprocessing: Parsed data from 'status String' (first 5 rows):\n{parsed_data.head()}")
         df_processed = pd.concat([df_processed, parsed_data], axis=1)
 
         # Ensure types after parsing and concat
         df_processed['DetectionCount'] = pd.to_numeric(df_processed.get('DetectionCount'), errors='coerce')
         df_processed['PingCount'] = pd.to_numeric(df_processed.get('PingCount'), errors='coerce')
-        logger.info(f"VR2C Preprocessing: After to_numeric (first 5 rows of DC, PC):\nDetectionCount:\n{df_processed['DetectionCount'].head()}\nPingCount:\n{df_processed['PingCount'].head()}")
+        # logger.info(f"VR2C Preprocessing: After to_numeric (first 5 rows of DC, PC):\nDetectionCount:\n{df_processed['DetectionCount'].head()}\nPingCount:\n{df_processed['PingCount'].head()}")
         
         if 'SerialNumber' in df_processed.columns and df_processed['SerialNumber'].dtype == float and df_processed['SerialNumber'].isna().all():
             logger.warning("VR2C Preprocessing: SerialNumber column is all NaN after parsing.")
@@ -266,7 +290,7 @@ def preprocess_vr2c_df(df):
 
 def preprocess_fluorometer_df(df):
     timestamp_col = "Timestamp"
-    logger.info(f"Fluorometer Preprocessing: Initial df columns: {df.columns.tolist()}")
+    # logger.info(f"Fluorometer Preprocessing: Initial df columns: {df.columns.tolist()}")
 
     df_processed = _initial_dataframe_setup(df, timestamp_col)
     if df_processed.empty:
@@ -284,7 +308,7 @@ def preprocess_fluorometer_df(df):
         "temp": "Temperature_Fluor" # To avoid conflict with other temp sensors if any
     }
     df_processed = df_processed.rename(columns=rename_map)
-    logger.info(f"Fluorometer Preprocessing: df columns after rename: {df_processed.columns.tolist()}")
+    # logger.info(f"Fluorometer Preprocessing: df columns after rename: {df_processed.columns.tolist()}")
 
     # Ensure all target columns exist, fill with NaN if not, and convert to numeric
     expected_final_cols = [timestamp_col, "Latitude", "Longitude", "C1_Avg", "C2_Avg", "C3_Avg", "Temperature_Fluor"]
@@ -296,7 +320,7 @@ def preprocess_fluorometer_df(df):
         if target_col != timestamp_col: # Convert data columns to numeric
             df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
             
-    logger.info(f"Fluorometer Preprocessing: After to_numeric (first 5 rows of C1_Avg, Temp):\nC1_Avg:\n{df_processed['C1_Avg'].head() if 'C1_Avg' in df_processed.columns else 'N/A'}\nTemperature_Fluor:\n{df_processed['Temperature_Fluor'].head() if 'Temperature_Fluor' in df_processed.columns else 'N/A'}")
+    # logger.info(f"Fluorometer Preprocessing: After to_numeric (first 5 rows of C1_Avg, Temp):\nC1_Avg:\n{df_processed['C1_Avg'].head() if 'C1_Avg' in df_processed.columns else 'N/A'}\nTemperature_Fluor:\n{df_processed['Temperature_Fluor'].head() if 'Temperature_Fluor' in df_processed.columns else 'N/A'}")
     return df_processed
 
 def preprocess_solar_df(df: pd.DataFrame) -> pd.DataFrame:

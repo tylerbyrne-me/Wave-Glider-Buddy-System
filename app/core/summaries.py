@@ -55,7 +55,7 @@ def time_ago(dt: Optional[datetime]) -> str:
 
 
 def get_power_status(df_power: Optional[pd.DataFrame], df_solar: Optional[pd.DataFrame] = None) -> Dict:
-    result_shell: Dict[str, Any] = {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"} # Add Panel Powers
+    result_shell: Dict[str, Any] = {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
     if df_power is None or df_power.empty:
         return result_shell
 
@@ -66,25 +66,55 @@ def get_power_status(df_power: Optional[pd.DataFrame], df_solar: Optional[pd.Dat
         logger.warning(f"Error preprocessing power data for summary: {e}")
         return result_shell
 
-    # df_power_processed has UTC timestamps in "Timestamp" or is empty.
     if not df_power_processed.empty: # "Timestamp" column is guaranteed if not empty
             update_info = utils.get_df_latest_update_info(df_power_processed, "Timestamp")
             result_shell.update(update_info) # Adds 'latest_timestamp_str' and 'time_ago_str'
             last_row = df_power_processed.loc[df_power_processed["Timestamp"].idxmax()]
+            df_last_24h = df_power_processed[df_power_processed['Timestamp'] > (last_row['Timestamp'] - pd.Timedelta(hours=24))]
 
             battery_wh = last_row.get("BatteryWattHours")
             battery_percentage = None
-            logger.info(f"PowerSummaryDebug: Initial battery_wh = {battery_wh}, type = {type(battery_wh)}")
             if battery_wh is not None and pd.notna(battery_wh):
-                logger.info(f"PowerSummaryDebug: Condition met for battery_wh = {battery_wh}")
                 try:
                     battery_percentage_calculated = (float(battery_wh) / BATTERY_MAX_WH) * 100
                     battery_percentage = max(0, min(battery_percentage_calculated, 100))
-                    logger.info(f"PowerSummaryDebug: Calculated battery_percentage = {battery_percentage}")
                 except (ValueError, TypeError) as e_calc:
                     logger.warning(f"PowerSummaryDebug: Could not calculate battery percentage for value: {battery_wh}. Error: {e_calc}")
             else:
                 logger.info(f"PowerSummaryDebug: Condition NOT met for battery_wh = {battery_wh}. pd.notna(battery_wh) is {pd.notna(battery_wh)}")
+
+            # Get Battery Charge Rate (assuming 'battery_charging_power_w' column from processor)
+            battery_charge_rate_w = last_row.get("battery_charging_power_w")
+
+            # Calculate Time to Charge
+            time_to_charge_str = "N/A"
+            if battery_percentage is not None and pd.notna(battery_percentage) and \
+               battery_charge_rate_w is not None and pd.notna(battery_charge_rate_w):
+                if battery_charge_rate_w <= 0:
+                    time_to_charge_str = "Discharging"
+                    if battery_percentage < 10: # Example: 10% threshold
+                        time_to_charge_str = "Low & Discharging"
+                elif battery_percentage >= 99.5:  # Nearly full
+                    time_to_charge_str = "Fully Charged"
+                else:
+                    energy_needed_wh = (1.0 - (battery_percentage / 100.0)) * BATTERY_MAX_WH
+                    if energy_needed_wh < 0: energy_needed_wh = 0
+
+                    if battery_charge_rate_w > 0:
+                        time_hours_decimal = energy_needed_wh / battery_charge_rate_w
+                        if time_hours_decimal > 200:
+                            time_to_charge_str = ">200h"
+                        elif time_hours_decimal < 0.0167 and energy_needed_wh > 0:
+                            time_to_charge_str = "<1m"
+                        elif time_hours_decimal == 0 and energy_needed_wh == 0 and battery_percentage < 99.5:
+                            time_to_charge_str = "Stalled"
+                        else:
+                            hours = int(time_hours_decimal)
+                            minutes = int((time_hours_decimal * 60) % 60)
+                            time_to_charge_str = f"{hours}h {minutes}m"
+                    elif battery_charge_rate_w == 0 and battery_percentage < 99.5:
+                        time_to_charge_str = "Stalled (0W)"
+
 
             # Initialize panel power values
             panel1_power = None
@@ -115,12 +145,21 @@ def get_power_status(df_power: Optional[pd.DataFrame], df_solar: Optional[pd.Dat
                 except Exception as e_solar:
                     logger.warning(f"Error processing solar data for power summary: {e_solar}")
 
+            # Calculate 24-hour averages
+            avg_output_port_power_24hr_w = df_last_24h['output_port_power_w'].mean() if not df_last_24h.empty and 'output_port_power_w' in df_last_24h else None
+            avg_solar_input_24hr_w = df_last_24h['SolarInputWatts'].mean() if not df_last_24h.empty and 'SolarInputWatts' in df_last_24h else None
+
+
             result_shell["values"] = {
                 "BatteryWattHours": battery_wh,
                 "SolarInputWatts": last_row.get("SolarInputWatts"),
-                "BatteryPercentage": battery_percentage, # Add the calculated percentage
-                "PowerDrawWatts": last_row.get("PowerDrawWatts"), # Keep existing
-                "NetPowerWatts": last_row.get("NetPowerWatts"),   # Keep existing
+                "BatteryPercentage": battery_percentage,
+                "PowerDrawWatts": last_row.get("PowerDrawWatts"),
+                "NetPowerWatts": last_row.get("NetPowerWatts"),
+                "BatteryChargeRateW": battery_charge_rate_w,
+                "TimeToChargeStr": time_to_charge_str,
+                "AvgOutputPortPower24hrW": avg_output_port_power_24hr_w,
+                "AvgSolarInput24hrW": avg_solar_input_24hr_w,
                 "Panel1Power": panel1_power,
                 "Panel2Power": panel2_power,
                 "Panel4Power": panel4_power,
@@ -136,36 +175,34 @@ def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any
         df_processed = preprocess_power_df(df_power)
         logger.debug(f"get_power_mini_trend: df_processed is empty: {df_processed.empty}")
         if not df_processed.empty:
-            logger.debug(f"get_power_mini_trend: df_processed columns: {df_processed.columns.tolist()}")
-            logger.debug(f"get_power_mini_trend: 'Timestamp' in df_processed: {'Timestamp' in df_processed.columns}")
-            logger.debug(f"get_power_mini_trend: 'NetPowerWatts' in df_processed: {'NetPowerWatts' in df_processed.columns}")
-            if "NetPowerWatts" in df_processed.columns:
-                logger.debug(f"get_power_mini_trend: NetPowerWatts head(5):\n{df_processed['NetPowerWatts'].head()}")
+            # We will now use 'battery_charging_power_w' for the trend
+            metric_for_trend = "battery_charging_power_w"
+            if metric_for_trend in df_processed.columns:
+                pass # logger.debug(f"get_power_mini_trend: {metric_for_trend} head(5):\n{df_processed[metric_for_trend].head()}")
 
-        if df_processed.empty or "Timestamp" not in df_processed.columns or "NetPowerWatts" not in df_processed.columns:
-            logger.debug("get_power_mini_trend: Preconditions for trend data not met (empty, or missing Timestamp/NetPowerWatts). Returning [].")
+        if df_processed.empty or \
+           "Timestamp" not in df_processed.columns or \
+           "battery_charging_power_w" not in df_processed.columns:
+            logger.debug(f"get_power_mini_trend: Preconditions for trend data not met (empty, or missing Timestamp/{metric_for_trend}). Returning [].")
             return []
 
-        # Determine the 3-hour window
+        # Determine the 24-hour window for power mini-trend
         max_timestamp = df_processed["Timestamp"].max()
         if pd.isna(max_timestamp):
             logger.debug("get_power_mini_trend: Max timestamp is NaT. Returning [].")
             return []
-        cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for power
+        cutoff_time = max_timestamp - timedelta(hours=24)
         
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
-        
-        logger.debug(f"get_power_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
         
         # Format for charting
         trend_data = []
         for _, row in df_trend.iterrows():
-            if pd.notna(row["Timestamp"]) and pd.notna(row["NetPowerWatts"]):
+            if pd.notna(row["Timestamp"]) and pd.notna(row["battery_charging_power_w"]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
-                    "value": row["NetPowerWatts"]
+                    "value": row["battery_charging_power_w"] # Use battery_charging_power_w for the trend value
                 })
-        logger.debug(f"get_power_mini_trend: Generated trend_data (length {len(trend_data)}): {str(trend_data[:5])[:200]}...") # Log first 5 points, truncated
         return trend_data
     except Exception as e:
         logger.warning(f"Error generating power mini-trend: {e}", exc_info=True)
@@ -186,11 +223,7 @@ def get_fluorometer_status(df_fluorometer: Optional[pd.DataFrame]) -> Dict:
     if not df_fluorometer_processed.empty: # "Timestamp" column is guaranteed
             update_info = utils.get_df_latest_update_info(df_fluorometer_processed, "Timestamp")
             result_shell.update(update_info)
-            # The logging for head/tail can remain if useful for debugging specific sensor data
-            logger.info(f"Fluorometer Summary: df_fluorometer_processed head before selecting last_row:\n{df_fluorometer_processed[['Timestamp', 'C1_Avg', 'C2_Avg', 'C3_Avg', 'Temperature_Fluor']].head()}")
-            logger.info(f"Fluorometer Summary: df_fluorometer_processed tail before selecting last_row:\n{df_fluorometer_processed[['Timestamp', 'C1_Avg', 'C2_Avg', 'C3_Avg', 'Temperature_Fluor']].tail()}")
             last_row = df_fluorometer_processed.loc[df_fluorometer_processed["Timestamp"].idxmax()]
-            logger.info(f"Fluorometer Summary: last_row content:\n{last_row}")
             
             result_shell["values"] = {
                 "C1_Avg": last_row.get("C1_Avg"),
@@ -219,12 +252,22 @@ def get_fluorometer_mini_trend(df_fluorometer: Optional[pd.DataFrame]) -> List[D
         cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for chl
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
 
-        logger.debug(f"get_fluorometer_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
+        if df_trend.empty:
+            return []
+
+        # Resample to 1-hour average for smoothing
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        # Ensure the metric_col is numeric before resampling
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').mean()
+        else:
+            logger.warning(f"Fluorometer mini-trend: '{metric_col}' is not numeric, cannot resample. Returning raw trend.")
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index()
+
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
 
         trend_data = []
-        
-        trend_data = []
-        for _, row in df_trend.iterrows():
+        for _, row in df_trend_resampled.iterrows():
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
@@ -251,6 +294,11 @@ def get_ctd_status(df_ctd: Optional[pd.DataFrame]) -> Dict:
             update_info = utils.get_df_latest_update_info(df_ctd_processed, "Timestamp")
             result_shell.update(update_info)
             last_row = df_ctd_processed.loc[df_ctd_processed["Timestamp"].idxmax()]
+
+            # Calculate Highest and Lowest Water Temperature from the last 24 hours
+            df_last_24h = df_ctd_processed[df_ctd_processed['Timestamp'] > (last_row['Timestamp'] - pd.Timedelta(hours=24))]
+            highest_temp_24h = df_last_24h['WaterTemperature'].max() if not df_last_24h.empty and 'WaterTemperature' in df_last_24h else None
+            lowest_temp_24h = df_last_24h['WaterTemperature'].min() if not df_last_24h.empty and 'WaterTemperature' in df_last_24h else None
             
             result_shell["values"] = {
                 "WaterTemperature": last_row.get("WaterTemperature"),
@@ -258,6 +306,8 @@ def get_ctd_status(df_ctd: Optional[pd.DataFrame]) -> Dict:
                 "Conductivity": last_row.get("Conductivity"),
                 "DissolvedOxygen": last_row.get("DissolvedOxygen"),
                 "Pressure": last_row.get("Pressure"),
+                "HighestWaterTemperature24h": highest_temp_24h,
+                "LowestWaterTemperature24h": lowest_temp_24h,
                 "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
             }
     return result_shell
@@ -276,12 +326,24 @@ def get_ctd_mini_trend(df_ctd: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
             return []
         cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for ctd
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
-
-        logger.debug(f"get_ctd_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
-
         
+        if df_trend.empty:
+            return []
+
+        # Resample to 1-hour average for smoothing
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        # Ensure the metric_col is numeric before resampling
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').mean()
+        else:
+            logger.warning(f"CTD mini-trend: '{metric_col}' is not numeric, cannot resample. Returning raw trend.")
+            # Fallback to non-resampled if not numeric, though it should be
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index() # Keep structure consistent
+
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
+
         trend_data = []
-        for _, row in df_trend.iterrows():
+        for _, row in df_trend_resampled.iterrows():
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
@@ -308,12 +370,28 @@ def get_weather_status(df_weather: Optional[pd.DataFrame]) -> Dict:
             update_info = utils.get_df_latest_update_info(df_weather_processed, "Timestamp")
             result_shell.update(update_info)
             last_row = df_weather_processed.loc[df_weather_processed["Timestamp"].idxmax()]
+
+            # Calculate 24-hour High/Low for AirTemperature and BarometricPressure
+            df_last_24h = df_weather_processed[df_weather_processed['Timestamp'] > (last_row['Timestamp'] - pd.Timedelta(hours=24))]
+            
+            air_temp_high_24h = df_last_24h['AirTemperature'].max() if not df_last_24h.empty and 'AirTemperature' in df_last_24h else None
+            air_temp_low_24h = df_last_24h['AirTemperature'].min() if not df_last_24h.empty and 'AirTemperature' in df_last_24h else None
+            
+            pressure_high_24h = df_last_24h['BarometricPressure'].max() if not df_last_24h.empty and 'BarometricPressure' in df_last_24h else None
+            pressure_low_24h = df_last_24h['BarometricPressure'].min() if not df_last_24h.empty and 'BarometricPressure' in df_last_24h else None
             
             result_shell["values"] = {
                 "AirTemperature": last_row.get("AirTemperature"),
                 "WindSpeed": last_row.get("WindSpeed"),
                 "WindGust": last_row.get("WindGust"),
                 "WindDirection": last_row.get("WindDirection"),
+                # GustDirection will use WindDirection as per current processing
+                "GustDirection": last_row.get("WindDirection"), 
+                "BarometricPressure": last_row.get("BarometricPressure"),
+                "AirTemperatureHigh24h": air_temp_high_24h,
+                "AirTemperatureLow24h": air_temp_low_24h,
+                "PressureHigh24h": pressure_high_24h,
+                "PressureLow24h": pressure_low_24h,
                 "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
             }
     return result_shell
@@ -332,12 +410,23 @@ def get_weather_mini_trend(df_weather: Optional[pd.DataFrame]) -> List[Dict[str,
             return []
         cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for weather
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
+        
+        if df_trend.empty:
+            return []
 
-        logger.debug(f"get_weather_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
+        # Resample to 1-hour average for smoothing
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        # Ensure the metric_col is numeric before resampling
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').mean()
+        else:
+            logger.warning(f"Weather mini-trend: '{metric_col}' is not numeric, cannot resample. Returning raw trend.")
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index() 
 
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
         
         trend_data = []
-        for _, row in df_trend.iterrows():
+        for _, row in df_trend_resampled.iterrows():
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
@@ -364,11 +453,22 @@ def get_wave_status(df_waves: Optional[pd.DataFrame]) -> Dict:
             update_info = utils.get_df_latest_update_info(df_waves_processed, "Timestamp")
             result_shell.update(update_info)
             last_row = df_waves_processed.loc[df_waves_processed["Timestamp"].idxmax()]
+
+            # Calculate 24-hour average for SignificantWaveHeight
+            df_last_24h = df_waves_processed[df_waves_processed['Timestamp'] > (last_row['Timestamp'] - pd.Timedelta(hours=24))]
+            avg_wave_height_24h = df_last_24h['SignificantWaveHeight'].mean() if not df_last_24h.empty and 'SignificantWaveHeight' in df_last_24h else None
+
+            # Calculate Wave Amplitude
+            significant_wave_height = last_row.get("SignificantWaveHeight")
+            wave_amplitude = (significant_wave_height / 2) if significant_wave_height is not None and pd.notna(significant_wave_height) else None
             
             result_shell["values"] = {
-                "SignificantWaveHeight": last_row.get("SignificantWaveHeight"),
+                "SignificantWaveHeight": significant_wave_height,
+                "SignificantWaveHeightAvg24h": avg_wave_height_24h,
                 "WavePeriod": last_row.get("WavePeriod"), # Assuming this is PeakPeriod from index.html
                 "MeanDirection": last_row.get("MeanWaveDirection"),
+                "WaveAmplitude": wave_amplitude,
+                "SampleGaps": last_row.get("SampleGaps"),
                 "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
             }
     return result_shell
@@ -387,12 +487,23 @@ def get_wave_mini_trend(df_waves: Optional[pd.DataFrame]) -> List[Dict[str, Any]
             return []
         cutoff_time = max_timestamp - timedelta(hours=48) #48hrs for waves
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
+        
+        if df_trend.empty:
+            return []
 
-        logger.debug(f"get_wave_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
+        # Resample to 1-hour average for smoothing
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        # Ensure the metric_col is numeric before resampling
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').mean()
+        else:
+            logger.warning(f"Wave mini-trend: '{metric_col}' is not numeric, cannot resample. Returning raw trend.")
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index()
 
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
         
         trend_data = []
-        for _, row in df_trend.iterrows():
+        for _, row in df_trend_resampled.iterrows():
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
@@ -470,10 +581,7 @@ def get_vr2c_status(df_vr2c: Optional[pd.DataFrame]) -> Dict:
     if not df_vr2c_processed.empty: # "Timestamp" column is guaranteed
             update_info = utils.get_df_latest_update_info(df_vr2c_processed, "Timestamp")
             result_shell.update(update_info)
-            logger.info(f"VR2C Summary: df_vr2c_processed head before selecting last_row:\n{df_vr2c_processed[['Timestamp', 'SerialNumber', 'DetectionCount', 'PingCount']].head()}")
-            logger.info(f"VR2C Summary: df_vr2c_processed tail before selecting last_row:\n{df_vr2c_processed[['Timestamp', 'SerialNumber', 'DetectionCount', 'PingCount']].tail()}")
             last_row = df_vr2c_processed.loc[df_vr2c_processed["Timestamp"].idxmax()]
-            logger.info(f"VR2C Summary: last_row content:\n{last_row}")
             
             result_shell["values"] = {
                 "SerialNumber": last_row.get("SerialNumber"),
@@ -497,8 +605,6 @@ def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]
             return []
         cutoff_time = max_timestamp - timedelta(hours=24) #24hrs for vr2c
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
-
-        logger.debug(f"get_vr2c_mini_trend: df_trend shape after 3-hour filter: {df_trend.shape}")
 
         
         trend_data = []

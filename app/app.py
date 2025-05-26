@@ -371,55 +371,6 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     has_ais_data = bool(ais_summary_data)
     has_errors_data = bool(recent_errors_list)
 
-    # --- Add this debugging block ---
-    logger.info("--- Debugging Template Context ---")
-    logger.info(f"Type of power_info: {type(power_info)}")
-    if isinstance(power_info, dict):
-        logger.info(f"Keys in power_info: {list(power_info.keys())}")
-        if "values" in power_info:
-            logger.info(f"Type of power_info['values']: {type(power_info['values'])}")
-            if isinstance(power_info["values"], dict):
-                logger.info(f"Keys in power_info['values']: {list(power_info['values'].keys())}")
-            else:
-                logger.info(f"Content of power_info['values']: {power_info['values']}")
-        else:
-            logger.info("'values' key NOT found in power_info. power_info content: %s", power_info) # No change needed here, was fine
-    else:
-        logger.info(f"power_info is not a dictionary. Content: {power_info}")
-    # --- End of debugging block ---
-
-    # --- Debugging block for VR2C ---
-    logger.info("--- Debugging VR2C Info ---")
-    logger.info(f"Type of vr2c_info: {type(vr2c_info)}")
-    if isinstance(vr2c_info, dict):
-        logger.info(f"Keys in vr2c_info: {list(vr2c_info.keys())}")
-        if "values" in vr2c_info:
-            logger.info(f"Type of vr2c_info['values']: {type(vr2c_info['values'])}")
-            if isinstance(vr2c_info["values"], dict):
-                logger.info(f"Content of vr2c_info['values']: {vr2c_info['values']}")
-            else:
-                logger.info(f"vr2c_info['values'] is not a dict. Content: {vr2c_info['values']}")
-        else:
-            logger.info("'values' key NOT found in vr2c_info. vr2c_info content: %s", vr2c_info)
-    else:
-        logger.info(f"vr2c_info is not a dictionary. Content: {vr2c_info}")
-
-    # --- Debugging block for Fluorometer ---
-    logger.info("--- Debugging Fluorometer Info ---")
-    logger.info(f"Type of fluorometer_info: {type(fluorometer_info)}")
-    if isinstance(fluorometer_info, dict):
-        logger.info(f"Keys in fluorometer_info: {list(fluorometer_info.keys())}")
-        if "values" in fluorometer_info:
-            logger.info(f"Type of fluorometer_info['values']: {type(fluorometer_info['values'])}")
-            if isinstance(fluorometer_info["values"], dict):
-                logger.info(f"Content of fluorometer_info['values']: {fluorometer_info['values']}")
-            else:
-                logger.info(f"fluorometer_info['values'] is not a dict. Content: {fluorometer_info['values']}")
-        else:
-            logger.info("'values' key NOT found in fluorometer_info. fluorometer_info content: %s", fluorometer_info)
-    else:
-        logger.info(f"fluorometer_info is not a dictionary. Content: {fluorometer_info}")
-
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mission": mission,

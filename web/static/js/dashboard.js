@@ -10,8 +10,12 @@ document.addEventListener('DOMContentLoaded', function() {
     let weatherSensorChartInstance = null;
     let waveChartInstance = null;
     let vr2cChartInstance = null;
+    let ctdProfileChartInstance = null; // Instance for the new CTD profile chart
     let solarPanelChartInstance = null; // Instance for the new solar panel chart
     let fluorometerChartInstance = null;
+    let waveHeightDirectionChartInstance = null;
+    let waveAmplitudeLeftChartInstance = null;
+    let waveAmplitudeRightChartInstance = null;
 
     // Define colors for dark mode charts
     const miniChartInstances = {};
@@ -27,6 +31,8 @@ document.addEventListener('DOMContentLoaded', function() {
         POWER_DRAW: 'rgba(255, 99, 132, 1)',
         CTD_TEMP: 'rgba(0, 191, 255, 1)',
         CTD_SALINITY: 'rgba(255, 105, 180, 1)',
+        CTD_CONDUCTIVITY: 'rgba(123, 104, 238, 1)', // Medium Slate Blue
+        CTD_DO: 'rgba(60, 179, 113, 1)', // Medium Sea Green (re-use from weather)
         WEATHER_AIR_TEMP: 'rgba(255, 99, 71, 1)',
         WEATHER_WIND_SPEED: 'rgba(60, 179, 113, 1)',
         WAVES_SIG_HEIGHT: 'rgba(255, 206, 86, 1)',
@@ -131,7 +137,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (isRealtimeMission) {
-        console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
+        // console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
         startCountdownTimer(); 
 
         setTimeout(function() {
@@ -191,14 +197,14 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderPowerChart(chartData) {
-        console.log('Attempting to render Power Chart. Data received:', chartData);
+        // console.log('Attempting to render Power Chart. Data received:', chartData);
         const ctx = document.getElementById('powerChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none'; // Hide spinner before rendering or showing "no data"
 
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for Power Chart.');
+            // console.log('No data or empty data array for Power Chart.');
             // Display a message on the canvas if no data
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
@@ -230,7 +236,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('Power Chart: No valid datasets could be formed from the provided chartData.');
+            // console.warn('Power Chart: No valid datasets could be formed from the provided chartData.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -275,13 +281,13 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderCtdChart(chartData) { // This function was missing in the previous diff
-        console.log('Attempting to render CTD Chart. Data received:', chartData);
+        // console.log('Attempting to render CTD Chart. Data received:', chartData);
         const ctx = document.getElementById('ctdChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for CTD Chart.');
+            // console.log('No data or empty data array for CTD Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -312,7 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Add other CTD metrics (Conductivity, DissolvedOxygen, Pressure) similarly, potentially on new axes or separate charts
 
         if (datasets.length === 0) {
-            console.warn('CTD Chart: No valid datasets could be formed from the provided chartData.');
+            // console.warn('CTD Chart: No valid datasets could be formed from the provided chartData.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -354,7 +360,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch and render the CTD chart on page load
     fetchChartData('ctd', missionId, hoursBack).then(data => {
-        renderCtdChart(data);
+        renderCtdChart(data); // Existing chart for Temp & Salinity
+        renderCtdProfileChart(data); // New chart for Temp, Conductivity, DO
     });
     // Fetch and render the Weather Sensor chart on page load
     fetchChartData('weather', missionId, hoursBack).then(data => {
@@ -375,14 +382,96 @@ document.addEventListener('DOMContentLoaded', function() {
         renderSolarPanelChart(null, null);
     });
     
+    /**
+     * Renders the second CTD Chart (Profile Details) using Chart.js.
+     * Plots Water Temperature (left Y1), Conductivity (right Y), Dissolved Oxygen (left Y2, hidden).
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     */
+    function renderCtdProfileChart(chartData) {
+        // console.log('Attempting to render CTD Profile Chart. Data received:', chartData);
+        const canvas = document.getElementById('ctdProfileChart');
+        if (!canvas) {
+            console.error("Canvas element 'ctdProfileChart' not found.");
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            // console.log('No data or empty data array for CTD Profile Chart.');
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No CTD profile data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (ctdProfileChartInstance) { ctdProfileChartInstance.destroy(); ctdProfileChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        // Water Temperature (Left Y-axis 1, more transparent)
+        if (chartData.some(d => d.WaterTemperature !== null && d.WaterTemperature !== undefined)) {
+            datasets.push({
+                label: 'Water Temp (°C)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.WaterTemperature })),
+                borderColor: CHART_COLORS.CTD_TEMP.replace('1)', '0.2)'), // Make Water Temp more transparent
+                yAxisID: 'yTemp',
+                tension: 0.1, fill: false
+            });
+        }
+        // Conductivity (Right Y-axis, now more transparent)
+        if (chartData.some(d => d.Conductivity !== null && d.Conductivity !== undefined)) {
+            datasets.push({
+                label: 'Conductivity (S/m)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Conductivity })),
+                borderColor: CHART_COLORS.CTD_CONDUCTIVITY.replace('1)', '0.2)'), // Make Conductivity more transparent
+                yAxisID: 'yCond',
+                tension: 0.1, fill: false
+            });
+        }
+        // Dissolved Oxygen (Left Y-axis 2, hidden, now less transparent relative to others)
+        if (chartData.some(d => d.DissolvedOxygen !== null && d.DissolvedOxygen !== undefined)) {
+            datasets.push({
+                label: 'DO (Hz)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.DissolvedOxygen })),
+                borderColor: CHART_COLORS.CTD_DO, // Use original alpha (1.0), making it the most opaque
+                yAxisID: 'yDO',
+                tension: 0.1, fill: false
+            });
+        }
+
+        if (datasets.length === 0) {
+            // console.warn('CTD Profile Chart: No valid datasets could be formed.');
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No plottable CTD profile data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (ctdProfileChartInstance) { ctdProfileChartInstance.destroy(); ctdProfileChartInstance = null; }
+            return;
+        }
+
+        if (ctdProfileChartInstance) { ctdProfileChartInstance.destroy(); }
+
+        ctdProfileChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    yTemp: { type: 'linear', position: 'left', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
+                    yCond: { type: 'linear', position: 'right', title: { display: true, text: 'Conductivity (S/m)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false } },
+                    yDO: { type: 'linear', position: 'left', display: false, grid: { drawOnChartArea: false } } // Hidden Y-axis for DO
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
     function renderWeatherSensorChart(chartData) { // This function was missing in the previous diff
-        console.log('Attempting to render Weather Chart. Data received:', chartData);
+        // console.log('Attempting to render Weather Chart. Data received:', chartData);
         const ctx = document.getElementById('weatherSensorChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for Weather Chart.');
+            // console.log('No data or empty data array for Weather Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -422,7 +511,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('Weather Chart: No valid datasets could be formed from the provided chartData.');
+            // console.warn('Weather Chart: No valid datasets could be formed from the provided chartData.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -697,13 +786,13 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderWaveChart(chartData) { 
-        console.log('Attempting to render Wave Chart. Data received:', chartData);
+        // console.log('Attempting to render Wave Chart. Data received:', chartData);
         const ctx = document.getElementById('waveChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
                 if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for Wave Chart.');
+            // console.log('No data or empty data array for Wave Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -733,7 +822,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('Wave Chart: No valid datasets could be formed from the provided chartData.');
+            // console.warn('Wave Chart: No valid datasets could be formed from the provided chartData.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -775,7 +864,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch and render the Wave chart on page load
     fetchChartData('waves', missionId, hoursBack).then(data => {
-        renderWaveChart(data);
+        renderWaveChart(data); // Existing Hs vs Tp chart
+        renderWaveHeightDirectionChart(data);
+        renderWaveAmplitudeLeftYChart(data);
+        renderWaveAmplitudeRightYChart(data);
     }); // This call was missing in the previous diff
 
     /**
@@ -783,13 +875,13 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderVr2cChart(chartData) {
-        console.log('Attempting to render VR2C Chart. Data received:', chartData);
+        // console.log('Attempting to render VR2C Chart. Data received:', chartData);
         const ctx = document.getElementById('vr2cChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for VR2C Chart.');
+            // console.log('No data or empty data array for VR2C Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -820,7 +912,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('VR2C Chart: No valid datasets could be formed from the provided chartData.');
+            // console.warn('VR2C Chart: No valid datasets could be formed from the provided chartData.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -855,17 +947,160 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     /**
+     * Renders the Wave Height vs. Direction Chart using Chart.js.
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     */
+    function renderWaveHeightDirectionChart(chartData) {
+        const canvas = document.getElementById('waveHeightDirectionChart');
+        if (!canvas) { console.error("Canvas 'waveHeightDirectionChart' not found."); return; }
+        const ctx = canvas.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No wave Ht/Dir data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (waveHeightDirectionChartInstance) { waveHeightDirectionChartInstance.destroy(); waveHeightDirectionChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        if (chartData.some(d => d.SignificantWaveHeight !== null && d.SignificantWaveHeight !== undefined)) {
+            datasets.push({
+                label: 'Sig. Wave Height (m)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.SignificantWaveHeight })),
+                borderColor: CHART_COLORS.WAVES_SIG_HEIGHT,
+                yAxisID: 'yHeight',
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.MeanWaveDirection !== null && d.MeanWaveDirection !== undefined)) {
+            datasets.push({
+                label: 'Mean Wave Dir (°)',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.MeanWaveDirection })),
+                borderColor: CHART_COLORS.CTD_SALINITY.replace('1)', '0.7)'), // Re-use a color
+                yAxisID: 'yDirection',
+                tension: 0.1, fill: false
+            });
+        }
+
+        if (datasets.length === 0) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No plottable wave Ht/Dir data.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (waveHeightDirectionChartInstance) { waveHeightDirectionChartInstance.destroy(); waveHeightDirectionChartInstance = null; }
+            return;
+        }
+
+        if (waveHeightDirectionChartInstance) { waveHeightDirectionChartInstance.destroy(); }
+        waveHeightDirectionChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    yHeight: { type: 'linear', position: 'left', title: { display: true, text: 'Wave Height (m)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
+                    yDirection: { type: 'linear', position: 'right', title: { display: true, text: 'Wave Direction (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
+    /**
+     * Renders the Wave Amplitude Chart with Left Y-axis.
+     * @param {Array<Object>|null} chartData - The data array (expects SignificantWaveHeight).
+     */
+    function renderWaveAmplitudeLeftYChart(chartData) {
+        const canvas = document.getElementById('waveAmplitudeLeftChart');
+        if (!canvas) { console.error("Canvas 'waveAmplitudeLeftChart' not found."); return; }
+        const ctx = canvas.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0 || !chartData.some(d => d.SignificantWaveHeight !== null && d.SignificantWaveHeight !== undefined)) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No amplitude data.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (waveAmplitudeLeftChartInstance) { waveAmplitudeLeftChartInstance.destroy(); waveAmplitudeLeftChartInstance = null; }
+            return;
+        }
+
+        if (waveAmplitudeLeftChartInstance) { waveAmplitudeLeftChartInstance.destroy(); }
+        waveAmplitudeLeftChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Wave Amplitude (m)',
+                    data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.SignificantWaveHeight / 2 })),
+                    borderColor: CHART_COLORS.WAVES_PERIOD, // Re-use a color
+                    yAxisID: 'yAmplitude',
+                    tension: 0.1, fill: false
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: false }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    yAmplitude: { type: 'linear', position: 'left', title: { display: true, text: 'Amplitude (m)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { display: false } } // No legend for single dataset
+            }
+        });
+    }
+
+    /**
+     * Renders the Wave Amplitude Chart with Right Y-axis.
+     * @param {Array<Object>|null} chartData - The data array (expects SignificantWaveHeight).
+     */
+    function renderWaveAmplitudeRightYChart(chartData) {
+        const canvas = document.getElementById('waveAmplitudeRightChart');
+        if (!canvas) { console.error("Canvas 'waveAmplitudeRightChart' not found."); return; }
+        const ctx = canvas.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0 || !chartData.some(d => d.SignificantWaveHeight !== null && d.SignificantWaveHeight !== undefined)) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No amplitude data.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (waveAmplitudeRightChartInstance) { waveAmplitudeRightChartInstance.destroy(); waveAmplitudeRightChartInstance = null; }
+            return;
+        }
+
+        if (waveAmplitudeRightChartInstance) { waveAmplitudeRightChartInstance.destroy(); }
+        waveAmplitudeRightChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Wave Amplitude (m)',
+                    data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.SignificantWaveHeight / 2 })),
+                    borderColor: CHART_COLORS.WAVES_PERIOD, // Re-use a color
+                    yAxisID: 'yAmplitude',
+                    tension: 0.1, fill: false
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: false }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    yAmplitude: { type: 'linear', position: 'right', title: { display: true, text: 'Amplitude (m)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { drawOnChartArea: false } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { display: false } } // No legend for single dataset
+            }
+        });
+    }
+
+    /**
      * Renders the Fluorometer Chart using Chart.js.
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderFluorometerChart(chartData) {
-        console.log('Attempting to render Fluorometer Chart. Data received:', chartData);
+        // console.log('Attempting to render Fluorometer Chart. Data received:', chartData);
         const ctx = document.getElementById('fluorometerChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for Fluorometer Chart.');
+            // console.log('No data or empty data array for Fluorometer Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -901,7 +1136,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('Fluorometer Chart: No valid datasets could be formed.');
+            // console.warn('Fluorometer Chart: No valid datasets could be formed.');
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
             ctx.fillText("No plottable Fluorometer data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
             if (fluorometerChartInstance) { fluorometerChartInstance.destroy(); fluorometerChartInstance = null; }
@@ -936,13 +1171,13 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {Array<Object>|null} powerData - The data array for the main power report, used for total solar input.
      */
     function renderSolarPanelChart(chartData, powerData) {
-        console.log('Attempting to render Solar Panel Chart. Data received:', chartData);
+        // console.log('Attempting to render Solar Panel Chart. Data received:', chartData);
         const ctx = document.getElementById('solarPanelChart')?.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
 
         if (!chartData || chartData.length === 0) {
-            console.log('No data or empty data array for Solar Panel Chart.');
+            // console.log('No data or empty data array for Solar Panel Chart.');
             ctx.font = "16px Arial";
             ctx.fillStyle = "grey";
             ctx.textAlign = "center";
@@ -992,7 +1227,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (datasets.length === 0) {
-            console.warn('Solar Panel Chart: No valid datasets could be formed.');
+            // console.warn('Solar Panel Chart: No valid datasets could be formed.');
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
             ctx.fillText("No plottable solar panel data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
             if (solarPanelChartInstance) { solarPanelChartInstance.destroy(); solarPanelChartInstance = null; }
@@ -1047,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // --- NEW: Mini Chart Rendering ---
     function renderMiniChart(canvasId, trendData, chartColor = miniChartLineColor) {
-        console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
+        // console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
         const canvas = document.getElementById(canvasId);
         if (!canvas) {
             console.error(`Mini chart canvas with ID ${canvasId} not found.`);
@@ -1060,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (!trendData || trendData.length === 0) { // Check moved to caller, but safe to keep
-            console.log(`No data points to render for mini chart ${canvasId}.`);
+            // console.log(`No data points to render for mini chart ${canvasId}.`);
             return;
         }
 
@@ -1070,9 +1305,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }));
 
         // Log first few parsed dates to check validity
-        if (dataPoints.length > 0) {
-            console.log(`  First 3 parsed timestamps for ${canvasId}:`, dataPoints.slice(0, 3).map(p => p.x));
-        }
+        // if (dataPoints.length > 0) {
+            // console.log(`  First 3 parsed timestamps for ${canvasId}:`, dataPoints.slice(0, 3).map(p => p.x));
+        // }
 
         // Calculate min and max for y-axis to "stretch" the view
         let yMin = Infinity;
@@ -1094,7 +1329,7 @@ document.addEventListener('DOMContentLoaded', function() {
             yAxisMax = yMax + padding;
         }
 
-        console.log(`Rendering Chart.js instance for ${canvasId}`);
+        // console.log(`Rendering Chart.js instance for ${canvasId}`);
         miniChartInstances[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
@@ -1141,26 +1376,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
-        console.log(`Mini chart ${canvasId} should be rendered.`);
+        // console.log(`Mini chart ${canvasId} should be rendered.`);
     }
 
     // --- NEW: Initialize Mini Charts ---
     function initializeMiniCharts() {
-        console.log("Initializing mini charts...");
+        // console.log("Initializing mini charts...");
         const summaryCards = document.querySelectorAll('#left-nav-panel .summary-card');
         summaryCards.forEach(card => {
             const category = card.dataset.category;
             const miniChartCanvasId = `mini${category === 'waves' ? 'Wave' : category.charAt(0).toUpperCase() + category.slice(1)}Chart`;
             const canvasElement = document.getElementById(miniChartCanvasId);
-            console.log(`Processing mini chart for category: ${category}, canvas ID: ${miniChartCanvasId}`);
+            // console.log(`Processing mini chart for category: ${category}, canvas ID: ${miniChartCanvasId}`);
 
             if (canvasElement) { // Only try to render if a canvas exists
                 const trendDataJson = card.dataset.miniTrend;
-                console.log(`  Raw mini-trend JSON for ${category}:`, trendDataJson);
+                // console.log(`  Raw mini-trend JSON for ${category}:`, trendDataJson);
                 if (trendDataJson) {
                     // Ensure the string is not empty before trying to parse
                     if (trendDataJson.trim() === "") {
-                        console.log(`  Skipping empty mini-trend JSON for ${category}.`);
+                        // console.log(`  Skipping empty mini-trend JSON for ${category}.`);
                         return; // Skip to the next card
                     }
                     try {
@@ -1190,7 +1425,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             renderMiniChart(miniChartCanvasId, trendData, specificColor);
                         } else {
-                            console.log(`  No data points to render for mini chart ${category} (data is empty or null).`);
+                            // console.log(`  No data points to render for mini chart ${category} (data is empty or null).`);
                         }
                     } catch (e) {
                         console.error(`Error parsing mini-trend data for ${category}:`, e, `Problematic JSON: "${trendDataJson}"`);
@@ -1222,5 +1457,5 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize new UI features
     initializeMiniCharts();
     handleLeftPanelClicks();
-    console.log("Dashboard setup complete");
+    // console.log("Dashboard setup complete");
 });
