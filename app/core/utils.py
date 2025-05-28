@@ -1,5 +1,6 @@
 import pandas as pd
-from typing import Optional
+from typing import Optional, List, Dict # Added List and Dict for type hinting
+from datetime import datetime, timedelta # Added timedelta
 import logging
 from . import summaries # For the time_ago function
 
@@ -29,3 +30,33 @@ def get_df_latest_update_info(df: Optional[pd.DataFrame], timestamp_col: str = "
         latest_timestamp_str = latest_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')
         time_ago_str = summaries.time_ago(latest_timestamp) 
     return {"latest_timestamp_str": latest_timestamp_str, "time_ago_str": time_ago_str}
+
+def select_target_spectrum(spectral_records: List[Dict], requested_timestamp: Optional[datetime] = None) -> Optional[Dict]:
+    """
+    Selects a spectral record from a list.
+    If requested_timestamp is provided, finds the closest one. Otherwise, returns the latest.
+    """
+    if not spectral_records:
+        return None
+
+    if requested_timestamp:
+        # Ensure requested_timestamp is UTC for comparison
+        # Use pd.Timestamp.now(tz="UTC").tzinfo for a reliable UTC timezone object
+        utc_tz = pd.Timestamp.now(tz="UTC").tzinfo
+        target_timestamp_utc = requested_timestamp.astimezone(utc_tz) \
+            if requested_timestamp.tzinfo is None or requested_timestamp.tzinfo.utcoffset(requested_timestamp) is None \
+            else requested_timestamp
+
+        closest_record = min(
+            spectral_records,
+            key=lambda rec: abs(rec.get('timestamp', pd.Timestamp.min.tz_localize('UTC')) - target_timestamp_utc)
+        )
+        # Optional: Add a threshold to ensure the "closest" isn't too far off
+        if abs(closest_record.get('timestamp', pd.Timestamp.min.tz_localize('UTC')) - target_timestamp_utc) < timedelta(hours=1): # Example threshold
+             return closest_record
+        else:
+             logger.warning(f"Closest spectrum for timestamp {requested_timestamp} is too far ({closest_record.get('timestamp')}). Returning latest.")
+             return max(spectral_records, key=lambda rec: rec.get('timestamp', pd.Timestamp.min.tz_localize('UTC')))
+    else:
+        # Default to the latest spectral record
+        return max(spectral_records, key=lambda rec: rec.get('timestamp', pd.Timestamp.min.tz_localize('UTC')))

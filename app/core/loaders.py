@@ -16,12 +16,14 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
         "solar": "Amps Solar Input Port Report.csv", # New solar panel report
         "ctd"  : "Seabird CTD Records with D.O..csv",
         "weather" : "Weather Records 2.csv",
-        "waves": "GPS Waves Sensor Data.csv",
+        "waves": "GPS Waves Sensor Data.csv", # For Hs, Tp, Dp time-series
         "ais"  : "AIS Report.csv",
         "telemetry" : "Telemetry 6 Report by WGMS Datetime.csv",
         "errors": "Vehicle Error Report.csv",
         "vr2c": "Vemco VR2c Status.csv",
-        "fluorometer": "Fluorometer Samples 2.csv" # New C3 Fluorometer
+        "fluorometer": "Fluorometer Samples 2.csv", # New C3 Fluorometer
+        "wave_frequency_spectrum": "GPS Waves Frequency Spectrum.csv", # New
+        "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv"       # New
     }
 
     if report_type not in reports:
