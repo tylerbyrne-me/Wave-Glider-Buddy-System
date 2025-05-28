@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse # type: ignore
 from fastapi.templating import Jinja2Templates
@@ -8,10 +8,11 @@ import logging
 import pandas as pd # For DataFrame operations
 import numpy as np # For numeric operations if needed
 from pathlib import Path
-import asyncio # For concurrent loading if operations become async
+import asyncio
 import httpx # For async client in load_data_source
 from typing import Optional, Dict, Tuple # For optional query parameters and type hints
 from .config import settings # Use relative import if config.py is in the same 'app' package
+from .core import models # Import the Pydantic models from core
 from .core import utils
 import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
@@ -62,7 +63,9 @@ root_logger.addHandler(console_handler)
 logger = logging.getLogger(__name__)
 # ---
 
-# In-memory cache: key -> (DataFrame, actual_source_path_str, cache_timestamp)
+# In-memory cache: key -> (data, actual_source_path_str, cache_timestamp).
+# 'data' is typically pd.DataFrame, but for 'processed_wave_spectrum' it's List[Dict].
+# The type hint for data_cache needs to be more generic or use Union. For simplicity, keeping as is, but be mindful.
 data_cache: Dict[Tuple, Tuple[pd.DataFrame, str, datetime]] = {}
 # CACHE_EXPIRY_MINUTES is now used by the background task interval and for individual cache item expiry
 # if it's a real-time source and the background task hasn't run yet.
@@ -77,10 +80,15 @@ async def load_data_source(
     force_refresh: bool = False # New parameter to bypass cache
 ):
     """Attempts to load data, trying remote then local sources."""
-    df = None
+      # df variable will hold the loaded DataFrame.
+    # For the 'processed_wave_spectrum' (which is not a direct report_type for this function),
+    # this function loads the source DataFrames. The processing and specific caching
+    # for the combined spectrum happens in the /api/wave_spectrum endpoint.
+    df: Optional[pd.DataFrame] = None
     actual_source_path = "Data not loaded" # Initialize with a default
 
-    cache_key = (mission_id, report_type, source_preference, custom_local_path)
+    cache_key = (report_type, mission_id, source_preference, custom_local_path) # Swapped order for consistency
+
 
     if not force_refresh and cache_key in data_cache:
         cached_df, cached_source_path, cache_timestamp = data_cache[cache_key]
@@ -122,7 +130,10 @@ async def load_data_source(
                 logger.warning(f"Custom local file for {report_type} ({mission_id}) not found at {custom_local_path}. Trying default local.")
                 df = None # Ensure df is None to trigger default local load
             except Exception as e:
-                logger.warning(f"Custom local load failed for {report_type} ({mission_id}) from {custom_local_path}: {e}. Trying default local.")
+                error_msg = f"Custom local load failed for {report_type} ({mission_id}) from {custom_local_path}: {e}"
+                logger.warning(error_msg + ". Trying default local.")
+                # You could also raise an HTTPException here if you want to stop further attempts
+                # raise HTTPException(status_code=500, detail=error_msg)
                 if _attempted_custom_local and actual_source_path == "Data not loaded": # Path was attempted, but an error occurred
                     actual_source_path = _custom_local_path_str
                 df = None # Ensure df is None to trigger default local load
@@ -142,7 +153,10 @@ async def load_data_source(
             except FileNotFoundError:
                 logger.warning(f"Default local file for {report_type} ({mission_id}) not found at {settings.local_data_base_path}.")
             except Exception as e:
-                logger.warning(f"Default local load failed for {report_type} ({mission_id}): {e}.")
+                error_msg = f"Default local load failed for {report_type} ({mission_id}): {e}"
+                logger.warning(error_msg + ".")
+                # You could also raise an HTTPException here if you want to stop further attempts
+                # raise HTTPException(status_code=500, detail=error_msg)
                 if _attempted_default_local and actual_source_path == "Data not loaded": # Path was attempted, but an error occurred
                     actual_source_path = _default_local_path_str
                 df = None # Ensure df is None on other errors
@@ -233,8 +247,10 @@ async def refresh_active_mission_cache():
     logger.info("BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.")
     active_missions = settings.active_realtime_missions
     # Define report types typically found in real-time missions
-    # You might want to make this configurable or more dynamic
-    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors", "vr2c", "fluorometer"]
+    # These are the *source* files to refresh. The combined spectrum is processed on demand.
+    # Add wave_frequency_spectrum and wave_energy_spectrum to be refreshed by the background task
+    # so the /api/wave_spectrum endpoint can use fresh source data for processing.
+    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors", "vr2c", "fluorometer", "wave_frequency_spectrum", "wave_energy_spectrum"]
 
     for mission_id in active_missions:
         logger.info(f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}")
@@ -284,15 +300,16 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         load_data_source("fluorometer", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
         load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("telemetry", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # Load telemetry data
         return_exceptions=True # To handle individual load failures
     )
 
     # Unpack results and source paths
     data_frames: Dict[str, Optional[pd.DataFrame]] = {}
     source_paths_map: Dict[str, str] = {}
-    # Ensure "error_frequency" is NOT in this list for the main page load.
+    # Ensure "error_frequency" is NOT in this list for the main page load. Add "telemetry"
     # This list is for data that populates the status cards and initial summaries.
-    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "solar", "fluorometer", "ais", "errors"]
+    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "solar", "fluorometer", "ais", "errors", "telemetry"]
 
     for i, report_type in enumerate(report_types_order):
         if isinstance(results[i], Exception):
@@ -311,6 +328,7 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     df_vr2c = data_frames["vr2c"] # New sensor
     df_solar = data_frames["solar"] # New solar data
     df_fluorometer = data_frames["fluorometer"] # C3 Fluorometer
+    df_telemetry = data_frames["telemetry"] # Telemetry data
 
     # Determine the primary display_source_path based on success and priority
     display_source_path = "Data Source: Information unavailable or all loads failed"
@@ -360,6 +378,9 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
 
     fluorometer_info = summaries.get_fluorometer_status(df_fluorometer)
     fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(df_fluorometer)
+
+    navigation_info = summaries.get_navigation_status(df_telemetry) # Get navigation summary
+    navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(df_telemetry) # Get navigation mini trend
     
     # For AIS and Errors, get summary list and then derive update info from original DFs
     ais_summary_data = summaries.get_ais_summary(df_ais, max_age_hours=hours) if df_ais is not None else []
@@ -392,32 +413,47 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         "has_errors_data": has_errors_data, #check
         "fluorometer_info": fluorometer_info, # C3 Fluorometer
         "vr2c_info": vr2c_info, # Mrx
+        "navigation_info": navigation_info, # Add navigation info to template context
     })
 
 # --- API Endpoints ---
 
 @app.get("/api/data/{report_type}/{mission_id}")
 async def get_report_data_for_plotting(
-    report_type: str,
+    report_type: models.ReportTypeEnum, # Use Enum for path parameter validation
     mission_id: str,
-    hours_back: int = 72,
-    source: Optional[str] = None, # Add source preference
-    local_path: Optional[str] = None, # Add custom local path
-    refresh: bool = False # Add refresh parameter
+    params: models.ReportDataParams = Depends() # Inject Pydantic model for query params
 ):
     """
     Provides processed time-series data for a given report type,
     suitable for frontend plotting.
-    """
+    """    
     # Unpack the DataFrame and the source path; we only need the DataFrame here
-    df, _ = await load_data_source(report_type, mission_id, source_preference=source, custom_local_path=local_path, force_refresh=refresh) # No client passed
+    df, _ = await load_data_source(
+        report_type.value, mission_id, # Use .value for Enum
+        source_preference=params.source.value if params.source else None, # Use .value for Enum
+        custom_local_path=params.local_path,
+        force_refresh=params.refresh
+    )
 
     if df is None or df.empty:
         # Return empty list for charts instead of 404 to allow chart to render "no data"
         return JSONResponse(content=[]) 
 
+    # --- Specific filtering for wave direction outliers BEFORE preprocessing/resampling ---
+    if report_type.value == "waves":
+        # The raw column name for wave direction is typically 'dp (deg)'
+        # This is before processors.preprocess_wave_df renames it.
+        raw_wave_direction_col = 'dp (deg)'
+        if raw_wave_direction_col in df.columns:
+            # Convert to numeric, coercing errors. This helps if it's read as object/string.
+            df[raw_wave_direction_col] = pd.to_numeric(df[raw_wave_direction_col], errors='coerce')
+            # Replace 9999 and -9999 with NaN so they are ignored in mean calculations
+            df[raw_wave_direction_col] = df[raw_wave_direction_col].replace({9999: np.nan, -9999: np.nan})
+            logger.info(f"Applied outlier filtering to '{raw_wave_direction_col}' for mission {mission_id}.")
+    # --- End specific filtering ---
+
     # Preprocess based on report type
-    # This mirrors the preprocessing steps in your plotting.py and summaries.py
     if report_type == "power":
         processed_df = processors.preprocess_power_df(df)
     elif report_type == "ctd":
@@ -432,10 +468,8 @@ async def get_report_data_for_plotting(
         processed_df = processors.preprocess_solar_df(df)
     elif report_type == "fluorometer": # C3 Fluorometer
         processed_df = processors.preprocess_fluorometer_df(df)
-    # Add other report types as needed
-    else:
-        # Should not happen if report_type is validated by frontend, but good practice
-        raise HTTPException(status_code=400, detail=f"Unsupported report type for plotting: {report_type}")
+    elif report_type == "telemetry": # Telemetry data for charts
+        processed_df = processors.preprocess_telemetry_df(df)
 
     if processed_df.empty or "Timestamp" not in processed_df.columns:
         logger.warning(f"No processable data after preprocessing for {report_type}, mission {mission_id}")
@@ -449,7 +483,7 @@ async def get_report_data_for_plotting(
         return JSONResponse(content=[])
 
     # Calculate the cutoff time based on the most recent data point
-    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    cutoff_time = max_timestamp - timedelta(hours=params.hours_back)
     recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
     if recent_data.empty:
         logger.info(f"No data found for {report_type}, mission {mission_id} within {hours_back} hours of its latest data point ({max_timestamp}).")
@@ -483,28 +517,30 @@ async def get_report_data_for_plotting(
 @app.get("/api/forecast/{mission_id}")
 async def get_weather_forecast(
     mission_id: str,
-    lat: Optional[float] = None,
-    lon: Optional[float] = None,
-    source: Optional[str] = None, # Add source preference for telemetry
-    local_path: Optional[str] = None, # Add custom local path for telemetry
-    refresh: bool = False, # Add refresh parameter
-    force_marine: Optional[bool] = False # New parameter to force marine forecast
+    params: models.ForecastParams = Depends() # Inject Pydantic model for query params
 ):
     """
     Provides a weather forecast.
     If lat and lon are not provided, it attempts to infer them from the latest telemetry data.
     """
-    final_lat, final_lon = lat, lon
+    final_lat, final_lon = params.lat, params.lon
 
     if final_lat is None or final_lon is None:
         logger.info(f"Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission {mission_id}.")
         # Pass source preference to telemetry loading
         # Unpack the DataFrame and the source path; we only need the DataFrame here, pass refresh. No client passed.
-        df_telemetry, _ = await load_data_source("telemetry", mission_id, source_preference=source, custom_local_path=local_path, force_refresh=refresh)
+        df_telemetry, _ = await load_data_source(
+            "telemetry",
+            mission_id,
+            source_preference=params.source.value if params.source else None, # Use .value for Enum
+            custom_local_path=params.local_path,
+            force_refresh=params.refresh
+        )
 
         if df_telemetry is None or df_telemetry.empty:
             logger.warning(f"Telemetry data for mission {mission_id} not found or empty. Cannot infer location.")
         else:
+            # Standardize timestamp column before sorting
             # Ensure 'lastLocationFix' is datetime and sort
             if "lastLocationFix" in df_telemetry.columns:
                 df_telemetry["lastLocationFix"] = pd.to_datetime(df_telemetry["lastLocationFix"], errors="coerce")
@@ -524,8 +560,108 @@ async def get_weather_forecast(
     if final_lat is None or final_lon is None:
         raise HTTPException(status_code=400, detail="Latitude and Longitude are required for forecast and could not be inferred from telemetry.")
 
-    forecast_data = await forecast.get_open_meteo_forecast(final_lat, final_lon, force_marine=force_marine or False)
+    # For the main forecast display in the Weather section, we fetch general forecast.
+    # The 'force_marine' parameter is no longer directly applicable here as we're calling the general forecast.
+    forecast_data = await forecast.get_general_meteo_forecast(final_lat, final_lon)
+    
     if forecast_data is None:
         raise HTTPException(status_code=503, detail="Weather forecast service unavailable or failed to retrieve data.")
 
     return JSONResponse(content=forecast_data)
+
+@app.get("/api/marine_forecast/{mission_id}") # New endpoint for marine-specific data
+async def get_marine_weather_data(
+    mission_id: str, # mission_id might be used later if lat/lon needs inference for marine
+    params: models.ForecastParams = Depends()
+):
+    """Provides marine-specific forecast data (waves, currents)."""
+    final_lat, final_lon = params.lat, params.lon
+
+    if final_lat is None or final_lon is None:
+        logger.info(f"Latitude/Longitude not provided for marine forecast. Attempting to infer from telemetry for mission {mission_id}.")
+        df_telemetry, _ = await load_data_source(
+            "telemetry",
+            mission_id,
+            source_preference=params.source.value if params.source else None,
+            custom_local_path=params.local_path,
+            force_refresh=params.refresh
+        )
+
+        if df_telemetry is None or df_telemetry.empty:
+            logger.warning(f"Telemetry data for marine forecast (mission {mission_id}) not found or empty. Cannot infer location.")
+        else:
+            if "lastLocationFix" in df_telemetry.columns:
+                df_telemetry["lastLocationFix"] = pd.to_datetime(df_telemetry["lastLocationFix"], errors="coerce")
+                df_telemetry = df_telemetry.dropna(subset=["lastLocationFix"])
+                if not df_telemetry.empty:
+                    latest_telemetry = df_telemetry.sort_values("lastLocationFix", ascending=False).iloc[0]
+                    inferred_lat = latest_telemetry.get("latitude") or latest_telemetry.get("Latitude")
+                    inferred_lon = latest_telemetry.get("longitude") or latest_telemetry.get("Longitude")
+
+                    if not pd.isna(inferred_lat) and not pd.isna(inferred_lon):
+                        final_lat, final_lon = float(inferred_lat), float(inferred_lon)
+                        logger.info(f"Inferred location for marine forecast (mission {mission_id}): Lat={final_lat}, Lon={final_lon}")
+                    else:
+                        logger.warning(f"Could not extract valid lat/lon from latest telemetry for marine forecast (mission {mission_id}).")
+
+    if final_lat is None or final_lon is None:
+        raise HTTPException(status_code=400, detail="Latitude and Longitude are required for marine forecast.")
+
+    marine_data = await forecast.get_marine_meteo_forecast(final_lat, final_lon)
+    if marine_data is None:
+        raise HTTPException(status_code=503, detail="Marine forecast service unavailable or failed to retrieve data.")
+    return JSONResponse(content=marine_data)
+
+# --- NEW API Endpoint for Wave Spectrum Data ---
+@app.get("/api/wave_spectrum/{mission_id}")
+async def get_wave_spectrum_data(
+    mission_id: str,
+    timestamp: Optional[datetime] = None, # Optional specific timestamp for the spectrum
+    params: models.ForecastParams = Depends() # Reusing ForecastParams for source, local_path, refresh
+):
+    """
+    Provides the latest wave energy spectrum data (Frequency vs. Energy Density).
+    Optionally provides the spectrum closest to a given timestamp.
+    """
+    # Define a unique cache key for the *processed* spectrum data
+    spectrum_cache_key = ('processed_wave_spectrum', mission_id, params.source.value if params.source else None, params.local_path)
+
+    spectral_records = None
+    # Check cache first for the processed spectrum list
+    if not params.refresh and spectrum_cache_key in data_cache:
+        # data_cache stores (data, path, timestamp). Here 'data' is the list of spectral_records.
+        cached_spectral_records, cached_source_path_info, cache_timestamp = data_cache[spectrum_cache_key]
+        
+        is_realtime_source = "Remote:" in cached_source_path_info and "output_realtime_missions" in cached_source_path_info
+        
+        if is_realtime_source and (datetime.now() - cache_timestamp < timedelta(minutes=CACHE_EXPIRY_MINUTES)):
+            logger.info(f"CACHE HIT (valid - real-time processed spectrum): Returning wave spectrum for {mission_id} from cache. Derived from: {cached_source_path_info}")
+            spectral_records = cached_spectral_records
+        elif not is_realtime_source and cached_spectral_records: # Static source, cache is good if data exists
+            logger.info(f"CACHE HIT (valid - static processed spectrum): Returning wave spectrum for {mission_id} from cache. Derived from: {cached_source_path_info}")
+            spectral_records = cached_spectral_records
+        else: # Expired real-time or empty static cache
+            logger.info(f"Cache for processed spectrum for {mission_id} is expired or invalid. Will re-load and process.")
+
+    if spectral_records is None: # Cache miss or expired/forced refresh for processed data
+        logger.info(f"CACHE MISS (processed spectrum) or refresh for {mission_id}. Loading and processing source files.")
+        df_freq, path_freq = await load_data_source("wave_frequency_spectrum", mission_id, source_preference=params.source.value if params.source else None, custom_local_path=params.local_path, force_refresh=params.refresh)
+        df_energy, path_energy = await load_data_source("wave_energy_spectrum", mission_id, source_preference=params.source.value if params.source else None, custom_local_path=params.local_path, force_refresh=params.refresh)
+
+        spectral_records = processors.preprocess_wave_spectrum_dfs(df_freq, df_energy)
+        if spectral_records: # Only cache if processing was successful and yielded data
+            data_cache[spectrum_cache_key] = (spectral_records, f"Combined from {path_freq} and {path_energy}", datetime.now())
+
+    if not spectral_records:
+        logger.warning(f"No wave spectral records found or processed for mission {mission_id}.")
+        return JSONResponse(content={}) # Return empty object
+
+    # Select the target spectrum (latest or closest to timestamp)
+    target_spectrum = utils.select_target_spectrum(spectral_records, timestamp) # Assuming utils.select_target_spectrum handles this logic
+
+    if not target_spectrum or 'freq' not in target_spectrum or 'efth' not in target_spectrum:
+        logger.warning(f"Selected target spectrum for mission {mission_id} is invalid or missing data.")
+        return JSONResponse(content={})
+
+    spectrum_data = [{"x": f, "y": e} for f, e in zip(target_spectrum.get('freq', []), target_spectrum.get('efth', [])) if pd.notna(f) and pd.notna(e)]
+    return JSONResponse(content=spectrum_data)

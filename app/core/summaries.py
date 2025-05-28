@@ -3,8 +3,8 @@ import numpy as np
 from datetime import datetime, timedelta, timezone
 from .processors import ( # type: ignore
     preprocess_power_df, preprocess_ctd_df, preprocess_weather_df,
-    preprocess_wave_df, preprocess_ais_df, preprocess_error_df, preprocess_vr2c_df,
-    preprocess_fluorometer_df
+    preprocess_wave_df, preprocess_ais_df, preprocess_error_df, preprocess_vr2c_df, # type: ignore
+    preprocess_fluorometer_df, preprocess_telemetry_df # type: ignore
 )
 from . import utils # Import the utils module
 from typing import Optional, List, Dict, Any
@@ -462,11 +462,34 @@ def get_wave_status(df_waves: Optional[pd.DataFrame]) -> Dict:
             significant_wave_height = last_row.get("SignificantWaveHeight")
             wave_amplitude = (significant_wave_height / 2) if significant_wave_height is not None and pd.notna(significant_wave_height) else None
             
+            # Filter MeanWaveDirection for outliers
+            mean_direction_raw = last_row.get("MeanWaveDirection")
+            mean_direction_display_value = "N/A" # Default display
+            mean_direction_numeric_value = None # For potential numeric use if valid
+            mean_direction_status = "missing" # Default status
+
+            if pd.notna(mean_direction_raw):
+                try:
+                    val_as_int = int(mean_direction_raw)
+                    if val_as_int == 9999 or val_as_int == -9999:
+                        mean_direction_display_value = "N/A (Outlier)"
+                        mean_direction_status = "outlier"
+                    else:
+                        mean_direction_display_value = f"{val_as_int:.0f} °" # Format valid number
+                        mean_direction_numeric_value = val_as_int
+                        mean_direction_status = "valid"
+                except ValueError:
+                    logger.warning(f"Could not convert MeanWaveDirection '{mean_direction_raw}' to int for outlier check.")
+                    mean_direction_display_value = "N/A (Error)" # Indicate a parsing error
+                    mean_direction_status = "error"
+
             result_shell["values"] = {
                 "SignificantWaveHeight": significant_wave_height,
                 "SignificantWaveHeightAvg24h": avg_wave_height_24h,
                 "WavePeriod": last_row.get("WavePeriod"), # Assuming this is PeakPeriod from index.html
-                "MeanDirection": last_row.get("MeanWaveDirection"),
+                "MeanDirectionDisplay": mean_direction_display_value, # Value for direct display
+                "MeanDirectionNumeric": mean_direction_numeric_value, # Actual numeric value if valid, else None
+                "MeanDirectionStatus": mean_direction_status, # Status: 'valid', 'outlier', 'missing', 'error'
                 "WaveAmplitude": wave_amplitude,
                 "SampleGaps": last_row.get("SampleGaps"),
                 "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
@@ -606,9 +629,22 @@ def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]
         cutoff_time = max_timestamp - timedelta(hours=24) #24hrs for vr2c
         df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
 
-        
+        if df_trend.empty:
+            return []
+
+        # Resample to 1-hour sum for DetectionCount (assuming DC represents discrete events per record)
+        # Or .mean() if an average rate is more appropriate.
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').sum() # Or .mean()
+        else:
+            logger.warning(f"VR2C mini-trend: '{metric_col}' is not numeric, cannot resample. Returning raw trend.")
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index()
+
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
+
         trend_data = []
-        for _, row in df_trend.iterrows():
+        for _, row in df_trend_resampled.iterrows(): # Iterate over resampled data
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col]):
                 trend_data.append({
                     "Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'),
@@ -619,7 +655,81 @@ def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]
         logger.warning(f"Error generating VR2C mini-trend: {e}")
         return []
 
+def get_navigation_status(df_telemetry: Optional[pd.DataFrame]) -> Dict:
+    result_shell: Dict[str, Any] = {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+    if df_telemetry is None or df_telemetry.empty:
+        return result_shell
 
+    try:
+        df_telemetry_processed = preprocess_telemetry_df(df_telemetry)
+    except Exception as e:
+        logger.warning(f"Error preprocessing Telemetry data for summary: {e}")
+        return result_shell
+
+    if not df_telemetry_processed.empty and "Timestamp" in df_telemetry_processed.columns:
+        update_info = utils.get_df_latest_update_info(df_telemetry_processed, "Timestamp")
+        result_shell.update(update_info)
+        last_row = df_telemetry_processed.loc[df_telemetry_processed["Timestamp"].idxmax()]
+
+        # Calculate 24-hour metrics
+        df_last_24h = df_telemetry_processed[df_telemetry_processed['Timestamp'] > (last_row['Timestamp'] - pd.Timedelta(hours=24))]
+
+        # Speed Over Ground metrics
+        avg_sog_24h = df_last_24h['SpeedOverGround'].mean() if not df_last_24h.empty and 'SpeedOverGround' in df_last_24h.columns and pd.api.types.is_numeric_dtype(df_last_24h['SpeedOverGround']) else None
+        
+        # Distance Traveled metrics (using 'DistanceToWaypoint' which is processed 'gliderDistance')
+        METERS_TO_NAUTICAL_MILES = 0.000539957
+
+        total_distance_mission_meters = df_telemetry_processed['DistanceToWaypoint'].sum() if 'DistanceToWaypoint' in df_telemetry_processed.columns and pd.api.types.is_numeric_dtype(df_telemetry_processed['DistanceToWaypoint']) else 0
+        distance_traveled_24h_meters = df_last_24h['DistanceToWaypoint'].sum() if not df_last_24h.empty and 'DistanceToWaypoint' in df_last_24h.columns and pd.api.types.is_numeric_dtype(df_last_24h['DistanceToWaypoint']) else 0
+
+        total_distance_mission_nm = total_distance_mission_meters * METERS_TO_NAUTICAL_MILES if pd.notna(total_distance_mission_meters) else None
+        distance_traveled_24h_nm = distance_traveled_24h_meters * METERS_TO_NAUTICAL_MILES if pd.notna(distance_traveled_24h_meters) else None
+
+
+
+        result_shell["values"] = {
+            "Latitude": last_row.get("Latitude"),
+            "Longitude": last_row.get("Longitude"),
+            "GliderHeading": last_row.get("GliderHeading"), # Use 'gliderHeading' (processed to GliderHeading)
+            "SpeedOverGround": last_row.get("SpeedOverGround"),
+            "AvgSpeedOverGround24h": avg_sog_24h, # 24hr average of SOG
+            # "TargetWaypoint": last_row.get("TargetWaypoint"), # Removed from direct display per request
+            # "DistanceToWaypoint": last_row.get("DistanceToWaypoint"), # This is the *last segment* distance, not what we want for summary here
+            
+            "TotalDistanceTraveledMissionNM": total_distance_mission_nm, # In Nautical Miles
+            "DistanceTraveled24hNM": distance_traveled_24h_nm, # In Nautical Miles
+            
+            "OceanCurrentSpeed": last_row.get("OceanCurrentSpeed"),
+            "OceanCurrentDirection": last_row.get("OceanCurrentDirection"),
+            "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
+        }
+    return result_shell
+
+def get_navigation_mini_trend(df_telemetry: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
+    if df_telemetry is None or df_telemetry.empty:
+        return []
+    try:
+        df_processed = preprocess_telemetry_df(df_telemetry)
+        metric_col = "GliderSpeed" # Primary metric for Navigation mini trend
+        if df_processed.empty or "Timestamp" not in df_processed.columns or metric_col not in df_processed.columns:
+            return []
+
+        max_timestamp = df_processed["Timestamp"].max()
+        if pd.isna(max_timestamp):
+            return []
+        cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for navigation trend
+        df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
+
+        if df_trend.empty: return []
+
+        df_trend_resampled = df_trend.set_index("Timestamp")[[metric_col]].resample('1h').mean().reset_index().dropna(subset=[metric_col])
+
+        return [{"Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'), "value": row[metric_col]}
+                for _, row in df_trend_resampled.iterrows() if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col])]
+    except Exception as e:
+        logger.warning(f"Error generating navigation mini-trend: {e}")
+        return []
     
 
     

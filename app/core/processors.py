@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import logging # Add logging
+from datetime import datetime # Import datetime
 
 logger = logging.getLogger(__name__) # Get a logger for this module
 
@@ -159,7 +160,7 @@ def preprocess_wave_df(df):
         "tp (s)": "WavePeriod",
         "dp (deg)": "MeanWaveDirection",
         "sample Gaps": "SampleGaps", # Corrected to match CSV header "sample Gaps"
-    }
+    } # This processes "GPS Waves Sensor Data.csv"
     df_processed = df_processed.rename(columns=rename_map)
 
     expected_final_cols = [timestamp_col] + list(rename_map.values())
@@ -169,6 +170,66 @@ def preprocess_wave_df(df):
         elif target_col != timestamp_col:
             df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
     return df_processed
+
+def preprocess_wave_spectrum_dfs(df_freq: pd.DataFrame, df_energy: pd.DataFrame) -> list[dict]:
+    """
+    Processes frequency and energy spectrum DataFrames, aligns them by timestamp,
+    and combines the spectrum data into a list of dictionaries.
+
+    Args:
+        df_freq: DataFrame from GPS Waves Frequency Spectrum.csv
+        df_energy: DataFrame from GPS Waves Energy Spectrum.csv
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a spectrum
+        at a specific timestamp: [{'timestamp': ..., 'freq': [...], 'efth': [...]}, ...]
+    """
+    if df_freq is None or df_freq.empty:
+        logger.warning("Frequency spectrum DataFrame is None or empty for spectrum processing.")
+        return []
+    if df_energy is None or df_energy.empty:
+        logger.warning("Energy spectrum DataFrame is None or empty for spectrum processing.")
+        return []
+
+    # Standardize timestamps in both DataFrames.
+    # The raw CSVs use "timeStamp", _initial_dataframe_setup will rename it to "Timestamp".
+    df_freq_processed = _initial_dataframe_setup(df_freq, "Timestamp")
+    df_energy_processed = _initial_dataframe_setup(df_energy, "Timestamp")
+
+    if df_freq_processed.empty or df_energy_processed.empty:
+        logger.warning("One or both spectrum DataFrames are empty after timestamp processing.")
+        return []
+
+    # Merge the two DataFrames on Timestamp
+    # Use an inner merge to keep only timestamps present in both files
+    merged_df = pd.merge(
+        df_freq_processed,
+        df_energy_processed,
+        on=["Timestamp", "latitude", "longitude"], # Merge on common identifying columns
+        suffixes=('_freq', '_energy') # Suffixes for other potentially overlapping columns like 'spectrum Size'
+    )
+
+    if merged_df.empty:
+        logger.warning("No matching timestamps (and lat/lon) found between frequency and energy spectrum files.")
+        return []
+
+    spectral_records = []
+    # Identify value columns (e.g., 'value01_freq', 'value01_energy')
+    # Assuming columns are named value01, value02, ..., valueNN
+    freq_val_cols = sorted([col for col in merged_df.columns if col.startswith('value') and col.endswith('_freq')], key=lambda x: int(x.split('value')[1].split('_')[0]))
+    energy_val_cols = sorted([col for col in merged_df.columns if col.startswith('value') and col.endswith('_energy')], key=lambda x: int(x.split('value')[1].split('_')[0]))
+
+    for index, row in merged_df.iterrows():
+        timestamp = row["Timestamp"]
+        # Extract numeric values, handling potential NaNs
+        freq_values = pd.to_numeric(row[freq_val_cols], errors='coerce').tolist()
+        energy_values = pd.to_numeric(row[energy_val_cols], errors='coerce').tolist()
+
+        # Only add record if both frequency and energy lists are non-empty and have the same length
+        if freq_values and energy_values and len(freq_values) == len(energy_values):
+            spectral_records.append({'timestamp': timestamp, 'freq': freq_values, 'efth': energy_values})
+
+    return spectral_records
 
 def preprocess_ais_df(df):
     timestamp_col = "LastSeenTimestamp"
@@ -347,4 +408,59 @@ def preprocess_solar_df(df: pd.DataFrame) -> pd.DataFrame:
             df_processed[target_col] = np.nan
         elif target_col != timestamp_col: # Convert data columns to numeric
             df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
+    return df_processed
+
+def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
+    timestamp_col = "Timestamp" # Standardized name, will come from 'lastLocationFix' or 'gliderTimeStamp'
+    # The raw CSV uses "lastLocationFix" and "gliderTimeStamp".
+    # _initial_dataframe_setup will try to standardize one of them to "Timestamp".
+    # We'll prioritize 'lastLocationFix' if both are present and become 'Timestamp'.
+
+    df_processed = _initial_dataframe_setup(df, timestamp_col) # Standardizes 'lastLocationFix' to 'Timestamp'
+    if df_processed.empty:
+        # Ensure even an empty DF has the expected columns
+        expected_cols = [
+            timestamp_col, "Latitude", "Longitude", "GliderHeading", "GliderSpeed",
+            "TargetWaypoint", "DistanceToWaypoint", "SpeedOverGround", "OceanCurrentSpeed", "OceanCurrentDirection",
+            "HeadingFloatDegrees", "DesiredBearingDegrees", "HeadingSubDegrees"
+        ]
+        for col in expected_cols:
+            if col not in df_processed.columns:
+                 df_processed[col] = np.nan if col != timestamp_col else pd.Series(dtype='datetime64[ns, UTC]')
+        return df_processed
+
+    # Rename columns to a consistent style and ensure they are numeric where appropriate
+    rename_map = {
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "gliderHeading": "GliderHeading",       # Heading of the glider
+        "gliderSpeed": "GliderSpeed",           # Speed of the glider (m/s)
+        "targetWayPoint": "TargetWaypoint",     # Name/ID of the target waypoint
+        "gliderDistance": "DistanceToWaypoint", # Distance to the target waypoint (km)
+        "speedOverGround": "SpeedOverGround",   # SOG (m/s)
+        "oceanCurrent": "OceanCurrentSpeed",    # Ocean current speed (m/s)
+        "oceanCurrentDirection": "OceanCurrentDirection", # Ocean current direction (deg)
+        "headingFloatDegrees": "HeadingFloatDegrees", # Often the more accurate heading
+        "desiredBearingDegrees": "DesiredBearingDegrees", # Added
+        "headingSubDegrees": "HeadingSubDegrees"      # Added
+    }
+    df_processed = df_processed.rename(columns=rename_map)
+
+    numeric_cols_to_ensure = [
+        "Latitude", "Longitude", "GliderHeading", "GliderSpeed",
+        "DistanceToWaypoint", "SpeedOverGround", "OceanCurrentSpeed", "OceanCurrentDirection", "HeadingFloatDegrees",
+        "DesiredBearingDegrees", "HeadingSubDegrees" # Added
+    ]
+    expected_final_cols = [timestamp_col] + numeric_cols_to_ensure + ["TargetWaypoint"]
+
+    for target_col in expected_final_cols:
+        if target_col not in df_processed.columns:
+            df_processed[target_col] = np.nan
+        if target_col in numeric_cols_to_ensure:
+            df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
+
+    # Prioritize 'HeadingFloatDegrees' for 'GliderHeading' if 'gliderHeading' is NaN or missing
+    if 'GliderHeading' in df_processed.columns and 'HeadingFloatDegrees' in df_processed.columns:
+        df_processed['GliderHeading'] = df_processed['GliderHeading'].fillna(df_processed['HeadingFloatDegrees'])
+
     return df_processed

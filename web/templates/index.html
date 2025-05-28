@@ -103,8 +103,29 @@
   <div class="row" id="dashboard-main-content">
     <!-- Left Navigation Panel (Summary Cards) -->
     <div class="col-md-3" id="left-nav-panel">
+      <!-- Navigation Summary Card -->
+      <div class="summary-card active-card" data-category="navigation" data-mini-trend='{{ navigation_info.mini_trend | tojson | safe if navigation_info and "mini_trend" in navigation_info and navigation_info.mini_trend is not none else "[]" }}'>
+        <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniNavigationChart"></canvas>
+          </div>
+          <div class="summary-card-text-content">
+            <h5>Navigation</h5>
+            <div class="mini-summary">
+              {% if navigation_info and navigation_info['values'] is not none %}
+                SOG: {{ "%.1f kn"|format(navigation_info['values']['SpeedOverGround']) if navigation_info['values']['SpeedOverGround'] is not none else 'N/A' }}<br>
+                POG: {{ "%.0f °"|format(navigation_info['values']['GliderHeading']) if navigation_info['values']['GliderHeading'] is not none else 'N/A' }}
+              {% else %} N/A {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ navigation_info.time_ago_str if navigation_info else 'N/A' }}
+        </div>
+      </div>
+
       <!-- Power Summary Card -->
-      <div class="summary-card active-card" data-category="power" data-mini-trend='{{ power_info.mini_trend | tojson | safe if power_info and "mini_trend" in power_info and power_info.mini_trend is not none else "[]" }}'>
+      <div class="summary-card" data-category="power" data-mini-trend='{{ power_info.mini_trend | tojson | safe if power_info and "mini_trend" in power_info and power_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
             <canvas id="miniPowerChart"></canvas>
@@ -177,7 +198,10 @@
             <div class="mini-summary">
               {% if wave_info and wave_info['values'] is not none %}
                 Hs: {{ "%.1f"|format(wave_info['values']['SignificantWaveHeight']) if wave_info['values']['SignificantWaveHeight'] is not none else 'N/A' }} m<br>
-                Dp: {{ "%.0f"|format(wave_info['values']['MeanDirection']) if wave_info['values']['MeanDirection'] is not none else 'N/A' }} °
+                Dp: <span {% if wave_info['values']['MeanDirectionStatus'] == 'outlier' %}
+                          title="Latest data point was an invalid outlier (e.g., 9999)."
+                          class="text-warning"
+                         {% endif %}>{{ wave_info['values']['MeanDirectionDisplay'] }}</span>
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -341,8 +365,109 @@
           </div>
         </div>
       </div>
-   <!-- Power Detail View (Initially Displayed or as per JS logic) -->
-      <div class="category-detail-view card mb-4" id="detail-power" style="display: block;"> <!-- Default visible -->
+      <!-- Navigation Detail View (Initially Displayed or as per JS logic) -->
+      <div class="category-detail-view card mb-4" id="detail-navigation" style="display: block;"> <!-- Default visible -->
+        <div class="card h-100">
+          <div class="card-header">
+            <h2>Navigation</h2>
+          </div>
+          <div class="card-body">
+            <div class="summary-content-area">
+              {% if navigation_info and navigation_info['values'] %}
+              <div class="power-task-manager-summary mb-3">
+                  <div class="row">
+                      <!-- Column 1: Position & Waypoint -->
+                      <div class="col-md-4 power-summary-column">
+                          <div class="text-center">
+                              <div class="power-summary-header">Latitude</div>
+                              <div class="power-summary-value-large" id="nav-latitude">
+                                  {{ "%.5f"|format(navigation_info['values'].Latitude) if navigation_info['values'].Latitude is not none else 'N/A' }}
+                              </div>
+                          </div>
+                          <div class="text-center mt-3">
+                              <div class="power-summary-header">Longitude</div>
+                              <div class="power-summary-value-large" id="nav-longitude">
+                                  {{ "%.5f"|format(navigation_info['values'].Longitude) if navigation_info['values'].Longitude is not none else 'N/A' }}
+                              </div>
+                          </div>
+                          <!-- Target Waypoint and last segment distance removed from Column 1 display -->
+                      </div>
+                      <!-- Column 2: Heading & Speed -->
+                      <div class="col-md-4 power-summary-column">
+                          <div class="text-center">
+                              <div class="power-summary-header">Glider Heading</div>
+                              <div class="power-summary-value-large" id="nav-heading">
+                                  {{ "%.0f °"|format(navigation_info['values'].GliderHeading) if navigation_info['values'].GliderHeading is not none else 'N/A' }}
+                              </div>
+                          </div>
+                          <div class="text-center mt-3">
+                              <div class="power-summary-header">Glider Speed (SOG)</div>
+                              <div class="power-summary-value-large" id="nav-speed">
+                                  {{ "%.1f kn"|format(navigation_info['values'].SpeedOverGround) if navigation_info['values'].SpeedOverGround is not none else 'N/A' }}
+                              </div>
+                          </div>
+                           <div class="text-center mt-3">
+                              <div class="power-summary-header">Avg SOG (24h)</div>
+                              <div class="power-summary-value-large" id="nav-avg-sog-24h">
+                                  {{ "%.1f kn"|format(navigation_info['values'].AvgSpeedOverGround24h) if navigation_info['values'].AvgSpeedOverGround24h is not none else 'N/A' }}
+                              </div>
+                          </div>
+                      </div>
+                      <!-- Column 3: Distance Traveled & Current -->
+                      <div class="col-md-4 power-summary-column">
+                          <ul class="list-unstyled power-summary-details-list">
+                              <li><span class="power-summary-label">Total Dist. Traveled (Mission):</span><span class="power-summary-value-right" id="nav-total-dist-mission">{{ "%.1f NM"|format(navigation_info['values'].TotalDistanceTraveledMissionNM) if navigation_info['values'].TotalDistanceTraveledMissionNM is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Dist. Traveled (24h):</span><span class="power-summary-value-right" id="nav-dist-24h">{{ "%.1f NM"|format(navigation_info['values'].DistanceTraveled24hNM) if navigation_info['values'].DistanceTraveled24hNM is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Ocean Current Speed:</span><span class="power-summary-value-right" id="nav-current-speed">{{ "%.1f kn"|format(navigation_info['values'].OceanCurrentSpeed) if navigation_info['values'].OceanCurrentSpeed is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Ocean Current Dir:</span><span class="power-summary-value-right" id="nav-current-dir">{{ "%.0f °"|format(navigation_info['values'].OceanCurrentDirection) if navigation_info['values'].OceanCurrentDirection is not none else 'N/A' }}</span></li>
+                          </ul>
+                      </div>
+                  </div>
+              </div>
+              {% elif navigation_info and navigation_info.latest_timestamp_str == "N/A" %}
+              <p>Data unavailable.</p>
+              {% else %}
+              <p>Loading data...</p>
+              {% endif %}
+            </div>
+            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
+              <h5>Navigation Trends (Last 72 hours, 1-hour avg)</h5>
+              <div class="chart-spinner spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="navigationChart"></canvas>
+            </div>
+            <!-- New Ocean Current Chart -->
+            <hr class="my-4">
+            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
+              <h5>Ocean Current & SOG (Last 72 hours, 1-hour avg)</h5>
+              <div class="chart-spinner spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="navigationCurrentChart"></canvas>
+            </div>
+            <!-- New Heading Difference Chart -->
+            <hr class="my-4">
+            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
+              <h5>Sub Heading Difference & Ocean Current (Last 72 hours, 1-hour avg)</h5>
+              <div class="chart-spinner spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="navigationHeadingDiffChart"></canvas>
+            </div>
+          </div>
+           <div class="card-footer text-muted small">
+            {% if navigation_info and navigation_info.latest_timestamp_str != "N/A" %}
+              Last data: {{ navigation_info.latest_timestamp_str }} ({{ navigation_info.time_ago_str }})
+            {% else %}
+              Last data: N/A
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Power Detail View (Initially Hidden) -->
+      <div class="category-detail-view card mb-4" id="detail-power" style="display: none;"> 
       <div class="card h-100">
         <div class="card-header">
           <h2>Power</h2>
@@ -644,13 +769,16 @@
                     <div class="col-md-4 power-summary-column">
                         <div class="text-center">
                             <div class="power-summary-header">Wave Direction (Dp)</div>
-                            <div class="power-summary-value-large" id="wave-direction">
-                                {{ "%.0f °"|format(wave_info['values'].MeanDirection) if wave_info['values'].MeanDirection is not none else 'N/A' }}
+                            <div class="power-summary-value-large" id="wave-direction"> {# Use MeanDirectionDisplay for the text #}
+                                <span {% if wave_info['values']['MeanDirectionStatus'] == 'outlier' %}
+                                      title="Latest data point was an invalid outlier (e.g., 9999)."
+                                      class="text-warning"
+                                     {% endif %}>{{ wave_info['values']['MeanDirectionDisplay'] }}</span>
                             </div>
-                            {% if wave_info['values'].MeanDirection is not none %}
+                            {% if wave_info['values'].MeanDirectionNumeric is not none and wave_info['values'].MeanDirectionStatus == 'valid' %}
                             <div class="wave-propagation-arrow-container">
                                 <span class="wave-propagation-arrow" 
-                                      style="transform: rotate({{ (wave_info['values'].MeanDirection + 180) % 360 }}deg);">
+                                      style="transform: rotate({{ (wave_info['values'].MeanDirectionNumeric + 180) % 360 }}deg);">
                                     &uarr; {# Unicode for upward arrow #}
                                 </span>
                             </div>
@@ -691,24 +819,36 @@
             <canvas id="waveHeightDirectionChart"></canvas>
           </div>
 
-          <!-- New Row for Amplitude Charts -->
+          <!-- New Wave Spectrum Chart -->
           <hr class="my-4">
-          <div class="row mt-3">
-            <div class="col-md-6">
-              <div class="chart-container" style="position: relative; height: 250px; width: 100%;">
-                <h5>Wave Amplitude (A) (Last 72 hours, 1-hour avg)</h5>
-                <div class="chart-spinner spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>
-                <canvas id="waveAmplitudeLeftChart"></canvas>
-              </div>
+          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
+            <h5>Latest Wave Energy Spectrum (E(f))</h5>
+            <div class="chart-spinner spinner-border text-light" role="status">
+              <span class="visually-hidden">Loading...</span>
             </div>
-            <div class="col-md-6">
-              <div class="chart-container" style="position: relative; height: 250px; width: 100%;">
-                <h5>Wave Amplitude (A) - Alt Axis (Last 72 hours, 1-hour avg)</h5>
-                <div class="chart-spinner spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>
-                <canvas id="waveAmplitudeRightChart"></canvas>
+            <canvas id="waveSpectrumChart"></canvas> <!-- Ensure this ID is present -->
+          </div>
+
+          <!-- Marine Weather Forecast Embedded -->
+          <hr class="my-4"> <!-- Add a visual separator -->
+          <h4 class="mb-3">Marine Forecast</h4>
+          <div id="marineForecastDisplay">
+            <div id="marineForecastInitial" class="table-responsive" style="display: none;">
+                <p class="text-muted">Loading marine forecast...</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#marineForecastExtended" aria-expanded="false" aria-controls="marineForecastExtended" id="toggleMarineForecastBtn" style="display: none;">
+              Show More
+            </button>
+            <div class="collapse mt-2" id="marineForecastExtended">
+              <div id="marineForecastExtendedContent" class="table-responsive">
+                <!-- Extended marine forecast will be rendered here by JS -->
               </div>
             </div>
           </div>
+          <div class="text-muted small mt-2" id="marineForecastMetaInfo" style="display: none;">
+            <!-- Marine forecast metadata will be injected here by JavaScript -->
+          </div>
+          <!-- End Marine Weather Forecast Embedded -->
         </div>
         <div class="card-footer text-muted small">
           {% if wave_info and wave_info.latest_timestamp_str != "N/A" %}
