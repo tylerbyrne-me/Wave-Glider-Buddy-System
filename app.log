@@ -1,152 +1,35 @@
-2025-05-29 21:01:18.634 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
-2025-05-29 21:01:18.635 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
-2025-05-29 21:01:18.635 UTC | INFO     | apscheduler.scheduler     | Scheduler started
-2025-05-29 21:01:18.635 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
-2025-05-29 21:01:18.635 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 21:01:18.635 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 21:01:35.344 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.358 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.366 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.378 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.392 UTC | INFO     | app.app                   | Attempting remote load for vr2c (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.406 UTC | INFO     | app.app                   | Attempting remote load for solar (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.417 UTC | INFO     | app.app                   | Attempting remote load for fluorometer (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.430 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.443 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.455 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:35.554 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for power (m203). Will try next path.
-2025-05-29 21:01:35.563 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.566 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for vr2c (m203). Will try next path.
-2025-05-29 21:01:35.567 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for ctd (m203). Will try next path.
-2025-05-29 21:01:35.567 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for solar (m203). Will try next path.
-2025-05-29 21:01:35.567 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for fluorometer (m203). Will try next path.
-2025-05-29 21:01:35.567 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for ais (m203). Will try next path.
-2025-05-29 21:01:35.568 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for errors (m203). Will try next path.
-2025-05-29 21:01:35.568 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for telemetry (m203). Will try next path.
-2025-05-29 21:01:35.568 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for waves (m203). Will try next path.
-2025-05-29 21:01:35.576 UTC | INFO     | app.app                   | Attempting remote load for vr2c (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.584 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.597 UTC | INFO     | app.app                   | Attempting remote load for solar (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.611 UTC | INFO     | app.app                   | Attempting remote load for fluorometer (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.624 UTC | INFO     | app.app                   | Attempting remote load for ais (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.635 UTC | INFO     | app.app                   | Attempting remote load for errors (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.648 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.660 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.664 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for weather (m203). Will try next path.
-2025-05-29 21:01:35.675 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:35.797 UTC | INFO     | app.app                   | Successfully loaded errors for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:35.797 UTC | INFO     | app.app                   | CACHE STORE: Storing errors for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:35.871 UTC | INFO     | app.app                   | Successfully loaded vr2c for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:35.872 UTC | INFO     | app.app                   | CACHE STORE: Storing vr2c for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:35.884 UTC | INFO     | app.app                   | Successfully loaded power for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:35.884 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:35.983 UTC | INFO     | app.app                   | Successfully loaded ais for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:35.985 UTC | INFO     | app.app                   | CACHE STORE: Storing ais for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.079 UTC | INFO     | app.app                   | Successfully loaded solar for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.081 UTC | INFO     | app.app                   | CACHE STORE: Storing solar for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.126 UTC | INFO     | app.app                   | Successfully loaded telemetry for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.126 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.181 UTC | INFO     | app.app                   | Successfully loaded fluorometer for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.182 UTC | INFO     | app.app                   | CACHE STORE: Storing fluorometer for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.261 UTC | INFO     | app.app                   | Successfully loaded waves for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.389 UTC | INFO     | app.app                   | Successfully loaded ctd for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.390 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.391 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:36.404 UTC | INFO     | app.app                   | Successfully loaded weather for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:36.405 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:37.680 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.692 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.700 UTC | INFO     | app.app                   | Attempting remote load for solar (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.708 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.722 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.723 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-05-29 21:01:37.735 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:37.778 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for ctd (m203). Will try next path.
-2025-05-29 21:01:37.787 UTC | INFO     | app.app                   | Attempting remote load for ctd (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:37.831 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for waves (m203). Will try next path.
-2025-05-29 21:01:37.831 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for weather (m203). Will try next path.
-2025-05-29 21:01:37.832 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for telemetry (m203). Will try next path.
-2025-05-29 21:01:37.832 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for power (m203). Will try next path.
-2025-05-29 21:01:37.832 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for solar (m203). Will try next path.
-2025-05-29 21:01:37.840 UTC | INFO     | app.app                   | Attempting remote load for waves (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:37.848 UTC | INFO     | app.app                   | Attempting remote load for weather (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:37.856 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:37.865 UTC | INFO     | app.app                   | Attempting remote load for power (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:37.877 UTC | INFO     | app.app                   | Attempting remote load for solar (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:38.151 UTC | INFO     | app.app                   | Successfully loaded waves for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.151 UTC | INFO     | app.app                   | CACHE STORE: Storing waves for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.152 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-05-29 21:01:38.175 UTC | INFO     | app.app                   | Successfully loaded solar for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.183 UTC | INFO     | app.app                   | Successfully loaded power for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.199 UTC | INFO     | app.app                   | Attempting remote load for vr2c (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:38.200 UTC | INFO     | app.app                   | CACHE STORE: Storing solar for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.219 UTC | INFO     | app.app                   | CACHE STORE: Storing power for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.255 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:38.267 UTC | INFO     | app.app                   | Attempting remote load for fluorometer (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_realtime_missions
-2025-05-29 21:01:38.281 UTC | INFO     | app.app                   | Successfully loaded weather for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.282 UTC | INFO     | app.app                   | CACHE STORE: Storing weather for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.357 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for vr2c (m203). Will try next path.
-2025-05-29 21:01:38.368 UTC | INFO     | app.app                   | Attempting remote load for vr2c (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:38.426 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for telemetry (m203). Will try next path.
-2025-05-29 21:01:38.437 UTC | INFO     | app.app                   | Attempting remote load for telemetry (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:38.440 UTC | INFO     | app.app                   | File not found in realtime path (expected for past missions): http://129.173.20.180:8086/output_realtime_missions/m203-SV3-1070 (C34164NS) for fluorometer (m203). Will try next path.
-2025-05-29 21:01:38.452 UTC | INFO     | app.app                   | Attempting remote load for fluorometer (mission: m203, remote folder: m203-SV3-1070 (C34164NS)) from base: http://129.173.20.180:8086/output_past_missions
-2025-05-29 21:01:38.499 UTC | INFO     | app.app                   | Successfully loaded telemetry for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.499 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.507 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-05-29 21:01:38.507 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-05-29 21:01:38.700 UTC | INFO     | app.app                   | Successfully loaded ctd for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.702 UTC | INFO     | app.app                   | CACHE STORE: Storing ctd for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:38.874 UTC | INFO     | app.app                   | Successfully loaded vr2c for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:38.875 UTC | INFO     | app.app                   | CACHE STORE: Storing vr2c for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:39.182 UTC | INFO     | app.app                   | Successfully loaded telemetry for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:39.183 UTC | INFO     | app.app                   | CACHE STORE: Storing telemetry for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:39.301 UTC | INFO     | app.app                   | Successfully loaded fluorometer for mission m203 from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)
-2025-05-29 21:01:39.302 UTC | INFO     | app.app                   | CACHE STORE: Storing fluorometer for m203 (from Remote: http://129.173.20.180:8086/output_past_missions/m203-SV3-1070 (C34164NS)) into cache.
-2025-05-29 21:01:39.494 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-05-29 21:31:18.634 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 19:01:18 ADT)" (scheduled at 2025-05-29 18:31:18.634339-03:00)
-2025-05-29 21:31:18.634 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 21:31:18.634 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 21:31:18.634 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 19:01:18 ADT)" executed successfully
-2025-05-29 22:01:18.651 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 19:31:18 ADT)" (scheduled at 2025-05-29 19:01:18.634339-03:00)
-2025-05-29 22:01:18.651 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 22:01:18.651 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 22:01:18.652 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 19:31:18 ADT)" executed successfully
-2025-05-29 22:31:18.648 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 20:01:18 ADT)" (scheduled at 2025-05-29 19:31:18.634339-03:00)
-2025-05-29 22:31:18.648 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 22:31:18.648 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 22:31:18.648 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 20:01:18 ADT)" executed successfully
-2025-05-29 23:01:18.654 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 20:31:18 ADT)" (scheduled at 2025-05-29 20:01:18.634339-03:00)
-2025-05-29 23:01:18.654 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 23:01:18.654 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 23:01:18.654 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 20:31:18 ADT)" executed successfully
-2025-05-29 23:31:18.638 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 21:01:18 ADT)" (scheduled at 2025-05-29 20:31:18.634339-03:00)
-2025-05-29 23:31:18.638 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-29 23:31:18.638 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-29 23:31:18.638 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 21:01:18 ADT)" executed successfully
-2025-05-30 00:01:18.639 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 21:31:18 ADT)" (scheduled at 2025-05-29 21:01:18.634339-03:00)
-2025-05-30 00:01:18.639 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 00:01:18.639 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 00:01:18.639 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 21:31:18 ADT)" executed successfully
-2025-05-30 00:31:18.644 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 22:01:18 ADT)" (scheduled at 2025-05-29 21:31:18.634339-03:00)
-2025-05-30 00:31:18.644 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 00:31:18.644 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 00:31:18.644 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 22:01:18 ADT)" executed successfully
-2025-05-30 01:01:18.645 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 22:31:18 ADT)" (scheduled at 2025-05-29 22:01:18.634339-03:00)
-2025-05-30 01:01:18.646 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 01:01:18.646 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 01:01:18.646 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 22:31:18 ADT)" executed successfully
-2025-05-30 01:31:18.649 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 23:01:18 ADT)" (scheduled at 2025-05-29 22:31:18.634339-03:00)
-2025-05-30 01:31:18.650 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 01:31:18.650 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 01:31:18.650 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 23:01:18 ADT)" executed successfully
-2025-05-30 02:01:18.651 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 23:31:18 ADT)" (scheduled at 2025-05-29 23:01:18.634339-03:00)
-2025-05-30 02:01:18.652 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 02:01:18.652 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 02:01:18.652 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-29 23:31:18 ADT)" executed successfully
-2025-05-30 02:31:18.644 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-30 00:01:18 ADT)" (scheduled at 2025-05-29 23:31:18.634339-03:00)
-2025-05-30 02:31:18.645 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-05-30 02:31:18.645 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-05-30 02:31:18.645 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-05-30 00:01:18 ADT)" executed successfully
-2025-05-30 02:46:29.315 UTC | INFO     | app.app                   | APScheduler shut down.
-2025-05-30 02:46:29.315 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-06-11 14:30:22.203 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-06-11 14:30:22.205 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-06-11 14:30:22.205 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-06-11 14:30:22.205 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-06-11 14:30:22.207 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
+2025-06-11 14:30:22.207 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
+2025-06-11 14:30:22.207 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-11 14:30:22.831 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
+2025-06-11 14:30:27.155 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
+2025-06-11 14:30:27.646 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
+2025-06-11 14:30:28.168 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-11 14:30:33.136 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
+2025-06-11 14:30:34.267 UTC | INFO     | app.app                   | User 'adminuser' authenticated successfully. Issuing token.
+2025-06-11 14:30:34.579 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
+2025-06-11 14:30:35.182 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
+2025-06-11 14:30:35.815 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
+2025-06-11 14:30:40.733 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
+2025-06-11 14:30:42.121 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
+2025-06-11 14:30:43.567 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
+2025-06-11 14:30:46.268 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
+2025-06-11 14:30:46.277 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
+2025-06-11 14:30:46.317 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
+2025-06-11 14:30:46.332 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
+2025-06-11 14:30:46.332 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
+2025-06-11 14:30:47.544 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
+2025-06-11 14:31:24.172 UTC | INFO     | app.app                   | Attempting to register new user: testing1
+2025-06-11 14:31:36.112 UTC | INFO     | app.app                   | User 'testing1' authenticated successfully. Issuing token.
+2025-06-11 14:31:37.577 UTC | INFO     | app.app                   | Fetching available missions for user: testing1, role: pilot
+2025-06-11 14:31:38.173 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
+2025-06-11 14:31:38.196 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
+2025-06-11 14:31:38.214 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
+2025-06-11 14:31:38.214 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
+2025-06-11 14:31:38.863 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
+2025-06-11 14:35:24.868 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-06-11 14:35:24.868 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down

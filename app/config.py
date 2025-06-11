@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     local_data_base_path: Path = Path("/home/cove/Wave-Glider-Buddy-System/data")
     remote_data_url: str = "http://129.173.20.180:8086/" # Base URL before specific output folders
     remote_mission_folder_map: dict[str, str] = {
+        # Example: "mission_code_alias": "Actual_Folder_Name_On_Server"
         "m169": "m169-SV3-1071 (C34166NS)",
         "m170": "m170-SV3-1070 (C34164NS)",
         "m171": "m171-SV3-1121 (C34167NS)",
@@ -27,6 +28,11 @@ class Settings(BaseSettings):
     # These are the missions whose data in 'output_realtime_missions' will be proactively cached.
     background_cache_refresh_interval_minutes: int = 60 # Default if not in .env
     log_file_path: Path = Path("app.log") # Default relative to project root if not overridden by .env
+
+    # JWT Settings
+    jwt_secret_key: str = "plankt0n" # CHANGE THIS!
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60 * 24 # 24 hours, adjust as needed
 
     class Config:
         env_file = ".env" 
