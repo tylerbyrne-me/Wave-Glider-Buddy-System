@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html data-bs-theme="dark">
+<head>
+    <title>Mission Form: {{ form_type }} - {{ mission_id }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/custom.css"> {# Assuming you have custom.css #}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        .form-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border: 1px solid #444;
+            border-radius: 0.5rem;
+        }
+        .form-item {
+            margin-bottom: 1rem;
+        }
+        .form-item label {
+            font-weight: 500;
+        }
+        .autofilled-value {
+            padding: 0.375rem 0.75rem;
+            background-color: #303030;
+            border: 1px solid #444;
+            border-radius: 0.25rem;
+            color: #ccc;
+        }
+        .static-text {
+            color: #aaa;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body class="container mt-4"
+      data-mission-id="{{ mission_id }}"
+      data-form-type="{{ form_type }}"
+      data-username="{{ current_user.username if current_user else '' }}">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 id="formTitle">Loading Form...</h1>
+        <div>
+            <a href="/" class="btn btn-outline-secondary">Back to Dashboard</a>
+        </div>
+    </div>
+    <p id="formDescription" class="text-muted"></p>
+
+    <div id="formSpinner" class="text-center my-5">
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading form structure...</span>
+        </div>
+        <p>Loading form structure...</p>
+    </div>
+
+    <form id="missionReportForm" style="display:none;">
+        <!-- Form sections will be dynamically inserted here by JavaScript -->
+        <div id="formSectionsContainer"></div>
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-primary">Submit Form</button>
+            <button type="button" class="btn btn-secondary ms-2" onclick="window.location.href='/'">Cancel</button>
+        </div>
+    </form>
+
+    <div id="submissionStatus" class="mt-3"></div>
+
+    <footer class="mt-5 mb-3 text-center text-muted small">
+        Wave Glider Buddy System
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/auth.js"></script> {# Include auth.js for fetchWithAuth #}
+    <script src="/static/js/mission_form.js"></script> {# New JS file for form logic #}
+</body>
+</html>

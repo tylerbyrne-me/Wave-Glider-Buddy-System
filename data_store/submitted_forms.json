@@ -1,0 +1,139 @@
+{
+    "[\"m203\", \"pre_deployment_checklist\", \"2025-06-11T15:14:08.050602+00:00\"]": {
+        "mission_id": "m203",
+        "form_type": "pre_deployment_checklist",
+        "form_title": "Pre-Deployment Checklist",
+        "sections_data": [
+            {
+                "id": "general_system_checks",
+                "title": "General System Checks",
+                "items": [
+                    {
+                        "id": "hull_integrity",
+                        "label": "Hull Integrity Visual Check",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "umbilical_check",
+                        "label": "Umbilical Secure and Undamaged",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "payload_power",
+                        "label": "Payload Power On",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    }
+                ],
+                "section_comment": null
+            },
+            {
+                "id": "power_system",
+                "title": "Power System",
+                "items": [
+                    {
+                        "id": "battery_level_auto",
+                        "label": "Current Battery Level (Auto)",
+                        "item_type": "autofilled_value",
+                        "value": "17.0%",
+                        "is_checked": null,
+                        "comment": null,
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "battery_level_manual",
+                        "label": "Confirm Battery Level Sufficient",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "solar_panels_clean",
+                        "label": "Solar Panels Clean",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    }
+                ],
+                "section_comment": "TEST"
+            },
+            {
+                "id": "communications",
+                "title": "Communications",
+                "items": [
+                    {
+                        "id": "iridium_status",
+                        "label": "Iridium Comms Check (Signal Strength)",
+                        "item_type": "text_input",
+                        "value": "TEST",
+                        "is_checked": null,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "rudics_test",
+                        "label": "RUDICS Test Call Successful",
+                        "item_type": "checkbox",
+                        "value": null,
+                        "is_checked": true,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    }
+                ],
+                "section_comment": null
+            },
+            {
+                "id": "final_notes_&_sign-off",
+                "title": "Final Notes & Sign-off",
+                "items": [
+                    {
+                        "id": "deployment_notes",
+                        "label": "Deployment Notes/Observations",
+                        "item_type": "text_area",
+                        "value": "TEST",
+                        "is_checked": null,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    },
+                    {
+                        "id": "sign_off_name",
+                        "label": "Signed Off By (Name)",
+                        "item_type": "text_input",
+                        "value": "TEST",
+                        "is_checked": null,
+                        "comment": "TEST",
+                        "required": false,
+                        "placeholder": null
+                    }
+                ],
+                "section_comment": null
+            }
+        ],
+        "submitted_by_username": "adminuser",
+        "submission_timestamp": "2025-06-11T15:14:08.050602Z"
+    }
+}
