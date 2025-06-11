@@ -63,3 +63,27 @@ class ForecastParams(BaseModel):
         if (lat_val is not None and v is None) or (lat_val is None and v is not None):
             raise ValueError("If 'lat' is provided, 'lon' must also be provided, and vice-versa.")
         return v
+
+# --- User Authentication Models ---
+class UserRoleEnum(str, Enum):
+    admin = "admin"
+    pilot = "pilot"
+
+class UserBase(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    role: UserRoleEnum = UserRoleEnum.pilot # Default role
+
+class UserCreate(UserBase):
+    password: str
+
+class User(UserBase):
+    disabled: Optional[bool] = None
+
+class UserInDB(User):
+    hashed_password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str

@@ -1,7 +1,12 @@
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() { // Make async
+    // --- Authentication Check ---
+    if (!checkAuth()) { // checkAuth is from auth.js
+        return; // Stop further execution if not authenticated and redirection is handled by checkAuth
+    }
+
     const missionId = document.body.dataset.missionId;
     const hoursBack = 72; // update as need in hours
-    const missionSelector = document.getElementById('missionSelector');
+    const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isRealtimeMission = document.body.dataset.isRealtime === 'true';
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -108,6 +113,97 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // --- Fetch current user details and update UI ---
+    async function fetchCurrentUserDetailsAndUpdateUI() {
+        try {
+            const response = await fetchWithAuth('/api/users/me');
+            if (response.ok) {
+                const currentUser = await response.json();
+
+                // Update username display
+                const usernameDisplay = document.getElementById('usernameDisplay');
+                if (usernameDisplay && currentUser.username) {
+                    usernameDisplay.textContent = currentUser.username;
+                }
+
+                // Show/Hide admin-specific elements
+                if (currentUser.role === 'admin') {
+                    const registerUserBtn = document.getElementById('registerUserBtn');
+                    if (registerUserBtn) {
+                        registerUserBtn.style.display = 'inline-block'; // Or 'block'
+                    }
+                    // Any other admin-specific UI initializations can go here
+                }
+                return currentUser; // Return user for other potential uses
+            } else if (response.status === 401 || response.status === 403) {
+                logout(); // Invalid token or not authorized
+            } else {
+                console.error('Failed to fetch user details:', response.statusText);
+            }
+        } catch (error) {
+            console.error('Network error fetching user details:', error);
+        }
+        return null;
+    }
+
+    await fetchCurrentUserDetailsAndUpdateUI(); // Call the function
+
+    async function fetchAndPopulateAvailableMissions() {
+        if (!missionSelector) {
+            console.warn("Mission selector not found in DOM.");
+            return;
+        }
+
+        try {
+            const response = await fetchWithAuth('/api/available_missions'); // Use fetchWithAuth
+            if (response.status === 401 || response.status === 403) {
+                logout(); // Token invalid or insufficient permissions
+                return;
+            }
+            if (!response.ok) {
+                console.error('Failed to fetch available missions:', response.statusText);
+                missionSelector.innerHTML = '<option value="">Error loading missions</option>';
+                missionSelector.disabled = true;
+                return;
+            }
+            const missions = await response.json();
+
+            missionSelector.innerHTML = ''; // Clear existing options
+
+            if (missions.length === 0) {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No missions available";
+                missionSelector.appendChild(option);
+                missionSelector.disabled = true;
+            } else {
+                missionSelector.disabled = false;
+                // missions are already sorted by the backend
+                missions.forEach(m_id => {
+                    const option = document.createElement('option');
+                    option.value = m_id;
+                    option.textContent = m_id;
+                    if (m_id === missionId) { // missionId is the current mission from body.dataset
+                        option.selected = true;
+                    }
+                    missionSelector.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching or populating available missions:', error);
+            missionSelector.innerHTML = '<option value="">Error loading missions</option>';
+            missionSelector.disabled = true;
+        }
+    }
+
+    // Logout Button
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', function() {
+            logout(); // logout function from auth.js
+        });
+    }
+
     const dataSourceModal = document.getElementById('dataSourceModal');
     if (dataSourceModal) {
         const localPathInputGroup = document.getElementById('localPathInputGroup');
@@ -145,6 +241,9 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => { window.location.href = currentUrl.toString(); }, 150);
         });
     }
+
+    // Fetch and populate missions *after* auth check and other initial setup
+    fetchAndPopulateAvailableMissions();
 
     if (isRealtimeMission) {
         // console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
@@ -184,7 +283,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 apiUrl += `&refresh=true`;
             }
-            const response = await fetch(apiUrl);
+            // const response = await fetch(apiUrl); // Old way
+            const response = await fetchWithAuth(apiUrl); // Use fetchWithAuth
+
+            if (response.status === 401 || response.status === 403) {
+                // Unauthorized or Forbidden
+                console.warn(`Auth error (${response.status}) fetching ${reportType}. Redirecting to login.`);
+                logout(); // Clear token and redirect
+                return null; // Or throw an error to stop further processing
+            }
+
             if (!response.ok) {
                 const errorText = await response.text();
                 const errorMessage = `Error fetching ${reportType} data: ${response.statusText}. Server: ${errorText}`;
@@ -590,7 +698,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
             }
-            const response = await fetch(`${forecastApiUrl}?${forecastParams.toString()}`);
+            // const response = await fetch(`${forecastApiUrl}?${forecastParams.toString()}`); // Old way
+            const response = await fetchWithAuth(`${forecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn(`Auth error (${response.status}) fetching forecast. Redirecting to login.`);
+                logout();
+                return null;
+            }
+
             if (!response.ok) {
                 const errorText = await response.text();
                 const errorMessage = `Error fetching forecast data: ${response.statusText}. Server: ${errorText}`;
@@ -790,7 +906,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
             }
-            const response = await fetch(`${marineForecastApiUrl}?${forecastParams.toString()}`);
+            // const response = await fetch(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Old way
+            const response = await fetchWithAuth(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn(`Auth error (${response.status}) fetching marine forecast. Redirecting to login.`);
+                logout();
+                return null;
+            }
+
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`Error fetching marine forecast data: ${response.statusText}. Server: ${errorText}`);
@@ -1160,7 +1284,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             // Note: We are NOT passing a specific timestamp here, relying on the backend to get the latest
             // unless a specific timestamp selection UI is added later.
-            const response = await fetch(`${apiUrl}?${spectrumParams.toString()}`);
+            // const response = await fetch(`${apiUrl}?${spectrumParams.toString()}`); // Old way
+            const response = await fetchWithAuth(`${apiUrl}?${spectrumParams.toString()}`); // Use fetchWithAuth
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn(`Auth error (${response.status}) fetching wave spectrum. Redirecting to login.`);
+                logout();
+                renderWaveSpectrumChart(null);
+                return;
+            }
             if (!response.ok) {
                 const errorText = await response.text();
                 const errorMessage = `Error fetching wave spectrum data: ${response.statusText}. Server: ${errorText}`;

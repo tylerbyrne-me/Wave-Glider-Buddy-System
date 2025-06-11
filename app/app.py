@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, status # Added status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse # type: ignore
 from fastapi.templating import Jinja2Templates
+from fastapi.security import OAuth2PasswordRequestForm
 from .core import loaders, summaries, processors, forecast # type: ignore
 from datetime import datetime, timedelta
 import logging
@@ -10,9 +11,11 @@ import numpy as np # For numeric operations if needed
 from pathlib import Path
 import asyncio
 import httpx # For async client in load_data_source
-from typing import Optional, Dict, Tuple # For optional query parameters and type hints
+from typing import Optional, Dict, Tuple, List # For optional query parameters and type hints
 from .config import settings # Use relative import if config.py is in the same 'app' package
-from .core import models # Import the Pydantic models from core
+from .core import models
+from .core.security import create_access_token, verify_password, get_password_hash
+from .auth_utils import get_user_from_db, add_user_to_db, get_current_active_user, get_current_admin_user, get_current_pilot_user, get_optional_current_user # Added add_user_to_db
 from .core import utils
 import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
@@ -77,7 +80,8 @@ async def load_data_source(
     mission_id: str,
     source_preference: Optional[str] = None, # 'local' or 'remote'
     custom_local_path: Optional[str] = None,
-    force_refresh: bool = False # New parameter to bypass cache
+    force_refresh: bool = False, # New parameter to bypass cache
+    current_user: Optional[models.User] = None # Added current_user, make it optional for now for background task
 ):
     """Attempts to load data, trying remote then local sources."""
       # df variable will hold the loaded DataFrame.
@@ -99,13 +103,13 @@ async def load_data_source(
         if is_realtime_remote_source:
             # For real-time remote sources, check expiry
             if datetime.now() - cache_timestamp < timedelta(minutes=CACHE_EXPIRY_MINUTES):
-                logger.info(f"CACHE HIT (valid - real-time): Returning {report_type} for {mission_id} from cache. Original source: {cached_source_path}")
+                logger.debug(f"CACHE HIT (valid - real-time): Returning {report_type} for {mission_id} from cache. Original source: {cached_source_path}")
                 return cached_df, cached_source_path
             else:
-                logger.info(f"Cache hit (expired - real-time) for {report_type} ({mission_id}). Will refresh.")
+                logger.debug(f"Cache hit (expired - real-time) for {report_type} ({mission_id}). Will refresh.")
         else:
             # For past remote missions and all local files, treat cache as always valid (static for app lifecycle)
-            logger.info(f"Cache hit (valid - static/local) for {report_type} ({mission_id}). Returning cached data from {cached_source_path}.")
+            logger.debug(f"Cache hit (valid - static/local) for {report_type} ({mission_id}). Returning cached data from {cached_source_path}.")
             return cached_df, cached_source_path
     # If we reach here, it's a cache miss (or forced refresh/expired)
     elif force_refresh:
@@ -118,7 +122,7 @@ async def load_data_source(
             _custom_local_path_str = f"Local (Custom): {Path(custom_local_path) / mission_id}"
             _attempted_custom_local = False
             try:
-                logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}")
+                logger.debug(f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}")
                 df_attempt = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path))
                 _attempted_custom_local = True # File was accessed or attempted beyond FNF
                 if df_attempt is not None and not df_attempt.empty:
@@ -142,7 +146,7 @@ async def load_data_source(
             _default_local_path_str = f"Local (Default): {settings.local_data_base_path / mission_id}"
             _attempted_default_local = False
             try:
-                logger.info(f"Attempting local load for {report_type} (mission: {mission_id}) from default local path: {settings.local_data_base_path}")
+                logger.debug(f"Attempting local load for {report_type} (mission: {mission_id}) from default local path: {settings.local_data_base_path}")
                 df_attempt = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
                 _attempted_default_local = True
                 if df_attempt is not None and not df_attempt.empty:
@@ -172,42 +176,61 @@ async def load_data_source(
         # Define potential remote base paths to try, in order of preference
         # Ensure no double slashes if settings.remote_data_url ends with /
         base_remote_url = settings.remote_data_url.rstrip('/') 
-        remote_base_urls_to_try = [
-            f"{base_remote_url}/output_realtime_missions", # No trailing slash
-            f"{base_remote_url}/output_past_missions"  # No trailing slash
-        ]
+        remote_base_urls_to_try: List[str] = []
+
+        # Role-based access to remote paths
+        # If current_user is None (e.g. background task), assume admin-like full access for refresh
+        user_role = current_user.role if current_user else models.UserRoleEnum.admin
+
+        if user_role == models.UserRoleEnum.admin:
+            remote_base_urls_to_try.extend([
+                f"{base_remote_url}/output_realtime_missions",
+                f"{base_remote_url}/output_past_missions"
+            ])
+        elif user_role == models.UserRoleEnum.pilot:
+            # Pilots can only access real-time missions that are in the active_realtime_missions list
+            if mission_id in settings.active_realtime_missions:
+                remote_base_urls_to_try.append(f"{base_remote_url}/output_realtime_missions")
+            else:
+                logger.info(f"Pilot '{current_user.username if current_user else 'N/A'}' - Access to remote data for non-active mission '{mission_id}' restricted.")
+        
         df = None 
         last_accessed_remote_path_if_empty = None # Track if a remote file was found but empty
+
+        # If no remote URLs are applicable (e.g., pilot trying to access past mission), this loop won't run.
         for constructed_base_url in remote_base_urls_to_try:
             # THIS IS THE CRUCIAL PART: Ensure client is managed per-attempt
             async with httpx.AsyncClient() as current_client: # Client is created and closed for each URL in the loop
                 try:
-                    logger.info(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
+                    logger.debug(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
                     # Pass this specific client to loaders.load_report
                     df_attempt = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=current_client)
                     if df_attempt is not None and not df_attempt.empty:
                         df = df_attempt
                         actual_source_path = f"Remote: {constructed_base_url}/{remote_mission_folder}"
-                        logger.info(f"Successfully loaded {report_type} for mission {mission_id} from {actual_source_path}")
+                        logger.debug(f"Successfully loaded {report_type} for mission {mission_id} from {actual_source_path}")
                         break # Data found, no need to try other remote paths
                     elif df_attempt is not None: # File found and read, but resulted in an empty DataFrame
                         last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}" # Mark path as "touched"
-                        logger.info(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next path or fallback.")
+                        logger.debug(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next path or fallback.")
                 except httpx.HTTPStatusError as e_http: # Catch HTTPStatusError specifically
                     if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
-                        logger.info(f"File not found in realtime path (expected for past missions): {constructed_base_url}/{remote_mission_folder} for {report_type} ({mission_id}). Will try next path.")
+                        logger.debug(f"File not found in realtime path (expected for past missions): {constructed_base_url}/{remote_mission_folder} for {report_type} ({mission_id}). Will try next path.")
                     else: # Other HTTP errors or 404s from other paths remain warnings
                         logger.warning(f"Remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_http}")
                 except Exception as e_remote_attempt: # This will catch the "Cannot open a client instance more than once" if client is misused
                     logger.warning(f"General remote load attempt from {constructed_base_url} failed for {report_type} ({mission_id}): {e_remote_attempt}")
 
         if df is None or df.empty: # If all remote attempts failed
-            logger.warning(f"No usable remote data found for {report_type} ({mission_id}). Falling back to default local.")
+            if not remote_base_urls_to_try and (source_preference == 'remote' or source_preference is None):
+                 logger.info(f"No remote paths were attempted for {report_type} ({mission_id}) due to role restrictions or mission status. Proceeding to local fallback if applicable.")
+            else:
+                logger.warning(f"No usable remote data found for {report_type} ({mission_id}). Falling back to default local.")
             # No external client to close here as it's managed internally or not passed by home route
             _local_fallback_path_str = f"Local (Default Fallback): {settings.local_data_base_path / mission_id}"
             _attempted_local_fallback = False
             try:
-                logger.info(f"Attempting fallback local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
+                logger.debug(f"Attempting fallback local load for {report_type} (mission: {mission_id}) from {settings.local_data_base_path}")
                 df_fallback = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
                 _attempted_local_fallback = True
                 if df_fallback is not None and not df_fallback.empty:
@@ -217,7 +240,7 @@ async def load_data_source(
                     actual_source_path = _local_fallback_path_str
             except FileNotFoundError:
                 _msg = f"Fallback local file not found for {report_type} ({mission_id}) at {settings.local_data_base_path / mission_id}"
-                logger.info(_msg)
+                logger.debug(_msg)
                 if last_accessed_remote_path_if_empty and actual_source_path == "Data not loaded": # If a remote file was found but empty, and local fallback FNF
                     actual_source_path = last_accessed_remote_path_if_empty
                 elif actual_source_path == "Data not loaded": # If no remote file was touched either
@@ -230,11 +253,18 @@ async def load_data_source(
         elif last_accessed_remote_path_if_empty and actual_source_path == "Data not loaded": # If df was populated by remote, but an earlier remote attempt found an empty file
             pass # actual_source_path is already correctly set to the non-empty remote source
 
+    # Additional check for pilots trying to access local data for non-active missions
+    if current_user and current_user.role == models.UserRoleEnum.pilot and mission_id not in settings.active_realtime_missions:
+        if "Local" in actual_source_path: # If data was loaded from local
+            logger.warning(f"Pilot '{current_user.username}' loaded local data for non-active mission '{mission_id}'. This might be unintended depending on policy.")
+            # To strictly deny:
+            # return None, f"Access denied to local data for non-active mission '{mission_id}' (Pilot)"
+
     if not load_attempted: # Should not happen with current logic, but as a safeguard
          logger.error(f"No load attempt made for {report_type} ({mission_id}) with preference '{source_preference}'. This is unexpected.")
 
     if df is not None and not df.empty:
-        logger.info(f"CACHE STORE: Storing {report_type} for {mission_id} (from {actual_source_path}) into cache.")
+        logger.debug(f"CACHE STORE: Storing {report_type} for {mission_id} (from {actual_source_path}) into cache.")
         data_cache[cache_key] = (df, actual_source_path, datetime.now()) # Store with current timestamp
 
     return df, actual_source_path
@@ -262,7 +292,8 @@ async def refresh_active_mission_cache():
                     report_type,
                     mission_id,
                     source_preference='remote', # Ensure it tries remote (specifically output_realtime_missions first)
-                    force_refresh=True
+                    force_refresh=True,
+                    current_user=None # Background task doesn't have a specific user context for this refresh
                 )
             except Exception as e:
                 logger.error(f"BACKGROUND TASK: Error refreshing cache for {report_type} on mission {mission_id}: {e}")
@@ -282,25 +313,89 @@ def shutdown_event():
     scheduler.shutdown()
     logger.info("APScheduler shut down.")
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request, mission: str = "m203", hours: int = 72, source: Optional[str] = None, local_path: Optional[str] = None, refresh: bool = False):
-    available_missions = list(settings.remote_mission_folder_map.keys())
-    
+
+# --- Authentication Endpoint ---
+@app.post("/token", response_model=models.Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user_in_db = get_user_from_db(form_data.username)
+    if not user_in_db or not verify_password(form_data.password, user_in_db.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user_in_db.disabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+
+    logger.info(f"User '{user_in_db.username}' authenticated successfully. Issuing token.")
+    access_token = create_access_token(
+        data={"sub": user_in_db.username, "role": user_in_db.role.value}
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# --- Registration Endpoint ---
+@app.post("/register", response_model=models.User)
+async def register_new_user(
+        user_in: models.UserCreate,
+        current_admin: models.User = Depends(get_current_admin_user) # Add admin protection
+    ):
+    logger.info(f"Attempting to register new user: {user_in.username}")
+    try:
+        created_user_in_db = add_user_to_db(user_in)
+        # Return User model, not UserInDB (which includes hashed_password)
+        return models.User.model_validate(created_user_in_db)
+    except HTTPException as e: # Catch username already exists error
+        logger.warning(f"Registration failed for {user_in.username}: {e.detail}")
+        raise e # Re-raise the HTTPException
+
+@app.get("/register.html", response_class=HTMLResponse)
+async def register_page(
+    request: Request
+    # current_user: models.User = Depends(get_current_admin_user) # REMOVE Protection for serving the HTML page
+):
+    # Serves the registration page
+    return templates.TemplateResponse("register.html", {"request": request})
+
+@app.get("/login.html", response_class=HTMLResponse)
+async def login_page(request: Request):
+    # Serves the login page
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/", response_class=HTMLResponse) # Protected route
+async def home(
+    request: Request,
+    mission: str = "m203",
+    hours: int = 72,
+    source: Optional[str] = None,
+    local_path: Optional[str] = None,
+    refresh: bool = False,
+    # The user dependency is now handled by calling get_optional_current_user(request)
+    # No direct Depends() for current_user in the signature for this HTML route.
+):
+    # Attempt to get the current user. If no token, current_user will be None.
+    # The JavaScript will handle redirecting to /login.html if no token is found.
+    # For rendering the initial page, we need to determine available_missions.
+    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
+
+    # `available_missions` will now be populated by the client-side JavaScript.
+    available_missions_for_template = [] # Pass an empty list initially.
+
     # Determine if the current mission is an active real-time mission
     is_current_mission_realtime = mission in settings.active_realtime_missions
     # Client will now be managed by each load_data_source call individually
     results = await asyncio.gather(
-        load_data_source("power", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("ctd", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("weather", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("waves", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
+        load_data_source("power", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("ctd", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("weather", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("waves", mission, source, local_path, refresh, actual_current_user),
         # Corrected order to match report_types_order for vr2c and fluorometer
-        load_data_source("vr2c", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), 
-        load_data_source("solar", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # Load solar data
-        load_data_source("fluorometer", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("ais", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("errors", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh),
-        load_data_source("telemetry", mission, source_preference=source, custom_local_path=local_path, force_refresh=refresh), # Load telemetry data
+        load_data_source("vr2c", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("solar", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("fluorometer", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("ais", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("errors", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("telemetry", mission, source, local_path, refresh, actual_current_user),
         return_exceptions=True # To handle individual load failures
     )
 
@@ -395,7 +490,7 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
     return templates.TemplateResponse("index.html", {
         "request": request,
         "mission": mission,
-        "available_missions": available_missions,
+        "available_missions": available_missions_for_template, # Pass the empty list
         "is_current_mission_realtime": is_current_mission_realtime, # Pass this to the template
         "current_source_preference": source, # User's preference (local/remote)
         "default_local_data_path": str(settings.local_data_base_path), # Pass default path
@@ -414,15 +509,38 @@ async def home(request: Request, mission: str = "m203", hours: int = 72, source:
         "fluorometer_info": fluorometer_info, # C3 Fluorometer
         "vr2c_info": vr2c_info, # Mrx
         "navigation_info": navigation_info, # Add navigation info to template context
+        "current_user": actual_current_user, # Pass user info to template
     })
 
+# --- API Endpoint for Available Missions ---
+@app.get("/api/available_missions", response_model=List[str])
+async def get_available_missions_for_user(
+    current_user: models.User = Depends(get_current_active_user) # Protected
+):
+    logger.info(f"Fetching available missions for user: {current_user.username}, role: {current_user.role.value}")
+    if current_user.role == models.UserRoleEnum.admin:
+        return sorted(list(settings.remote_mission_folder_map.keys()))
+    elif current_user.role == models.UserRoleEnum.pilot:
+        return sorted(settings.active_realtime_missions)
+    return [] # Should ideally not be reached if roles are enforced
+
+# --- API Endpoint for Current User Details ---
+@app.get("/api/users/me", response_model=models.User)
+async def read_users_me(current_user: models.User = Depends(get_current_active_user)):
+    """
+    Fetch details for the currently authenticated user.
+    """
+    return current_user
+
 # --- API Endpoints ---
+
 
 @app.get("/api/data/{report_type}/{mission_id}")
 async def get_report_data_for_plotting(
     report_type: models.ReportTypeEnum, # Use Enum for path parameter validation
     mission_id: str,
-    params: models.ReportDataParams = Depends() # Inject Pydantic model for query params
+    params: models.ReportDataParams = Depends(), # Inject Pydantic model for query params
+    current_user: models.User = Depends(get_current_active_user) # Protect API
 ):
     """
     Provides processed time-series data for a given report type,
@@ -433,7 +551,8 @@ async def get_report_data_for_plotting(
         report_type.value, mission_id, # Use .value for Enum
         source_preference=params.source.value if params.source else None, # Use .value for Enum
         custom_local_path=params.local_path,
-        force_refresh=params.refresh
+        force_refresh=params.refresh,
+        current_user=current_user
     )
 
     if df is None or df.empty:
@@ -485,7 +604,7 @@ async def get_report_data_for_plotting(
     # Calculate the cutoff time based on the most recent data point
     cutoff_time = max_timestamp - timedelta(hours=params.hours_back)
     recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
-    if recent_data.empty:
+    if recent_data.empty: # hours_back was used in cutoff_time, not directly here
         logger.info(f"No data found for {report_type}, mission {mission_id} within {hours_back} hours of its latest data point ({max_timestamp}).")
         return JSONResponse(content=[])
         
@@ -517,7 +636,8 @@ async def get_report_data_for_plotting(
 @app.get("/api/forecast/{mission_id}")
 async def get_weather_forecast(
     mission_id: str,
-    params: models.ForecastParams = Depends() # Inject Pydantic model for query params
+    params: models.ForecastParams = Depends(), # Inject Pydantic model for query params
+    current_user: models.User = Depends(get_current_active_user) # Protect API
 ):
     """
     Provides a weather forecast.
@@ -534,7 +654,8 @@ async def get_weather_forecast(
             mission_id,
             source_preference=params.source.value if params.source else None, # Use .value for Enum
             custom_local_path=params.local_path,
-            force_refresh=params.refresh
+            force_refresh=params.refresh,
+            current_user=current_user
         )
 
         if df_telemetry is None or df_telemetry.empty:
@@ -572,7 +693,8 @@ async def get_weather_forecast(
 @app.get("/api/marine_forecast/{mission_id}") # New endpoint for marine-specific data
 async def get_marine_weather_data(
     mission_id: str, # mission_id might be used later if lat/lon needs inference for marine
-    params: models.ForecastParams = Depends()
+    params: models.ForecastParams = Depends(),
+    current_user: models.User = Depends(get_current_active_user) # Protect API
 ):
     """Provides marine-specific forecast data (waves, currents)."""
     final_lat, final_lon = params.lat, params.lon
@@ -584,7 +706,8 @@ async def get_marine_weather_data(
             mission_id,
             source_preference=params.source.value if params.source else None,
             custom_local_path=params.local_path,
-            force_refresh=params.refresh
+            force_refresh=params.refresh,
+            current_user=current_user
         )
 
         if df_telemetry is None or df_telemetry.empty:
@@ -617,7 +740,8 @@ async def get_marine_weather_data(
 async def get_wave_spectrum_data(
     mission_id: str,
     timestamp: Optional[datetime] = None, # Optional specific timestamp for the spectrum
-    params: models.ForecastParams = Depends() # Reusing ForecastParams for source, local_path, refresh
+    params: models.ForecastParams = Depends(), # Reusing ForecastParams for source, local_path, refresh
+    current_user: models.User = Depends(get_current_active_user) # Protect API
 ):
     """
     Provides the latest wave energy spectrum data (Frequency vs. Energy Density).
@@ -645,8 +769,8 @@ async def get_wave_spectrum_data(
 
     if spectral_records is None: # Cache miss or expired/forced refresh for processed data
         logger.info(f"CACHE MISS (processed spectrum) or refresh for {mission_id}. Loading and processing source files.")
-        df_freq, path_freq = await load_data_source("wave_frequency_spectrum", mission_id, source_preference=params.source.value if params.source else None, custom_local_path=params.local_path, force_refresh=params.refresh)
-        df_energy, path_energy = await load_data_source("wave_energy_spectrum", mission_id, source_preference=params.source.value if params.source else None, custom_local_path=params.local_path, force_refresh=params.refresh)
+        df_freq, path_freq = await load_data_source("wave_frequency_spectrum", mission_id, params.source.value if params.source else None, params.local_path, params.refresh, current_user)
+        df_energy, path_energy = await load_data_source("wave_energy_spectrum", mission_id, params.source.value if params.source else None, params.local_path, params.refresh, current_user)
 
         spectral_records = processors.preprocess_wave_spectrum_dfs(df_freq, df_energy)
         if spectral_records: # Only cache if processing was successful and yielded data
