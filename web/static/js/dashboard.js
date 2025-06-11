@@ -1,10 +1,13 @@
 document.addEventListener('DOMContentLoaded', async function() { // Make async
+    console.log("Dashboard.js: DOMContentLoaded event fired."); // DEBUG: Start of handler
     // --- Authentication Check ---
     if (!checkAuth()) { // checkAuth is from auth.js
+        console.log("Dashboard.js: checkAuth() returned false or redirected. Aborting further script execution."); // DEBUG
         return; // Stop further execution if not authenticated and redirection is handled by checkAuth
     }
-
+    console.log("Dashboard.js: checkAuth() passed."); // DEBUG
     const missionId = document.body.dataset.missionId;
+    console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
     const hoursBack = 72; // update as need in hours
     const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isRealtimeMission = document.body.dataset.isRealtime === 'true';
@@ -115,10 +118,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
 
     // --- Fetch current user details and update UI ---
     async function fetchCurrentUserDetailsAndUpdateUI() {
+        console.log("Dashboard.js: fetchCurrentUserDetailsAndUpdateUI() called."); // DEBUG
         try {
             const response = await fetchWithAuth('/api/users/me');
             if (response.ok) {
                 const currentUser = await response.json();
+                console.log("Dashboard.js: Current user details fetched:", currentUser); // DEBUG
 
                 // Update username display
                 const usernameDisplay = document.getElementById('usernameDisplay');
@@ -132,21 +137,29 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                     if (registerUserBtn) {
                         registerUserBtn.style.display = 'inline-block'; // Or 'block'
                     }
+                    const viewFormsBtn = document.getElementById('viewFormsBtn');
+                    if (viewFormsBtn) {
+                        viewFormsBtn.style.display = 'inline-block';
+                    }
                     // Any other admin-specific UI initializations can go here
                 }
                 return currentUser; // Return user for other potential uses
             } else if (response.status === 401 || response.status === 403) {
+                console.warn("Dashboard.js: Auth error fetching user details. Logging out."); // DEBUG
                 logout(); // Invalid token or not authorized
             } else {
                 console.error('Failed to fetch user details:', response.statusText);
             }
         } catch (error) {
             console.error('Network error fetching user details:', error);
+            // Potentially display a user-facing error here if critical
         }
         return null;
     }
 
-    await fetchCurrentUserDetailsAndUpdateUI(); // Call the function
+    console.log("Dashboard.js: About to await fetchCurrentUserDetailsAndUpdateUI()."); // DEBUG
+    await fetchCurrentUserDetailsAndUpdateUI(); 
+    console.log("Dashboard.js: Finished awaiting fetchCurrentUserDetailsAndUpdateUI()."); // DEBUG
 
     async function fetchAndPopulateAvailableMissions() {
         if (!missionSelector) {
@@ -154,19 +167,16 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             return;
         }
 
+        console.log("Dashboard.js: fetchAndPopulateAvailableMissions() called."); // DEBUG
         try {
             const response = await fetchWithAuth('/api/available_missions'); // Use fetchWithAuth
             if (response.status === 401 || response.status === 403) {
+                console.warn("Dashboard.js: Auth error fetching available missions. Logging out."); // DEBUG
                 logout(); // Token invalid or insufficient permissions
                 return;
             }
-            if (!response.ok) {
-                console.error('Failed to fetch available missions:', response.statusText);
-                missionSelector.innerHTML = '<option value="">Error loading missions</option>';
-                missionSelector.disabled = true;
-                return;
-            }
             const missions = await response.json();
+            console.log("Dashboard.js: Available missions fetched:", missions); // DEBUG
 
             missionSelector.innerHTML = ''; // Clear existing options
 
@@ -240,6 +250,23 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             }
             setTimeout(() => { window.location.href = currentUrl.toString(); }, 150);
         });
+    }
+
+    // --- Create Report Button ---
+    const createReportBtn = document.getElementById('createReportBtn');
+    console.log("Dashboard.js: Attempting to set 'Create Report' button href. Element found:", !!createReportBtn); // DEBUG
+    if (createReportBtn) {
+        // Set a default form type for now, this could be made more dynamic later
+        // (e.g., a dropdown next to the button to select form type)
+        const defaultFormType = "pic_handoff_checklist"; // Changed to the new form type
+        if (missionId && missionId.trim() !== "") {
+            createReportBtn.href = `/mission/${missionId}/form/${defaultFormType}.html`;
+            console.log(`Dashboard.js: 'Create Report' button href updated to: ${createReportBtn.href}`); // DEBUG
+        } else {
+            console.error("Dashboard.js: missionId is undefined or empty. 'Create Report' button href NOT updated, remains default."); // DEBUG
+        }
+    } else {
+        console.error("Dashboard.js: 'Create Report' button (id: createReportBtn) NOT FOUND in DOM."); // DEBUG
     }
 
     // Fetch and populate missions *after* auth check and other initial setup

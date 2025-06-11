@@ -2,16 +2,16 @@ from fastapi import FastAPI, Request, HTTPException, Depends, status # Added sta
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse # type: ignore
 from fastapi.templating import Jinja2Templates
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm # type: ignore
 from .core import loaders, summaries, processors, forecast # type: ignore
 from datetime import datetime, timedelta
 import logging
-import pandas as pd # For DataFrame operations
+import pandas as pd # For DataFrame operations # type: ignore
 import numpy as np # For numeric operations if needed
 from pathlib import Path
 import asyncio
 import httpx # For async client in load_data_source
-from typing import Optional, Dict, Tuple, List # For optional query parameters and type hints
+from typing import Optional, Dict, Tuple, List, Any # For optional query parameters and type hints, added Any
 from .config import settings # Use relative import if config.py is in the same 'app' package
 from .core import models
 from .core.security import create_access_token, verify_password, get_password_hash
@@ -19,6 +19,9 @@ from .auth_utils import get_user_from_db, add_user_to_db, get_current_active_use
 from .core import utils
 import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
+from datetime import timezone # Import timezone directly
+import json # For saving/loading forms to/from JSON
+from sqlmodel import create_engine, Session as SQLModelSession, SQLModel, select # type: ignore
 app = FastAPI()
 
 # --- Robust path to templates directory ---
@@ -29,6 +32,10 @@ PROJECT_ROOT = APP_DIR.parent
 # Construct the path to the templates directory
 TEMPLATES_DIR = PROJECT_ROOT / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# --- Define path for local form storage (for testing) ---
+DATA_STORE_DIR = PROJECT_ROOT / "data_store"
+LOCAL_FORMS_DB_FILE = DATA_STORE_DIR / "submitted_forms.json"
 # Mount the static files directory
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "web" / "static")), name="static")
 
@@ -73,6 +80,46 @@ data_cache: Dict[Tuple, Tuple[pd.DataFrame, str, datetime]] = {}
 # CACHE_EXPIRY_MINUTES is now used by the background task interval and for individual cache item expiry
 # if it's a real-time source and the background task hasn't run yet.
 CACHE_EXPIRY_MINUTES = settings.background_cache_refresh_interval_minutes
+
+# In-memory store for submitted forms. This will be populated from a local JSON file on startup.
+# Key: (mission_id, form_type, submission_timestamp_iso) -> MissionFormDataResponse
+mission_forms_db: Dict[Tuple[str, str, str], models.MissionFormDataResponse] = {}
+
+# --- Database Setup (SQLite with SQLModel) ---
+sqlite_engine = create_engine(settings.sqlite_database_url, echo=True) # echo=True for SQL logging
+
+def create_db_and_tables():
+    logger.info("Creating database and tables if they don't exist...")
+    SQLModel.metadata.create_all(sqlite_engine)
+    logger.info("Database and tables checked/created.")
+
+def get_db_session():
+    with SQLModelSession(sqlite_engine) as session:
+        yield session
+
+# --- Helper function to save forms to local JSON (for testing) ---
+def _save_forms_to_local_json():
+    """Saves the current mission_forms_db to a local JSON file."""
+    if settings.forms_storage_mode == "local_json": # Only run if mode is local_json
+        # NOTE: This local JSON storage is for development/testing purposes only.
+        # For production, use a proper database.
+        DATA_STORE_DIR.mkdir(parents=True, exist_ok=True)
+        # Convert tuple keys to string keys for JSON compatibility
+        serializable_db = {json.dumps(list(k)): v.model_dump(mode='json') for k, v in mission_forms_db.items()}
+        try:
+            with open(LOCAL_FORMS_DB_FILE, "w") as f:
+                json.dump(serializable_db, f, indent=4)
+            logger.info(f"Forms database saved to {LOCAL_FORMS_DB_FILE}")
+        except IOError as e:
+            logger.error(f"Error saving forms database to {LOCAL_FORMS_DB_FILE}: {e}")
+        except TypeError as e:
+            logger.error(f"TypeError saving forms database (serialization issue): {e}")
+    elif settings.forms_storage_mode == "sqlite":
+        logger.debug("Forms storage mode is 'sqlite'. JSON save skipped as data is in DB.")
+    else:
+        logger.warning(f"Unknown forms_storage_mode: {settings.forms_storage_mode}. Forms not saved to JSON.")
+
+# ---
 
 
 async def load_data_source(
@@ -306,8 +353,34 @@ async def startup_event():
     scheduler.start()
     logger.info("APScheduler started for background cache refresh.")
     # Trigger an initial refresh shortly after startup
+    if settings.forms_storage_mode == "sqlite":
+        create_db_and_tables() # Create SQLite DB and tables on startup
+
     asyncio.create_task(refresh_active_mission_cache())
 
+    # --- Load forms from local JSON on startup (for testing) ---
+    global mission_forms_db
+    if settings.forms_storage_mode == "local_json":
+        # NOTE: This local JSON storage is for development/testing purposes only.
+        # For production, use a proper database.
+        if LOCAL_FORMS_DB_FILE.exists():
+            try:
+                with open(LOCAL_FORMS_DB_FILE, "r") as f:
+                    loaded_db_serializable = json.load(f)
+                    # Deserialize keys from string back to tuple and values to Pydantic model
+                    mission_forms_db = {
+                        tuple(json.loads(k)): models.MissionFormDataResponse(**v)
+                        for k, v in loaded_db_serializable.items()
+                    }
+                logger.info(f"Forms database loaded from {LOCAL_FORMS_DB_FILE}. {len(mission_forms_db)} forms loaded.")
+            except (IOError, json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Error loading forms database from {LOCAL_FORMS_DB_FILE}: {e}. Starting with an empty forms DB.")
+                mission_forms_db = {} # Ensure it's empty on error
+    elif settings.forms_storage_mode == "sqlite":
+        # Placeholder: In a production environment with database mode,
+        # forms would be loaded from the database on demand or via a different mechanism.
+        logger.info("Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.")
+        # mission_forms_db is not used when mode is sqlite for primary storage
 @app.on_event("shutdown")
 def shutdown_event():
     scheduler.shutdown()
@@ -531,6 +604,229 @@ async def read_users_me(current_user: models.User = Depends(get_current_active_u
     Fetch details for the currently authenticated user.
     """
     return current_user
+
+# --- Form Endpoints ---
+
+async def get_example_form_schema(form_type: str, mission_id: str, current_user: models.User) -> models.MissionFormSchema:
+    """
+    Generates a form schema based on form_type.
+    This is where you'd define the structure of different forms.
+    For now, it includes a basic example with auto-fill.
+    """
+    if form_type == "pre_deployment_checklist":
+        # Attempt to get latest power status for auto-fill
+        latest_power_df, _ = await load_data_source("power", mission_id, current_user=current_user)
+        power_summary = summaries.get_power_status(latest_power_df)
+        battery_percentage_value = "N/A"
+        if power_summary and power_summary.get("values") and power_summary["values"].get("BatteryPercentage") is not None:
+            battery_percentage_value = f"{power_summary['values']['BatteryPercentage']:.1f}%"
+
+        return models.MissionFormSchema(
+            form_type=form_type,
+            title="Pre-Deployment Checklist",
+            description="Complete this checklist before deploying the Wave Glider.",
+            sections=[
+                models.FormSection(
+                    id="general_checks",
+                    title="General System Checks",
+                    items=[
+                        models.FormItem(id="hull_integrity", label="Hull Integrity Visual Check", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+                        models.FormItem(id="umbilical_check", label="Umbilical Secure and Undamaged", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+                        models.FormItem(id="payload_power", label="Payload Power On", item_type=models.FormItemTypeEnum.CHECKBOX),
+                    ]
+                ),
+                models.FormSection(
+                    id="power_system",
+                    title="Power System",
+                    items=[
+                        models.FormItem(id="battery_level_auto", label="Current Battery Level (Auto)", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=battery_percentage_value),
+                        models.FormItem(id="battery_level_manual", label="Confirm Battery Level Sufficient", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+                        models.FormItem(id="solar_panels_clean", label="Solar Panels Clean", item_type=models.FormItemTypeEnum.CHECKBOX),
+                    ],
+                    section_comment="Ensure all power connections are secure."
+                ),
+                models.FormSection(
+                    id="comms_check",
+                    title="Communications",
+                    items=[
+                        models.FormItem(id="iridium_status", label="Iridium Comms Check (Signal Strength)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 5 bars"),
+                        models.FormItem(id="rudics_test", label="RUDICS Test Call Successful", item_type=models.FormItemTypeEnum.CHECKBOX),
+                    ]
+                ),
+                models.FormSection(
+                    id="final_notes",
+                    title="Final Notes & Sign-off",
+                    items=[
+                        models.FormItem(id="deployment_notes", label="Deployment Notes/Observations", item_type=models.FormItemTypeEnum.TEXT_AREA, placeholder="Any issues or special conditions..."),
+                        models.FormItem(id="sign_off_name", label="Signed Off By (Name)", item_type=models.FormItemTypeEnum.TEXT_INPUT, required=True),
+                    ]
+                )
+            ]
+        )
+    elif form_type == "pic_handoff_checklist":
+        # Attempt to get latest power status for auto-fill
+        latest_power_df, _ = await load_data_source("power", mission_id, current_user=current_user)
+        power_summary_values = summaries.get_power_status(latest_power_df).get("values", {})
+
+        current_battery_wh_value = f"{power_summary_values.get('BatteryWattHours', 'N/A'):.0f} Wh" if pd.notna(power_summary_values.get('BatteryWattHours')) else "N/A"
+        battery_percentage_value = f"{power_summary_values.get('BatteryPercentage', 'N/A'):.0f}%" if pd.notna(power_summary_values.get('BatteryPercentage')) else "N/A"
+
+        # Placeholder for other potential autofills - for now, most are text inputs
+        # glider_id_value = mission_id # This is already available
+        # total_battery_capacity_value = "2600 Wh" # Example, could be dynamic per glider type later
+
+        return models.MissionFormSchema(
+            form_type=form_type,
+            title="PIC Handoff Checklist",
+            description="Pilot in Command (PIC) handoff checklist. Verify each item.",
+            sections=[
+                models.FormSection(
+                    id="general_status",
+                    title="Glider & Mission General Status",
+                    items=[
+                        models.FormItem(id="glider_id_val", label="Glider ID", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=mission_id),
+                        models.FormItem(id="glider_id_chk", label="Glider ID Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+
+                        models.FormItem(id="current_mos_val", label="Current MOS", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter MOS", required=True),
+
+                        models.FormItem(id="current_pic_val", label="Current PIC", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter Current PIC", required=True),
+
+                        models.FormItem(id="last_pic_val", label="Last PIC", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter Last PIC", required=True),
+
+                        models.FormItem(id="mission_status_val", label="Mission Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., In Transit, On Station", required=True),
+
+                        models.FormItem(id="total_battery_val", label="Total Battery Capacity (Wh)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="2775 Wh"), # Using constant from summaries.py
+                        models.FormItem(id="total_battery_chk", label="Total Battery Capacity Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+                        models.FormItem(id="current_battery_wh_val", label="Current Glider Battery (Wh)", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=current_battery_wh_value),
+                        models.FormItem(id="current_battery_wh_chk", label="Current Glider Battery (Wh) Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+
+                        models.FormItem(id="percent_battery_val", label="% Battery Remaining", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=battery_percentage_value),
+                        models.FormItem(id="percent_battery_chk", label="% Battery Remaining Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
+
+                        models.FormItem(id="tracker_battery_v_val", label="Tracker Battery (V)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 14.94"),
+                        models.FormItem(id="tracker_last_update_val", label="Tracker Last Update", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., MM-DD-YYYY HH:MM:SS"),
+                        models.FormItem(id="communications_val", label="Communications Mode", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., CELL, IRIDIUM"),
+                        models.FormItem(id="telemetry_rate_val", label="Telemetry Report Rate (min)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 5"),
+                        models.FormItem(id="navigation_mode_val", label="Navigation Mode", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., FSC, Waypoint"),
+                        models.FormItem(id="target_waypoint_val", label="Target Waypoint", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter target waypoint"),
+                        models.FormItem(id="waypoint_details_val", label="Waypoint Start to Finish Details", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 90 Degrees, 5km"),
+                        models.FormItem(id="light_status_val", label="Light Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF, AUTO"),
+                        models.FormItem(id="thruster_status_val", label="Thruster Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
+                        models.FormItem(id="obstacle_avoid_val", label="Obstacle Avoidance", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
+                        models.FormItem(id="line_follow_val", label="Line Following Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
+                    ]
+                ),
+                models.FormSection(
+                    id="operational_notes",
+                    title="Operational Notes & Observations",
+                    items=[
+                        models.FormItem(id="errors_notes_val", label="Errors / System Messages", item_type=models.FormItemTypeEnum.TEXT_AREA, placeholder="Describe any errors or system messages..."),
+                        models.FormItem(id="boats_nearby_val", label="Boats Nearby / AIS Contacts", item_type=models.FormItemTypeEnum.TEXT_AREA, placeholder="Describe nearby vessels or AIS contacts..."),
+                    ]
+                ),
+                models.FormSection(
+                    id="station_ops",
+                    title="Station Operations",
+                    items=[
+                        models.FormItem(id="current_station_val", label="Current Station ID / Name", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter station ID or name"),
+                        models.FormItem(id="offload_status_val", label="Offload Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., N/A, In Progress, Complete"),
+                    ]
+                ),
+                models.FormSection(
+                    id="payload_status",
+                    title="Payload Systems Status",
+                    items=[
+                        models.FormItem(id="payload_airmar_val", label="Airmar Weather", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_waterspeed_val", label="Water Speed Sensor", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_ctd_val", label="CTD", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_gpswaves_val", label="GPSWaves", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_mose_val", label="Datawell Mose", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="N/A, ON/OFF/Error"),
+                        models.FormItem(id="payload_fluoro_val", label="Fluorometer", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_mobilerx_val", label="MobileRX (T1)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_adcp_val", label="ADCP", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
+                        models.FormItem(id="payload_co2pro_val", label="CO2Pro", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="N/A, ON/OFF/Error"),
+                    ]
+                )
+            ]
+        )
+    # Add other form types here
+    raise HTTPException(status_code=404, detail=f"Form type '{form_type}' not found.")
+
+@app.get("/api/forms/{mission_id}/template/{form_type}", response_model=models.MissionFormSchema)
+async def get_form_template_for_mission(
+    mission_id: str,
+    form_type: str, # Later, this could be an Enum
+    current_user: models.User = Depends(get_current_active_user)
+):
+    logger.info(f"User '{current_user.username}' requesting form template '{form_type}' for mission '{mission_id}'.")
+    try:
+        schema = await get_example_form_schema(form_type, mission_id, current_user)
+        return schema
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error generating form schema for {form_type} on mission {mission_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not generate form schema.")
+
+@app.post("/api/forms/{mission_id}", response_model=models.MissionFormDataResponse, status_code=status.HTTP_201_CREATED)
+async def submit_mission_form(
+    mission_id: str, # Path parameter
+    form_data_in: models.MissionFormDataCreate, # Request body
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session) # Inject DB session
+):
+    logger.info(f"User '{current_user.username}' submitting form '{form_data_in.form_type}' for mission '{mission_id}'.")
+    if form_data_in.mission_id != mission_id:
+        raise HTTPException(status_code=400, detail="Mission ID in path does not match mission ID in form data.")
+
+    submission_ts = datetime.now(timezone.utc) # Use the directly imported timezone
+    form_response = models.MissionFormDataResponse(
+        **form_data_in.model_dump(),
+        submitted_by_username=current_user.username,
+        submission_timestamp=submission_ts
+    )
+
+    if settings.forms_storage_mode == "local_json":
+        # Store in our in-memory DB (for local_json mode)
+        form_key_json = (mission_id, form_data_in.form_type, submission_ts.isoformat())
+        mission_forms_db[form_key_json] = form_response
+        _save_forms_to_local_json() # Save to local file if mode is local_json
+        logger.info(f"Form '{form_data_in.form_type}' (mission '{mission_id}') submitted by '{current_user.username}' and saved to JSON. Key: {form_key_json}")
+    elif settings.forms_storage_mode == "sqlite":
+        try:
+            # Convert the Pydantic response model (which might have List[FormSection])
+            # to a dictionary. model_dump() will convert nested Pydantic models
+            # (like FormSection and FormItem) into dicts.
+            form_data_dict = form_response.model_dump()
+            
+            # Create the SubmittedForm instance using the dictionary.
+            # Since SubmittedForm.sections_data is now List[dict], this will be a list of dicts.
+            db_form_entry = models.SubmittedForm(**form_data_dict)
+            session.add(db_form_entry)
+            session.commit()
+            session.refresh(db_form_entry)
+            logger.info(f"Form '{db_form_entry.form_type}' (mission '{db_form_entry.mission_id}') submitted by '{db_form_entry.submitted_by_username}' and saved to SQLite DB with ID: {db_form_entry.id}")
+        except Exception as e:
+            logger.error(f"Error saving form to SQLite DB: {e}", exc_info=True)
+            session.rollback() # Rollback in case of error
+            raise HTTPException(status_code=500, detail="Failed to save form to database.")
+    else:
+        logger.warning(f"Unknown forms_storage_mode: {settings.forms_storage_mode}. Form not persisted.")
+
+    return form_response
+
+@app.get("/api/forms/all", response_model=List[models.SubmittedForm])
+async def get_all_submitted_forms(
+    session: SQLModelSession = Depends(get_db_session),
+    current_user: models.User = Depends(get_current_admin_user) # Admin only
+):
+    """
+    Retrieves all submitted forms from the database.
+    Only accessible by admin users.
+    """
+    logger.info(f"Admin user '{current_user.username}' requesting all submitted forms.")
+    forms = session.exec(select(models.SubmittedForm).order_by(models.SubmittedForm.submission_timestamp.desc())).all()
+    return forms
 
 # --- API Endpoints ---
 
@@ -789,3 +1085,47 @@ async def get_wave_spectrum_data(
 
     spectrum_data = [{"x": f, "y": e} for f, e in zip(target_spectrum.get('freq', []), target_spectrum.get('efth', [])) if pd.notna(f) and pd.notna(e)]
     return JSONResponse(content=spectrum_data)
+
+# --- HTML Route for Forms ---
+@app.get("/mission/{mission_id}/form/{form_type}.html", response_class=HTMLResponse)
+async def get_mission_form_page(
+    request: Request,
+    mission_id: str,
+    form_type: str,
+    # current_user: models.User = Depends(get_current_active_user) # Remove direct auth dependency for HTML page
+):
+    # Attempt to get current user, but don't require it for serving the page.
+    # The JS on the page will handle auth checks for API calls.
+    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
+    username_for_log = actual_current_user.username if actual_current_user else "anonymous"
+    logger.info(f"Attempting to serve HTML form page: /mission/{mission_id}/form/{form_type}.html for user '{username_for_log}'")
+    try:
+        template_name = "mission_form.html"
+        context = {
+            "request": request,
+            "mission_id": mission_id,
+            "form_type": form_type,
+            "current_user": actual_current_user # Pass to template, will be None if not logged in
+        }
+        # Optional: Log context variable types for debugging
+        # logger.debug(f"Using template '{template_name}' with context types: { {k: type(v).__name__ for k, v in context.items()} }")
+        
+        response = templates.TemplateResponse(template_name, context)
+        logger.info(f"Successfully prepared TemplateResponse for {template_name}.")
+        return response
+    except Exception as e:
+        logger.error(f"Error serving HTML form page /mission/{mission_id}/form/{form_type}.html: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error rendering form page: {str(e)}")
+
+# --- HTML Route for Viewing All Forms (Admin) ---
+@app.get("/view_forms.html", response_class=HTMLResponse)
+async def get_view_forms_page(
+    request: Request,
+    # current_user: models.User = Depends(get_current_admin_user) # Admin only for serving HTML
+):
+    # Allow the page to load; JS will handle auth for API calls.
+    # We can still try to get user info for the template if a token is present.
+    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
+    username_for_log = actual_current_user.username if actual_current_user else "anonymous"
+    logger.info(f"User '{username_for_log}' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.")
+    return templates.TemplateResponse("view_forms.html", {"request": request, "current_user": actual_current_user})
