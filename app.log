@@ -1,13 +1,84 @@
-2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
-2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
-2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Scheduler started
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Database and tables checked/created.
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Existing users found in the database. Skipping default user creation.
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-12 13:38:57.174 UTC | INFO     | app.app                   | APScheduler shut down.
-2025-06-12 13:38:57.174 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-06-12 13:53:43.389 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-06-12 13:53:43.389 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-06-12 13:53:43.389 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-06-12 13:53:43.394 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-06-12 13:53:43.394 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
+2025-06-12 13:53:43.396 UTC | INFO     | app.app                   | Database and tables checked/created.
+2025-06-12 13:53:43.400 UTC | INFO     | app.app                   | Existing users found in the database. Skipping default user creation.
+2025-06-12 13:53:43.400 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
+2025-06-12 13:53:43.400 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
+2025-06-12 13:53:43.400 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
+2025-06-12 13:53:43.400 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-12 13:53:43.718 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
+2025-06-12 13:53:45.541 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
+2025-06-12 13:53:45.871 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
+2025-06-12 13:53:46.146 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 13:53:47.004 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
+2025-06-12 13:53:47.349 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
+2025-06-12 13:53:47.654 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
+2025-06-12 13:53:47.923 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:47.923 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:47.923 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:47.923 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:47.923 UTC | WARNING  | app.app                   | No usable remote data found for weather (m204). Falling back to default local.
+2025-06-12 13:53:47.956 UTC | WARNING  | app.app                   | No usable remote data found for power (m204). Falling back to default local.
+2025-06-12 13:53:47.966 UTC | WARNING  | app.app                   | No usable remote data found for ctd (m204). Falling back to default local.
+2025-06-12 13:53:48.101 UTC | WARNING  | app.app                   | No usable remote data found for waves (m204). Falling back to default local.
+2025-06-12 13:53:48.115 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for vr2c (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vemco%20VR2c%20Status.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.115 UTC | WARNING  | app.app                   | No usable remote data found for vr2c (m204). Falling back to default local.
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for ais (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/AIS%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for fluorometer (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Fluorometer%20Samples%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for solar (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Solar%20Input%20Port%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for errors (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vehicle%20Error%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:48.140 UTC | WARNING  | app.app                   | No usable remote data found for ais (m204). Falling back to default local.
+2025-06-12 13:53:48.165 UTC | WARNING  | app.app                   | No usable remote data found for fluorometer (m204). Falling back to default local.
+2025-06-12 13:53:48.226 UTC | WARNING  | app.app                   | No usable remote data found for telemetry (m204). Falling back to default local.
+2025-06-12 13:53:48.280 UTC | WARNING  | app.app                   | No usable remote data found for solar (m204). Falling back to default local.
+2025-06-12 13:53:48.301 UTC | WARNING  | app.app                   | No usable remote data found for errors (m204). Falling back to default local.
+2025-06-12 13:53:49.090 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
+2025-06-12 13:53:49.169 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
+2025-06-12 13:53:49.250 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-06-12 13:53:49.469 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for ctd (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Seabird%20CTD%20Records%20with%20D.O..csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.469 UTC | WARNING  | app.app                   | No usable remote data found for ctd (m204). Falling back to default local.
+2025-06-12 13:53:49.694 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for solar (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Solar%20Input%20Port%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.694 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for telemetry (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Telemetry%206%20Report%20by%20WGMS%20Datetime.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.694 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for power (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Amps%20Power%20Summary%20Report.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.694 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for weather (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Weather%20Records%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.694 UTC | WARNING  | app.app                   | No usable remote data found for solar (m204). Falling back to default local.
+2025-06-12 13:53:49.732 UTC | WARNING  | app.app                   | No usable remote data found for telemetry (m204). Falling back to default local.
+2025-06-12 13:53:49.795 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=44.4, Lon=-63.16
+2025-06-12 13:53:49.795 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.4, lon=-63.16.
+2025-06-12 13:53:49.810 UTC | WARNING  | app.app                   | No usable remote data found for power (m204). Falling back to default local.
+2025-06-12 13:53:49.840 UTC | WARNING  | app.app                   | No usable remote data found for weather (m204). Falling back to default local.
+2025-06-12 13:53:49.886 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for waves (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/GPS%20Waves%20Sensor%20Data.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:49.891 UTC | WARNING  | app.app                   | No usable remote data found for waves (m204). Falling back to default local.
+2025-06-12 13:53:49.898 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m204.
+2025-06-12 13:53:50.128 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for vr2c (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Vemco%20VR2c%20Status.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:50.129 UTC | WARNING  | app.app                   | No usable remote data found for vr2c (m204). Falling back to default local.
+2025-06-12 13:53:50.398 UTC | WARNING  | app.app                   | Remote load attempt from http://129.173.20.180:8086/output_past_missions failed for fluorometer (m204): Client error '404 Not Found' for url 'http://129.173.20.180:8086/output_past_missions/m204-SV3-1070%20(C34164NS)/Fluorometer%20Samples%202.csv'
+For more information check: https://httpstatuses.com/404
+2025-06-12 13:53:50.398 UTC | WARNING  | app.app                   | No usable remote data found for fluorometer (m204). Falling back to default local.
+2025-06-12 13:53:50.500 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
+2025-06-12 13:53:50.643 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
+2025-06-12 13:53:51.103 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
+2025-06-12 13:53:51.902 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
+2025-06-12 13:53:53.289 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-06-12 13:53:53.289 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
