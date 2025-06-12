@@ -1,226 +1,114 @@
-2025-06-11 16:40:50.500 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
-2025-06-11 16:40:50.500 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
-2025-06-11 16:40:50.500 UTC | INFO     | apscheduler.scheduler     | Scheduler started
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
-2025-06-11 16:40:50.500 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 16:40:50.500 UTC | INFO     | sqlalchemy.engine.Engine  | PRAGMA main.table_info("submitted_forms")
-2025-06-11 16:40:50.500 UTC | INFO     | sqlalchemy.engine.Engine  | [raw sql] ()
-2025-06-11 16:40:50.500 UTC | INFO     | sqlalchemy.engine.Engine  | COMMIT
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | Database and tables checked/created.
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-11 16:40:50.500 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-11 16:40:50.811 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
-2025-06-11 16:40:52.166 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
-2025-06-11 16:40:52.509 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
-2025-06-11 16:40:52.904 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
-2025-06-11 16:40:54.234 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
-2025-06-11 16:40:54.658 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
-2025-06-11 16:40:54.837 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
-2025-06-11 16:40:55.091 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
-2025-06-11 16:40:59.364 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
-2025-06-11 16:41:00.208 UTC | INFO     | app.app                   | User 'adminuser' authenticated successfully. Issuing token.
-2025-06-11 16:41:00.665 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
-2025-06-11 16:41:01.819 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-06-11 16:41:04.853 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 16:41:04.855 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 16:41:05.157 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 16:41:05.169 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 16:41:05.169 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 16:41:05.941 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 16:41:10.459 UTC | INFO     | app.app                   | Attempting to serve HTML form page: /mission/m203/form/pic_handoff_checklist.html for user 'anonymous'
-2025-06-11 16:41:10.459 UTC | INFO     | app.app                   | Successfully prepared TemplateResponse for mission_form.html.
-2025-06-11 16:41:10.527 UTC | INFO     | app.app                   | User 'adminuser' requesting form template 'pic_handoff_checklist' for mission 'm203'.
-2025-06-11 16:46:06.981 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 16:46:07.202 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 16:46:07.262 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 16:46:07.275 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 16:46:07.276 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 16:46:08.206 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 16:50:02.772 UTC | INFO     | app.app                   | User 'adminuser' submitting form 'pic_handoff_checklist' for mission 'm203'.
-2025-06-11 16:50:02.774 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 16:50:02.774 UTC | INFO     | sqlalchemy.engine.Engine  | INSERT INTO submitted_forms (mission_id, form_type, form_title, sections_data, submitted_by_username, submission_timestamp) VALUES (?, ?, ?, ?, ?, ?)
-2025-06-11 16:50:02.779 UTC | INFO     | sqlalchemy.engine.Engine  | [generated in 0.00056s] ('m203', 'pic_handoff_checklist', 'PIC Handoff Checklist', '[{"id": "glider_&_mission_general_status", "title": "Glider & Mission General Status", "items": [{"id": "glider_id_val", "label": "Glider ID", "item_ ... (6620 characters truncated) ... ", "item_type": "text_input", "value": "TEST", "is_checked": null, "comment": "", "required": false, "placeholder": null}], "section_comment": null}]', 'adminuser', '2025-06-11 16:50:02.772973')
-2025-06-11 16:50:02.779 UTC | INFO     | sqlalchemy.engine.Engine  | COMMIT
-2025-06-11 16:50:02.793 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 16:50:02.793 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
-FROM submitted_forms 
-WHERE submitted_forms.id = ?
-2025-06-11 16:50:02.793 UTC | INFO     | sqlalchemy.engine.Engine  | [generated in 0.00048s] (2,)
-2025-06-11 16:50:02.793 UTC | INFO     | app.app                   | Form 'pic_handoff_checklist' (mission 'm203') submitted by 'adminuser' and saved to SQLite DB with ID: 2
-2025-06-11 16:50:02.793 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
-2025-06-11 16:50:06.154 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 16:50:06.163 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 16:50:06.172 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 16:50:06.174 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 16:50:06.499 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 16:50:07.034 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 16:50:09.101 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
-2025-06-11 16:50:09.216 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
-2025-06-11 16:50:09.216 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 16:50:09.216 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
+2025-06-12 01:12:20.275 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-06-12 01:12:20.275 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-06-12 01:12:20.275 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-06-12 01:12:20.275 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-06-12 01:12:20.275 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
+2025-06-12 01:12:20.278 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
+2025-06-12 01:12:20.278 UTC | INFO     | sqlalchemy.engine.Engine  | PRAGMA main.table_info("submitted_forms")
+2025-06-12 01:12:20.278 UTC | INFO     | sqlalchemy.engine.Engine  | [raw sql] ()
+2025-06-12 01:12:20.278 UTC | INFO     | sqlalchemy.engine.Engine  | COMMIT
+2025-06-12 01:12:20.278 UTC | INFO     | app.app                   | Database and tables checked/created.
+2025-06-12 01:12:20.278 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
+2025-06-12 01:12:20.278 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
+2025-06-12 01:12:20.278 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
+2025-06-12 01:12:20.278 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-12 01:12:20.687 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
+2025-06-12 01:12:22.017 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
+2025-06-12 01:12:22.434 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
+2025-06-12 01:12:22.808 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:12:23.440 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
+2025-06-12 01:12:23.907 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
+2025-06-12 01:12:24.157 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
+2025-06-12 01:12:24.472 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
+2025-06-12 01:12:25.217 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
+2025-06-12 01:12:26.676 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
+2025-06-12 01:12:27.530 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-12 01:12:27.541 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
+2025-06-12 01:12:27.768 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
+2025-06-12 01:12:27.790 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
+2025-06-12 01:12:27.800 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
+2025-06-12 01:12:27.809 UTC | INFO     | app.app                   | Force refresh requested for solar (m203). Bypassing cache.
+2025-06-12 01:12:27.821 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
+2025-06-12 01:12:27.876 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
+2025-06-12 01:12:27.892 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
+2025-06-12 01:12:27.895 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:12:29.624 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
+2025-06-12 01:12:29.631 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
+2025-06-12 01:12:30.122 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
+2025-06-12 01:12:30.181 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
+2025-06-12 01:12:30.189 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
+2025-06-12 01:12:30.216 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
+2025-06-12 01:12:30.216 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:12:30.222 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=43.57094, Lon=-62.55551167
+2025-06-12 01:12:30.226 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=43.57094, lon=-62.55551167.
+2025-06-12 01:12:30.245 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-12 01:12:30.269 UTC | INFO     | app.app                   | Force refresh requested for solar (m203). Bypassing cache.
+2025-06-12 01:12:30.300 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
+2025-06-12 01:12:30.462 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
+2025-06-12 01:12:30.569 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:12:30.617 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
+2025-06-12 01:12:31.410 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
+2025-06-12 01:12:33.182 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
+2025-06-12 01:12:33.295 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
+2025-06-12 01:12:33.295 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
+2025-06-12 01:12:33.295 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
 FROM submitted_forms ORDER BY submitted_forms.submission_timestamp DESC
-2025-06-11 16:50:09.216 UTC | INFO     | sqlalchemy.engine.Engine  | [generated in 0.00055s] ()
-2025-06-11 16:50:09.221 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
-2025-06-11 16:51:08.994 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 16:51:09.360 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 16:51:09.409 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 16:51:09.426 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 16:51:09.426 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 16:51:10.322 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 16:56:38.683 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 16:56:38.968 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 16:56:39.023 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 16:56:39.048 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 16:56:39.049 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 16:56:40.001 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 17:01:06.366 UTC | INFO     | app.app                   | Attempting to serve HTML form page: /mission/m203/form/pic_handoff_checklist.html for user 'anonymous'
-2025-06-11 17:01:06.366 UTC | INFO     | app.app                   | Successfully prepared TemplateResponse for mission_form.html.
-2025-06-11 17:01:06.520 UTC | INFO     | app.app                   | User 'adminuser' requesting form template 'pic_handoff_checklist' for mission 'm203'.
-2025-06-11 17:01:27.289 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
-2025-06-11 17:01:27.390 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
-2025-06-11 17:01:27.390 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 17:01:27.390 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
+2025-06-12 01:12:33.295 UTC | INFO     | sqlalchemy.engine.Engine  | [generated in 0.00076s] ()
+2025-06-12 01:12:33.311 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
+2025-06-12 01:12:42.834 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
+2025-06-12 01:12:43.086 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
+2025-06-12 01:12:43.090 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
+2025-06-12 01:12:43.090 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
 FROM submitted_forms ORDER BY submitted_forms.submission_timestamp DESC
-2025-06-11 17:01:27.390 UTC | INFO     | sqlalchemy.engine.Engine  | [cached since 678.2s ago] ()
-2025-06-11 17:01:27.393 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
-2025-06-11 17:01:40.508 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 17:01:40.847 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 17:01:40.864 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 17:01:40.865 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 17:01:40.886 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 17:01:41.697 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 17:06:42.260 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 17:06:42.553 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 17:06:42.570 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 17:06:42.571 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 17:06:42.626 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 17:06:43.363 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 17:10:50.502 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 14:40:50 ADT)" (scheduled at 2025-06-11 14:10:50.500232-03:00)
-2025-06-11 17:10:50.502 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-11 17:10:50.502 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-11 17:10:50.502 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-11 17:10:50.792 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
-2025-06-11 17:10:51.854 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
-2025-06-11 17:10:52.173 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
-2025-06-11 17:10:52.428 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
-2025-06-11 17:10:52.908 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
-2025-06-11 17:10:53.230 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
-2025-06-11 17:10:53.413 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
-2025-06-11 17:10:53.651 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
-2025-06-11 17:10:59.985 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
-2025-06-11 17:11:01.027 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
-2025-06-11 17:11:01.863 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-06-11 17:11:01.863 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 14:40:50 ADT)" executed successfully
-2025-06-11 17:50:46.114 UTC | WARNING  | apscheduler.executors.default | Run time of job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 15:10:50 ADT)" was missed by 0:09:55.614633
-2025-06-11 17:50:48.943 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 17:50:49.301 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 17:50:49.314 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 17:50:49.314 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 17:50:49.338 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 17:50:50.181 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 18:30:40.488 UTC | WARNING  | apscheduler.executors.default | Run time of job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 15:40:50 ADT)" was missed by 0:19:49.988149
-2025-06-11 18:30:43.647 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 18:30:43.908 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 18:30:43.947 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 18:30:43.960 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 18:30:43.961 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 18:30:44.717 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 18:35:45.135 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 18:35:45.483 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 18:35:45.498 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 18:35:45.498 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 18:35:45.519 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 18:35:46.469 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 18:40:46.796 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 18:40:47.123 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 18:40:47.138 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 18:40:47.138 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 18:40:47.173 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 18:40:47.984 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 18:40:50.503 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 16:10:50 ADT)" (scheduled at 2025-06-11 15:40:50.500232-03:00)
-2025-06-11 18:40:50.504 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-11 18:40:50.504 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-11 18:40:50.505 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-11 18:40:50.853 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
-2025-06-11 18:40:52.492 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
-2025-06-11 18:40:53.071 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
-2025-06-11 18:40:53.353 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
-2025-06-11 18:40:54.044 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
-2025-06-11 18:40:54.415 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
-2025-06-11 18:40:54.595 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
-2025-06-11 18:40:54.843 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
-2025-06-11 18:40:55.690 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
-2025-06-11 18:40:56.241 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
-2025-06-11 18:40:56.832 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-06-11 18:40:56.832 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 16:10:50 ADT)" executed successfully
-2025-06-11 18:45:48.643 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 18:45:48.941 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 18:45:49.013 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 18:45:49.029 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 18:45:49.030 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 18:45:49.838 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:13:17.042 UTC | WARNING  | apscheduler.executors.default | Run time of job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 16:40:50 ADT)" was missed by 0:02:26.542021
-2025-06-11 19:13:20.605 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 19:13:21.194 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 19:13:21.213 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 19:13:21.213 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 19:13:21.227 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 19:13:21.782 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:18:22.423 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 19:18:22.832 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 19:18:22.850 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 19:18:22.850 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 19:18:22.910 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 19:18:23.849 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:23:24.291 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 19:23:24.575 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 19:23:24.592 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 19:23:24.592 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 19:23:24.622 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 19:23:25.445 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:28:26.170 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-11 19:28:26.641 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 19:28:26.682 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 19:28:26.716 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 19:28:26.717 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 19:28:27.573 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:30:10.675 UTC | INFO     | app.app                   | Attempting to serve HTML form page: /mission/m203/form/pic_handoff_checklist.html for user 'anonymous'
-2025-06-11 19:30:10.675 UTC | INFO     | app.app                   | Successfully prepared TemplateResponse for mission_form.html.
-2025-06-11 19:30:10.800 UTC | INFO     | app.app                   | User 'adminuser' requesting form template 'pic_handoff_checklist' for mission 'm203'.
-2025-06-11 19:30:17.402 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
-2025-06-11 19:30:17.502 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
-2025-06-11 19:30:17.507 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
-2025-06-11 19:30:17.509 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
+2025-06-12 01:12:43.090 UTC | INFO     | sqlalchemy.engine.Engine  | [cached since 9.784s ago] ()
+2025-06-12 01:12:43.094 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
+2025-06-12 01:12:49.469 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
+2025-06-12 01:12:49.571 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
+2025-06-12 01:12:49.571 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
+2025-06-12 01:12:49.575 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
 FROM submitted_forms ORDER BY submitted_forms.submission_timestamp DESC
-2025-06-11 19:30:17.509 UTC | INFO     | sqlalchemy.engine.Engine  | [cached since 9608s ago] ()
-2025-06-11 19:30:17.511 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
-2025-06-11 19:33:18.508 UTC | INFO     | app.app                   | User 'pilotuser' authenticated successfully. Issuing token.
-2025-06-11 19:33:19.756 UTC | INFO     | app.app                   | Fetching available missions for user: pilotuser, role: pilot
-2025-06-11 19:33:20.137 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-11 19:33:20.157 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-11 19:33:20.170 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-11 19:33:20.171 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-11 19:33:21.164 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-11 19:40:50.521 UTC | INFO     | apscheduler.executors.default | Running job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 17:10:50 ADT)" (scheduled at 2025-06-11 16:40:50.500232-03:00)
-2025-06-11 19:40:50.521 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-11 19:40:50.521 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-11 19:40:50.521 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-11 19:40:50.829 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
-2025-06-11 19:40:52.852 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
-2025-06-11 19:40:53.184 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
-2025-06-11 19:40:53.721 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
-2025-06-11 19:40:55.106 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
-2025-06-11 19:40:55.480 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
-2025-06-11 19:40:55.752 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
-2025-06-11 19:40:56.133 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
-2025-06-11 19:40:57.781 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
-2025-06-11 19:40:58.789 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
-2025-06-11 19:41:00.089 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-06-11 19:41:00.089 UTC | INFO     | apscheduler.executors.default | Job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 17:10:50 ADT)" executed successfully
-2025-06-11 20:38:04.665 UTC | WARNING  | apscheduler.executors.default | Run time of job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 17:40:50 ADT)" was missed by 0:27:14.165091
-2025-06-11 21:11:18.746 UTC | WARNING  | apscheduler.executors.default | Run time of job "refresh_active_mission_cache (trigger: interval[0:30:00], next run at: 2025-06-11 18:40:50 ADT)" was missed by 0:00:28.246269
-2025-06-11 21:13:45.097 UTC | INFO     | app.app                   | APScheduler shut down.
-2025-06-11 21:13:45.099 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-06-12 01:12:49.575 UTC | INFO     | sqlalchemy.engine.Engine  | [cached since 16.27s ago] ()
+2025-06-12 01:12:49.580 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
+2025-06-12 01:13:04.069 UTC | INFO     | app.app                   | User 'anonymous' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.
+2025-06-12 01:13:04.203 UTC | INFO     | app.app                   | Admin user 'adminuser' requesting all submitted forms.
+2025-06-12 01:13:04.203 UTC | INFO     | sqlalchemy.engine.Engine  | BEGIN (implicit)
+2025-06-12 01:13:04.203 UTC | INFO     | sqlalchemy.engine.Engine  | SELECT submitted_forms.id, submitted_forms.mission_id, submitted_forms.form_type, submitted_forms.form_title, submitted_forms.sections_data, submitted_forms.submitted_by_username, submitted_forms.submission_timestamp 
+FROM submitted_forms ORDER BY submitted_forms.submission_timestamp DESC
+2025-06-12 01:13:04.203 UTC | INFO     | sqlalchemy.engine.Engine  | [cached since 30.9s ago] ()
+2025-06-12 01:13:04.211 UTC | INFO     | sqlalchemy.engine.Engine  | ROLLBACK
+2025-06-12 01:14:27.293 UTC | INFO     | app.app                   | CACHE MISS (processed spectrum) or refresh for m203. Loading and processing source files.
+2025-06-12 01:14:27.294 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
+2025-06-12 01:14:27.357 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
+2025-06-12 01:14:28.743 UTC | INFO     | app.app                   | Latitude/Longitude not provided for marine forecast. Attempting to infer from telemetry for mission m203.
+2025-06-12 01:14:28.748 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:14:28.757 UTC | INFO     | app.app                   | Inferred location for marine forecast (mission m203): Lat=43.57094, Lon=-62.55551167
+2025-06-12 01:14:28.757 UTC | INFO     | app.core.forecast         | Attempting to fetch marine forecast from: https://marine-api.open-meteo.com/v1/marine for lat=43.57094, lon=-62.55551167
+2025-06-12 01:14:29.407 UTC | INFO     | app.core.forecast         | Successfully fetched marine forecast data.
+2025-06-12 01:14:47.349 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
+2025-06-12 01:15:12.464 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-06-12 01:15:12.552 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-06-12 01:15:12.882 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-06-12 01:15:12.929 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-06-12 01:15:12.977 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m204). Bypassing cache.
+2025-06-12 01:15:13.009 UTC | INFO     | app.app                   | Force refresh requested for solar (m204). Bypassing cache.
+2025-06-12 01:15:13.056 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m204). Bypassing cache.
+2025-06-12 01:15:13.151 UTC | INFO     | app.app                   | Force refresh requested for ais (m204). Bypassing cache.
+2025-06-12 01:15:13.199 UTC | INFO     | app.app                   | Force refresh requested for errors (m204). Bypassing cache.
+2025-06-12 01:15:13.230 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-06-12 01:15:14.093 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
+2025-06-12 01:15:14.418 UTC | INFO     | app.app                   | Force refresh requested for waves (m204). Bypassing cache.
+2025-06-12 01:15:14.434 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m204.
+2025-06-12 01:15:14.453 UTC | INFO     | app.app                   | Force refresh requested for solar (m204). Bypassing cache.
+2025-06-12 01:15:14.496 UTC | INFO     | app.app                   | Force refresh requested for weather (m204). Bypassing cache.
+2025-06-12 01:15:14.544 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m204.
+2025-06-12 01:15:14.547 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-06-12 01:15:14.614 UTC | INFO     | app.app                   | Inferred location for mission m204: Lat=44.4, Lon=-63.16
+2025-06-12 01:15:14.620 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.4, lon=-63.16.
+2025-06-12 01:15:14.630 UTC | INFO     | app.app                   | Force refresh requested for power (m204). Bypassing cache.
+2025-06-12 01:15:14.662 UTC | INFO     | app.app                   | Force refresh requested for ctd (m204). Bypassing cache.
+2025-06-12 01:15:14.860 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m204). Bypassing cache.
+2025-06-12 01:15:14.931 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m204). Bypassing cache.
+2025-06-12 01:15:15.024 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m204). Bypassing cache.
+2025-06-12 01:15:16.004 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
+2025-06-12 01:16:00.295 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-06-12 01:16:00.295 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down

@@ -98,15 +98,18 @@ class FormItemTypeEnum(str, Enum):
     TEXT_AREA = "text_area"
     AUTOFILLED_VALUE = "autofilled_value" # For values auto-populated from mission data
     STATIC_TEXT = "static_text" # For instructions or non-interactive text
+    DROPDOWN = "dropdown" # New type for dropdown lists
 
 class FormItem(BaseModel):
     id: str # Unique ID for the form item within the form
     label: str
     item_type: FormItemTypeEnum
     value: Optional[str] = None # For text_input, text_area, autofilled_value
+    is_verified: Optional[bool] = None # For the new "verified" column 3 checkbox
     is_checked: Optional[bool] = None # For checkbox
     comment: Optional[str] = None # Optional comment for any item
     required: bool = False
+    options: Optional[List[str]] = None # For dropdown
     placeholder: Optional[str] = None # For text_input, text_area
 
 class FormSection(BaseModel):

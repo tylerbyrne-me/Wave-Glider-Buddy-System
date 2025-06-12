@@ -685,35 +685,90 @@ async def get_example_form_schema(form_type: str, mission_id: str, current_user:
                     title="Glider & Mission General Status",
                     items=[
                         models.FormItem(id="glider_id_val", label="Glider ID", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=mission_id),
-                        models.FormItem(id="glider_id_chk", label="Glider ID Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
 
-                        models.FormItem(id="current_mos_val", label="Current MOS", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter MOS", required=True),
+                        models.FormItem(
+                            id="current_mos_val", 
+                            label="Current MOS", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["Sue L", "Tyler B", "Matt M", "Adam C"], 
+                            required=True),
 
-                        models.FormItem(id="current_pic_val", label="Current PIC", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter Current PIC", required=True),
+                        models.FormItem(
+                            id="current_pic_val", 
+                            label="Current PIC", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], 
+                            required=True
+                        ),
 
-                        models.FormItem(id="last_pic_val", label="Last PIC", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter Last PIC", required=True),
+                        models.FormItem(
+                            id="last_pic_val", 
+                            label="Last PIC", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], 
+                            required=True
+                        ),
 
-                        models.FormItem(id="mission_status_val", label="Mission Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., In Transit, On Station", required=True),
+                        models.FormItem(
+                            id="mission_status_val", 
+                            label="Mission Status", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["In Transit", "Avoiding Ship", "Holding for Storm", "Offloading", "In Recovery Hold", "Surveying"], 
+                            required=True
+                        ),
 
                         models.FormItem(id="total_battery_val", label="Total Battery Capacity (Wh)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="2775 Wh"), # Using constant from summaries.py
-                        models.FormItem(id="total_battery_chk", label="Total Battery Capacity Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
                         models.FormItem(id="current_battery_wh_val", label="Current Glider Battery (Wh)", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=current_battery_wh_value),
-                        models.FormItem(id="current_battery_wh_chk", label="Current Glider Battery (Wh) Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
-
                         models.FormItem(id="percent_battery_val", label="% Battery Remaining", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value=battery_percentage_value),
-                        models.FormItem(id="percent_battery_chk", label="% Battery Remaining Verified", item_type=models.FormItemTypeEnum.CHECKBOX, required=True),
 
                         models.FormItem(id="tracker_battery_v_val", label="Tracker Battery (V)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 14.94"),
                         models.FormItem(id="tracker_last_update_val", label="Tracker Last Update", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., MM-DD-YYYY HH:MM:SS"),
-                        models.FormItem(id="communications_val", label="Communications Mode", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., CELL, IRIDIUM"),
+                        
+                        models.FormItem(
+                            id="communications_val", 
+                            label="Communications Mode", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["SAT", "CELL"], 
+                            required=True # Assuming this is required
+                        ),
                         models.FormItem(id="telemetry_rate_val", label="Telemetry Report Rate (min)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 5"),
-                        models.FormItem(id="navigation_mode_val", label="Navigation Mode", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., FSC, Waypoint"),
+                        models.FormItem(
+                            id="navigation_mode_val", 
+                            label="Navigation Mode", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["FSC", "FFB", "FFH", "WC", "FCC"], 
+                            required=True # Assuming this is required
+                        ),
                         models.FormItem(id="target_waypoint_val", label="Target Waypoint", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter target waypoint"),
                         models.FormItem(id="waypoint_details_val", label="Waypoint Start to Finish Details", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 90 Degrees, 5km"),
-                        models.FormItem(id="light_status_val", label="Light Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF, AUTO"),
-                        models.FormItem(id="thruster_status_val", label="Thruster Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
-                        models.FormItem(id="obstacle_avoid_val", label="Obstacle Avoidance", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
-                        models.FormItem(id="line_follow_val", label="Line Following Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., ON, OFF"),
+                        models.FormItem(
+                            id="light_status_val",
+                            label="Light Status",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "AUTO", "N/A"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="thruster_status_val",
+                            label="Thruster Status",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="obstacle_avoid_val",
+                            label="Obstacle Avoidance",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="line_follow_val",
+                            label="Line Following Status",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A"],
+                            required=True
+                        ),
                     ]
                 ),
                 models.FormSection(
@@ -729,22 +784,82 @@ async def get_example_form_schema(form_type: str, mission_id: str, current_user:
                     title="Station Operations",
                     items=[
                         models.FormItem(id="current_station_val", label="Current Station ID / Name", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="Enter station ID or name"),
-                        models.FormItem(id="offload_status_val", label="Offload Status", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., N/A, In Progress, Complete"),
+                        models.FormItem(
+                            id="offload_status_val", 
+                            label="Offload Status", 
+                            item_type=models.FormItemTypeEnum.DROPDOWN, 
+                            options=["Connecting to Station", "Connected to Station", "Offloading Data", "Aborting Offload", "N/A"], 
+                            required=True # Assuming this is required
+                        ),
                     ]
                 ),
                 models.FormSection(
                     id="payload_status",
                     title="Payload Systems Status",
                     items=[
-                        models.FormItem(id="payload_airmar_val", label="Airmar Weather", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_waterspeed_val", label="Water Speed Sensor", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_ctd_val", label="CTD", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_gpswaves_val", label="GPSWaves", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_mose_val", label="Datawell Mose", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="N/A, ON/OFF/Error"),
-                        models.FormItem(id="payload_fluoro_val", label="Fluorometer", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_mobilerx_val", label="MobileRX (T1)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_adcp_val", label="ADCP", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="ON/OFF/Error"),
-                        models.FormItem(id="payload_co2pro_val", label="CO2Pro", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="N/A, ON/OFF/Error"),
+                        models.FormItem(
+                            id="payload_airmar_val",
+                            label="Airmar Weather",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_waterspeed_val",
+                            label="Water Speed Sensor",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_ctd_val",
+                            label="CTD",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_gpswaves_val",
+                            label="GPSWaves",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_fluoro_val",
+                            label="Fluorometer",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_mobilerx_val",
+                            label="MobileRX (T1)",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_adcp_val", # Corrected from vm4 to adcp as per your list order
+                            label="ADCP",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_vm4_val", # Corrected from adcp to vm4 as per your list order
+                            label="VM4",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
+                        models.FormItem(
+                            id="payload_co2pro_val",
+                            label="CO2Pro",
+                            item_type=models.FormItemTypeEnum.DROPDOWN,
+                            options=["ON", "OFF", "N/A", "ERROR"],
+                            required=True
+                        ),
                     ]
                 )
             ]
