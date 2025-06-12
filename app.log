@@ -1,37 +1,13 @@
-2025-06-12 03:28:52.430 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
-2025-06-12 03:28:52.430 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
-2025-06-12 03:28:52.430 UTC | INFO     | apscheduler.scheduler     | Scheduler started
-2025-06-12 03:28:52.433 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
-2025-06-12 03:28:52.433 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
-2025-06-12 03:28:52.439 UTC | INFO     | app.app                   | Database and tables checked/created.
-2025-06-12 03:28:52.445 UTC | INFO     | app.app                   | Existing users found in the database. Skipping default user creation.
-2025-06-12 03:28:52.447 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
-2025-06-12 03:28:52.447 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
-2025-06-12 03:28:52.447 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
-2025-06-12 03:28:52.447 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
-2025-06-12 03:28:53.154 UTC | INFO     | app.app                   | Force refresh requested for ctd (m203). Bypassing cache.
-2025-06-12 03:28:56.131 UTC | INFO     | app.app                   | Force refresh requested for weather (m203). Bypassing cache.
-2025-06-12 03:28:56.606 UTC | INFO     | app.app                   | Force refresh requested for waves (m203). Bypassing cache.
-2025-06-12 03:28:56.964 UTC | INFO     | app.app                   | Force refresh requested for telemetry (m203). Bypassing cache.
-2025-06-12 03:29:02.444 UTC | INFO     | app.app                   | Force refresh requested for ais (m203). Bypassing cache.
-2025-06-12 03:29:03.384 UTC | INFO     | app.app                   | Force refresh requested for errors (m203). Bypassing cache.
-2025-06-12 03:29:03.667 UTC | INFO     | app.app                   | Force refresh requested for vr2c (m203). Bypassing cache.
-2025-06-12 03:29:04.149 UTC | INFO     | app.app                   | Force refresh requested for fluorometer (m203). Bypassing cache.
-2025-06-12 03:29:12.885 UTC | INFO     | app.app                   | Force refresh requested for wave_frequency_spectrum (m203). Bypassing cache.
-2025-06-12 03:29:17.535 UTC | INFO     | app.app                   | Force refresh requested for wave_energy_spectrum (m203). Bypassing cache.
-2025-06-12 03:29:17.825 UTC | INFO     | app.app                   | Fetching available missions for user: adminuser, role: admin
-2025-06-12 03:29:18.159 UTC | INFO     | app.app                   | Latitude/Longitude not provided for forecast. Attempting to infer from telemetry for mission m203.
-2025-06-12 03:29:18.168 UTC | INFO     | app.app                   | Inferred location for mission m203: Lat=44.661656666666666, Lon=-63.55683833333333
-2025-06-12 03:29:18.168 UTC | INFO     | app.core.forecast         | Attempting to fetch general forecast from: https://api.open-meteo.com/v1/forecast for lat=44.661656666666666, lon=-63.55683833333333.
-2025-06-12 03:29:18.205 UTC | INFO     | app.app                   | Applied outlier filtering to 'dp (deg)' for mission m203.
-2025-06-12 03:29:19.076 UTC | INFO     | app.core.forecast         | Successfully fetched general forecast data.
-2025-06-12 03:29:19.311 UTC | INFO     | app.app                   | BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.
-2025-06-12 03:29:46.077 UTC | INFO     | app.app                   | User 'anonymous/unauthenticated' (role: N/A) attempting to access /admin/user_management.html. JS will verify admin role via API.
-2025-06-12 03:29:46.143 UTC | INFO     | app.app                   | Admin 'adminuser' requesting list of all users.
-2025-06-12 03:29:53.950 UTC | INFO     | app.app                   | User 'anonymous/unauthenticated' (role: N/A) attempting to access /admin/user_management.html. JS will verify admin role via API.
-2025-06-12 03:29:54.031 UTC | INFO     | app.app                   | Admin 'adminuser' requesting list of all users.
-2025-06-12 03:29:58.130 UTC | INFO     | app.app                   | Admin 'adminuser' attempting to update user 'testing' with data: {'full_name': 'Testing Bot', 'email': 'testing@email.com', 'role': <UserRoleEnum.admin: 'admin'>, 'disabled': True}
-2025-06-12 03:29:58.150 UTC | INFO     | app.auth_utils            | User 'testing' details updated in DB: {'full_name': 'Testing Bot', 'email': 'testing@email.com', 'role': <UserRoleEnum.admin: 'admin'>, 'disabled': True}
-2025-06-12 03:29:58.160 UTC | INFO     | app.app                   | Admin 'adminuser' requesting list of all users.
-2025-06-12 03:39:02.972 UTC | INFO     | app.app                   | APScheduler shut down.
-2025-06-12 03:39:02.972 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down
+2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Added job "refresh_active_mission_cache" to job store "default"
+2025-06-12 13:38:57.142 UTC | INFO     | apscheduler.scheduler     | Scheduler started
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | APScheduler started for background cache refresh.
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Creating database and tables if they don't exist...
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Database and tables checked/created.
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Existing users found in the database. Skipping default user creation.
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | BACKGROUND TASK: Refreshing cache for active mission: m203
+2025-06-12 13:38:57.142 UTC | INFO     | app.app                   | Force refresh requested for power (m203). Bypassing cache.
+2025-06-12 13:38:57.174 UTC | INFO     | app.app                   | APScheduler shut down.
+2025-06-12 13:38:57.174 UTC | INFO     | apscheduler.scheduler     | Scheduler has been shut down

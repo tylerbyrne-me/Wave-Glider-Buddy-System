@@ -6,7 +6,11 @@ logger = logging.getLogger(__name__)
 
 # --- Database Setup (SQLite with SQLModel) ---
 # Use echo=False for production, True can be noisy but useful for debugging SQL
-sqlite_engine = create_engine(settings.sqlite_database_url, echo=settings.sqlite_echo_log)
+sqlite_engine = create_engine(
+    settings.sqlite_database_url,
+    echo=settings.sqlite_echo_log,
+    connect_args={"check_same_thread": False, "timeout": 15}  # Add timeout (e.g., 15 seconds)
+)
 
 def get_db_session():
     # The session is managed by FastAPI's dependency injection system.
