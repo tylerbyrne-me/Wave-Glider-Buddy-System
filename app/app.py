@@ -349,46 +349,68 @@ async def startup_event():
     scheduler.start()
     logger.info("APScheduler started for background cache refresh.")
     # Trigger an initial refresh shortly after startup
-    if settings.forms_storage_mode == "sqlite":
-        create_db_and_tables() # Create SQLite DB and tables on startup
-    
-    # --- Create default users if the users table is empty ---
-    # This block attempts to be more robust against concurrent Gunicorn worker startups.
-    try:
-        inspector = inspect(sqlite_engine)
-        if not inspector.has_table(models.UserInDB.__tablename__): # type: ignore
-            logger.info(f"'{models.UserInDB.__tablename__}' table does not exist. It should be created by create_db_and_tables().")
-            # create_db_and_tables() should have already run and created it.
-            # If it's still not there, something is wrong with create_all or the timing.
 
-        with SQLModelSession(sqlite_engine) as session:
-            # Check if any user exists
-            statement = select(models.UserInDB)
-            existing_user = session.exec(statement).first()
-            
-            if not existing_user:
-                logger.info("No users found in the database. Attempting to create default users...")
-                default_users_data = [
-                    {"username": "adminuser", "full_name": "Admin User", "email": "admin@example.com", "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False},
-                    {"username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com", "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False},
-                    {"username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com", "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False}
-                ]
-                try:
-                    for user_data_dict in default_users_data:
-                        user_create_model = models.UserCreate(**user_data_dict)
-                        # add_user_to_db handles its own commit and potential username/email conflicts
-                        auth_utils.add_user_to_db(session, user_create_model)
-                    logger.info(f"{len(default_users_data)} default users creation process completed.")
-                except Exception as e_user_create:
-                    # This might happen if another worker just created the users.
-                    logger.warning(f"Error during default user creation, possibly due to concurrent execution: {e_user_create}")
-                    # Check again if users exist now, as another worker might have succeeded.
-                    if not session.exec(select(models.UserInDB)).first():
-                        logger.error("Default users still not found after creation attempt and error. Manual check might be needed.")
-            else:
-                logger.info("Existing users found in the database. Skipping default user creation.")
-    except Exception as e_startup_users:
-        logger.error(f"An error occurred during the user table check or default user creation in startup: {e_startup_users}", exc_info=True)
+    # --- Database Initialization with File Lock ---
+    # This ensures only one Gunicorn worker attempts to create tables and default users.
+    # Note: fcntl is Unix-specific. For Windows, a different locking mechanism would be needed
+    # or this part should be handled by a separate init script before starting Gunicorn.
+    # Since you are on a Linux server (glider-dev.cove), fcntl should work.
+    lock_file_path = DATA_STORE_DIR / ".db_init.lock"
+    try:
+        with open(lock_file_path, "w") as lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logger.info("Acquired DB initialization lock. This worker will initialize the DB.")
+
+                if settings.forms_storage_mode == "sqlite":
+                    create_db_and_tables() # Create SQLite DB and tables on startup
+
+                # --- Create default users if users table is empty ---
+                with SQLModelSession(sqlite_engine) as session:
+                    inspector = inspect(sqlite_engine)
+                    if inspector.has_table(models.UserInDB.__tablename__): # type: ignore
+                        statement = select(models.UserInDB)
+                        existing_user = session.exec(statement).first()
+                        if not existing_user:
+                            logger.info("No users found in the database. Creating default users...")
+                            default_users_data = [
+                                {"username": "adminuser", "full_name": "Admin User", "email": "admin@example.com", "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False},
+                                {"username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com", "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False},
+                                {"username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com", "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False}
+                            ]
+                            for user_data_dict in default_users_data:
+                                user_create_model = models.UserCreate(**user_data_dict)
+                                auth_utils.add_user_to_db(session, user_create_model)
+                            logger.info(f"{len(default_users_data)} default users created by this worker.")
+                        else:
+                            logger.info("Existing users found. Skipping default user creation by this worker.")
+                    else:
+                        logger.error(f"'{models.UserInDB.__tablename__}' table still does not exist after create_db_and_tables(). DB init failed.")
+
+                # Release the lock explicitly (though closing the file also does)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                logger.info("DB initialization complete. Lock released by this worker.")
+
+            except BlockingIOError:
+                logger.info("Could not acquire DB initialization lock. Another worker is likely initializing.")
+                # Wait a bit for the other worker to finish, then check if tables exist
+                await asyncio.sleep(5) # Wait for 5 seconds
+                inspector = inspect(sqlite_engine)
+                if not inspector.has_table(models.UserInDB.__tablename__): # type: ignore
+                    logger.warning("DB tables still not found after waiting for other worker. This might indicate an issue.")
+                else:
+                    logger.info("DB tables found. Assuming another worker completed initialization.")
+            except Exception as e_lock_init:
+                logger.error(f"Error during locked DB initialization: {e_lock_init}", exc_info=True)
+                # Ensure lock is released on error if acquired
+                try: fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception: pass
+    except Exception as e_open_lock:
+        logger.error(f"Could not open or manage lock file {lock_file_path}: {e_open_lock}", exc_info=True)
+        # Fallback: proceed without lock, risking concurrent init issues if lock file itself fails.
+        # This is less ideal but prevents total startup failure if lock file path is problematic.
+
+    asyncio.create_task(refresh_active_mission_cache())
 
     asyncio.create_task(refresh_active_mission_cache())
 
