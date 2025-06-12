@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const noFormsMessage = document.getElementById('noFormsMessage');
     const formDetailsModal = new bootstrap.Modal(document.getElementById('formDetailsModal'));
     const formDetailsContentElement = document.getElementById('formDetailsContent'); // Updated ID
+    const backToDashboardBtn = document.getElementById('backToDashboardBtn');
 
     async function fetchAndDisplayForms() {
         formsSpinner.style.display = 'block';
@@ -112,4 +113,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initial load
     fetchAndDisplayForms();
+
+    // Event listener for the "Close Page" button
+    if (backToDashboardBtn) {
+        backToDashboardBtn.addEventListener('click', function(event) {
+            event.preventDefault(); // Prevent default anchor behavior
+            window.close();
+        });
+    }
 });

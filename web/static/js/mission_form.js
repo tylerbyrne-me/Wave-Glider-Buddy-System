@@ -40,36 +40,67 @@ document.addEventListener('DOMContentLoaded', function () {
                 section.items.forEach(item => {
                     const itemDiv = document.createElement('div');
                     itemDiv.classList.add('form-item', 'mb-3');
-                    itemDiv.dataset.itemId = item.id; // Store item id
+                    itemDiv.dataset.itemId = item.id;
 
-                    let itemHtml = `<label for="${item.id}" class="form-label">${item.label}${item.required ? '<span class="text-danger">*</span>' : ''}</label>`;
-
+                    let inputHtml = '';
                     switch (item.item_type) {
                         case 'checkbox':
-                            itemHtml += `<div class="form-check">
+                            inputHtml = `<div class="form-check mt-2"> {/* Add some top margin for alignment */}
                                            <input class="form-check-input" type="checkbox" id="${item.id}" name="${item.id}" ${item.is_checked ? 'checked' : ''} ${item.required ? 'required' : ''}>
                                            <label class="form-check-label" for="${item.id}">Check if complete/verified</label>
                                          </div>`;
                             break;
                         case 'text_input':
-                            itemHtml += `<input type="text" class="form-control" id="${item.id}" name="${item.id}" value="${item.value || ''}" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>`;
+                            inputHtml = `<input type="text" class="form-control" id="${item.id}" name="${item.id}" value="${item.value || ''}" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>`;
                             break;
                         case 'text_area':
-                            itemHtml += `<textarea class="form-control" id="${item.id}" name="${item.id}" rows="3" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>${item.value || ''}</textarea>`;
+                            inputHtml = `<textarea class="form-control" id="${item.id}" name="${item.id}" rows="2" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>${item.value || ''}</textarea>`; // Adjusted rows
                             break;
                         case 'autofilled_value':
-                            itemHtml += `<div class="autofilled-value" id="${item.id}">${item.value || 'N/A'}</div>`;
+                            inputHtml = `<div class="autofilled-value" id="${item.id}">${item.value || 'N/A'}</div>`;
                             break;
                         case 'static_text':
-                            itemHtml += `<p class="static-text" id="${item.id}">${item.value || ''}</p>`;
+                            inputHtml = `<p class="static-text mb-0" id="${item.id}">${item.value || ''}</p>`; // mb-0 to align better
+                            break;
+                        case 'dropdown':
+                            inputHtml = `<select class="form-select" id="${item.id}" name="${item.id}" ${item.required ? 'required' : ''}>`;
+                            if (item.placeholder) { // Optional: Add a disabled placeholder option
+                                inputHtml += `<option value="" disabled ${!item.value ? 'selected' : ''}>${item.placeholder}</option>`;
+                            }
+                            item.options.forEach(opt => {
+                                inputHtml += `<option value="${opt}" ${item.value === opt ? 'selected' : ''}>${opt}</option>`;
+                            });
+                            inputHtml += `</select>`;
                             break;
                     }
-                    // Add comment field for all interactive types
-                    if (item.item_type !== 'autofilled_value' && item.item_type !== 'static_text') {
-                         itemHtml += `<textarea class="form-control form-control-sm mt-2" name="${item.id}_comment" rows="1" placeholder="Optional comment..."></textarea>`;
-                    }
 
-                    itemDiv.innerHTML = itemHtml;
+                    // New 4-column layout using Bootstrap grid
+                    itemDiv.innerHTML = `
+                        <div class="row align-items-center">
+                            <div class="col-md-3">
+                                <label for="${item.id}" class="form-label mb-0">${item.label}${item.required ? '<span class="text-danger">*</span>' : ''}</label>
+                            </div>
+                            <div class="col-md-4">
+                                ${inputHtml}
+                            </div>
+                            <div class="col-md-3">
+                                <textarea class="form-control form-control-sm" name="${item.id}_comment" rows="1" placeholder="Comment..."></textarea>
+                            </div>
+                            <div class="col-md-2">
+                                ${ (item.item_type === 'autofilled_value' || item.item_type === 'static_text') ?
+                                `
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="${item.id}_verified" name="${item.id}_verified" value="true" ${item.is_verified ? 'checked' : ''}>
+                                    <label class="form-check-label" for="${item.id}_verified">
+                                        Verified
+                                    </label>
+                                </div>
+                                ` :
+                                '' // Render nothing if not autofilled or static text
+                                }
+                            </div>
+                        </div>
+                    `;
                     sectionDiv.appendChild(itemDiv);
                 });
 
@@ -82,6 +113,70 @@ document.addEventListener('DOMContentLoaded', function () {
                 formSectionsContainer.appendChild(sectionDiv);
             });
             missionReportForm.style.display = 'block';
+
+            // --- Add event listener for dynamic navigation mode fields ---
+            const navModeSelect = document.getElementById('navigation_mode_val');
+            const targetWaypointInput = document.getElementById('target_waypoint_val');
+            const targetWaypointLabel = document.querySelector('label[for="target_waypoint_val"]');
+            const waypointDetailsInput = document.getElementById('waypoint_details_val');
+            const waypointDetailsLabel = document.querySelector('label[for="waypoint_details_val"]');
+
+            function updateNavFields(selectedMode) {
+                if (!targetWaypointInput || !targetWaypointLabel || !waypointDetailsInput || !waypointDetailsLabel) {
+                    console.warn("Navigation related form elements not found for dynamic updates.");
+                    return;
+                }
+
+                switch (selectedMode) {
+                    case 'FSC': // Follow Scheduled Course
+                        targetWaypointLabel.textContent = 'Target Waypoint';
+                        targetWaypointInput.placeholder = 'Enter target waypoint';
+                        waypointDetailsLabel.textContent = 'Waypoint Start to Finish Details';
+                        waypointDetailsInput.placeholder = 'e.g., 1 - 5';
+                        break;
+                    case 'FFB': // Follow Fixed Bearing
+                        targetWaypointLabel.textContent = 'Bearing';
+                        targetWaypointInput.placeholder = 'Enter bearing (e.g., 180°)';
+                        waypointDetailsLabel.textContent = 'Set Distance';
+                        waypointDetailsInput.placeholder = 'Enter distance (e.g., 10km)';
+                        break;
+                    case 'FFH': // Follow Fixed Heading
+                        targetWaypointLabel.textContent = 'Heading';
+                        targetWaypointInput.placeholder = 'Enter heading (e.g., 270°)';
+                        waypointDetailsLabel.textContent = 'Set Distance';
+                        waypointDetailsInput.placeholder = 'Enter distance (e.g., 5NM)';
+                        break;
+                    case 'WC': // Waypoint Circle
+                        targetWaypointLabel.textContent = 'Waypoint';
+                        targetWaypointInput.placeholder = 'Enter center waypoint';
+                        waypointDetailsLabel.textContent = 'Circle Radius';
+                        waypointDetailsInput.placeholder = 'Enter radius (e.g., 500m)';
+                        break;
+                    case 'FCC': // Follow Custom Course
+                        targetWaypointLabel.textContent = 'Custom Course Name';
+                        targetWaypointInput.placeholder = 'Enter course name';
+                        waypointDetailsLabel.textContent = 'Start Waypoint';
+                        waypointDetailsInput.placeholder = 'Enter starting waypoint for course';
+                        break;
+                    default:
+                        // Default to FSC or a generic state if mode is unknown
+                        targetWaypointLabel.textContent = 'Target Waypoint / Parameter 1';
+                        targetWaypointInput.placeholder = 'Enter value';
+                        waypointDetailsLabel.textContent = 'Details / Parameter 2';
+                        waypointDetailsInput.placeholder = 'Enter value';
+                        break;
+                }
+            }
+
+            if (navModeSelect) {
+                navModeSelect.addEventListener('change', function() {
+                    updateNavFields(this.value);
+                });
+                // Call initially to set fields based on default/loaded value
+                updateNavFields(navModeSelect.value);
+            }
+            // --- End dynamic navigation mode fields ---
+
         } catch (error) {
             console.error('Error fetching or rendering form schema:', error);
             formTitleElement.textContent = 'Error Loading Form';
@@ -116,10 +211,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const label = itemElem.querySelector('label[for="' + itemId + '"]').textContent.replace('*','').trim();
                 const inputElem = missionReportForm.elements[itemId];
                 const commentElem = missionReportForm.elements[`${itemId}_comment`];
+                const verifiedElem = missionReportForm.elements[`${itemId}_verified`];
 
                 const formItem = {
                     id: itemId,
                     label: label,
+                    is_verified: verifiedElem ? verifiedElem.checked : null,
                     item_type: '', // Will be set by backend schema, not strictly needed for submission if backend re-validates
                     value: null,
                     is_checked: null,
@@ -130,7 +227,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (inputElem.type === 'checkbox') {
                         formItem.is_checked = inputElem.checked;
                         formItem.item_type = 'checkbox';
-                    } else if (inputElem.type === 'textarea' || inputElem.type === 'text') {
+                    } else if (inputElem.type === 'textarea' || inputElem.type === 'text' || inputElem.tagName.toLowerCase() === 'select') {
                         formItem.value = inputElem.value.trim();
                         formItem.item_type = inputElem.type === 'textarea' ? 'text_area' : 'text_input';
                     }
@@ -163,7 +260,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (response.ok) {
                 submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${new Date(result.submission_timestamp).toLocaleString()} by ${result.submitted_by_username}!</div>`;
                 missionReportForm.reset(); // Optionally reset the form
-                setTimeout(() => { window.location.href = '/'; }, 2000); // Redirect after 2s
+                // Close the tab after a short delay to allow the user to see the success message
+                setTimeout(() => { window.close(); }, 1500); 
             } else {
                 submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Submission failed: ${result.detail || 'Unknown error'}</div>`;
             }
