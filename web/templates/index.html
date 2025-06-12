@@ -52,22 +52,51 @@
           {% endfor %}
         </select>
       </div>
-      <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#dataSourceModal">
-        Change Data Source
-      </button>
-      <button type="button" class="btn btn-sm btn-success ms-2" id="refreshDataBtn">
-        Refresh Data
-      </button>
+      <!-- "Create Report" button remains standalone -->
       <a id="createReportBtn" href="#" class="btn btn-sm btn-warning ms-2" target="_blank">
         Create Report
       </a>
-      <a href="/view_forms.html" id="viewFormsBtn" class="btn btn-sm btn-secondary ms-2" target="_blank" style="display: none;">
-        View Submitted Forms
-      </a>
-      <a href="/register.html" id="registerUserBtn" class="btn btn-sm btn-info ms-2" target="_blank" style="display: none;">Register New User</a>
-      <button type="button" class="btn btn-sm btn-danger ms-2" id="logoutBtn">
-        Logout (<span id="usernameDisplay">{{ current_user.username if current_user else 'User' }}</span>)
-      </button>
+
+      <!-- New Dropdown for other actions -->
+      <div class="btn-group ms-2">
+        <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          Actions
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#dataSourceModal">
+              Change Data Source
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="#" id="refreshDataBtn"> <!-- ID kept for JS -->
+              Refresh Data
+            </a>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <a class="dropdown-item" href="/view_forms.html" id="viewFormsBtn" target="_blank" style="display: none;"> <!-- ID and style kept for JS -->
+              View Submitted Forms
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="/register.html" id="registerUserBtn" target="_blank" style="display: none;"> <!-- ID and style kept for JS -->
+              Register New User
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="/admin/user_management.html" id="userManagementBtn" target="_blank" style="display: none;">
+              User Management
+            </a>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <a class="dropdown-item" href="#" id="logoutBtn"> <!-- ID kept for JS -->
+              Logout (<span id="usernameDisplay">{{ current_user.username if current_user else 'User' }}</span>) <!-- Span and ID kept for JS -->
+            </a>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
 

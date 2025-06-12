@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const formDetailsModal = new bootstrap.Modal(document.getElementById('formDetailsModal'));
     const formDetailsContentElement = document.getElementById('formDetailsContent'); // Updated ID
     const backToDashboardBtn = document.getElementById('backToDashboardBtn');
+    const userRole = document.body.dataset.userRole; // Get user role
 
     async function fetchAndDisplayForms() {
         formsSpinner.style.display = 'block';
@@ -35,8 +36,26 @@ document.addEventListener('DOMContentLoaded', function () {
             if (forms.length === 0) {
                 noFormsMessage.style.display = 'block';
             } else {
-                forms.forEach(form => {
+                const picHandoffHighlightedForMission = {}; // Object to track missions for PIC Handoff highlight
+
+                forms.forEach((form, index) => { // Added index
+                        console.log(`Processing form: Mission ID: ${form.mission_id}, Form Type: '${form.form_type}', Form Title: '${form.form_title}'`); // DEBUG LINE
                     const row = formsTableBody.insertRow();
+
+                    // General highlight for the absolute most recent form if user is a pilot
+                    if (userRole === 'pilot' && index === 0) { // Highlight if pilot and first (most recent) form
+                        row.classList.add('table-info'); // Light blue highlight
+                    }
+
+                    // Specific highlight for the most recent "PIC Handoff Checklist" per mission_id
+                    // This applies to any user viewing the forms.
+                    if (form.form_type === "pic_handoff_checklist") {
+                        if (!picHandoffHighlightedForMission[form.mission_id]) {
+                            row.classList.add('pic-handoff-highlight'); // New custom class for light blue highlight
+                            picHandoffHighlightedForMission[form.mission_id] = true;
+                        }
+                    }
+
                     row.insertCell().textContent = form.mission_id;
                     row.insertCell().textContent = form.form_type;
                     row.insertCell().textContent = form.form_title;

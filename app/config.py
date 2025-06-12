@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 60 * 24 # 24 hours, adjust as needed
     forms_storage_mode: str = "local_json" # Options: "local_json", "sqlite"
     sqlite_database_url: str = "sqlite:///./data_store/app_data.sqlite" # Default if not in .env
-
+    sqlite_echo_log: bool = False # Add this line, set to True for SQL logging
+    
     class Config:
         env_file = ".env" 
         env_file_encoding = 'utf-8'

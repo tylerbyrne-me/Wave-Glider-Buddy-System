@@ -22,8 +22,10 @@
             overflow-y: auto;
         }
     </style>
-</head>
-<body class="container mt-4">
+</head> 
+<body class="container mt-4"
+      data-user-role="{{ current_user.role.value if current_user else '' }}"
+      data-username="{{ current_user.username if current_user else '' }}">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1>Submitted Mission Forms</h1>
         <div>
