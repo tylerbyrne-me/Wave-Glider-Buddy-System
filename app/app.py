@@ -23,7 +23,7 @@ import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
 from datetime import timezone # Import timezone directly
 import json # For saving/loading forms to/from JSON
-from sqlmodel import SQLModel, select # type: ignore # create_engine and SQLModelSession moved to db.py
+from sqlmodel import SQLModel, select, inspect # type: ignore # create_engine and SQLModelSession moved to db.py, added inspect
 from .db import sqlite_engine, get_db_session, SQLModelSession # Import from new db.py
 app = FastAPI()
 
@@ -352,38 +352,46 @@ async def startup_event():
     if settings.forms_storage_mode == "sqlite":
         create_db_and_tables() # Create SQLite DB and tables on startup
     
-    # --- Create default users if users table is empty ---
-    with SQLModelSession(sqlite_engine) as session: # Use engine from db.py
-        # Check if any user exists
-        statement = select(models.UserInDB)
-        existing_user = session.exec(statement).first()
-        if not existing_user:
-            logger.info("No users found in the database. Creating default users...")
-            default_users_data = [
-                {
-                    "username": "adminuser", "full_name": "Admin User", "email": "admin@example.com",
-                    "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False
-                },
-                {
-                    "username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com",
-                    "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False
-                },
-                {
-                    "username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com",
-                    "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False
-                }
-            ]
-            for user_data_dict in default_users_data: # Renamed to avoid conflict
-                # Use UserCreate model for validation before creating UserInDB
-                user_create_model = models.UserCreate(**user_data_dict)
-                auth_utils.add_user_to_db(session, user_create_model) # Pass session
-            # No explicit commit needed here if add_user_to_db handles it, but it's safer.
-            # add_user_to_db now handles commit.
-            logger.info(f"{len(default_users_data)} default users created.")
-        else:
-            logger.info("Existing users found in the database. Skipping default user creation.")
+    # --- Create default users if the users table is empty ---
+    # This block attempts to be more robust against concurrent Gunicorn worker startups.
+    try:
+        inspector = inspect(sqlite_engine)
+        if not inspector.has_table(models.UserInDB.__tablename__): # type: ignore
+            logger.info(f"'{models.UserInDB.__tablename__}' table does not exist. It should be created by create_db_and_tables().")
+            # create_db_and_tables() should have already run and created it.
+            # If it's still not there, something is wrong with create_all or the timing.
+
+        with SQLModelSession(sqlite_engine) as session:
+            # Check if any user exists
+            statement = select(models.UserInDB)
+            existing_user = session.exec(statement).first()
+            
+            if not existing_user:
+                logger.info("No users found in the database. Attempting to create default users...")
+                default_users_data = [
+                    {"username": "adminuser", "full_name": "Admin User", "email": "admin@example.com", "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False},
+                    {"username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com", "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False},
+                    {"username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com", "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False}
+                ]
+                try:
+                    for user_data_dict in default_users_data:
+                        user_create_model = models.UserCreate(**user_data_dict)
+                        # add_user_to_db handles its own commit and potential username/email conflicts
+                        auth_utils.add_user_to_db(session, user_create_model)
+                    logger.info(f"{len(default_users_data)} default users creation process completed.")
+                except Exception as e_user_create:
+                    # This might happen if another worker just created the users.
+                    logger.warning(f"Error during default user creation, possibly due to concurrent execution: {e_user_create}")
+                    # Check again if users exist now, as another worker might have succeeded.
+                    if not session.exec(select(models.UserInDB)).first():
+                        logger.error("Default users still not found after creation attempt and error. Manual check might be needed.")
+            else:
+                logger.info("Existing users found in the database. Skipping default user creation.")
+    except Exception as e_startup_users:
+        logger.error(f"An error occurred during the user table check or default user creation in startup: {e_startup_users}", exc_info=True)
 
     asyncio.create_task(refresh_active_mission_cache())
+
 
     # --- Load forms from local JSON on startup (for testing) ---
     global mission_forms_db
