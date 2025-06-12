@@ -131,15 +131,24 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                     usernameDisplay.textContent = currentUser.username;
                 }
 
-                // Show/Hide admin-specific elements
+                // Show/Hide role-specific elements
+                const viewFormsBtn = document.getElementById('viewFormsBtn');
+                if (viewFormsBtn) {
+                    if (currentUser.role === 'admin' || currentUser.role === 'pilot') {
+                        viewFormsBtn.style.display = 'block'; // Visible for admin and pilot
+                    } else {
+                        viewFormsBtn.style.display = 'none'; // Hidden for other roles
+                    }
+                }
+
                 if (currentUser.role === 'admin') {
                     const registerUserBtn = document.getElementById('registerUserBtn');
                     if (registerUserBtn) {
-                        registerUserBtn.style.display = 'inline-block'; // Or 'block'
+                        registerUserBtn.style.display = 'block'; // Changed to 'block' for dropdown items
                     }
-                    const viewFormsBtn = document.getElementById('viewFormsBtn');
-                    if (viewFormsBtn) {
-                        viewFormsBtn.style.display = 'inline-block';
+                    const userManagementBtn = document.getElementById('userManagementBtn');
+                    if (userManagementBtn) {
+                        userManagementBtn.style.display = 'block';
                     }
                     // Any other admin-specific UI initializations can go here
                 }

@@ -13,15 +13,18 @@ import asyncio
 import httpx # For async client in load_data_source
 from typing import Optional, Dict, Tuple, List, Any # For optional query parameters and type hints, added Any
 from .config import settings # Use relative import if config.py is in the same 'app' package
-from .core import models
-from .core.security import create_access_token, verify_password, get_password_hash
-from .auth_utils import get_user_from_db, add_user_to_db, get_current_active_user, get_current_admin_user, get_current_pilot_user, get_optional_current_user # Added add_user_to_db
+from .core import models # type: ignore
+from .core.security import create_access_token, verify_password, get_password_hash 
+from . import auth_utils # Import the auth_utils module itself for its functions
+# Specific user-related functions will be called via auth_utils.func_name(session, ...)
+from .auth_utils import get_current_active_user, get_current_admin_user, get_current_pilot_user, get_optional_current_user
 from .core import utils
 import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
 from datetime import timezone # Import timezone directly
 import json # For saving/loading forms to/from JSON
-from sqlmodel import create_engine, Session as SQLModelSession, SQLModel, select # type: ignore
+from sqlmodel import SQLModel, select # type: ignore # create_engine and SQLModelSession moved to db.py
+from .db import sqlite_engine, get_db_session, SQLModelSession # Import from new db.py
 app = FastAPI()
 
 # --- Robust path to templates directory ---
@@ -85,17 +88,10 @@ CACHE_EXPIRY_MINUTES = settings.background_cache_refresh_interval_minutes
 # Key: (mission_id, form_type, submission_timestamp_iso) -> MissionFormDataResponse
 mission_forms_db: Dict[Tuple[str, str, str], models.MissionFormDataResponse] = {}
 
-# --- Database Setup (SQLite with SQLModel) ---
-sqlite_engine = create_engine(settings.sqlite_database_url, echo=True) # echo=True for SQL logging
-
 def create_db_and_tables():
     logger.info("Creating database and tables if they don't exist...")
-    SQLModel.metadata.create_all(sqlite_engine)
+    SQLModel.metadata.create_all(sqlite_engine) # Uses sqlite_engine from db.py
     logger.info("Database and tables checked/created.")
-
-def get_db_session():
-    with SQLModelSession(sqlite_engine) as session:
-        yield session
 
 # --- Helper function to save forms to local JSON (for testing) ---
 def _save_forms_to_local_json():
@@ -355,6 +351,37 @@ async def startup_event():
     # Trigger an initial refresh shortly after startup
     if settings.forms_storage_mode == "sqlite":
         create_db_and_tables() # Create SQLite DB and tables on startup
+    
+    # --- Create default users if users table is empty ---
+    with SQLModelSession(sqlite_engine) as session: # Use engine from db.py
+        # Check if any user exists
+        statement = select(models.UserInDB)
+        existing_user = session.exec(statement).first()
+        if not existing_user:
+            logger.info("No users found in the database. Creating default users...")
+            default_users_data = [
+                {
+                    "username": "adminuser", "full_name": "Admin User", "email": "admin@example.com",
+                    "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False
+                },
+                {
+                    "username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com",
+                    "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False
+                },
+                {
+                    "username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com",
+                    "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False
+                }
+            ]
+            for user_data_dict in default_users_data: # Renamed to avoid conflict
+                # Use UserCreate model for validation before creating UserInDB
+                user_create_model = models.UserCreate(**user_data_dict)
+                auth_utils.add_user_to_db(session, user_create_model) # Pass session
+            # No explicit commit needed here if add_user_to_db handles it, but it's safer.
+            # add_user_to_db now handles commit.
+            logger.info(f"{len(default_users_data)} default users created.")
+        else:
+            logger.info("Existing users found in the database. Skipping default user creation.")
 
     asyncio.create_task(refresh_active_mission_cache())
 
@@ -389,8 +416,11 @@ def shutdown_event():
 
 # --- Authentication Endpoint ---
 @app.post("/token", response_model=models.Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user_in_db = get_user_from_db(form_data.username)
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: SQLModelSession = Depends(get_db_session) # Inject session
+):
+    user_in_db = auth_utils.get_user_from_db(session, form_data.username) # Pass session
     if not user_in_db or not verify_password(form_data.password, user_in_db.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -410,13 +440,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @app.post("/register", response_model=models.User)
 async def register_new_user(
         user_in: models.UserCreate,
-        current_admin: models.User = Depends(get_current_admin_user) # Add admin protection
+        current_admin: models.User = Depends(get_current_admin_user), # Add admin protection
+        session: SQLModelSession = Depends(get_db_session) # Inject session
     ):
     logger.info(f"Attempting to register new user: {user_in.username}")
     try:
-        created_user_in_db = add_user_to_db(user_in)
+        created_user_in_db = auth_utils.add_user_to_db(session, user_in) # Pass session
         # Return User model, not UserInDB (which includes hashed_password)
-        return models.User.model_validate(created_user_in_db)
+        return models.User.model_validate(created_user_in_db.model_dump())
     except HTTPException as e: # Catch username already exists error
         logger.warning(f"Registration failed for {user_in.username}: {e.detail}")
         raise e # Re-raise the HTTPException
@@ -933,15 +964,84 @@ async def submit_mission_form(
 @app.get("/api/forms/all", response_model=List[models.SubmittedForm])
 async def get_all_submitted_forms(
     session: SQLModelSession = Depends(get_db_session),
-    current_user: models.User = Depends(get_current_admin_user) # Admin only
+    current_user: models.User = Depends(get_current_active_user) # Changed to active_user
 ):
     """
-    Retrieves all submitted forms from the database.
-    Only accessible by admin users.
+    Retrieves submitted forms from the database.
+    Admins get all forms. Pilots get forms from the last 72 hours.
+    Forms are ordered by submission_timestamp descending.
     """
-    logger.info(f"Admin user '{current_user.username}' requesting all submitted forms.")
-    forms = session.exec(select(models.SubmittedForm).order_by(models.SubmittedForm.submission_timestamp.desc())).all()
+    logger.info(f"User '{current_user.username}' (role: {current_user.role.value}) requesting submitted forms.")
+    
+    statement = select(models.SubmittedForm)
+
+    if current_user.role == models.UserRoleEnum.pilot:
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=72)
+        statement = statement.where(models.SubmittedForm.submission_timestamp > cutoff_time)
+        logger.info(f"Pilot user: Filtering forms submitted after {cutoff_time.strftime('%Y-%m-%d %H:%M:%S UTC')}.")
+    
+    # For both admin and pilot, order by most recent first
+    statement = statement.order_by(models.SubmittedForm.submission_timestamp.desc())
+    
+    forms = session.exec(statement).all()
+    
+    logger.info(f"Returning {len(forms)} forms for user '{current_user.username}' (role: {current_user.role.value}).")
+    
     return forms
+
+# --- Admin User Management API Endpoints ---
+@app.get("/api/admin/users", response_model=List[models.User])
+async def admin_list_users(
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session) # Inject session
+):
+    """Lists all users. Admin only."""
+    logger.info(f"Admin '{current_admin.username}' requesting list of all users.")
+    return auth_utils.list_all_users_from_db(session) # Pass session
+
+@app.put("/api/admin/users/{username}", response_model=models.User)
+async def admin_update_user(
+    username: str,
+    user_update: models.UserUpdateForAdmin,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session) # Inject session
+):
+    """Updates a user's details (full name, email, role, disabled status). Admin only."""
+    logger.info(f"Admin '{current_admin.username}' attempting to update user '{username}' with data: {user_update.model_dump(exclude_unset=True)}")
+    
+    # Basic safety: Prevent admin from disabling/demoting the last active admin (themselves)
+    if username == current_admin.username:
+        if user_update.disabled is True or (user_update.role and user_update.role != models.UserRoleEnum.admin):
+            # Query active admins from DB
+            stmt = select(models.UserInDB).where(models.UserInDB.role == models.UserRoleEnum.admin, models.UserInDB.disabled == False)
+            active_admins = session.exec(stmt).all()
+            if len(active_admins) == 1 and active_admins[0].username == username:
+                logger.error(f"Admin '{current_admin.username}' attempted to disable or demote themselves as the sole active admin.")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot disable or demote the only active administrator.")
+
+    updated_user_in_db = auth_utils.update_user_details_in_db(session, username, user_update) # Pass session
+    if not updated_user_in_db:
+        logger.warning(f"Admin '{current_admin.username}' failed to update non-existent user '{username}'.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    
+    # Convert UserInDB to User for the response
+    return models.User.model_validate(updated_user_in_db.model_dump())
+
+@app.put("/api/admin/users/{username}/password")
+async def admin_change_user_password(
+    username: str,
+    password_update: models.PasswordUpdate,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session) # Inject session
+):
+    """Changes a user's password. Admin only."""
+    logger.info(f"Admin '{current_admin.username}' attempting to change password for user '{username}'.")
+    success = auth_utils.update_user_password_in_db(session, username, password_update.new_password) # Pass session
+    if not success:
+        logger.warning(f"Admin '{current_admin.username}' failed to change password for non-existent user '{username}'.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {"message": "Password updated successfully"}
+
 
 # --- API Endpoints ---
 
@@ -958,7 +1058,7 @@ async def get_report_data_for_plotting(
     suitable for frontend plotting.
     """    
     # Unpack the DataFrame and the source path; we only need the DataFrame here
-    df, _ = await load_data_source(
+    df, _ = await load_data_source( # type: ignore
         report_type.value, mission_id, # Use .value for Enum
         source_preference=params.source.value if params.source else None, # Use .value for Enum
         custom_local_path=params.local_path,
@@ -1236,11 +1336,25 @@ async def get_mission_form_page(
 @app.get("/view_forms.html", response_class=HTMLResponse)
 async def get_view_forms_page(
     request: Request,
-    # current_user: models.User = Depends(get_current_admin_user) # Admin only for serving HTML
+    current_user: Optional[models.User] = Depends(get_optional_current_user) # Allow any authenticated user
 ):
-    # Allow the page to load; JS will handle auth for API calls.
-    # We can still try to get user info for the template if a token is present.
-    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
-    username_for_log = actual_current_user.username if actual_current_user else "anonymous"
-    logger.info(f"User '{username_for_log}' attempting to access the submitted forms page (/view_forms.html). API call will verify admin role.")
-    return templates.TemplateResponse("view_forms.html", {"request": request, "current_user": actual_current_user})
+    # If no user (not logged in), JS will redirect via checkAuth().
+    # If user is present, their role will be available to the template.
+    username_for_log = current_user.username if current_user else "anonymous/unauthenticated"
+    user_role_for_log = current_user.role.value if current_user else "N/A"
+    logger.info(f"User '{username_for_log}' (role: {user_role_for_log}) attempting to access /view_forms.html.")
+    return templates.TemplateResponse("view_forms.html", {"request": request, "current_user": current_user})
+
+# --- HTML Route for Admin User Management ---
+@app.get("/admin/user_management.html", response_class=HTMLResponse)
+async def get_admin_user_management_page(
+    request: Request,
+    # Changed to optional_current_user. JS will verify admin role via API.
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    # This log will show if a user (even non-admin) attempts to load the page.
+    # The actual admin check happens when admin_user_management.js calls /api/admin/users.
+    username_for_log = current_user.username if current_user else "anonymous/unauthenticated"
+    user_role_for_log = current_user.role.value if current_user and current_user.role else "N/A"
+    logger.info(f"User '{username_for_log}' (role: {user_role_for_log}) attempting to access /admin/user_management.html. JS will verify admin role via API.")
+    return templates.TemplateResponse("admin_user_management.html", {"request": request, "current_user": current_user})

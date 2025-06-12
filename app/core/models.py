@@ -84,8 +84,26 @@ class UserCreate(UserBase):
 class User(UserBase):
     disabled: Optional[bool] = None
 
-class UserInDB(User):
-    hashed_password: str
+# UserInDB will now be our SQLModel table for users
+class UserInDB(SQLModel, table=True): # Inherit from SQLModel
+    __tablename__ = "users" # Explicit table name
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    username: str = SQLModelField(unique=True, index=True)
+    email: Optional[str] = SQLModelField(default=None, unique=True, index=True) # Made email unique and indexable
+    full_name: Optional[str] = SQLModelField(default=None)
+    hashed_password: str = SQLModelField()
+    role: UserRoleEnum = SQLModelField(default=UserRoleEnum.pilot) # Role is now an SQLModelField
+    disabled: Optional[bool] = SQLModelField(default=False)
+
+class UserUpdateForAdmin(BaseModel): # New model for admin updates
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[UserRoleEnum] = None
+    disabled: Optional[bool] = None
+
+class PasswordUpdate(BaseModel): # New model for password change
+    new_password: str
 
 class Token(BaseModel):
     access_token: str
