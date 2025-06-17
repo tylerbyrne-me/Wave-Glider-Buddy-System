@@ -1,6 +1,9 @@
-from sqlmodel import create_engine, Session as SQLModelSession # type: ignore
-from app.config import settings # Assuming settings are in app.config
 import logging
+
+from sqlmodel import Session as SQLModelSession  # type: ignore
+from sqlmodel import create_engine
+
+from app.config import settings  # Assuming settings are in app.config
 
 logger = logging.getLogger(__name__)
 
@@ -9,8 +12,12 @@ logger = logging.getLogger(__name__)
 sqlite_engine = create_engine(
     settings.sqlite_database_url,
     echo=settings.sqlite_echo_log,
-    connect_args={"check_same_thread": False, "timeout": 15}  # Add timeout (e.g., 15 seconds)
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 15,
+    },  # Add timeout (e.g., 15 seconds)
 )
+
 
 def get_db_session():
     # The session is managed by FastAPI's dependency injection system.
