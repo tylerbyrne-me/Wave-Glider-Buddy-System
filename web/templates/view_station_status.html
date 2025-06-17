@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Station Offload Status - Wave Glider Buddy</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+    <style>
+        /* New Status Colors */
+        .status-awaiting-offload { background-color: #e2e3e5 !important; color: #383d41 !important; } /* Light grey */
+        .status-offloaded { background-color: #d1e7dd !important; color: #0f5132 !important; }        /* Bootstrap success light */
+        .status-failed-offload { background-color: #f8d7da !important; color: #721c24 !important; }   /* Bootstrap danger light */
+        .status-skipped { background-color: #fff3cd !important; color: #664d03 !important; }          /* Bootstrap warning light */
+        .status-unknown { background-color: #f0f0f0 !important; color: #555 !important; }             /* A generic color for unknown/other */
+
+
+        th { cursor: pointer; }
+        th .sort-icon { margin-left: 5px; }
+
+        .table-responsive {
+            max-height: 80vh; /* Adjust as needed */
+        }
+        .table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        /* Ensure clickable links in table cells are visible */
+        .table a.edit-station-link {
+            color: var(--bs-body-color); /* Use Bootstrap's body color for links in dark theme */
+            text-decoration: underline;
+        }
+        .table a.edit-station-link:hover {
+            color: var(--bs-primary); /* Or another highlight color */
+        }
+    </style>
+</head>
+<body>
+    <!-- New Page Header -->
+    <div class="container-fluid mt-4"> <!-- Changed mt-5 pt-3 to mt-4 for overall container -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="mb-1">Station Offload Status</h1>
+                <p class="text-muted mb-0">Offload status across all missions</p>
+            </div>
+            <button class="btn btn-secondary" onclick="window.close();" title="Close this tab/window">Close Page</button>
+        </div>
+        <hr class="mb-4">
+
+        <!-- Search Input -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="flex-grow-1 me-2">
+                <input type="text" id="searchInput" class="form-control" placeholder="Filter by Station ID, Glider, or Serial...">
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-success" id="downloadCsvBtn" title="Download current view (filtered by search) as CSV" style="display: none;">
+                    <i class="fas fa-download me-1"></i> Download CSV
+                </button>
+                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" id="downloadCsvDropdownToggle" style="display: none;">
+                    <span class="visually-hidden">Toggle Dropdown</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="CBS">Download CBS* Stations</a></li>
+                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="NCAT">Download NCAT* Stations</a></li>
+                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="GULMPA">Download GULMPA* Stations</a></li>
+                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HALIBT">Download HALIBT* Stations</a></li>
+                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HFX">Download HFX* Stations</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" id="downloadAllFilteredCsvLink">Download All (Filtered by Search)</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="loadingSpinner" class="text-center my-5" style="display: none;">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-responsive">
+            <table class="table table-striped table-hover table-bordered">
+                <thead class="table-dark">
+                    <tr>
+                        <th data-sort="station_id">Station ID <span class="sort-icon"></span></th>
+                        <th data-sort="serial_number">Serial Number <span class="sort-icon"></span></th>
+                        <th data-sort="modem_address">Modem Address <span class="sort-icon"></span></th>
+                        <th data-sort="station_settings">Station Settings <span class="sort-icon"></span></th>
+                        <th data-sort="status_text">Status <span class="sort-icon"></span></th>
+                        <th data-sort="last_offload_timestamp_str">Last Log Update <span class="sort-icon"></span></th>
+                        <th data-sort="vrl_file_name">VRL File Name <span class="sort-icon"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="stationStatusTableBody">
+                    <!-- Rows will be inserted here by JavaScript -->
+                    <tr><td colspan="6" class="text-center">Initializing...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Edit Station Info / Log New Offload Modal -->
+    <div class="modal fade" id="editLogStationModal" tabindex="-1" aria-labelledby="editLogStationModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editLogStationModalLabel">Edit Station / Log Offload for: <span id="modalStationIdDisplay"></span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="stationEditLogForm">
+                        <input type="hidden" id="formStationId" name="station_id">
+                        
+                        <h4>Station Information</h4>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="formSerialNumber" class="form-label">Serial Number</label>
+                                <input type="text" class="form-control" id="formSerialNumber" name="serial_number">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="formModemAddress" class="form-label">Modem Address</label>
+                                <input type="text" class="form-control" id="formModemAddress" name="modem_address">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="formBottomDepth" class="form-label">Bottom Depth (m)</label>
+                                <input type="number" step="any" class="form-control" id="formBottomDepth" name="bottom_depth_m">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="formWaypointNumber" class="form-label">Waypoint Number/Name</label>
+                                <input type="text" class="form-control" id="formWaypointNumber" name="waypoint_number">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="formLastOffloadByGlider" class="form-label">Last Offload By Glider</label>
+                            <input type="text" class="form-control" id="formLastOffloadByGlider" name="last_offload_by_glider">
+                        </div>
+                        <div class="mb-3">
+                            <label for="formStationSettings" class="form-label">Station Settings</label>
+                            <textarea class="form-control" id="formStationSettings" name="station_settings" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="formStationNotes" class="form-label">Station Notes</label>
+                            <textarea class="form-control" id="formStationNotes" name="notes" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="formDisplayStatusOverride" class="form-label">Display Status Override</label>
+                            <select class="form-select" id="formDisplayStatusOverride" name="display_status_override">
+                                <option value="">-- None (Automatic Status) --</option>
+                                <option value="SKIPPED">Skipped</option>
+                                <!-- Add other override options here if needed in the future -->
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-primary mb-3" id="saveStationInfoBtn">Save Station Info</button>
+                        
+                        <hr class="my-4">
+                        
+                        <h4>Log New Offload</h4>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="formArrivalDate" class="form-label">Arrival Date (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="formArrivalDate" name="arrival_date">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="formDistanceSent" class="form-label">Distance when command sent (m)</label>
+                                <input type="number" step="any" class="form-control" id="formDistanceSent" name="distance_command_sent_m">
+                            </div>
+                        </div>
+                        <div class="row">
+                             <div class="col-md-6 mb-3">
+                                <label for="formTimeFirstCommand" class="form-label">Time first command sent (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="formTimeFirstCommand" name="time_first_command_sent_utc">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="formOffloadStartTime" class="form-label">Offload Start Time (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="formOffloadStartTime" name="offload_start_time_utc">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="formOffloadEndTime" class="form-label">Offload End Time (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="formOffloadEndTime" name="offload_end_time_utc">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="formDepartureDate" class="form-label">Departure Date (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="formDepartureDate" name="departure_date">
+                            </div>
+                        </div>
+                         <div class="mb-3">
+                            <label for="formVrlFileName" class="form-label">VRL File Name</label>
+                            <input type="text" class="form-control" id="formVrlFileName" name="vrl_file_name">
+                        </div>
+                        <div class="mb-3">
+                            <label for="formOffloadNotesFileSize" class="form-label">Offload Notes / File Size</label>
+                            <textarea class="form-control" id="formOffloadNotesFileSize" name="offload_notes_file_size" rows="2"></textarea>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="formWasOffloaded" name="was_offloaded">
+                            <label class="form-check-label" for="formWasOffloaded">
+                                Offloaded Successfully?
+                            </label>
+                        </div>
+                        <button type="button" class="btn btn-success" id="logNewOffloadBtn">Log New Offload</button>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Old Station Metadata Edit Modal (to be removed or repurposed if needed) -->
+    <!-- For now, let's comment it out to avoid conflicts -->
+    <!--
+    <div class="modal fade" id="editStationMetadataModal" tabindex="-1" aria-labelledby="editStationMetadataModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editStationMetadataModalLabel">Edit Station Metadata: <span id="modalStationIdDisplay"></span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                
+                <div class="modal-body">
+                    <form id="editStationMetadataForm_OLD">
+                        <input type="hidden" id="modalEditStationIdHidden">
+                        <div class="mb-3">
+                            <label for="modalSerialNumber" class="form-label">Serial Number</label>
+                            <input type="text" class="form-control" id="modalSerialNumber">
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalModemAddress" class="form-label">Modem Address</label>
+                            <input type="text" class="form-control" id="modalModemAddress">
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalDepth" class="form-label">Depth (m)</label>
+                            <input type="number" step="any" class="form-control" id="modalDepth">
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalNotes" class="form-label">Notes</label>
+                            <textarea class="form-control" id="modalNotes" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalLastOffloadTimestamp" class="form-label">Last Offload Timestamp (User's Local Time - will be saved as UTC)</label>
+                            <input type="datetime-local" class="form-control" id="modalLastOffloadTimestamp">
+                        </div>
+                         <div class="mb-3">
+                            <label for="modalLastOffloadByGlider" class="form-label">Last Offload By Glider</label>
+                            <input type="text" class="form-control" id="modalLastOffloadByGlider">
+                        </div>
+                        <hr>
+                        <h6 class="mb-3">Offload Statistics</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="modalArrivalDate" class="form-label">Arrival Date (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="modalArrivalDate">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="modalDepartureDate" class="form-label">Departure Date (Local Time)</label>
+                                <input type="datetime-local" class="form-control" id="modalDepartureDate">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalOffloadedGB" class="form-label">Offloaded (GB)</label>
+                            <input type="number" step="any" class="form-control" id="modalOffloadedGB">
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalOffloadStatusSelect" class="form-label">Offload Status</label>
+                            <select class="form-select" id="modalOffloadStatusSelect">
+                                <option value="NOT_OFFLOADED">Not Offloaded</option>
+                                <option value="OFFLOADED">Offloaded</option>
+                                <option value="FAILED">Failed</option>
+                                <option value="SKIPPED">Skipped</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modalRecoveryComments" class="form-label">Recovery Comments</label>
+                            <textarea class="form-control" id="modalRecoveryComments" rows="3"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="saveStationMetadataChanges">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/auth.js"></script> <!-- auth.js MUST be loaded first -->
+    <script src="/static/js/view_station_status.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!checkAuth()) { // checkAuth from auth.js handles redirection if needed.
+                // If checkAuth returns false and redirects, subsequent scripts might not fully execute or matter.
+            }
+            // view_station_status.js will handle its own DOMContentLoaded, role check, and data fetching.
+        });
+    </script>
+</body>
+</html>

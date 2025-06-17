@@ -464,3 +464,38 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         df_processed['GliderHeading'] = df_processed['GliderHeading'].fillna(df_processed['HeadingFloatDegrees'])
 
     return df_processed
+
+def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocesses the WG-VM4 data.
+    Placeholder: Standardizes timestamp and ensures essential columns.
+    """
+    timestamp_col = "Timestamp" # Standardized name, raw is "timeStamp"
+    df_processed = _initial_dataframe_setup(df, timestamp_col)
+    if df_processed.empty:
+        # Ensure even an empty DF has the expected columns for consistency
+        expected_cols = [timestamp_col, "SerialNumber", "Channel0DetectionCount", "Channel1DetectionCount"]
+        for col in expected_cols:
+            if col not in df_processed.columns:
+                 df_processed[col] = np.nan if col != timestamp_col else pd.Series(dtype='datetime64[ns, UTC]')
+        return df_processed
+
+    rename_map = {
+        "serial Number": "SerialNumber", # From "Vemco VM4 Daily Local Health.csv"
+        "channel[0] Detection Count": "Channel0DetectionCount",
+        "channel[1] Detection Count": "Channel1DetectionCount"
+    }
+    df_processed = df_processed.rename(columns=rename_map)
+
+    # Ensure numeric conversion for relevant columns
+    for col in ["Channel0DetectionCount", "Channel1DetectionCount"]:
+        if col in df_processed.columns:
+            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+        else:
+            df_processed[col] = np.nan
+    
+    # Ensure SerialNumber exists
+    if "SerialNumber" not in df_processed.columns:
+        df_processed["SerialNumber"] = np.nan
+
+    return df_processed

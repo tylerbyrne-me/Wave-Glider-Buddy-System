@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime, timedelta, timezone
 from .processors import ( # type: ignore
     preprocess_power_df, preprocess_ctd_df, preprocess_weather_df,
-    preprocess_wave_df, preprocess_ais_df, preprocess_error_df, preprocess_vr2c_df, # type: ignore
+    preprocess_wave_df, preprocess_ais_df, preprocess_error_df, preprocess_vr2c_df, preprocess_wg_vm4_df, # type: ignore
     preprocess_fluorometer_df, preprocess_telemetry_df # type: ignore
 )
 from . import utils # Import the utils module
@@ -732,4 +732,63 @@ def get_navigation_mini_trend(df_telemetry: Optional[pd.DataFrame]) -> List[Dict
         return []
     
 
+def get_wg_vm4_status(df_wg_vm4: Optional[pd.DataFrame]) -> Dict:
+    result_shell: Dict[str, Any] = {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+    if df_wg_vm4 is None or df_wg_vm4.empty:
+        return result_shell
+
+    try:
+        df_wg_vm4_processed = preprocess_wg_vm4_df(df_wg_vm4)
+    except Exception as e:
+        logger.warning(f"Error preprocessing WG-VM4 data for summary: {e}")
+        return result_shell
+
+    if not df_wg_vm4_processed.empty and "Timestamp" in df_wg_vm4_processed.columns:
+        update_info = utils.get_df_latest_update_info(df_wg_vm4_processed, "Timestamp")
+        result_shell.update(update_info)
+        last_row = df_wg_vm4_processed.loc[df_wg_vm4_processed["Timestamp"].idxmax()]
+        
+        result_shell["values"] = {
+            "SerialNumber": last_row.get("SerialNumber"), # From "Vemco VM4 Daily Local Health.csv"
+            "Channel0DetectionCount": last_row.get("Channel0DetectionCount"),
+            "Channel1DetectionCount": last_row.get("Channel1DetectionCount"),
+            # Add other relevant fields as placeholders or once decided
+            "PlaceholderField1": "N/A",
+            "PlaceholderField2": "N/A",
+            "Timestamp": last_row["Timestamp"].strftime('%Y-%m-%d %H:%M:%S UTC') if pd.notna(last_row.get("Timestamp")) else "N/A"
+        }
+    return result_shell
+
+def get_wg_vm4_mini_trend(df_wg_vm4: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
+    if df_wg_vm4 is None or df_wg_vm4.empty:
+        return []
+    try:
+        df_processed = preprocess_wg_vm4_df(df_wg_vm4)
+        # Using Channel0DetectionCount as the primary metric for the mini trend
+        metric_col = "Channel0DetectionCount" 
+        if df_processed.empty or "Timestamp" not in df_processed.columns or metric_col not in df_processed.columns:
+            return []
+        
+        max_timestamp = df_processed["Timestamp"].max()
+        if pd.isna(max_timestamp):
+            return []
+        cutoff_time = max_timestamp - timedelta(hours=24) # 24hrs for this trend
+        df_trend = df_processed[df_processed["Timestamp"] > cutoff_time].sort_values(by="Timestamp")
+
+        if df_trend.empty: return []
+
+        # Resample to 1-hour sum (or mean, depending on what DetectionCount represents)
+        df_trend_resampled = df_trend.set_index("Timestamp")
+        if pd.api.types.is_numeric_dtype(df_trend_resampled[metric_col]):
+            df_trend_resampled = df_trend_resampled[[metric_col]].resample('1h').sum() # Or .mean()
+        else: # Fallback if not numeric
+            df_trend_resampled = df_trend_resampled[[metric_col]].reset_index()
+
+        df_trend_resampled = df_trend_resampled.reset_index().dropna(subset=[metric_col])
+
+        return [{"Timestamp": row["Timestamp"].strftime('%Y-%m-%dT%H:%M:%S'), "value": row[metric_col]}
+                for _, row in df_trend_resampled.iterrows() if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col])]
+    except Exception as e:
+        logger.warning(f"Error generating WG-VM4 mini-trend: {e}")
+        return []
     

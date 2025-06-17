@@ -59,8 +59,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.insertCell().textContent = form.mission_id;
                     row.insertCell().textContent = form.form_type;
                     row.insertCell().textContent = form.form_title;
-                    row.insertCell().textContent = form.submitted_by_username;
-                    row.insertCell().textContent = new Date(form.submission_timestamp).toLocaleString();
+                    row.insertCell().textContent = form.submitted_by_username;                    
+                    const submissionTime = new Date(form.submission_timestamp);
+                    row.insertCell().textContent = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
                     
                     const actionsCell = row.insertCell();
                     const viewButton = document.createElement('button');

@@ -22,9 +22,19 @@ from .core import utils
 import time # Import the time module
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # For background tasks
 from datetime import timezone # Import timezone directly
+
+# --- Conditional import for fcntl ---
+IS_UNIX = True
+try:
+    import fcntl
+except ImportError:
+    IS_UNIX = False
+    fcntl = None # type: ignore # Make fcntl None on non-Unix systems
 import json # For saving/loading forms to/from JSON
 from sqlmodel import SQLModel, select, inspect # type: ignore # create_engine and SQLModelSession moved to db.py, added inspect
 from .db import sqlite_engine, get_db_session, SQLModelSession # Import from new db.py
+# from .station_sub_app import station_api # No longer using sub-application for station metadata
+from .routers import station_metadata_router # Import the APIRouter for station metadata
 app = FastAPI()
 
 # --- Robust path to templates directory ---
@@ -40,38 +50,43 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 DATA_STORE_DIR = PROJECT_ROOT / "data_store"
 LOCAL_FORMS_DB_FILE = DATA_STORE_DIR / "submitted_forms.json"
 # Mount the static files directory
+# Include the station_metadata_router
+# print(f"DEBUG_PRINT: app.py - About to include station_metadata_router. Type: {type(station_metadata_router.router)}") # Can be removed or changed to logger.info
+app.include_router(station_metadata_router.router, prefix="/api", tags=["Station Metadata"])
+# print("DEBUG_PRINT: app.py - station_metadata_router included with prefix /api") # Can be removed
+
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "web" / "static")), name="static")
 
-# --- Custom UTC Formatter for Logging ---
-class UTCFormatter(logging.Formatter):
-    converter = time.gmtime
+# # --- Custom UTC Formatter for Logging ---
+# class UTCFormatter(logging.Formatter):
+#     converter = time.gmtime
 
-# --- Configure Logging ---
-# Use path from settings, defaulting to project root if relative path is in settings and .env is not used
-if settings.log_file_path.is_absolute():
-    LOG_FILE_PATH = settings.log_file_path
-else:
-    LOG_FILE_PATH = PROJECT_ROOT / settings.log_file_path
+# # --- Configure Logging ---
+# # Use path from settings, defaulting to project root if relative path is in settings and .env is not used
+# if settings.log_file_path.is_absolute():
+#     LOG_FILE_PATH = settings.log_file_path
+# else:
+#     LOG_FILE_PATH = PROJECT_ROOT / settings.log_file_path
 
-# Get the root logger
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO) # Set level for the root logger
+# # Get the root logger
+# root_logger = logging.getLogger()
+# root_logger.setLevel(logging.INFO) # Set level for the root logger
 
-# Create formatter
-formatter = UTCFormatter(
-    fmt="%(asctime)s.%(msecs)03d UTC | %(levelname)-8s | %(name)-25s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
+# # Create formatter
+# formatter = UTCFormatter(
+#     fmt="%(asctime)s.%(msecs)03d UTC | %(levelname)-8s | %(name)-25s | %(message)s",
+#     datefmt="%Y-%m-%d %H:%M:%S"
+# )
 
-# Create file handler and set formatter
-file_handler = logging.FileHandler(LOG_FILE_PATH, mode='w') # 'a' appends, 'w' write/overwrite
-file_handler.setFormatter(formatter)
-root_logger.addHandler(file_handler)
+# # Create file handler and set formatter
+# file_handler = logging.FileHandler(LOG_FILE_PATH, mode='w') # 'a' appends, 'w' write/overwrite
+# file_handler.setFormatter(formatter)
+# root_logger.addHandler(file_handler)
 
-# Create console handler and set formatter (if not already configured by Uvicorn/FastAPI default)
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-root_logger.addHandler(console_handler)
+# # Create console handler and set formatter (if not already configured by Uvicorn/FastAPI default)
+# console_handler = logging.StreamHandler()
+# console_handler.setFormatter(formatter)
+# root_logger.addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
 # ---
@@ -310,11 +325,12 @@ async def load_data_source(
         logger.debug(f"CACHE STORE: Storing {report_type} for {mission_id} (from {actual_source_path}) into cache.")
         data_cache[cache_key] = (df, actual_source_path, datetime.now()) # Store with current timestamp
 
-    return df, actual_source_path
+    # Ensure df is returned even if it's None, along with actual_source_path
+    return df if df is not None else pd.DataFrame(), actual_source_path
 # ---
 
-# --- Background Cache Refresh Task ---
-scheduler = AsyncIOScheduler()
+# --- Background Cache Refresh Task (APScheduler instantiation temporarily commented out) ---
+scheduler = AsyncIOScheduler() # Uncomment APScheduler
 
 async def refresh_active_mission_cache():
     logger.info("BACKGROUND TASK: Starting proactive cache refresh for active real-time missions.")
@@ -323,7 +339,7 @@ async def refresh_active_mission_cache():
     # These are the *source* files to refresh. The combined spectrum is processed on demand.
     # Add wave_frequency_spectrum and wave_energy_spectrum to be refreshed by the background task
     # so the /api/wave_spectrum endpoint can use fresh source data for processing.
-    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors", "vr2c", "fluorometer", "wave_frequency_spectrum", "wave_energy_spectrum"]
+    realtime_report_types = ["power", "ctd", "weather", "waves", "telemetry", "ais", "errors", "vr2c", "fluorometer","wg_vm4", "wave_frequency_spectrum", "wave_energy_spectrum"]
 
     for mission_id in active_missions:
         logger.info(f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}")
@@ -343,88 +359,54 @@ async def refresh_active_mission_cache():
     logger.info("BACKGROUND TASK: Proactive cache refresh for active real-time missions completed.")
 
 # --- FastAPI Lifecycle Events for Scheduler ---
-@app.on_event("startup")
+@app.on_event("startup") # Uncomment the startup event
 async def startup_event():
+    logger.info("Application startup event initiated.") # Changed from print
     scheduler.add_job(refresh_active_mission_cache, 'interval', minutes=settings.background_cache_refresh_interval_minutes, id="active_mission_refresh_job")
     scheduler.start()
     logger.info("APScheduler started for background cache refresh.")
     # Trigger an initial refresh shortly after startup
 
     # --- Database Initialization with File Lock ---
-    # This ensures only one Gunicorn worker attempts to create tables and default users.
-    # Note: fcntl is Unix-specific. For Windows, a different locking mechanism would be needed
-    # or this part should be handled by a separate init script before starting Gunicorn.
-    # Since you are on a Linux server (glider-dev.cove), fcntl should work.
+    # Restore DB initialization and form loading
     lock_file_path = DATA_STORE_DIR / ".db_init.lock"
     try:
-        with open(lock_file_path, "w") as lock_file:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                logger.info("Acquired DB initialization lock. This worker will initialize the DB.")
-
-                if settings.forms_storage_mode == "sqlite":
-                    create_db_and_tables() # Create SQLite DB and tables on startup
-
-                # --- Create default users if users table is empty ---
-                with SQLModelSession(sqlite_engine) as session:
+        if IS_UNIX and fcntl: # Only attempt fcntl lock on Unix-like systems
+            with open(lock_file_path, "w") as lock_file:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    logger.info("Acquired DB initialization lock. This worker will initialize the DB.")
+                    _initialize_database_and_users()
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    logger.info("DB initialization complete. Lock released by this worker.")
+                except BlockingIOError:
+                    logger.info("Could not acquire DB initialization lock. Another worker is likely initializing.")
+                    await asyncio.sleep(5) 
                     inspector = inspect(sqlite_engine)
-                    if inspector.has_table(models.UserInDB.__tablename__): # type: ignore
-                        statement = select(models.UserInDB)
-                        existing_user = session.exec(statement).first()
-                        if not existing_user:
-                            logger.info("No users found in the database. Creating default users...")
-                            default_users_data = [
-                                {"username": "adminuser", "full_name": "Admin User", "email": "admin@example.com", "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False},
-                                {"username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com", "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False},
-                                {"username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com", "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False}
-                            ]
-                            for user_data_dict in default_users_data:
-                                user_create_model = models.UserCreate(**user_data_dict)
-                                auth_utils.add_user_to_db(session, user_create_model)
-                            logger.info(f"{len(default_users_data)} default users created by this worker.")
-                        else:
-                            logger.info("Existing users found. Skipping default user creation by this worker.")
+                    if not inspector.has_table(models.UserInDB.__tablename__): 
+                        logger.warning("DB tables still not found after waiting for other worker.")
                     else:
-                        logger.error(f"'{models.UserInDB.__tablename__}' table still does not exist after create_db_and_tables(). DB init failed.")
-
-                # Release the lock explicitly (though closing the file also does)
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                logger.info("DB initialization complete. Lock released by this worker.")
-
-            except BlockingIOError:
-                logger.info("Could not acquire DB initialization lock. Another worker is likely initializing.")
-                # Wait a bit for the other worker to finish, then check if tables exist
-                await asyncio.sleep(5) # Wait for 5 seconds
-                inspector = inspect(sqlite_engine)
-                if not inspector.has_table(models.UserInDB.__tablename__): # type: ignore
-                    logger.warning("DB tables still not found after waiting for other worker. This might indicate an issue.")
-                else:
-                    logger.info("DB tables found. Assuming another worker completed initialization.")
-            except Exception as e_lock_init:
-                logger.error(f"Error during locked DB initialization: {e_lock_init}", exc_info=True)
-                # Ensure lock is released on error if acquired
-                try: fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                except Exception: pass
+                        logger.info("DB tables found. Assuming another worker completed initialization.")
+                except Exception as e_lock_init:
+                    logger.error(f"Error during locked DB initialization: {e_lock_init}", exc_info=True)
+                    try: fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN) 
+                    except Exception: pass
+        else: 
+            logger.info("Non-Unix system or fcntl not available. Proceeding with DB initialization without file lock.")
+            _initialize_database_and_users()
     except Exception as e_open_lock:
         logger.error(f"Could not open or manage lock file {lock_file_path}: {e_open_lock}", exc_info=True)
-        # Fallback: proceed without lock, risking concurrent init issues if lock file itself fails.
-        # This is less ideal but prevents total startup failure if lock file path is problematic.
+        logger.warning("Proceeding with DB initialization without file lock due to error managing lock file.")
+        _initialize_database_and_users()
 
-    asyncio.create_task(refresh_active_mission_cache())
+    asyncio.create_task(refresh_active_mission_cache()) # Restore cache refresh
 
-    asyncio.create_task(refresh_active_mission_cache())
-
-
-    # --- Load forms from local JSON on startup (for testing) ---
-    global mission_forms_db
+    global mission_forms_db # Restore form loading
     if settings.forms_storage_mode == "local_json":
-        # NOTE: This local JSON storage is for development/testing purposes only.
-        # For production, use a proper database.
         if LOCAL_FORMS_DB_FILE.exists():
             try:
                 with open(LOCAL_FORMS_DB_FILE, "r") as f:
                     loaded_db_serializable = json.load(f)
-                    # Deserialize keys from string back to tuple and values to Pydantic model
                     mission_forms_db = {
                         tuple(json.loads(k)): models.MissionFormDataResponse(**v)
                         for k, v in loaded_db_serializable.items()
@@ -432,17 +414,44 @@ async def startup_event():
                 logger.info(f"Forms database loaded from {LOCAL_FORMS_DB_FILE}. {len(mission_forms_db)} forms loaded.")
             except (IOError, json.JSONDecodeError, TypeError) as e:
                 logger.error(f"Error loading forms database from {LOCAL_FORMS_DB_FILE}: {e}. Starting with an empty forms DB.")
-                mission_forms_db = {} # Ensure it's empty on error
+                mission_forms_db = {} 
     elif settings.forms_storage_mode == "sqlite":
-        # Placeholder: In a production environment with database mode,
-        # forms would be loaded from the database on demand or via a different mechanism.
-        logger.info("Forms storage mode is 'sqlite'. JSON load skipped. Forms will be in the SQLite DB.")
-        # mission_forms_db is not used when mode is sqlite for primary storage
-@app.on_event("shutdown")
-def shutdown_event():
-    scheduler.shutdown()
-    logger.info("APScheduler shut down.")
+        logger.info("Forms storage mode is 'sqlite'. JSON load skipped.")
+    logger.info("Application startup event completed.") # Changed from print
 
+@app.on_event("shutdown") # Uncomment the shutdown event
+
+def _initialize_database_and_users():
+    """Helper function to contain the DB creation and default user logic."""
+    if settings.forms_storage_mode == "sqlite": # Also implies user data is in SQLite
+        create_db_and_tables()
+
+    with SQLModelSession(sqlite_engine) as session:
+        inspector = inspect(sqlite_engine)
+        if inspector.has_table(models.UserInDB.__tablename__): # type: ignore
+            statement = select(models.UserInDB)
+            existing_user = session.exec(statement).first()
+            if not existing_user:
+                logger.info("No users found in the database. Creating default users...")
+                default_users_data = [
+                    {"username": "adminuser", "full_name": "Admin User", "email": "admin@example.com", "password": "adminpass", "role": models.UserRoleEnum.admin, "disabled": False},
+                    {"username": "pilotuser", "full_name": "Pilot User", "email": "pilot@example.com", "password": "pilotpass", "role": models.UserRoleEnum.pilot, "disabled": False},
+                    {"username": "pilot_rt_only", "full_name": "Realtime Pilot", "email": "pilot_rt@example.com", "password": "pilotrtpass", "role": models.UserRoleEnum.pilot, "disabled": False}
+                ]
+                for user_data_dict in default_users_data:
+                    user_create_model = models.UserCreate(**user_data_dict)
+                    auth_utils.add_user_to_db(session, user_create_model)
+                logger.info(f"{len(default_users_data)} default users created.")
+            else:
+                logger.info("Existing users found. Skipping default user creation.")
+        else:
+            logger.error(f"'{models.UserInDB.__tablename__}' table still does not exist after create_db_and_tables(). DB init failed.")
+
+@app.on_event("shutdown") # Ensure this is also uncommented
+def shutdown_event():
+    if 'scheduler' in globals() and scheduler.running: # Check if scheduler was initialized and started
+        scheduler.shutdown()
+    logger.info("APScheduler shut down.")
 
 # --- Authentication Endpoint ---
 @app.post("/token", response_model=models.Token)
@@ -527,6 +536,7 @@ async def home(
         load_data_source("vr2c", mission, source, local_path, refresh, actual_current_user),
         load_data_source("solar", mission, source, local_path, refresh, actual_current_user),
         load_data_source("fluorometer", mission, source, local_path, refresh, actual_current_user),
+        load_data_source("wg_vm4", mission, source, local_path, refresh, actual_current_user), # Added WG-VM4
         load_data_source("ais", mission, source, local_path, refresh, actual_current_user),
         load_data_source("errors", mission, source, local_path, refresh, actual_current_user),
         load_data_source("telemetry", mission, source, local_path, refresh, actual_current_user),
@@ -538,7 +548,7 @@ async def home(
     source_paths_map: Dict[str, str] = {}
     # Ensure "error_frequency" is NOT in this list for the main page load. Add "telemetry"
     # This list is for data that populates the status cards and initial summaries.
-    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "solar", "fluorometer", "ais", "errors", "telemetry"]
+    report_types_order = ["power", "ctd", "weather", "waves", "vr2c", "solar", "fluorometer", "wg_vm4", "ais", "errors", "telemetry"]
 
     for i, report_type in enumerate(report_types_order):
         if isinstance(results[i], Exception):
@@ -552,11 +562,12 @@ async def home(
     df_ctd = data_frames["ctd"]
     df_weather = data_frames["weather"]
     df_waves = data_frames["waves"]
-    df_ais = data_frames["ais"]
-    df_errors = data_frames["errors"]
     df_vr2c = data_frames["vr2c"] # New sensor
     df_solar = data_frames["solar"] # New solar data
     df_fluorometer = data_frames["fluorometer"] # C3 Fluorometer
+    df_wg_vm4 = data_frames["wg_vm4"] # New WG-VM4 data
+    df_ais = data_frames["ais"]
+    df_errors = data_frames["errors"]
     df_telemetry = data_frames["telemetry"] # Telemetry data
 
     # Determine the primary display_source_path based on success and priority
@@ -608,6 +619,9 @@ async def home(
     fluorometer_info = summaries.get_fluorometer_status(df_fluorometer)
     fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(df_fluorometer)
 
+    wg_vm4_info = summaries.get_wg_vm4_status(df_wg_vm4) # Get WG-VM4 summary
+    wg_vm4_info["mini_trend"] = summaries.get_wg_vm4_mini_trend(df_wg_vm4) # Get WG-VM4 mini trend
+
     navigation_info = summaries.get_navigation_status(df_telemetry) # Get navigation summary
     navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(df_telemetry) # Get navigation mini trend
     
@@ -641,6 +655,7 @@ async def home(
         "has_ais_data": has_ais_data, #check
         "has_errors_data": has_errors_data, #check
         "fluorometer_info": fluorometer_info, # C3 Fluorometer
+        "wg_vm4_info": wg_vm4_info, # WG-VM4
         "vr2c_info": vr2c_info, # Mrx
         "navigation_info": navigation_info, # Add navigation info to template context
         "current_user": actual_current_user, # Pass user info to template
@@ -983,9 +998,45 @@ async def submit_mission_form(
             session.refresh(db_form_entry)
             logger.info(f"Form '{db_form_entry.form_type}' (mission '{db_form_entry.mission_id}') submitted by '{db_form_entry.submitted_by_username}' and saved to SQLite DB with ID: {db_form_entry.id}")
         except Exception as e:
-            logger.error(f"Error saving form to SQLite DB: {e}", exc_info=True)
+            logger.error(f"Error saving form '{form_data_in.form_type}' to SQLite DB: {e}", exc_info=True)
             session.rollback() # Rollback in case of error
             raise HTTPException(status_code=500, detail="Failed to save form to database.")
+
+        # --- Update StationMetadata for WG-VM4 Offload Log ---
+        if form_data_in.form_type == "wg_vm4_offload_log":
+            logger.info(f"Processing wg_vm4_offload_log for mission '{mission_id}'. Form data sections: {len(form_data_in.sections_data)}")
+            offloaded_station_id: Optional[str] = None
+            found_station_id_field_in_payload = False # Flag to check if the field itself was present
+            for section in form_data_in.sections_data:
+                logger.debug(f"  Checking section ID '{section.id}', Title: '{section.title}', Items: {len(section.items)}")
+                for item in section.items:
+                    logger.debug(f"    Item ID: '{item.id}', Label: '{item.label}', Value: '{item.value}'")
+                    if item.id == "station_id_for_offload": # Check if the field ID matches
+                        found_station_id_field_in_payload = True
+                        if item.value and str(item.value).strip(): # Check if the value is not None and not an empty string
+                            offloaded_station_id = str(item.value).strip()
+                            logger.info(f"    Found 'station_id_for_offload' in section '{section.id}' with value: {offloaded_station_id}")
+                        else:
+                            logger.warning(f"    Found 'station_id_for_offload' in section '{section.id}' but its value is empty or None.")
+                        break # Found the field, no need to check other items in this section
+                if found_station_id_field_in_payload: # If field was found (even if value was empty), break from sections loop
+                    break
+            
+            if offloaded_station_id: # This means the field was found AND it had a non-empty value
+                station_metadata_to_update = session.get(models.StationMetadata, offloaded_station_id)
+                if station_metadata_to_update:
+                    station_metadata_to_update.last_offload_by_glider = mission_id # The glider performing the offload
+                    station_metadata_to_update.last_offload_timestamp_utc = submission_ts # Timestamp of this form submission
+                    session.add(station_metadata_to_update)
+                    session.commit()
+                    session.refresh(station_metadata_to_update)
+                    logger.info(f"Updated StationMetadata for '{offloaded_station_id}' with last offload by '{mission_id}' at {submission_ts.isoformat()}")
+                else:
+                    logger.warning(f"WG-VM4 offload log submitted for station '{offloaded_station_id}', but no matching StationMetadata found to update.")
+            elif found_station_id_field_in_payload: # Field was found, but offloaded_station_id is None (meaning item.value was empty/None)
+                 logger.warning(f"WG-VM4 offload log submitted for mission '{mission_id}', but the 'station_id_for_offload' field was present with an empty value.")
+            else: # The field "station_id_for_offload" was not found at all in the payload
+                logger.warning(f"WG-VM4 offload log submitted for mission '{mission_id}', but the 'station_id_for_offload' field was missing in the form data.")
     else:
         logger.warning(f"Unknown forms_storage_mode: {settings.forms_storage_mode}. Form not persisted.")
 
@@ -1018,6 +1069,11 @@ async def get_all_submitted_forms(
     logger.info(f"Returning {len(forms)} forms for user '{current_user.username}' (role: {current_user.role.value}).")
     
     return forms
+
+# --- Station Metadata API Endpoints ---
+# The Station Metadata API Endpoints are now handled by the station_api sub-application
+# mounted at "/api". The routes within station_sub_app.py are defined relative to that mount point
+# (e.g., "/station_metadata/").
 
 # --- Admin User Management API Endpoints ---
 @app.get("/api/admin/users", response_model=List[models.User])
@@ -1128,6 +1184,8 @@ async def get_report_data_for_plotting(
         processed_df = processors.preprocess_solar_df(df)
     elif report_type == "fluorometer": # C3 Fluorometer
         processed_df = processors.preprocess_fluorometer_df(df)
+    elif report_type == "wg_vm4": # WG-VM4 Sensor
+        processed_df = processors.preprocess_wg_vm4_df(df)
     elif report_type == "telemetry": # Telemetry data for charts
         processed_df = processors.preprocess_telemetry_df(df)
 
@@ -1374,6 +1432,18 @@ async def get_view_forms_page(
     user_role_for_log = current_user.role.value if current_user else "N/A"
     logger.info(f"User '{username_for_log}' (role: {user_role_for_log}) attempting to access /view_forms.html.")
     return templates.TemplateResponse("view_forms.html", {"request": request, "current_user": current_user})
+
+# --- HTML Route for Station Offload Status Page ---
+@app.get("/view_station_status.html", response_class=HTMLResponse)
+async def get_view_station_status_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    username_for_log = current_user.username if current_user else "anonymous/unauthenticated"
+    user_role_for_log = current_user.role.value if current_user and current_user.role else "N/A"
+    logger.info(f"User '{username_for_log}' (role: {user_role_for_log}) attempting to access /view_station_status.html.")
+    return templates.TemplateResponse("view_station_status.html", {"request": request, "current_user": current_user})
+
 
 # --- HTML Route for Admin User Management ---
 @app.get("/admin/user_management.html", response_class=HTMLResponse)
