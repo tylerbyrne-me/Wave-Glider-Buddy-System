@@ -1,15 +1,28 @@
+# This __init__.py file makes the core submodules available when the
+# 'app.core' package is imported.
+
 """
-Core application logic for data loading, processing, summarization, and plotting.
+Core package for the Wave Glider Buddy System.
+
+This package contains modules for data loading, processing, summarization,
+forecasting, data models, security configurations, and utility functions.
 """
-from .loaders import load_report
-from .processors import (
-    preprocess_power_df, preprocess_ctd_df, preprocess_weather_df, preprocess_wg_vm4_df,
-    preprocess_wave_df, preprocess_ais_df, preprocess_error_df, preprocess_solar_df,
-    standardize_timestamp_column
-)
-from .summaries import (
-    get_power_status, get_ctd_status, get_weather_status, get_wave_status, get_ais_summary,
-    get_recent_errors, get_vr2c_status, get_fluorometer_status, get_navigation_status, get_wg_vm4_status
-)
-from .forecast import get_general_meteo_forecast, get_marine_meteo_forecast # Updated import
-from . import models # Ensure models are importable if needed directly from core
+
+from . import \
+    models  # Ensure models are importable if needed directly from core
+from . import forecast
+from . import loaders
+from . import processors
+from . import summaries
+from . import utils
+from . import security
+
+__all__ = [
+    "models",
+    "forecast",
+    "loaders",
+    "processors",
+    "summaries",
+    "utils",
+    "security",
+]
