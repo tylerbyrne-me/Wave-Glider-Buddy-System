@@ -258,7 +258,10 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             const result = await response.json();
             if (response.ok) {
-                submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${new Date(result.submission_timestamp).toLocaleString()} by ${result.submitted_by_username}!</div>`;
+                const submissionTime = new Date(result.submission_timestamp);
+                // Using en-GB for a common 24-hour format, and explicitly stating UTC
+                const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
+                submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
                 missionReportForm.reset(); // Optionally reset the form
                 // Close the tab after a short delay to allow the user to see the success message
                 setTimeout(() => { window.close(); }, 1500); 

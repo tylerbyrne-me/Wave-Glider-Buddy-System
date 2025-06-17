@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     let ctdProfileChartInstance = null; // Instance for the new CTD profile chart
     let solarPanelChartInstance = null; // Instance for the new solar panel chart
     let fluorometerChartInstance = null;
+    let wgVm4ChartInstance = null; // New WG-VM4 chart
     let waveHeightDirectionChartInstance = null; // Keep this for Hs vs Dp
     // Remove amplitude chart instances
     let waveSpectrumChartInstance = null; // Instance for the new Wave Spectrum chart
@@ -49,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         WAVES_SIG_HEIGHT: 'rgba(255, 206, 86, 1)',
         WAVES_PERIOD: 'rgba(153, 102, 255, 1)',
         VR2C_DETECTION: 'rgba(75, 192, 192, 1)', // Teal
+        WG_VM4_CH0_DETECTION: 'rgba(255, 159, 64, 1)', // Orange for WG-VM4 Channel 0
         WAVE_SPECTRUM: 'rgba(255, 99, 132, 1)', // A distinct color for the spectrum line
         FLUORO_C_AVG_PRIMARY: 'rgba(75, 192, 192, 1)', // Teal for C1_Avg
         SOLAR_PANEL_1: 'rgba(255, 215, 0, 1)', // Gold
@@ -67,6 +69,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     const currentLocalPath = urlParams.get('local_path') || '';
     // auotrefresh timer and countdown
     const autoRefreshIntervalMinutes = 5;
+    let autoRefreshEnabled = true; // Default to true, will be updated by checkbox/localStorage
     let countdownTimer = null;
 
     function updateUtcClock() {
@@ -80,13 +83,14 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 minute: '2-digit',
                 second: '2-digit'
             });
-            clockElement.textContent = `Current UTC Time: ${utcString}`;
+            clockElement.textContent = `UTC: ${utcString}`; // Shortened label
         }
     }
 
     function startCountdownTimer() {
         const countdownElement = document.getElementById('refreshCountdown');
         if (!countdownElement) return;
+        if (!autoRefreshEnabled) return; // Don't start if disabled
 
         let remainingSeconds = autoRefreshIntervalMinutes * 60;
         countdownElement.style.display = 'block'; // Show the countdown element
@@ -281,12 +285,37 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     // Fetch and populate missions *after* auth check and other initial setup
     fetchAndPopulateAvailableMissions();
 
+    // --- Auto-Refresh Toggle Logic ---
+    const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+
+    function updateAutoRefreshState(isEnabled) {
+        autoRefreshEnabled = isEnabled;
+        localStorage.setItem('autoRefreshEnabled', isEnabled);
+        if (isEnabled && isRealtimeMission) {
+            startCountdownTimer(); // Restart countdown if enabled and on a real-time mission
+        } else {
+            clearInterval(countdownTimer);
+            const countdownElement = document.getElementById('refreshCountdown');
+            if (countdownElement) countdownElement.style.display = 'none';
+        }
+    }
+
+    if (autoRefreshToggle) {
+        const savedPreference = localStorage.getItem('autoRefreshEnabled');
+        if (savedPreference !== null) {
+            autoRefreshToggle.checked = JSON.parse(savedPreference);
+        }
+        updateAutoRefreshState(autoRefreshToggle.checked); // Initialize based on current state (saved or default)
+
+        autoRefreshToggle.addEventListener('change', function() {
+            updateAutoRefreshState(this.checked);
+        });
+    }
+
     if (isRealtimeMission) {
-        // console.log(`This is a real-time mission page (${missionId}). Auto-refresh enabled for every ${autoRefreshIntervalMinutes} minutes.`);
-        startCountdownTimer(); 
 
         setTimeout(function() {
-            if (!document.querySelector('.modal.show')) {
+            if (autoRefreshEnabled && !document.querySelector('.modal.show')) { // Check autoRefreshEnabled
                 window.location.reload(true); 
             }
         }, autoRefreshIntervalMinutes * 60 * 1000);
@@ -903,18 +932,19 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         if (metaInfoContainer) {
             if (forecastData && forecastData.fetched_at_utc && forecastData.latitude_used !== undefined && forecastData.longitude_used !== undefined) {
                 const fetchedDate = new Date(forecastData.fetched_at_utc);
-                const formattedTime = fetchedDate.toLocaleTimeString('en-US', {
+                const formattedTime = fetchedDate.toLocaleString('en-GB', { // en-GB for 24-hour format
                     timeZone: 'UTC',
                     year: 'numeric',
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
-                    minute: '2-digit'
+                    minute: '2-digit',
+                    hour12: false
                 });
                 const lat = parseFloat(forecastData.latitude_used).toFixed(3);
                 const lon = parseFloat(forecastData.longitude_used).toFixed(3);
-                metaInfoContainer.textContent = `Forecast fetched: ${formattedTime} UTC for Lat: ${lat}, Lon: ${lon}`;
-                metaInfoContainer.style.display = 'block'; // Ensure it's visible
+            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
+             metaInfoContainer.style.display = 'block';
             } else {
                 metaInfoContainer.textContent = ''; // Clear if no data
                 metaInfoContainer.style.display = 'none'; // Hide if no data
@@ -1241,19 +1271,9 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             datasets.push({
                 label: 'Mean Wave Dir (°)',
                 data: chartData.map(item => {
-                    // --- DEBUGGING START ---
-                    // console.log("Original MeanWaveDirection:", item.MeanWaveDirection, "Type:", typeof item.MeanWaveDirection);
-                    // --- DEBUGGING END ---
                     let waveDirNum = parseFloat(item.MeanWaveDirection);
-                    // --- DEBUGGING START ---
-                    // console.log("Parsed waveDirNum:", waveDirNum, "Type:", typeof waveDirNum);
-                    // --- DEBUGGING END ---
-
                     // Filter out specific outlier values for wave direction
                     if (waveDirNum === 9999 || waveDirNum === -9999) {
-                        // --- DEBUGGING START ---
-                        // console.log("Outlier detected, setting to null. Original value was:", item.MeanWaveDirection);
-                        // --- DEBUGGING END ---
                         waveDirNum = null; // Chart.js will skip null points
                     }
                     return { x: new Date(item.Timestamp), y: waveDirNum };
@@ -1296,6 +1316,11 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     fetchChartData('fluorometer', missionId, hoursBack).then(data => {
         renderFluorometerChart(data);
     }); // Removed the stray closing brace from the next line
+
+    // Fetch and render the WG-VM4 chart on page load (if it's the default view or for pre-loading)
+    fetchChartData('wg_vm4', missionId, hoursBack).then(data => {
+        renderWgVm4Chart(data);
+    });
 
     /**
      * Fetches and renders the latest wave spectrum data.
@@ -1774,6 +1799,68 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
+    /**
+     * Renders the WG-VM4 Chart using Chart.js.
+     * @param {Array<Object>|null} chartData - The data array fetched from the API.
+     */
+    function renderWgVm4Chart(chartData) {
+        const canvas = document.getElementById('wgVm4Chart');
+        if (!canvas) { console.error("Canvas 'wgVm4Chart' not found."); return; }
+        const ctx = canvas.getContext('2d');
+        const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
+        if (spinner) spinner.style.display = 'none';
+
+        if (!chartData || chartData.length === 0) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No WG-VM4 trend data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (wgVm4ChartInstance) { wgVm4ChartInstance.destroy(); wgVm4ChartInstance = null; }
+            return;
+        }
+
+        const datasets = [];
+        // Assuming 'Channel0DetectionCount' and 'Channel1DetectionCount' from processor
+        if (chartData.some(d => d.Channel0DetectionCount !== null && d.Channel0DetectionCount !== undefined)) {
+            datasets.push({
+                label: 'Ch0 Detections',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Channel0DetectionCount })),
+                borderColor: CHART_COLORS.WG_VM4_CH0_DETECTION,
+                yAxisID: 'yDetections',
+                tension: 0.1, fill: false
+            });
+        }
+        if (chartData.some(d => d.Channel1DetectionCount !== null && d.Channel1DetectionCount !== undefined)) {
+            datasets.push({
+                label: 'Ch1 Detections',
+                data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.Channel1DetectionCount })),
+                borderColor: CHART_COLORS.CTD_SALINITY, // Re-use a contrasting color
+                yAxisID: 'yDetections', // Share the same axis
+                tension: 0.1, fill: false,
+                borderDash: [5, 5] // Optional: dashed line for second channel
+            });
+        }
+
+        if (datasets.length === 0) {
+            ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
+            ctx.fillText("No plottable WG-VM4 data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+            if (wgVm4ChartInstance) { wgVm4ChartInstance.destroy(); wgVm4ChartInstance = null; }
+            return;
+        }
+
+        if (wgVm4ChartInstance) { wgVm4ChartInstance.destroy(); }
+        wgVm4ChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    yDetections: { type: 'linear', position: 'left', title: { display: true, text: 'Detection Counts', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } }
+                },
+                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+            }
+        });
+    }
+
     // Refresh Data Button Logic (Moved here for better organization)
     const refreshDataBtn = document.getElementById('refreshDataBtn');
     if (refreshDataBtn) {
@@ -1936,6 +2023,10 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                                 case 'navigation': // GliderSpeed mini-trend
                                     specificColor = CHART_COLORS.NAV_SPEED;
                                     break;
+                                case 'wg_vm4': // Channel0DetectionCount mini-trend
+                                    specificColor = CHART_COLORS.WG_VM4_CH0_DETECTION;
+                                    break;
+                                // Add other cases as needed
                             }
                             renderMiniChart(miniChartCanvasId, trendData, specificColor);
                         } else {
@@ -1976,6 +2067,11 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                             renderNavigationCurrentChart(data);
                             renderNavigationHeadingDiffChart(data);
                         });
+                    } else if (category === 'wg_vm4') {
+                        // Fetch and render WG-VM4 main chart when its detail view is shown
+                        fetchChartData('wg_vm4', missionId, hoursBack).then(data => renderWgVm4Chart(data));
+                        // Initialize the offload log section specific to WG-VM4
+                        if (typeof initializeWgVm4OffloadSection === 'function') initializeWgVm4OffloadSection();
                     }
                 } // <-- Missing closing brace for if (activeDetailView)
             }); // <-- Missing closing brace for card.addEventListener

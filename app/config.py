@@ -21,6 +21,7 @@ class Settings(BaseSettings):
         "m199": "m199-SV3-1070 (C34164NS)",
         "m203": "m203-SV3-1070 (C34164NS)",
         "m204": "m204-SV3-1070 (C34164NS)",
+        "m209": "m209-SV3-1071 (C34166NS)",
         # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
     }
     active_realtime_missions: list[str] = ["m203", "m204"] # Example: List of mission IDs considered active

@@ -152,9 +152,40 @@ function logout() {
     window.location.href = '/login.html';
 }
 
-// Helper function to add Authorization header to fetch requests
+
 async function fetchWithAuth(url, options = {}) {
     const token = getAuthToken();
-    options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+    options.headers = { ...options.headers }; // Ensure headers object exists
+    if (token) {
+        options.headers['Authorization'] = `Bearer ${token}`;
+    } else if (!options.allowAnonymous) { // allowAnonymous can be a custom flag for public endpoints
+        console.warn(`fetchWithAuth: No token for ${url}, and not an anonymous request. Server will likely reject if auth is needed.`);
+        // Consider throwing an error or redirecting if a token is strictly required for the call
+        // For now, let it proceed; the server will handle unauthorized access.
+    }
     return fetch(url, options);
+}
+
+async function getUserProfile() {
+    const token = getAuthToken();
+    if (!token) {
+        // console.log("getUserProfile: No token found. User is not authenticated.");
+        return null;
+    }
+    try {
+        const response = await fetchWithAuth('/api/users/me'); // Standard endpoint for current user info
+        if (!response.ok) {
+            if (response.status === 401) { // Unauthorized or token expired
+                console.warn('getUserProfile: Unauthorized. Token might be invalid or expired. Logging out.');
+                logout(); // Force logout if token is bad
+            } else {
+                console.error('Error fetching user profile:', response.status, await response.text());
+            }
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Network or other error fetching user profile:', error);
+        return null;
+    }
 }

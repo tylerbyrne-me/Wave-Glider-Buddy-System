@@ -1,13 +1,13 @@
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List
 from enum import Enum # type: ignore
-import datetime # Import the datetime module
-from sqlmodel import Field as SQLModelField, SQLModel, JSON, Column # type: ignore
+from datetime import datetime, timezone # Import the datetime module and timezone
+from sqlmodel import Field as SQLModelField, SQLModel, JSON, Column, Relationship # type: ignore
 
 
 VALID_REPORT_TYPES = [
     "power", "ctd", "weather", "waves", "telemetry",
-    "ais", "errors", "vr2c", "fluorometer", "solar"
+    "ais", "errors", "vr2c", "fluorometer", "solar", "wg_vm4"
 ]
 
 class ReportTypeEnum(str, Enum):
@@ -21,6 +21,7 @@ class ReportTypeEnum(str, Enum):
     vr2c = "vr2c"
     fluorometer = "fluorometer"
     solar = "solar"
+    wg_vm4 = "wg_vm4" # New WG-VM4 sensor
 
 class SourceEnum(str, Enum):
     local = "local"
@@ -109,6 +110,66 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+# Forward declaration for type hinting in relationships
+"StationMetadata"
+"OffloadLog"
+
+# --- Station Metadata Model ---
+class StationMetadataCore(BaseModel): # Renamed to avoid conflict with SQLModel table name if used directly
+    serial_number: Optional[str] = None
+    modem_address: Optional[int] = None
+    bottom_depth_m: Optional[float] = None
+    waypoint_number: Optional[str] = None # WP # can be alphanumeric
+    last_offload_by_glider: Optional[str] = None # Could be a mission ID or date string
+    station_settings: Optional[str] = None # e.g., "300bps, 0db"
+    notes: Optional[str] = None # General notes about the station itself
+    display_status_override: Optional[str] = None # e.g., "SKIPPED", for manual status override
+
+class StationMetadataBase(StationMetadataCore):
+    station_id: str = Field(..., description="Unique Station Identifier, e.g., CBS001")
+    # Fields to be updated by the latest offload log or direct edit
+    last_offload_timestamp_utc: Optional[datetime] = Field(default=None, description="Timestamp of the last successful offload completion or log entry in UTC")
+    was_last_offload_successful: Optional[bool] = Field(default=None, description="Outcome of the last offload attempt")
+
+class StationMetadataCreate(StationMetadataBase):
+    pass
+
+class StationMetadataUpdate(SQLModel): # For partial updates of core station info
+    serial_number: Optional[str] = None
+    modem_address: Optional[int] = None
+    bottom_depth_m: Optional[float] = None
+    waypoint_number: Optional[str] = None
+    last_offload_by_glider: Optional[str] = None
+    station_settings: Optional[str] = None
+    notes: Optional[str] = None
+    display_status_override: Optional[str] = None
+    # last_offload_timestamp_utc and was_last_offload_successful are typically updated via OffloadLog
+
+# --- Offload Log Models ---
+class OffloadLogBase(SQLModel): # Using SQLModel as base for direct table inheritance
+    arrival_date: Optional[datetime] = SQLModelField(default=None)
+    distance_command_sent_m: Optional[float] = SQLModelField(default=None)
+    time_first_command_sent_utc: Optional[datetime] = SQLModelField(default=None)
+    offload_start_time_utc: Optional[datetime] = SQLModelField(default=None)
+    offload_end_time_utc: Optional[datetime] = SQLModelField(default=None)
+    departure_date: Optional[datetime] = SQLModelField(default=None)
+    was_offloaded: Optional[bool] = SQLModelField(default=None) # True for 'y', False for 'n'
+    vrl_file_name: Optional[str] = SQLModelField(default=None)
+    offload_notes_file_size: Optional[str] = SQLModelField(default=None, description="Notes about the offload and/or file size")
+
+class OffloadLog(OffloadLogBase, table=True):
+    __tablename__ = "offload_logs"
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    station_id: str = SQLModelField(foreign_key="station_metadata.station_id", index=True)
+    logged_by_username: str = SQLModelField(index=True)
+    log_timestamp_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+    station: "StationMetadata" = Relationship(back_populates="offload_logs")
+
+class OffloadLogCreate(OffloadLogBase): # For API input
+    # Inherits all fields from OffloadLogBase
+    pass
+
 # --- Form Models ---
 class FormItemTypeEnum(str, Enum):
     CHECKBOX = "checkbox"
@@ -117,6 +178,7 @@ class FormItemTypeEnum(str, Enum):
     AUTOFILLED_VALUE = "autofilled_value" # For values auto-populated from mission data
     STATIC_TEXT = "static_text" # For instructions or non-interactive text
     DROPDOWN = "dropdown" # New type for dropdown lists
+    DATETIME_LOCAL = "datetime-local" # For datetime-local input
 
 class FormItem(BaseModel):
     id: str # Unique ID for the form item within the form
@@ -150,7 +212,7 @@ class MissionFormDataCreate(BaseModel): # Payload for submitting form data
 
 class MissionFormDataResponse(MissionFormDataCreate): # What's stored and returned
     submitted_by_username: str
-    submission_timestamp: datetime.datetime # Specify the class from the module
+    submission_timestamp: datetime # datetime class is directly available due to the import
 
 # --- Database Model for Submitted Forms ---
 class SubmittedForm(SQLModel, table=True):
@@ -168,4 +230,35 @@ class SubmittedForm(SQLModel, table=True):
     sections_data: List[dict] = SQLModelField(sa_column=Column(JSON))
 
     submitted_by_username: str = SQLModelField(index=True)
-    submission_timestamp: datetime.datetime
+    submission_timestamp: datetime # datetime class is directly available
+
+# --- SQLModel for Station Metadata (incorporating previous StationMetadataBase) ---
+class StationMetadata(SQLModel, table=True): # type: ignore
+    __tablename__ = "station_metadata"
+
+    station_id: str = SQLModelField(default=..., primary_key=True, index=True)
+    serial_number: Optional[str] = SQLModelField(default=None, index=True)
+    modem_address: Optional[int] = SQLModelField(default=None) # Changed from str to int as per your original StationMetadataBase
+    bottom_depth_m: Optional[float] = SQLModelField(default=None)
+    waypoint_number: Optional[str] = SQLModelField(default=None)
+    last_offload_by_glider: Optional[str] = SQLModelField(default=None)
+    station_settings: Optional[str] = SQLModelField(default=None)
+    notes: Optional[str] = SQLModelField(default=None)
+
+    last_offload_timestamp_utc: Optional[datetime] = SQLModelField(default=None, index=True, description="Timestamp of the last successful offload or log entry in UTC")
+    was_last_offload_successful: Optional[bool] = SQLModelField(default=None, description="Outcome of the last offload attempt")
+    display_status_override: Optional[str] = SQLModelField(default=None, index=True, description="User override for display status, e.g., SKIPPED")
+
+    offload_logs: List["OffloadLog"] = Relationship(back_populates="station", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+
+class StationMetadataRead(StationMetadataBase): # For API responses, inherits from the Pydantic base
+    pass # All fields from StationMetadataBase are included
+
+class StationMetadataReadWithLogs(StationMetadataRead):
+    offload_logs: List[OffloadLog] = [] # Or OffloadLogRead if you create a specific Pydantic model for reading logs
+
+class OffloadLogRead(OffloadLogBase): # For API responses
+    id: int
+    station_id: str
+    logged_by_username: str
+    log_timestamp_utc: datetime

@@ -23,7 +23,8 @@ async def load_report(report_type: str, mission_id: str, base_path: Path = None,
         "vr2c": "Vemco VR2c Status.csv",
         "fluorometer": "Fluorometer Samples 2.csv", # New C3 Fluorometer
         "wave_frequency_spectrum": "GPS Waves Frequency Spectrum.csv", # New
-        "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv"       # New
+        "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv",       # New
+        "wg_vm4": "Vemco VM4 Daily Local Health.csv" # New WG-VM4 sensor
     }
 
     if report_type not in reports:
