@@ -1,12 +1,11 @@
-<!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station Offload Status - Wave Glider Buddy</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="/static/css/custom.css">
+{% extends "base.html" %}
+
+{% block title %}Station Offload Status - Wave Glider Buddy{% endblock %}
+
+{% block body_class %}container-fluid{% endblock %} {# Keep container-fluid for this page #}
+
+{% block head_extra_css %}
+    {# Font Awesome and Bootstrap CSS are in base.html #}
     <style>
         /* New Status Colors */
         .status-awaiting-offload { background-color: #e2e3e5 !important; color: #383d41 !important; } /* Light grey */
@@ -36,10 +35,22 @@
             color: var(--bs-primary); /* Or another highlight color */
         }
     </style>
-</head>
-<body>
-    <!-- New Page Header -->
-    <div class="container-fluid mt-4"> <!-- Changed mt-5 pt-3 to mt-4 for overall container -->
+{% endblock %}
+
+{% block body_data_attributes %}
+    {# data-username and data-user-role are handled by base.html #}
+{% endblock %}
+
+{% block banner_actions_dropdown_items %}
+    {# Customize actions for this specific page type #}
+    <li><a class="dropdown-item" href="/view_forms.html" id="viewFormsBtnBanner" target="_blank" style="display: none;">View Submitted Forms</a></li>
+    <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
+    {# Admin links are handled by auth.js based on role. #}
+{% endblock %}
+
+{% block content_padding_top %}0px{% endblock %} {# Body already has padding-top from base.html #}
+
+{% block content %}
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <h1 class="mb-1">Station Offload Status</h1>
@@ -48,7 +59,6 @@
             <button class="btn btn-secondary" onclick="window.close();" title="Close this tab/window">Close Page</button>
         </div>
         <hr class="mb-4">
-
         <!-- Search Input -->
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="flex-grow-1 me-2">
@@ -212,97 +222,9 @@
             </div>
         </div>
     </div>
+{% endblock %}
 
-    <!-- Old Station Metadata Edit Modal (to be removed or repurposed if needed) -->
-    <!-- For now, let's comment it out to avoid conflicts -->
-    <!--
-    <div class="modal fade" id="editStationMetadataModal" tabindex="-1" aria-labelledby="editStationMetadataModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content bg-dark text-light">
-                <div class="modal-header">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content bg-dark text-light">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editStationMetadataModalLabel">Edit Station Metadata: <span id="modalStationIdDisplay"></span></h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                
-                <div class="modal-body">
-                    <form id="editStationMetadataForm_OLD">
-                        <input type="hidden" id="modalEditStationIdHidden">
-                        <div class="mb-3">
-                            <label for="modalSerialNumber" class="form-label">Serial Number</label>
-                            <input type="text" class="form-control" id="modalSerialNumber">
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalModemAddress" class="form-label">Modem Address</label>
-                            <input type="text" class="form-control" id="modalModemAddress">
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalDepth" class="form-label">Depth (m)</label>
-                            <input type="number" step="any" class="form-control" id="modalDepth">
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalNotes" class="form-label">Notes</label>
-                            <textarea class="form-control" id="modalNotes" rows="3"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalLastOffloadTimestamp" class="form-label">Last Offload Timestamp (User's Local Time - will be saved as UTC)</label>
-                            <input type="datetime-local" class="form-control" id="modalLastOffloadTimestamp">
-                        </div>
-                         <div class="mb-3">
-                            <label for="modalLastOffloadByGlider" class="form-label">Last Offload By Glider</label>
-                            <input type="text" class="form-control" id="modalLastOffloadByGlider">
-                        </div>
-                        <hr>
-                        <h6 class="mb-3">Offload Statistics</h6>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="modalArrivalDate" class="form-label">Arrival Date (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="modalArrivalDate">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="modalDepartureDate" class="form-label">Departure Date (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="modalDepartureDate">
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalOffloadedGB" class="form-label">Offloaded (GB)</label>
-                            <input type="number" step="any" class="form-control" id="modalOffloadedGB">
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalOffloadStatusSelect" class="form-label">Offload Status</label>
-                            <select class="form-select" id="modalOffloadStatusSelect">
-                                <option value="NOT_OFFLOADED">Not Offloaded</option>
-                                <option value="OFFLOADED">Offloaded</option>
-                                <option value="FAILED">Failed</option>
-                                <option value="SKIPPED">Skipped</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="modalRecoveryComments" class="form-label">Recovery Comments</label>
-                            <textarea class="form-control" id="modalRecoveryComments" rows="3"></textarea>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="button" class="btn btn-primary" id="saveStationMetadataChanges">Save Changes</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/auth.js"></script> <!-- auth.js MUST be loaded first -->
+{% block body_extra_js %}
+    {# auth.js and bootstrap.js are included in base.html #}
     <script src="/static/js/view_station_status.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!checkAuth()) { // checkAuth from auth.js handles redirection if needed.
-                // If checkAuth returns false and redirects, subsequent scripts might not fully execute or matter.
-            }
-            // view_station_status.js will handle its own DOMContentLoaded, role check, and data fetching.
-        });
-    </script>
-</body>
-</html>
+{% endblock %}

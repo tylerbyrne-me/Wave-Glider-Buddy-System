@@ -11,8 +11,6 @@ logger = logging.getLogger(
 )  # Keep this for actual operational logging
 DEFAULT_TIMEOUT = 10.0  # seconds
 RETRY_COUNT = 2  # Number of retries for loaders
-
-
 async def load_report(
     report_type: str,
     mission_id: str,

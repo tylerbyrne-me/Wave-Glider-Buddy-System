@@ -56,10 +56,11 @@ async def _fetch_forecast_data(
         )
         raise  # Re-raise to be caught by the caller
     except httpx.RequestError as e:  # Catches network errors, SSL errors, timeouts etc.
+        # For RequestError, e.g. network issue, e.response might not exist.
         logger.error(
-            f"HTTPStatusError when fetching {api_url}: "
-            f"{e.response.status_code} - {e}"
-        )  # Log specific exception type
+            f"RequestError when fetching {api_url}. Error: {e}. "
+            f"URL: {e.request.url if e.request else 'N/A'}"
+        )
         return None
     except Exception as e:  # Catch-all for other unexpected errors
         logger.error(f"Unexpected error when fetching {api_url}: {e}")

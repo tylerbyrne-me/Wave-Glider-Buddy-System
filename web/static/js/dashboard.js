@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
     console.log("Dashboard.js: checkAuth() passed."); // DEBUG
     const missionId = document.body.dataset.missionId;
-    console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
+    // console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
     const hoursBack = 72; // update as need in hours
     const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isRealtimeMission = document.body.dataset.isRealtime === 'true';
@@ -111,8 +111,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         countdownTimer = setInterval(updateCountdownDisplay, 1000);
     }
 
-    if (missionSelector) {
-                missionSelector.addEventListener('change', function() {
+    if (document.getElementById('missionSelectorBanner')) { // Target new banner selector
+        document.getElementById('missionSelectorBanner').addEventListener('change', function() {
             const newMissionId = this.value;
             const currentUrl = new URL(window.location.href);
             currentUrl.searchParams.set('mission', newMissionId);
@@ -120,63 +120,10 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
-    // --- Fetch current user details and update UI ---
-    async function fetchCurrentUserDetailsAndUpdateUI() {
-        console.log("Dashboard.js: fetchCurrentUserDetailsAndUpdateUI() called."); // DEBUG
-        try {
-            const response = await fetchWithAuth('/api/users/me');
-            if (response.ok) {
-                const currentUser = await response.json();
-                console.log("Dashboard.js: Current user details fetched:", currentUser); // DEBUG
-
-                // Update username display
-                const usernameDisplay = document.getElementById('usernameDisplay');
-                if (usernameDisplay && currentUser.username) {
-                    usernameDisplay.textContent = currentUser.username;
-                }
-
-                // Show/Hide role-specific elements
-                const viewFormsBtn = document.getElementById('viewFormsBtn');
-                if (viewFormsBtn) {
-                    if (currentUser.role === 'admin' || currentUser.role === 'pilot') {
-                        viewFormsBtn.style.display = 'block'; // Visible for admin and pilot
-                    } else {
-                        viewFormsBtn.style.display = 'none'; // Hidden for other roles
-                    }
-                }
-
-                if (currentUser.role === 'admin') {
-                    const registerUserBtn = document.getElementById('registerUserBtn');
-                    if (registerUserBtn) {
-                        registerUserBtn.style.display = 'block'; // Changed to 'block' for dropdown items
-                    }
-                    const userManagementBtn = document.getElementById('userManagementBtn');
-                    if (userManagementBtn) {
-                        userManagementBtn.style.display = 'block';
-                    }
-                    // Any other admin-specific UI initializations can go here
-                }
-                return currentUser; // Return user for other potential uses
-            } else if (response.status === 401 || response.status === 403) {
-                console.warn("Dashboard.js: Auth error fetching user details. Logging out."); // DEBUG
-                logout(); // Invalid token or not authorized
-            } else {
-                console.error('Failed to fetch user details:', response.statusText);
-            }
-        } catch (error) {
-            console.error('Network error fetching user details:', error);
-            // Potentially display a user-facing error here if critical
-        }
-        return null;
-    }
-
-    console.log("Dashboard.js: About to await fetchCurrentUserDetailsAndUpdateUI()."); // DEBUG
-    await fetchCurrentUserDetailsAndUpdateUI(); 
-    console.log("Dashboard.js: Finished awaiting fetchCurrentUserDetailsAndUpdateUI()."); // DEBUG
-
     async function fetchAndPopulateAvailableMissions() {
-        if (!missionSelector) {
-            console.warn("Mission selector not found in DOM.");
+        const missionSelectorBanner = document.getElementById('missionSelectorBanner');
+        if (!missionSelectorBanner) {
+            console.warn("Mission selector (missionSelectorBanner) not found in DOM.");
             return;
         }
 
@@ -191,44 +138,36 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             const missions = await response.json();
             console.log("Dashboard.js: Available missions fetched:", missions); // DEBUG
 
-            missionSelector.innerHTML = ''; // Clear existing options
+            missionSelectorBanner.innerHTML = ''; // Clear existing options
 
             if (missions.length === 0) {
                 const option = document.createElement('option');
                 option.value = "";
                 option.textContent = "No missions available";
-                missionSelector.appendChild(option);
-                missionSelector.disabled = true;
+                missionSelectorBanner.appendChild(option);
+                missionSelectorBanner.disabled = true;
             } else {
-                missionSelector.disabled = false;
+                missionSelectorBanner.disabled = false;
                 // missions are already sorted by the backend
                 missions.forEach(m_id => {
                     const option = document.createElement('option');
                     option.value = m_id;
                     option.textContent = m_id;
-                    if (m_id === missionId) { // missionId is the current mission from body.dataset
+                    if (m_id === missionId) { 
                         option.selected = true;
                     }
-                    missionSelector.appendChild(option);
+                    missionSelectorBanner.appendChild(option);
                 });
             }
         } catch (error) {
             console.error('Error fetching or populating available missions:', error);
-            missionSelector.innerHTML = '<option value="">Error loading missions</option>';
-            missionSelector.disabled = true;
+            missionSelectorBanner.innerHTML = '<option value="">Error loading missions</option>';
+            missionSelectorBanner.disabled = true;
         }
     }
 
-    // Logout Button
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', function() {
-            logout(); // logout function from auth.js
-        });
-    }
-
-    const dataSourceModal = document.getElementById('dataSourceModal');
-    if (dataSourceModal) {
+    const dataSourceModalEl = document.getElementById('dataSourceModal'); // Get the modal element
+    if (dataSourceModalEl) {
         const localPathInputGroup = document.getElementById('localPathInputGroup');
         const customLocalPathInput = document.getElementById('customLocalPath');
         const applyDataSourceBtn = document.getElementById('applyDataSource');
@@ -257,7 +196,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             } else {
                 currentUrl.searchParams.delete('local_path');
             }
-            const modalInstance = bootstrap.Modal.getInstance(dataSourceModal);
+            const modalInstance = bootstrap.Modal.getInstance(dataSourceModalEl);
             if (modalInstance) {
                 modalInstance.hide();
             }
@@ -266,15 +205,15 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     // --- Create Report Button ---
-    const createReportBtn = document.getElementById('createReportBtn');
-    console.log("Dashboard.js: Attempting to set 'Create Report' button href. Element found:", !!createReportBtn); // DEBUG
-    if (createReportBtn) {
+    const createReportBtnBanner = document.getElementById('createReportBtnBanner');
+    // console.log("Dashboard.js: Attempting to set 'PIC Handover' button href. Element found:", !!createReportBtnBanner); // DEBUG
+    if (createReportBtnBanner) {
         // Set a default form type for now, this could be made more dynamic later
         // (e.g., a dropdown next to the button to select form type)
         const defaultFormType = "pic_handoff_checklist"; // Changed to the new form type
         if (missionId && missionId.trim() !== "") {
-            createReportBtn.href = `/mission/${missionId}/form/${defaultFormType}.html`;
-            console.log(`Dashboard.js: 'Create Report' button href updated to: ${createReportBtn.href}`); // DEBUG
+            createReportBtnBanner.href = `/mission/${missionId}/form/${defaultFormType}.html`;
+            // console.log(`Dashboard.js: 'PIC Handover' button href updated to: ${createReportBtnBanner.href}`); // DEBUG
         } else {
             console.error("Dashboard.js: missionId is undefined or empty. 'Create Report' button href NOT updated, remains default."); // DEBUG
         }
@@ -286,7 +225,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     fetchAndPopulateAvailableMissions();
 
     // --- Auto-Refresh Toggle Logic ---
-    const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+    const autoRefreshToggle = document.getElementById('autoRefreshToggleBanner');
 
     function updateAutoRefreshState(isEnabled) {
         autoRefreshEnabled = isEnabled;
@@ -1862,7 +1801,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     // Refresh Data Button Logic (Moved here for better organization)
-    const refreshDataBtn = document.getElementById('refreshDataBtn');
+    const refreshDataBtn = document.getElementById('refreshDataBtnBanner');
     if (refreshDataBtn) {
         refreshDataBtn.addEventListener('click', function() {
             const currentUrl = new URL(window.location.href);

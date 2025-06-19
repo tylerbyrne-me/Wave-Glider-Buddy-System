@@ -1,120 +1,60 @@
-<!DOCTYPE html>
-<html data-bs-theme="dark">
-<head>
-  <title>Wave Glider Status - {{ mission }}</title>
+{% extends "base.html" %}
+
+{% block title %}Wave Glider Status - {{ mission }}{% endblock %}
+
+{% block head_extra_css %}
   <!-- Include Chart.js and its date adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-      <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/custom.css">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body class="container-fluid py-4" 
-      data-mission-id="{{ mission }}" 
+  {# Bootstrap, Font Awesome, Roboto, custom.css are in base.html #}
+{% endblock %}
+
+{% block body_class %}container-fluid py-4{% endblock %} {# Override default body_class from base.html #}
+
+{% block body_data_attributes %}
+  data-mission-id="{{ mission }}"
       data-is-realtime="{{ is_current_mission_realtime | lower }}"
-      data-user-role="{{ current_user.role.value if current_user else '' }}"
-      data-username="{{ current_user.username if current_user else '' }}">
-  <!-- Project Title -->
-  <div class="row mb-4">
-    <div class="col-12 text-center">
-      <h1>Wave Glider Buddy System</h1>
-    </div>
-  </div>
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h1>Current Mission Status: <span id="currentMissionDisplay">{{ mission }}</span></h1>
-      <h6 class="text-muted fst-italic" id="dataSourceIndicator">
-        {{ display_source_path }}
-        {% if current_source_preference %}
-          <br><small>(Requested source: {{ "Local" if current_source_preference == 'local' else "Remote" }})</small>
-        {% endif %}
-      </h6>
-    </div>
-    <div class="d-flex align-items-center">
-      <!-- UTC Clock and Refresh Countdown -->
-      <div id="utcClock" class="me-3" style="font-size: 0.9rem; color: #adb5bd;">
-        UTC: ...
-      </div>
-      <div id="refreshCountdown" class="me-3" style="font-size: 0.9rem; color: #adb5bd; display: none;">
-      </div>
-      <!-- Group for Mission Selector -->
-      <div class="d-flex align-items-center me-2">
-        <label for="missionSelector" class="form-label mb-0 me-2">Select Mission:</label>
-        <select id="missionSelector" class="form-select form-select-sm" style="width: auto;">
-          {% for m_id in available_missions | sort %} {# Optional: Sort missions alphabetically #}
-            <option value="{{ m_id }}" {% if m_id == mission %}selected{% endif %}>
-              {{ m_id }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-      <!-- "Create Report" button remains standalone -->
-      <a id="createReportBtn" href="#" class="btn btn-sm btn-warning ms-2" target="_blank">
-        PIC Handover
-      </a>
+{% endblock %}
 
-      <!-- Auto-Refresh Toggle for Real-time Missions -->
-      {% if is_current_mission_realtime %}
-      <div class="form-check form-switch ms-2 me-2 align-self-center">
-        <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshToggle" checked>
-        <label class="form-check-label small" for="autoRefreshToggle" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh</label>
-      </div>
-      {% endif %}
-
-      <!-- New Dropdown for other actions -->
-      <div class="btn-group ms-2">
-        <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-          Actions
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li>
-            <a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#dataSourceModal">
-              Change Data Source
-            </a>
-          </li>
-          <li>
-            <a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtn" target="_blank">
-              Station Offload Status
-            </a>
-          </li>
-          <li>
-            <a class="dropdown-item" href="#" id="refreshDataBtn"> <!-- ID kept for JS -->
-              Refresh Data
-            </a>
-          </li>
-          <li><hr class="dropdown-divider"></li>
-          <li>
-            <a class="dropdown-item" href="/view_forms.html" id="viewFormsBtn" target="_blank" style="display: none;"> <!-- ID and style kept for JS -->
-              View Submitted Forms
-            </a>
-          </li>
-          <li>
-            <a class="dropdown-item" href="/register.html" id="registerUserBtn" target="_blank" style="display: none;"> <!-- ID and style kept for JS -->
-              Register New User
-            </a>
-          </li>
-          <li>
-            <a class="dropdown-item" href="/admin/user_management.html" id="userManagementBtn" target="_blank" style="display: none;">
-              User Management
-            </a>
-          </li>
-          <li><hr class="dropdown-divider"></li>
-          <li>
-            <a class="dropdown-item" href="#" id="logoutBtn"> <!-- ID kept for JS -->
-              Logout (<span id="usernameDisplay">{{ current_user.username if current_user else 'User' }}</span>) <!-- Span and ID kept for JS -->
-            </a>
-          </li>
-        </ul>
+{% block banner_actions_dropdown_items %}
+  {# Specific actions for the index.html page's banner #}
+  <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#dataSourceModal">Change Data Source</a></li>
+  <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
+  <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
+  <li><a class="dropdown-item" href="#" id="refreshDataBtnBanner">Refresh Data</a></li>
+  {% if is_current_mission_realtime %}
+  <li><hr class="dropdown-divider"></li>
+  <li>
+    <div class="px-3 py-1">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
+        <label class="form-check-label small" for="autoRefreshToggleBanner" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh</label>
       </div>
     </div>
-  </div>
+  </li>
+  {% endif %}
+  {# Standard admin/user links will be inherited from _banner.html if not overridden, or handled by auth.js #}
+  {{ super() }} {# Includes default items from _banner.html if base.html's block was empty or also called super() #}
+{% endblock %}
 
-  <!-- --- Data Source Modal --- -->
-  <!-- Data Source Modal -->
+{% block content %}
+  {# The main content of index.html starts here. The body padding for fixed-top navbar is handled by base.html #}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h1>Current Mission Status: <span id="currentMissionDisplay">{{ mission }}</span></h1>
+        <h6 class="text-muted fst-italic" id="dataSourceIndicator">
+          {{ display_source_path }}
+          {% if current_source_preference %}
+            <br><small>(Requested source: {{ "Local" if current_source_preference == 'local' else "Remote" }})</small>
+          {% endif %}
+        </h6>
+      </div>
+      <div class="d-flex align-items-center">
+        <div id="utcClock" class="me-3" style="font-size: 0.9rem; color: #adb5bd;">UTC: ...</div>
+        <div id="refreshCountdown" class="me-3" style="font-size: 0.9rem; color: #adb5bd; display: none;"></div>
+      </div>
+    </div>
+
   <div class="modal fade" id="dataSourceModal" tabindex="-1" aria-labelledby="dataSourceModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -124,13 +64,13 @@
         </div>
         <div class="modal-body">
           <div class="form-check mb-2"> {# Added margin-bottom #}
-            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceRemote" value="remote" {% if not current_source or current_source == 'remote' %}checked{% endif %}>
+            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceRemote" value="remote" {% if not current_source_preference or current_source_preference == 'remote' %}checked{% endif %}>
             <label class="form-check-label" for="sourceRemote">
               Remote Data (Default: Remote first, then local fallback)
             </label>
           </div>
           <div class="form-check mb-2"> {# Added margin-bottom #}
-            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceLocal" value="local" {% if current_source == 'local' %}checked{% endif %}>
+            <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceLocal" value="local" {% if current_source_preference == 'local' %}checked{% endif %}>
             <label class="form-check-label" for="sourceLocal">
               Local Data Only
             </label>
@@ -149,7 +89,6 @@
     </div>
   </div>
 
-  <!-- --- General Error Display --- -->
   <!-- General Error Display Area -->
   <div id="generalErrorDisplay" class="alert alert-danger" style="display: none;" role="alert">
     An error occurred. Please check console for details or try again later.
@@ -1123,13 +1062,9 @@
       Development assisted by Google's Gemini models.
     </small>
   </footer>
+{% endblock %}
 
-
-  <!-- Link to external JavaScript File -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/static/js/auth.js"></script> {# Load auth.js first #}
+{% block body_extra_js %}
   <script src="/static/js/dashboard.js"></script>
   <script src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
-
-</body>
-</html>
+{% endblock %}

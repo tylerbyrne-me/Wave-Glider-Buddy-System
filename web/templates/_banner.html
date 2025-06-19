@@ -1,0 +1,47 @@
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">Wave Glider Buddy System</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNavDropdown">
+      <ul class="navbar-nav me-auto align-items-center">
+        <li class="nav-item me-2">
+          <span class="navbar-text text-white-50">Mission:</span>
+        </li>
+        <li class="nav-item">
+          <select id="missionSelectorBanner" class="form-select form-select-sm bg-dark text-white border-secondary" style="width: auto;">
+            <!-- Options populated by JS. For index.html, Jinja also pre-populates. -->
+            {% if mission and available_missions %}
+              {% for m_id in available_missions | sort %}
+                <option value="{{ m_id }}" {% if m_id == mission %}selected{% endif %}>{{ m_id }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="">N/A</option>
+            {% endif %}
+          </select>
+        </li>
+      </ul>
+      <ul class="navbar-nav ms-auto d-flex align-items-center">
+        <li class="nav-item me-3">
+          <a id="createReportBtnBanner" href="#" class="btn btn-sm btn-warning">PIC Handover</a>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="actionsDropdownBanner" role="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</a>
+          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionsDropdownBanner">
+            {% block banner_actions_dropdown_items %}
+              <!-- Default items, can be overridden or extended by child templates -->
+              <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
+              <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
+              <li><a class="dropdown-item" href="/view_forms.html" id="viewFormsBtnBanner" target="_blank" style="display: none;">View Submitted Forms</a></li>
+              <li><a class="dropdown-item" href="/register.html" id="registerUserBtnBanner" target="_blank" style="display: none;">Register New User</a></li>
+              <li><a class="dropdown-item" href="/admin/user_management.html" id="userManagementBtnBanner" target="_blank" style="display: none;">User Management</a></li>
+            {% endblock %}
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="#" id="logoutBtnBanner">Logout (<span id="usernameDisplayBanner">{{ current_user.username if current_user else 'User' }}</span>)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>

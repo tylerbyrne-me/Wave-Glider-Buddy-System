@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     log_file_path: Path = Path(
         "app.log"
     )
+
+    week_starts_sunday: bool = True 
+
     # Default relative to project root if not overridden by .env
 
     # JWT Settings
