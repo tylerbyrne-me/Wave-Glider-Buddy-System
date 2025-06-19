@@ -4,7 +4,7 @@ import logging
 from datetime import timezone  # Import timezone directly
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Annotated, Dict, List, Optional, Tuple # Added Annotated
 
 import httpx  # For async client in load_data_source
 import numpy as np  # For numeric operations if needed
@@ -15,9 +15,11 @@ from fastapi import (  # Added status
     FastAPI,
     HTTPException,
     Request,
-    status,
+    status, Query, Body, # Import Query
+    Form,
 )
 from fastapi.responses import HTMLResponse, JSONResponse  # type: ignore
+from cachetools import LRUCache # Import LRUCache
 from fastapi.security import OAuth2PasswordRequestForm  # type: ignore
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,6 +39,7 @@ from .core import models  # type: ignore
 from .core import (forecast, loaders, processors, summaries, utils)  # type: ignore
 from .core.security import create_access_token, verify_password
 from .db import SQLModelSession, get_db_session, sqlite_engine
+from .forms.form_definitions import get_static_form_schema # Import the new function
 from .routers import station_metadata_router
 
 # --- Conditional import for fcntl ---
@@ -82,8 +85,9 @@ logger = logging.getLogger(__name__)
 # 'data' is typically pd.DataFrame, but for 'processed_wave_spectrum'
 # it's List[Dict].
 # The type hint for data_cache needs to be more generic or use Union.
-# For simplicity, keeping as is, but be mindful.
-data_cache: Dict[Tuple, Tuple[pd.DataFrame, str, datetime]] = {}
+# Using LRUCache: key -> (data, actual_source_path_str, cache_timestamp).
+data_cache: LRUCache[Tuple, Tuple[pd.DataFrame, str, datetime]] = LRUCache(maxsize=256) # e.g., cache up to 256 items
+
 # CACHE_EXPIRY_MINUTES is now used by the background task interval and for
 # individual cache item expiry
 # if it's a real-time source and the background task hasn't run yet.
@@ -93,14 +97,6 @@ CACHE_EXPIRY_MINUTES = settings.background_cache_refresh_interval_minutes
 # Key: (mission_id, form_type, submission_timestamp_iso) -> MissionFormDataResponse
 mission_forms_db: Dict[Tuple[str, str, str], models.MissionFormDataResponse] = {}
 
-
-def create_db_and_tables():
-    """
-    Creates database tables based on SQLModel definitions if they don't exist.
-    """
-    logger.info("Creating database and tables if they don't exist...")
-    SQLModel.metadata.create_all(sqlite_engine)  # Uses sqlite_engine from db.py
-    logger.info("Database and tables checked/created.")
 
 
 # --- Helper function to save forms to local JSON (for testing) ---
@@ -137,6 +133,14 @@ def _save_forms_to_local_json():
             "Forms not saved to JSON."
         )
 
+
+def create_db_and_tables():
+    """
+    Creates database tables based on SQLModel definitions if they don't exist.
+    """
+    logger.info("Creating database and tables if they don't exist...")
+    SQLModel.metadata.create_all(sqlite_engine)  # Uses sqlite_engine from db.py
+    logger.info("Database and tables checked/created.")
 
 # ---
 def _initialize_database_and_users():
@@ -191,6 +195,118 @@ def _initialize_database_and_users():
                 "after create_db_and_tables(). DB init failed."
             )
 
+async def _load_from_local_sources(
+    report_type: str, mission_id: str, custom_local_path: Optional[str]
+) -> Tuple[Optional[pd.DataFrame], str]:
+    """Helper to attempt loading data from local sources (custom then default)."""
+    df = None
+    actual_source_path = "Data not loaded"
+    _attempted_custom_local = False
+
+    if custom_local_path:
+        _custom_local_path_str = f"Local (Custom): {Path(custom_local_path) / mission_id}"
+        try:
+            logger.debug(
+                f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}"
+            )
+            df_attempt = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path))
+            _attempted_custom_local = True
+            if df_attempt is not None and not df_attempt.empty:
+                return df_attempt, _custom_local_path_str
+            elif _attempted_custom_local: # File accessed but empty
+                actual_source_path = _custom_local_path_str # Record that this path was tried
+        except FileNotFoundError:
+            logger.warning(f"Custom local file for {report_type} ({mission_id}) not found at {custom_local_path}. Trying default local.")
+        except (IOError, pd.errors.ParserError, pd.errors.EmptyDataError) as e_file_data:
+            logger.warning(f"Custom local data load/parse error for {report_type} ({mission_id}) from {custom_local_path}: {e_file_data}. Trying default local.")
+            if _attempted_custom_local: # Path was attempted, but an error occurred
+                actual_source_path = _custom_local_path_str
+        except Exception as e_general: # Catch any other unexpected errors
+            logger.error(f"Unexpected error during custom local load for {report_type} ({mission_id}) from {custom_local_path}: {e_general}. Trying default local.", exc_info=True)
+            if _attempted_custom_local: # Path was attempted, but an error occurred
+                actual_source_path = _custom_local_path_str
+
+    # Try default local if custom failed, wasn't provided, or yielded no usable data
+    if df is None:
+        _default_local_path_str = f"Local (Default): {settings.local_data_base_path / mission_id}"
+        _attempted_default_local = False
+        try:
+            logger.debug(
+                f"Attempting local load for {report_type} (mission: {mission_id}) from default path: {settings.local_data_base_path}"
+            )
+            df_attempt = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
+            _attempted_default_local = True
+            if df_attempt is not None and not df_attempt.empty:
+                return df_attempt, _default_local_path_str
+            elif _attempted_default_local and actual_source_path == "Data not loaded": # Default local accessed but empty, and custom wasn't successful
+                actual_source_path = _default_local_path_str
+        except FileNotFoundError:
+            logger.warning(f"Default local file for {report_type} ({mission_id}) not found at {settings.local_data_base_path}.")
+            if actual_source_path == "Data not loaded": # If custom also failed with FNF or wasn't tried
+                actual_source_path = f"Local (Default): File Not Found - {settings.local_data_base_path / mission_id}"
+        except (IOError, pd.errors.ParserError, pd.errors.EmptyDataError) as e_file_data:
+            logger.warning(f"Default local data load/parse error for {report_type} ({mission_id}): {e_file_data}.")
+            if _attempted_default_local and actual_source_path == "Data not loaded":
+                actual_source_path = _default_local_path_str
+        except Exception as e_general: # Catch any other unexpected errors
+            logger.error(f"Unexpected error during default local load for {report_type} ({mission_id}): {e_general}.", exc_info=True)
+            if _attempted_default_local and actual_source_path == "Data not loaded":
+                actual_source_path = _default_local_path_str
+
+    return None, actual_source_path
+
+
+async def _load_from_remote_sources(
+    report_type: str, mission_id: str, current_user: Optional[models.User]
+) -> Tuple[Optional[pd.DataFrame], str]:
+    """Helper to attempt loading data from remote sources based on user role."""
+    actual_source_path = "Data not loaded"
+    remote_mission_folder = settings.remote_mission_folder_map.get(mission_id, mission_id)
+    base_remote_url = settings.remote_data_url.rstrip("/")
+    remote_base_urls_to_try: List[str] = []
+    user_role = current_user.role if current_user else models.UserRoleEnum.admin
+
+    if user_role == models.UserRoleEnum.admin:
+        remote_base_urls_to_try.extend([
+            f"{base_remote_url}/output_realtime_missions",
+            f"{base_remote_url}/output_past_missions",
+        ])
+    elif user_role == models.UserRoleEnum.pilot:
+        if mission_id in settings.active_realtime_missions:
+            remote_base_urls_to_try.append(f"{base_remote_url}/output_realtime_missions")
+        else:
+            logger.info(f"Pilot '{current_user.username if current_user else 'N/A'}' - Access to remote data for non-active mission '{mission_id}' restricted.")
+            return None, "Remote: Access Restricted"
+
+    last_accessed_remote_path_if_empty = None
+    for constructed_base_url in remote_base_urls_to_try:
+        # Configure client with retries, using RETRY_COUNT from loaders for consistency
+        retry_transport = httpx.AsyncHTTPTransport(retries=loaders.RETRY_COUNT)
+        async with httpx.AsyncClient(transport=retry_transport) as client: # Manage client per attempt
+            try:
+                logger.debug(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
+                df_attempt = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=client)
+                if df_attempt is not None and not df_attempt.empty:
+                    actual_source_path = f"Remote: {constructed_base_url}/{remote_mission_folder}"
+                    logger.debug(f"Successfully loaded {report_type} for mission {mission_id} from {actual_source_path}")
+                    return df_attempt, actual_source_path
+                elif df_attempt is not None: # Found but empty
+                    last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}"
+                    logger.debug(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next.")
+            except httpx.HTTPStatusError as e_http:
+                if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
+                    logger.debug(f"File not found in realtime path: {constructed_base_url}/{remote_mission_folder}. Will try next.")
+                else:
+                    logger.warning(f"Remote load attempt from {constructed_base_url} failed: {e_http}")
+            except (httpx.RequestError, pd.errors.ParserError, pd.errors.EmptyDataError) as e_req_parse:
+                # Catches network errors, timeouts not covered by HTTPStatusError, and pandas parsing issues
+                logger.warning(f"Request or parse error during remote load from {constructed_base_url} for {report_type} ({mission_id}): {e_req_parse}")
+            except Exception as e_general_remote: # Catch any other unexpected errors
+                logger.error(f"Unexpected general error during remote load from {constructed_base_url} for {report_type} ({mission_id}): {e_general_remote}", exc_info=True)
+    
+    if last_accessed_remote_path_if_empty: # All attempts failed, but one remote file was found empty
+        return None, last_accessed_remote_path_if_empty
+    return None, actual_source_path
 
 async def load_data_source(
     report_type: str,
@@ -199,15 +315,10 @@ async def load_data_source(
     custom_local_path: Optional[str] = None,
     force_refresh: bool = False,  # New parameter to bypass cache
     current_user: Optional[
-        models.UserInDB  # Changed to UserInDB as that's what get_optional_current_user returns
+        models.User  # Changed from UserInDB to match what get_optional_current_user returns
     ] = None,
 ):
-    """Attempts to load data, trying remote then local sources."""
-    # df variable will hold the loaded DataFrame.
-    # For the 'processed_wave_spectrum' (which is not a direct report_type
-    # for this function), this function loads the source DataFrames.
-    # The processing and specific caching
-    # for the combined spectrum happens in the /api/wave_spectrum endpoint.
+
     df: Optional[pd.DataFrame] = None
     actual_source_path = "Data not loaded"  # Initialize with a default
 
@@ -259,266 +370,22 @@ async def load_data_source(
     load_attempted = False
     if source_preference == "local":  # Local-only preference
         load_attempted = True
-        if custom_local_path:
-            _custom_local_path_str = (
-                f"Local (Custom): {Path(custom_local_path) / mission_id}"
-            )
-            _attempted_custom_local = False
-            try:
-                logger.debug(
-                    f"Attempting local load for {report_type} "
-                    f"(mission: {mission_id}) from custom path: {custom_local_path}"
-                )
-                df_attempt = await loaders.load_report(
-                    report_type, mission_id, base_path=Path(custom_local_path)
-                )
-                _attempted_custom_local = (
-                    True  # File was accessed or attempted beyond FNF
-                )
-                if df_attempt is not None and not df_attempt.empty:
-                    df = df_attempt
-                    actual_source_path = _custom_local_path_str
-                elif (
-                    _attempted_custom_local
-                    and actual_source_path == "Data not loaded"
-                ):  # File accessed but empty
-                    actual_source_path = _custom_local_path_str
-            except FileNotFoundError:
-                logger.warning(
-                    f"Custom local file for {report_type} ({mission_id}) not "
-                    f"found at {custom_local_path}. Trying default local."
-                )
-                df = None  # Ensure df is None to trigger default local load
-            except Exception as e:
-                error_msg = (
-                    f"Custom local load failed for {report_type} ({mission_id}) "
-                    f"from {custom_local_path}: {e}"
-                )
-                logger.warning(error_msg + ". Trying default local.")
-                if (
-                    _attempted_custom_local
-                    and actual_source_path == "Data not loaded"
-                ):  # Path was attempted, but an error occurred
-                    actual_source_path = _custom_local_path_str
-                df = None  # Ensure df is None to trigger default local load
-
-        if (
-            df is None
-        ):  # If custom path failed, wasn't provided, or yielded no usable data
-            _default_local_path_str = (
-                f"Local (Default): {settings.local_data_base_path / mission_id}"
-            )
-            _attempted_default_local = False
-            try:
-                logger.debug(
-                    f"Attempting local load for {report_type} "
-                    f"(mission: {mission_id}) from default path: {settings.local_data_base_path}"
-                )
-                df_attempt = await loaders.load_report(
-                    report_type, mission_id, base_path=settings.local_data_base_path
-                )
-                _attempted_default_local = True
-                if df_attempt is not None and not df_attempt.empty:
-                    df = df_attempt
-                    actual_source_path = _default_local_path_str
-                elif (
-                    _attempted_default_local
-                    and actual_source_path == "Data not loaded"
-                ):  # File accessed but empty
-                    actual_source_path = _default_local_path_str
-            except FileNotFoundError:
-                logger.warning(
-                    f"Default local file for {report_type} ({mission_id}) not "
-                    f"found at {settings.local_data_base_path}."
-                )
-            except Exception as e:
-                error_msg = (
-                    f"Default local load failed for {report_type} "
-                    f"({mission_id}): {e}"
-                )
-                logger.warning(error_msg + ".")
-                if (
-                    _attempted_default_local
-                    and actual_source_path == "Data not loaded"
-                ):  # Path was attempted, but an error occurred
-                    actual_source_path = _default_local_path_str
-                df = None  # Ensure df is None on other errors
-        # If 'local' was preferred and custom_local_path was provided but failed,
-        # the above block handles the default local attempt.
-        # If local was preferred and even default local fails, df will remain None.
+        df, actual_source_path = await _load_from_local_sources(report_type, mission_id, custom_local_path)
 
     # Remote-first or default behavior (remote then local fallback)
     elif source_preference == "remote" or source_preference is None:
         load_attempted = True
-        remote_mission_folder = settings.remote_mission_folder_map.get(
-            mission_id, mission_id
-        )
-
-        # Define potential remote base paths to try, in order of preference
-        # Ensure no double slashes if settings.remote_data_url ends with /
-        base_remote_url = settings.remote_data_url.rstrip("/")
-        remote_base_urls_to_try: List[str] = []
-
-        # Role-based access to remote paths.
-        # If current_user is None (e.g., background task), assume admin-like
-        # full access for refresh.
-        # Note: current_user here is UserInDB, which has .role
-        # models.User is the Pydantic model for API responses.
-        user_role = current_user.role if current_user else models.UserRoleEnum.admin
-
-        if user_role == models.UserRoleEnum.admin:
-            remote_base_urls_to_try.extend(
-                [
-                    f"{base_remote_url}/output_realtime_missions",
-                    f"{base_remote_url}/output_past_missions",
-                ]
-            )
-        elif user_role == models.UserRoleEnum.pilot:
-            # Pilots can only access real-time missions that are in
-            # the active_realtime_missions list
-            if mission_id in settings.active_realtime_missions:
-                remote_base_urls_to_try.append(
-                    f"{base_remote_url}/output_realtime_missions"
-                )
-            else:
-                logger.info(
-                    f"Pilot '{current_user.username if current_user else 'N/A'}'"
-                    f" - Access to remote data for non-active mission "
-                    f"'{mission_id}' restricted."
-                )
-
-        df = None
-        last_accessed_remote_path_if_empty = (
-            None  # Track if a remote file was found but empty
-        )
-
-        # If no remote URLs are applicable (e.g., pilot trying to access
-        # past mission), this loop won't run.
-        for constructed_base_url in remote_base_urls_to_try:
-            # THIS IS THE CRUCIAL PART: Ensure client is managed per-attempt
-            # Client is created and closed for each URL in the loop
-            async with httpx.AsyncClient() as current_client:
-                try:
-                    logger.debug(
-                        f"Attempting remote load for {report_type} (mission: "
-                        f"{mission_id}, remote folder: {remote_mission_folder}) "
-                        f"from base: {constructed_base_url}"
-                    )
-                    # Pass this specific client to loaders.load_report
-                    df_attempt = await loaders.load_report(
-                        report_type,
-                        mission_id=remote_mission_folder,
-                        base_url=constructed_base_url,
-                        client=current_client,
-                    )
-                    if df_attempt is not None and not df_attempt.empty:
-                        df = df_attempt
-                        actual_source_path = (
-                            f"Remote: {constructed_base_url}/{remote_mission_folder}"
-                        )
-                        logger.debug(
-                            f"Successfully loaded {report_type} for mission "
-                            f"{mission_id} from {actual_source_path}"
-                        )
-                        break  # Data found, no need to try other remote paths
-                    elif (
-                        df_attempt is not None
-                    ):  # File found, read, but resulted in an empty DataFrame
-                        last_accessed_remote_path_if_empty = (
-                            f"Remote: {constructed_base_url}/{remote_mission_folder}"
-                        )
-                        logger.debug(
-                            f"Remote file found but empty for {report_type} "
-                            f"({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next."
-                        )
-                except (
-                    httpx.HTTPStatusError
-                ) as e_http:  # Catch HTTPStatusError specifically
-                    if (
-                        e_http.response.status_code == 404
-                        and "output_realtime_missions" in constructed_base_url
-                    ):
-                        logger.debug(
-                            f"File not found in realtime path (expected for "
-                            f"past missions): {constructed_base_url}/"
-                            f"{remote_mission_folder} for {report_type} "
-                            f"({mission_id}). Will try next path."
-                        )
-                    else:  # Other HTTP errors or 404s remain warnings
-                        logger.warning(
-                            f"Remote load attempt from {constructed_base_url} "
-                            f"failed for {report_type} ({mission_id}): {e_http}"
-                        )
-                except (
-                    Exception
-                ) as e_remote_attempt:  # Catch other client errors
-                    logger.warning(
-                        f"General remote load attempt from {constructed_base_url} "
-                        f"failed for {report_type} ({mission_id}): {e_remote_attempt}"
-                    )
-
-        if df is None or df.empty:  # If all remote attempts failed
-            if not remote_base_urls_to_try and (
-                source_preference == "remote" or source_preference is None
-            ):
-                logger.info(
-                    f"No remote paths attempted for {report_type} ({mission_id}) "
-                    f"due to role/mission status. Proceeding to local fallback."
-                )
-            else:
-                logger.warning(
-                    f"No usable remote data found for {report_type} ({mission_id}). Falling back to default local."
-                )
-            # No external client to close here as it's managed internally or not passed by home route
-            _local_fallback_path_str = f"Local (Default Fallback): {settings.local_data_base_path / mission_id}"
-            _attempted_local_fallback = False
-            try:
-                logger.debug(
-                    f"Attempting fallback local load for {report_type} "
-                    f"(mission: {mission_id}) from {settings.local_data_base_path}"
-                )
-                df_fallback = await loaders.load_report(
-                    report_type, mission_id, base_path=settings.local_data_base_path
-                )
-                _attempted_local_fallback = True
-                if df_fallback is not None and not df_fallback.empty:
-                    df = df_fallback
-                    actual_source_path = _local_fallback_path_str
-                elif _attempted_local_fallback:  # Local file accessed but was empty
-                    actual_source_path = _local_fallback_path_str
-            except FileNotFoundError:
-                _msg = (
-                    f"Fallback local file not found for {report_type} "
-                    f"({mission_id}) at {settings.local_data_base_path / mission_id}"
-                )
-                logger.debug(_msg)
-                if (
-                    last_accessed_remote_path_if_empty
-                    and actual_source_path == "Data not loaded"
-                ):  # Remote file empty, local fallback FNF
-                    actual_source_path = last_accessed_remote_path_if_empty
-                elif (
-                    actual_source_path == "Data not loaded"
-                ):  # If no remote file was touched either
-                    path_part = _local_fallback_path_str.split(':', 1)[1].strip()
-                    actual_source_path = (
-                        f"Local (Default Fallback): File Not Found - {path_part}"
-                    )
-            except Exception as e_local_fallback:  # Other error in local fallback
-                logger.error(
-                    f"Fallback local load failed for {report_type} ({mission_id}): {e_local_fallback}"
-                )
-                if (
-                    _attempted_local_fallback
-                    and actual_source_path == "Data not loaded"
-                ):  # Path was attempted, but an error occurred
-                    actual_source_path = _local_fallback_path_str
-                df = None  # Ensure df is None on other errors
-        elif (
-            last_accessed_remote_path_if_empty
-            and actual_source_path == "Data not loaded"
-        ):  # df populated by remote, but earlier remote attempt found empty file
-            pass  # actual_source_path is already correctly set to the non-empty remote source
+        df, actual_source_path = await _load_from_remote_sources(report_type, mission_id, current_user)
+        if df is None: # If remote failed, try local as fallback
+            logger.warning(f"Remote preference/attempt failed for {report_type} ({mission_id}). Falling back to default local.")
+            # Pass None for custom_local_path to ensure only default is tried as fallback
+            df_fallback, path_fallback = await _load_from_local_sources(report_type, mission_id, None)
+            if df_fallback is not None:
+                df, actual_source_path = df_fallback, path_fallback
+            # If actual_source_path from remote attempt was informative (e.g. "Access Restricted" or "File Not Found"), keep it.
+            # Otherwise, if local fallback also failed, path_fallback will be more specific.
+            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path or "Remote: File Not Found" in actual_source_path :
+                 if path_fallback and "Data not loaded" not in path_fallback : actual_source_path = path_fallback
 
     # Additional check for pilots trying to access local data for non-active missions
     if (
@@ -710,10 +577,10 @@ async def startup_event():
                 mission_forms_db = {}
     elif settings.forms_storage_mode == "sqlite":
         logger.info("Forms storage mode is 'sqlite'. JSON load skipped.")
-    logger.info("Application startup event completed.")  # Changed from print
+    logger.info("Application startup event completed.")  
 
 
-@app.on_event("shutdown")  # Ensure this is also uncommented
+@app.on_event("shutdown") 
 def shutdown_event():
     if (
         "scheduler" in globals() and scheduler.running
@@ -721,6 +588,109 @@ def shutdown_event():
         scheduler.shutdown()
     logger.info("APScheduler shut down.")
 
+
+async def _process_loaded_data_for_home_view(
+    results: list, report_types_order: list, hours: int, mission_id: str # Added mission_id
+) -> dict:
+    """
+    Processes the loaded data results, calculates summaries, and determines
+    the display source path for the home view.
+    """
+    data_frames: Dict[str, Optional[pd.DataFrame]] = {}
+    source_paths_map: Dict[str, str] = {}
+
+    for i, report_type in enumerate(report_types_order):
+        if isinstance(results[i], Exception):
+            data_frames[report_type] = None # Ensure it's None, not an empty DataFrame yet
+            source_paths_map[report_type] = "Error during load"
+            logger.error(
+                f"Exception loading {report_type} for mission {mission_id}: {results[i]}"
+            )
+        else:
+            # Ensure results[i] is a tuple of (DataFrame, str)
+            if isinstance(results[i], tuple) and len(results[i]) == 2:
+                df_loaded, path_loaded = results[i]
+                data_frames[report_type] = df_loaded if df_loaded is not None and not df_loaded.empty else None
+                source_paths_map[report_type] = path_loaded
+            else: # Should not happen if load_data_source is consistent
+                data_frames[report_type] = None
+                source_paths_map[report_type] = "Unexpected load result format"
+                logger.error(f"Unexpected load result format for {report_type} (mission {mission_id}): {results[i]}")
+
+
+    # Determine the primary display_source_path
+    display_source_path = "Data Source: Information unavailable or all loads failed"
+    found_primary_path_for_display = False
+    priority_paths_checks = [
+        (lambda p: "Remote:" in p and "output_realtime_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
+        (lambda p: "Remote:" in p and "output_past_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
+        (lambda p: "Local (Custom):" in p and "Data not loaded" not in p and "Error during load" not in p),
+        (lambda p: p.startswith("Local (Default") and "Data not loaded" not in p and "Error during load" not in p),
+    ]
+
+    for check_priority in priority_paths_checks:
+        for report_type in report_types_order:
+            path_info = source_paths_map.get(report_type, "")
+            if check_priority(path_info):
+                path_to_display = path_info
+                if path_info.startswith("Remote: "): path_to_display = path_info.replace("Remote: ", "", 1).strip()
+                elif path_info.startswith("Local (Custom): "): path_to_display = path_info.replace("Local (Custom): ", "", 1).strip()
+                elif path_info.startswith("Local (Default): "): path_to_display = path_info.split(":", 1)[1].strip() if ":" in path_info else path_info
+                display_source_path = f"Data Source: {path_to_display}"
+                found_primary_path_for_display = True
+                break
+        if found_primary_path_for_display:
+            break
+
+    # Calculate summaries
+    # Ensure that even if a df is None, the summary function is called to get the default shell
+    power_info = summaries.get_power_status(data_frames.get("power"), data_frames.get("solar"))
+    power_info["mini_trend"] = summaries.get_power_mini_trend(data_frames.get("power"))
+
+    ctd_info = summaries.get_ctd_status(data_frames.get("ctd"))
+    ctd_info["mini_trend"] = summaries.get_ctd_mini_trend(data_frames.get("ctd"))
+
+    weather_info = summaries.get_weather_status(data_frames.get("weather"))
+    weather_info["mini_trend"] = summaries.get_weather_mini_trend(data_frames.get("weather"))
+
+    wave_info = summaries.get_wave_status(data_frames.get("waves"))
+    wave_info["mini_trend"] = summaries.get_wave_mini_trend(data_frames.get("waves"))
+
+    vr2c_info = summaries.get_vr2c_status(data_frames.get("vr2c"))
+    vr2c_info["mini_trend"] = summaries.get_vr2c_mini_trend(data_frames.get("vr2c"))
+
+    fluorometer_info = summaries.get_fluorometer_status(data_frames.get("fluorometer"))
+    fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(data_frames.get("fluorometer"))
+
+    wg_vm4_info = summaries.get_wg_vm4_status(data_frames.get("wg_vm4"))
+    wg_vm4_info["mini_trend"] = summaries.get_wg_vm4_mini_trend(data_frames.get("wg_vm4"))
+
+    navigation_info = summaries.get_navigation_status(data_frames.get("telemetry"))
+    navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(data_frames.get("telemetry"))
+
+    ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
+    ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
+
+    recent_errors_list = summaries.get_recent_errors(data_frames.get("errors"), max_age_hours=hours)[:20]
+    errors_update_info = utils.get_df_latest_update_info(data_frames.get("errors"), timestamp_col="Timestamp")
+
+    return {
+        "display_source_path": display_source_path,
+        "power_info": power_info,
+        "ctd_info": ctd_info,
+        "weather_info": weather_info,
+        "wave_info": wave_info,
+        "vr2c_info": vr2c_info,
+        "fluorometer_info": fluorometer_info,
+        "wg_vm4_info": wg_vm4_info,
+        "navigation_info": navigation_info,
+        "ais_summary_data": ais_summary_data,
+        "ais_update_info": ais_update_info,
+        "recent_errors_list": recent_errors_list,
+        "errors_update_info": errors_update_info,
+        "has_ais_data": bool(ais_summary_data),
+        "has_errors_data": bool(recent_errors_list),
+    }
 
 # --- Authentication Endpoint ---
 @app.post("/token", response_model=models.Token)
@@ -799,17 +769,13 @@ async def home(
     # The user dependency is now handled by calling get_optional_current_user(request)
     # No direct Depends() for current_user in the signature for this HTML route.
 ):
-    # Attempt to get current user. If no token, actual_current_user is None.
-    # JS handles redirect to /login.html if no token.
-    actual_current_user: Optional[models.User] = await get_optional_current_user(
-        request
-    )
 
-    # `available_missions` will now be populated by the client-side JavaScript.
     available_missions_for_template = []  # Pass an empty list initially.
 
     # Determine if the current mission is an active real-time mission
     is_current_mission_realtime = mission in settings.active_realtime_missions
+    # Attempt to get current user. This needs to be defined before being passed to load_data_source.
+    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
     results = await asyncio.gather(
         load_data_source(
             "power", mission, source, local_path, refresh, actual_current_user
@@ -848,10 +814,6 @@ async def home(
         return_exceptions=True,  # To handle individual load failures
     )
 
-    # Unpack results and source paths
-    data_frames: Dict[str, Optional[pd.DataFrame]] = {}
-    source_paths_map: Dict[str, str] = {}
-    # Ensure "error_frequency" is NOT in this list for the main page load.
     # This list populates status cards and initial summaries.
     report_types_order = [
         "power",
@@ -867,140 +829,10 @@ async def home(
         "telemetry",
     ]
 
-    for i, report_type in enumerate(report_types_order):
-        if isinstance(results[i], Exception):
-            data_frames[report_type] = None
-            source_paths_map[report_type] = "Error during load"
-            logger.error(
-                f"Exception loading {report_type} for mission {mission}: "
-                f"{results[i]}"
-            )
-        else:
-            data_frames[report_type], source_paths_map[report_type] = results[i]
-
-    df_power = data_frames["power"]
-    df_ctd = data_frames["ctd"]
-    df_weather = data_frames["weather"]
-    df_waves = data_frames["waves"]
-    df_vr2c = data_frames["vr2c"]  # New sensor
-    df_solar = data_frames["solar"]  # New solar data
-    df_fluorometer = data_frames["fluorometer"]  # C3 Fluorometer
-    df_wg_vm4 = data_frames["wg_vm4"]  # New WG-VM4 data
-    df_ais = data_frames["ais"]
-    df_errors = data_frames["errors"]
-    df_telemetry = data_frames["telemetry"]  # Telemetry data
-
-    # Determine the primary display_source_path based on success and priority
-    display_source_path = (
-        "Data Source: Information unavailable or all loads failed"
+    # Process loaded data using the helper function
+    processed_home_data = await _process_loaded_data_for_home_view(
+        results, report_types_order, hours, mission # Pass mission_id
     )
-    found_primary_path_for_display = False  # Flag to break outer loop
-
-    priority_paths = [
-        (
-            lambda p: "Remote:" in p
-            and "output_realtime_missions" in p
-            and "Data not loaded" not in p
-            and "Error during load" not in p
-        ),
-        (
-            lambda p: "Remote:" in p
-            and "output_past_missions" in p
-            and "Data not loaded" not in p
-            and "Error during load" not in p
-        ),
-        (
-            lambda p: "Local (Custom):" in p
-            and "Data not loaded" not in p
-            and "Error during load" not in p
-        ),
-        (
-            lambda p: p.startswith("Local (Default")
-            and "Data not loaded" not in p
-            and "Error during load" not in p
-        ),  # Catches "Local (Default)" and "Local (Default Fallback)"
-    ]
-    for check_priority in priority_paths: # Check in defined order or any order
-        for report_type in report_types_order:
-            path_info = source_paths_map.get(report_type, "")
-            if check_priority(path_info):
-                # Strip the prefix from path_info
-                path_to_display = path_info
-                if path_info.startswith("Remote: "):
-                    path_to_display = path_info.replace("Remote: ", "", 1).strip()
-                elif path_info.startswith("Local (Custom): "):
-                    path_to_display = path_info.replace(
-                        "Local (Custom): ", "", 1
-                    ).strip()
-                elif path_info.startswith("Local (Default): "):
-                    path_to_display = (
-                        path_info.split(":", 1)[1].strip()
-                        if ":" in path_info
-                        else path_info
-                    )  # Handles "Local (Default)" and "Local (Default Fallback)" # noqa
-
-                display_source_path = f"Data Source: {path_to_display}"
-                found_primary_path_for_display = True  # Found our primary display path
-                break
-        if found_primary_path_for_display:
-            break  # Exit outer loop once a primary path is found
-
-    # Get status and update info using refactored summary functions,
-    # add mini-trend dataframes
-
-    power_info = summaries.get_power_status(df_power, df_solar)  # Pass df_solar
-    power_info["mini_trend"] = summaries.get_power_mini_trend(df_power)
-
-    ctd_info = summaries.get_ctd_status(df_ctd)
-    ctd_info["mini_trend"] = summaries.get_ctd_mini_trend(df_ctd)
-
-    weather_info = summaries.get_weather_status(df_weather)
-    weather_info["mini_trend"] = summaries.get_weather_mini_trend(df_weather)
-
-    wave_info = summaries.get_wave_status(df_waves)
-    wave_info["mini_trend"] = summaries.get_wave_mini_trend(df_waves)
-
-    vr2c_info = summaries.get_vr2c_status(df_vr2c)
-    vr2c_info["mini_trend"] = summaries.get_vr2c_mini_trend(df_vr2c)
-
-    fluorometer_info = summaries.get_fluorometer_status(df_fluorometer)
-    fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(
-        df_fluorometer
-    )
-
-    wg_vm4_info = summaries.get_wg_vm4_status(df_wg_vm4)  # Get WG-VM4 summary
-    wg_vm4_info["mini_trend"] = summaries.get_wg_vm4_mini_trend(
-        df_wg_vm4
-    )  # Get WG-VM4 mini trend
-
-    navigation_info = summaries.get_navigation_status(
-        df_telemetry
-    )  # Get navigation summary
-    navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(
-        df_telemetry
-    )  # Get navigation mini trend
-
-    # For AIS and Errors, get summary list and then derive update info from original DFs
-    ais_summary_data = (
-        summaries.get_ais_summary(df_ais, max_age_hours=hours)
-        if df_ais is not None
-        else []
-    )
-    ais_update_info = utils.get_df_latest_update_info(
-        df_ais, timestamp_col="LastSeenTimestamp"
-    )  # Adjust col if needed
-    recent_errors_list = (
-        summaries.get_recent_errors(df_errors, max_age_hours=hours)[:20]
-        if df_errors is not None
-        else []
-    )
-    errors_update_info = utils.get_df_latest_update_info(
-        df_errors, timestamp_col="Timestamp"
-    )  # Adjust col if needed
-
-    # Flags for template to control collapse state and indicators
-    has_ais_data = bool(ais_summary_data)
-    has_errors_data = bool(recent_errors_list)
 
     return templates.TemplateResponse(
         "index.html",
@@ -1013,22 +845,8 @@ async def home(
             "default_local_data_path": str(
                 settings.local_data_base_path
             ),
-            "display_source_path": display_source_path,
             "current_local_path": local_path,  # Pass current local_path
-            "power_info": power_info,
-            "ctd_info": ctd_info,  # This will be the dict from refactored get_ctd_status
-            "weather_info": weather_info,  # Dict from refactored get_weather_status
-            "wave_info": wave_info,  # Dict from refactored get_wave_status
-            "ais_summary_data": ais_summary_data,
-            "ais_update_info": ais_update_info,
-            "errors_summary_data": recent_errors_list,
-            "errors_update_info": errors_update_info,
-            "has_ais_data": has_ais_data,  # check
-            "has_errors_data": has_errors_data,  # check
-            "fluorometer_info": fluorometer_info,  # C3 Fluorometer
-            "wg_vm4_info": wg_vm4_info,  # WG-VM4
-            "vr2c_info": vr2c_info,  # Mrx
-            "navigation_info": navigation_info,
+            **processed_home_data, # Unpack all processed data into the context
             "current_user": actual_current_user,  # Pass user info to template
         },
     )
@@ -1062,16 +880,14 @@ async def read_users_me(current_user: models.User = Depends(get_current_active_u
 # --- Form Endpoints ---
 
 
-async def get_example_form_schema(
-    form_type: str, mission_id: str, current_user: models.User
+async def populate_form_schema_with_dynamic_data(
+    schema: models.MissionFormSchema, mission_id: str, current_user: models.User
 ) -> models.MissionFormSchema:
     """
-    Generates a form schema based on form_type.
-    This is where you'd define the structure of different forms.
-    For now, it includes a basic example with auto-fill.
+    Populates a given static form schema with dynamic data (e.g., auto-filled values).
     """
-    if form_type == "pre_deployment_checklist":
-        # Attempt to get latest power status for auto-fill
+    # Example: Auto-fill for pre_deployment_checklist
+    if schema.form_type == "pre_deployment_checklist":
         latest_power_df, _ = await load_data_source(
             "power", mission_id, current_user=current_user
         )
@@ -1085,105 +901,23 @@ async def get_example_form_schema(
             battery_percentage_value = (
                 f"{power_summary['values']['BatteryPercentage']:.1f}%"
             )
+        
+        for section in schema.sections:
+            if section.id == "power_system":
+                for item in section.items:
+                    if item.id == "battery_level_auto":
+                        item.value = battery_percentage_value
+                        break # Found item, exit inner loop
+                break # Found section, exit outer loop
 
-        return models.MissionFormSchema(
-            form_type=form_type,
-            title="Pre-Deployment Checklist",
-            description="Complete this checklist before deploying the Wave Glider.",
-            sections=[
-                models.FormSection(
-                    id="general_checks",
-                    title="General System Checks",
-                    items=[
-                        models.FormItem(
-                            id="hull_integrity",
-                            label="Hull Integrity Visual Check",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="umbilical_check",
-                            label="Umbilical Secure and Undamaged",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_power",
-                            label="Payload Power On",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                        ),
-                    ],
-                ),
-                models.FormSection(
-                    id="power_system",
-                    title="Power System",
-                    items=[
-                        models.FormItem(
-                            id="battery_level_auto",
-                            label="Current Battery Level (Auto)",
-                            item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE,
-                            value=battery_percentage_value,
-                        ),
-                        models.FormItem(
-                            id="battery_level_manual",
-                            label="Confirm Battery Level Sufficient",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="solar_panels_clean",
-                            label="Solar Panels Clean",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                        ),
-                    ],
-                    section_comment="Ensure all power connections are secure.",
-                ),
-                models.FormSection(
-                    id="comms_check",
-                    title="Communications",
-                    items=[
-                        models.FormItem(
-                            id="iridium_status",
-                            label="Iridium Comms Check (Signal Strength)",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="e.g., 5 bars",
-                        ),
-                        models.FormItem(
-                            id="rudics_test",
-                            label="RUDICS Test Call Successful",
-                            item_type=models.FormItemTypeEnum.CHECKBOX,
-                        ),
-                    ],
-                ),
-                models.FormSection(
-                    id="final_notes",
-                    title="Final Notes & Sign-off",
-                    items=[
-                        models.FormItem(
-                            id="deployment_notes",
-                            label="Deployment Notes/Observations",
-                            item_type=models.FormItemTypeEnum.TEXT_AREA, # noqa
-                            placeholder="Any issues or special conditions...",
-                        ),
-                        models.FormItem(
-                            id="sign_off_name",
-                            label="Signed Off By (Name)",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            required=True,
-                        ),
-                    ],
-                ),
-            ],
-        )
-    elif form_type == "pic_handoff_checklist":
-        # Attempt to get latest power status for auto-fill
+    # Example: Auto-fill for pic_handoff_checklist
+    elif schema.form_type == "pic_handoff_checklist":
         latest_power_df, _ = await load_data_source(
             "power", mission_id, current_user=current_user
         )
         power_summary_values = summaries.get_power_status(latest_power_df).get(
             "values", {}
         )
-
         current_battery_wh_value = (
             f"{power_summary_values.get('BatteryWattHours', 'N/A'):.0f} Wh"
             if pd.notna(power_summary_values.get("BatteryWattHours"))
@@ -1194,291 +928,18 @@ async def get_example_form_schema(
             if pd.notna(power_summary_values.get("BatteryPercentage"))
             else "N/A"
         )
+        for section in schema.sections:
+            if section.id == "general_status":
+                for item in section.items:
+                    if item.id == "glider_id_val":
+                        item.value = mission_id
+                    elif item.id == "current_battery_wh_val":
+                        item.value = current_battery_wh_value
+                    elif item.id == "percent_battery_val":
+                        item.value = battery_percentage_value
+    # Add more auto-fill logic for other forms/fields as needed
+    return schema
 
-        # Placeholder for other potential autofills - for now, most are text inputs
-        # glider_id_value = mission_id # This is already available
-        # total_battery_capacity_value = "2600 Wh" # Example, could be dynamic per glider type later
-
-        return models.MissionFormSchema( # noqa
-            form_type=form_type,
-            title="PIC Handoff Checklist", # noqa
-            description="Pilot in Command (PIC) handoff checklist. Verify each item.",
-            sections=[
-                models.FormSection(
-                    id="general_status",
-                    title="Glider & Mission General Status",
-                    items=[
-                        models.FormItem(
-                            id="glider_id_val",
-                            label="Glider ID",
-                            item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE,
-                            value=mission_id,
-                        ),
-                        models.FormItem(
-                            id="current_mos_val",
-                            label="Current MOS",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["Sue L", "Tyler B", "Matt M", "Adam C"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="current_pic_val",
-                            label="Current PIC",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=[
-                                "Adam S",
-                                "Laura R",
-                                "Sue L",
-                                "Tyler B",
-                                "Adam C",
-                                "Poppy K",
-                                "LRI",
-                                "Matt M",
-                                "Noa W",
-                                "Nicole N",
-                            ],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="last_pic_val",
-                            label="Last PIC",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=[
-                                "Adam S",
-                                "Laura R",
-                                "Sue L",
-                                "Tyler B",
-                                "Adam C",
-                                "Poppy K",
-                                "LRI",
-                                "Matt M",
-                                "Noa W",
-                                "Nicole N",
-                            ],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="mission_status_val",
-                            label="Mission Status",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=[
-                                "In Transit",
-                                "Avoiding Ship",
-                                "Holding for Storm",
-                                "Offloading",
-                                "In Recovery Hold",
-                                "Surveying",
-                            ],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="total_battery_val",
-                            label="Total Battery Capacity (Wh)",
-                            item_type=models.FormItemTypeEnum.STATIC_TEXT,
-                            value="2775 Wh",
-                        ),  # Using constant from summaries.py
-                        models.FormItem(
-                            id="current_battery_wh_val",
-                            label="Current Glider Battery (Wh)",
-                            item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE,
-                            value=current_battery_wh_value,
-                        ),
-                        models.FormItem(
-                            id="percent_battery_val",
-                            label="% Battery Remaining",
-                            item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE,
-                            value=battery_percentage_value,
-                        ),
-                        models.FormItem(
-                            id="tracker_battery_v_val",
-                            label="Tracker Battery (V)",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="e.g., 14.94",
-                        ),
-                        models.FormItem(
-                            id="tracker_last_update_val",
-                            label="Tracker Last Update",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="e.g., MM-DD-YYYY HH:MM:SS",
-                        ),
-                        models.FormItem(
-                            id="communications_val",
-                            label="Communications Mode",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["SAT", "CELL"],
-                            required=True,  # Assuming this is required
-                        ),
-                        models.FormItem(
-                            id="telemetry_rate_val",
-                            label="Telemetry Report Rate (min)",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="e.g., 5",
-                        ),
-                        models.FormItem(
-                            id="navigation_mode_val",
-                            label="Navigation Mode",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["FSC", "FFB", "FFH", "WC", "FCC"],
-                            required=True,  # Assuming this is required
-                        ),
-                        models.FormItem(
-                            id="target_waypoint_val",
-                            label="Target Waypoint",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="Enter target waypoint",
-                        ),
-                        models.FormItem(
-                            id="waypoint_details_val",
-                            label="Waypoint Start to Finish Details",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="e.g., 90 Degrees, 5km",
-                        ),
-                        models.FormItem(
-                            id="light_status_val",
-                            label="Light Status",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "AUTO", "N/A"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="thruster_status_val",
-                            label="Thruster Status",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="obstacle_avoid_val",
-                            label="Obstacle Avoidance",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="line_follow_val",
-                            label="Line Following Status",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A"],
-                            required=True,
-                        ),
-                    ],
-                ),
-                models.FormSection(
-                    id="operational_notes",
-                    title="Operational Notes & Observations",
-                    items=[
-                        models.FormItem(
-                            id="errors_notes_val",
-                            label="Errors / System Messages",
-                            item_type=models.FormItemTypeEnum.TEXT_AREA, # noqa
-                            placeholder="Describe any errors or system messages...",
-                        ),
-                        models.FormItem(
-                            id="boats_nearby_val",
-                            label="Boats Nearby / AIS Contacts",
-                            item_type=models.FormItemTypeEnum.TEXT_AREA, # noqa
-                            placeholder="Describe nearby vessels or AIS contacts...",
-                        ),
-                    ],
-                ),
-                models.FormSection(
-                    id="station_ops",
-                    title="Station Operations",
-                    items=[
-                        models.FormItem(
-                            id="current_station_val",
-                            label="Current Station ID / Name",
-                            item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                            placeholder="Enter station ID or name",
-                        ),
-                        models.FormItem(
-                            id="offload_status_val",
-                            label="Offload Status",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=[
-                                "Connecting to Station",
-                                "Connected to Station",
-                                "Offloading Data",
-                                "Aborting Offload",
-                                "N/A",
-                            ],
-                            required=True,  # Assuming this is required
-                        ),
-                    ],
-                ),
-                models.FormSection(
-                    id="payload_status",
-                    title="Payload Systems Status",
-                    items=[
-                        models.FormItem(
-                            id="payload_airmar_val",
-                            label="Airmar Weather",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_waterspeed_val",
-                            label="Water Speed Sensor",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_ctd_val",
-                            label="CTD",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_gpswaves_val",
-                            label="GPSWaves",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_fluoro_val",
-                            label="Fluorometer",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_mobilerx_val",
-                            label="MobileRX (T1)",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_adcp_val",  # Corrected from vm4 to adcp as per your list order
-                            label="ADCP",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_vm4_val",  # Corrected from adcp to vm4 as per your list order
-                            label="VM4",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                        models.FormItem(
-                            id="payload_co2pro_val",
-                            label="CO2Pro",
-                            item_type=models.FormItemTypeEnum.DROPDOWN,
-                            options=["ON", "OFF", "N/A", "ERROR"],
-                            required=True,
-                        ),
-                    ],
-                ),
-            ],
-        )
-    # Add other form types here
-    raise HTTPException(status_code=404, detail=f"Form type '{form_type}' not found.")
 
 # fmt: off
 @app.get(
@@ -1496,8 +957,11 @@ async def get_form_template_for_mission(
         f"'{form_type}' for mission '{mission_id}'."
     )
     try:
-        schema = await get_example_form_schema(form_type, mission_id, current_user)
-        return schema
+        # 1. Get static schema structure
+        static_schema = get_static_form_schema(form_type) # Call the new function
+        # 2. Populate with dynamic data
+        populated_schema = await populate_form_schema_with_dynamic_data(static_schema, mission_id, current_user)
+        return populated_schema
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -1708,11 +1172,211 @@ async def get_all_submitted_forms(
 
     return forms
 
+# --- Schedule ---
 
-# --- Station Metadata API Endpoints ---
-# The Station Metadata API Endpoints are now handled by the station_api sub-application
-# mounted at "/api". The routes within station_sub_app.py are defined relative to that mount point
-# (e.g., "/station_metadata/").
+@app.get("/schedule.html", response_class=HTMLResponse)
+async def read_schedule_page(
+    request: Request, # Allow optional user
+    current_user: Annotated[Optional[models.User], Depends(get_optional_current_user)]
+):
+    """
+    Serves the daily shift schedule page.
+    """
+    if current_user:
+        logger.info(f"User '{current_user.username}' accessing schedule page.")
+    else:
+        # If no user, redirect to login. Schedule page requires authentication.
+        # The JS checkAuth() also handles this, but adding a server-side check
+        # prevents rendering the page content for unauthenticated users.
+        # Note: This requires get_optional_current_user to be called first.
+        if not current_user:
+             logger.info("Anonymous user attempted to access schedule page. Redirecting to login.")
+             # You could add a redirect here, but the client-side checkAuth() is often sufficient
+             # for simple cases and avoids needing to pass the request object to the dependency.
+             # Let's rely on client-side checkAuth for now, as it's already implemented.
+             pass # Rely on client-side checkAuth()
+
+        logger.info("Anonymous user accessing schedule page (relying on client-side auth check).")
+
+    # For now, the page is static. Future enhancements might pass dynamic schedule data.
+    return templates.TemplateResponse("schedule.html", {"request": request, "current_user": current_user}) # Pass current_user
+
+
+@app.get("/api/schedule/events", response_model=List[models.ScheduleEvent])
+async def get_schedule_events_api(
+    start_date: Optional[datetime] = Query(None, alias="start"), # Accept start date
+    end_date: Optional[datetime] = Query(None, alias="end"),     # Accept end date
+
+    current_user: models.User = Depends(get_current_active_user), # Ensure user is authenticated
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    API endpoint to provide events for the DayPilot Scheduler.
+    """
+    logger.info(f"User '{current_user.username}' requesting schedule events.")
+    if start_date and end_date:
+        # Ensure dates are timezone-aware (assume UTC if naive, or convert if already aware)
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=timezone.utc)
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        logger.info(f"Fetching events for range: {start_date.isoformat()} to {end_date.isoformat()}")
+        statement = select(models.ShiftAssignment).where(
+            models.ShiftAssignment.start_time_utc < end_date, # Events that start before the query range ends
+            models.ShiftAssignment.end_time_utc > start_date    # Events that end after the query range starts
+        )
+    else:
+        now = datetime.now(timezone.utc)
+        # Default to a wide range if not specified, e.g., this month +/- 1 month
+        # Or rely on client to always send a range. For now, let's fetch all if no range.
+        logger.info(f"No date range provided, fetching all events (or implement a default server-side range).")
+        statement = select(models.ShiftAssignment)
+
+    db_assignments = session.exec(statement).all()
+
+    response_events = []
+    for assignment in db_assignments:
+        # Fetch the user to get the username for the event text
+        user = session.get(models.UserInDB, assignment.user_id)
+        username = user.username if user else "Unknown User"
+
+        response_events.append(
+            models.ScheduleEvent(
+                id=str(assignment.id), # Ensure ID is string for DayPilot
+                text=username,
+                start=assignment.start_time_utc, # Already datetime
+                end=assignment.end_time_utc,     # Already datetime
+                resource=assignment.resource_id,
+                # Add backColor or other properties if stored/derived
+            )
+        )
+    logger.info(f"Returning {len(response_events)} events from database.")
+    return response_events
+
+
+@app.post("/api/schedule/events", response_model=models.ScheduleEvent, status_code=status.HTTP_201_CREATED)
+async def create_schedule_event_api(
+    event_in: models.ScheduleEventCreate, # Use the new model from models.py
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' creating event. Client data: {event_in}")
+
+    final_start_dt: datetime
+    final_end_dt: datetime
+    final_resource_id: str = event_in.resource 
+
+    if event_in.resource.startswith("SLOT_"):
+        # Spreadsheet-like view: event_in.start is the day, resource is the slot
+        try:
+            day_date_str = event_in.start.split("T")[0] # "YYYY-MM-DD"
+            day_dt = datetime.fromisoformat(day_date_str).replace(tzinfo=timezone.utc)
+
+            slot_parts = event_in.resource.split("_") # SLOT_HH_MM (DayPilot uses MM for month, not minutes here)
+            start_hour = int(slot_parts[1])
+            # The second part of the slot ID is the *end* hour of the slot, which is the start of the next slot.
+            # For a 3-hour slot starting at start_hour:
+            end_hour_calc = (start_hour + 3) % 24 
+
+            final_start_dt = day_dt.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+            
+            # Calculate end_dt based on 3-hour duration
+            final_end_dt = final_start_dt + timedelta(hours=3)
+
+        except (IndexError, ValueError) as e:
+            logger.error(f"Error parsing SLOT resource ID '{event_in.resource}' or date '{event_in.start}': {e}")
+            raise HTTPException(status_code=400, detail="Invalid slot or date format from client.")
+    else: # Existing views (Weekly Hourly, Daily Hourly, Monthly Daily)
+        final_start_dt = datetime.fromisoformat(event_in.start.replace("Z", "+00:00"))
+        final_end_dt = datetime.fromisoformat(event_in.end.replace("Z", "+00:00"))
+
+    # --- Basic Validation ---
+    duration_hours = (final_end_dt - final_start_dt).total_seconds() / 3600
+    valid_start_hours_utc = [23, 2, 5, 8, 11, 14, 17, 20] # Valid UTC start hours
+    
+    if not (abs(duration_hours - 3) < 0.01 and final_start_dt.hour in valid_start_hours_utc and final_start_dt.minute == 0 and final_start_dt.second == 0):
+        logger.warning(f"Invalid shift slot attempted: {final_start_dt.hour}:{final_start_dt.minute} for {duration_hours} hours UTC. Original event_in: {event_in}")
+        raise HTTPException(status_code=400, detail="Invalid shift slot. Must be a 3-hour block starting on a designated UTC hour (02,05,08,11,14,17,20,23).")
+
+    # Fetch the UserInDB instance to get the user's database ID
+    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db:
+        # This should ideally not happen if get_current_active_user succeeded
+        logger.error(f"Consistency error: User '{current_user.username}' found by token but not in DB for event creation.")
+        raise HTTPException(status_code=500, detail="User not found in database.")
+
+    # Check for overlaps
+    overlap_statement = select(models.ShiftAssignment).where(
+        models.ShiftAssignment.resource_id == final_resource_id, # Use final_resource_id
+        models.ShiftAssignment.start_time_utc < final_end_dt,   # Use final_end_dt
+        models.ShiftAssignment.end_time_utc > final_start_dt     # Use final_start_dt
+    )
+    existing_assignment = session.exec(overlap_statement).first()
+    if existing_assignment:
+        logger.warning(f"Overlap detected for resource {final_resource_id} at {final_start_dt}")
+        raise HTTPException(status_code=409, detail="This shift slot is already taken.")
+
+    db_assignment = models.ShiftAssignment(
+        user_id=user_in_db.id, # Use user_in_db.id
+        start_time_utc=final_start_dt,
+        end_time_utc=final_end_dt,
+        resource_id=final_resource_id,
+        # event_text=current_user.username # Optionally store username directly
+    )
+    session.add(db_assignment)
+    session.commit()
+    session.refresh(db_assignment)
+    logger.info(f"ShiftAssignment created with ID {db_assignment.id} for user {current_user.username}")
+
+    return models.ScheduleEvent(
+        id=str(db_assignment.id),
+        text=current_user.username, # For display
+        start=db_assignment.start_time_utc,
+        end=db_assignment.end_time_utc,
+        resource=db_assignment.resource_id
+    )
+    # The return models.ScheduleEvent(**response_event_data) was a leftover from previous version, removed.
+
+
+@app.delete("/api/schedule/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule_event_api(
+    event_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' attempting to delete event ID: {event_id}")
+
+    try:
+        assignment_id = int(event_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid event ID format.")
+
+    db_assignment = session.get(models.ShiftAssignment, assignment_id)
+
+    if not db_assignment:
+        logger.warning(f"Event ID {event_id} not found for deletion.")
+        raise HTTPException(status_code=404, detail="Event not found.")
+
+    # Fetch the UserInDB instance to get the user's database ID for comparison
+    user_in_db_for_auth = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db_for_auth:
+        logger.error(f"Consistency error: User '{current_user.username}' found by token but not in DB for event deletion auth.")
+        raise HTTPException(status_code=500, detail="User not found in database for authorization.")
+
+
+    # Authorization check
+    if db_assignment.user_id != user_in_db_for_auth.id and current_user.role != models.UserRoleEnum.admin:
+        # Fetch owner's username for logging, if necessary
+        owner = session.get(models.UserInDB, db_assignment.user_id)
+        owner_username = owner.username if owner else "unknown"
+        logger.warning(f"User '{current_user.username}' not authorized to delete event ID {event_id} owned by '{owner_username}'.")
+        raise HTTPException(status_code=403, detail="Not authorized to delete this event.")
+
+    session.delete(db_assignment)
+    session.commit()
+    logger.info(f"Event ID {event_id} deleted successfully.")
+    return
+
 
 
 # --- Admin User Management API Endpoints ---

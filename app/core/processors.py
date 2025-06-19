@@ -30,7 +30,7 @@ def standardize_timestamp_column(
 
 
 def _initial_dataframe_setup(
-    df: pd.DataFrame, target_timestamp_col: str # noqa
+    df: pd.DataFrame, target_timestamp_col: str
 ) -> pd.DataFrame:
     """
     Handles initial DataFrame checks, timestamp standardization, conversion to UTC, and NaT removal.

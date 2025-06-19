@@ -1,5 +1,5 @@
-document.addEventListener('DOMContentLoaded', function () {
-    const loginForm = document.getElementById('loginForm');
+document.addEventListener('DOMContentLoaded', async function () { // Made async for getUserProfile
+    const loginForm = document.getElementById('loginForm'); // Keep this
     const loginErrorDiv = document.getElementById('loginError');
     const registerForm = document.getElementById('registerForm');
     const registerMessageDiv = document.getElementById('registerMessage');
@@ -120,6 +120,132 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else { alert('Network error. Please try again.');}
             }
         });
+    }
+
+    // --- Banner-specific interactions (Logout, Username, Role-based buttons) ---
+    const logoutBtnBanner = document.getElementById('logoutBtnBanner');
+    if (logoutBtnBanner) {
+        logoutBtnBanner.addEventListener('click', function(event) {
+            event.preventDefault(); // Good practice for anchor tags acting as buttons
+            logout();
+        });
+    }
+
+    const usernameDisplayBanner = document.getElementById('usernameDisplayBanner');
+    const viewFormsBtnBanner = document.getElementById('viewFormsBtnBanner');
+    const registerUserBtnBanner = document.getElementById('registerUserBtnBanner');
+    const userManagementBtnBanner = document.getElementById('userManagementBtnBanner');
+    const missionSelectorBannerAuth = document.getElementById('missionSelectorBanner'); // Get it here for auth.js scope
+    const createReportBtnBannerAuth = document.getElementById('createReportBtnBanner'); // For PIC Handover link
+
+    // Fetch user profile to update banner elements
+    // Also used to determine which missions to show for pilots vs admin in mission dropdown
+    // getUserProfile() is already async and defined below
+    const currentUserForBanner = await getUserProfile(); 
+
+    if (currentUserForBanner) {
+        if (usernameDisplayBanner && currentUserForBanner.username) {
+            usernameDisplayBanner.textContent = currentUserForBanner.username;
+        }
+
+        if (viewFormsBtnBanner) {
+            if (currentUserForBanner.role === 'admin' || currentUserForBanner.role === 'pilot') {
+                viewFormsBtnBanner.style.display = 'block';
+            } else {
+                viewFormsBtnBanner.style.display = 'none';
+            }
+        }
+        if (currentUserForBanner.role === 'admin') {
+            if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'block';
+            if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'block';
+        } else {
+            if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
+            if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
+        }
+    } else { // No user logged in, ensure role-specific buttons are hidden
+        if (viewFormsBtnBanner) viewFormsBtnBanner.style.display = 'none';
+        if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
+        if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
+    }
+
+    // --- Populate Mission Selector in Banner (if present on the page) ---
+    if (missionSelectorBannerAuth) {
+        const pageMissionId = document.body.dataset.missionId; // Available on index.html, mission_form.html etc.
+
+        try {
+            const response = await fetchWithAuth('/api/available_missions');
+            if (response.ok) {
+                const missions = await response.json();
+                missionSelectorBannerAuth.innerHTML = ''; // Clear existing options
+
+                if (missions.length === 0) {
+                    const option = document.createElement('option');
+                    option.value = "";
+                    option.textContent = "No missions";
+                    missionSelectorBannerAuth.appendChild(option);
+                    missionSelectorBannerAuth.disabled = true;
+                } else {
+                    missionSelectorBannerAuth.disabled = false;
+                    let missionSelected = false;
+                    missions.forEach(m_id => {
+                        const option = document.createElement('option');
+                        option.value = m_id;
+                        option.textContent = m_id;
+                        if (pageMissionId && m_id === pageMissionId) {
+                            option.selected = true;
+                            missionSelected = true;
+                        }
+                        missionSelectorBannerAuth.appendChild(option);
+                    });
+                    // If no specific mission was selected (e.g., on view_forms.html),
+                    // and there are missions, select the first one by default.
+                    if (!missionSelected && missions.length > 0 && missionSelectorBannerAuth.options.length > 0) {
+                        missionSelectorBannerAuth.options[0].selected = true;
+                    }
+                }
+            } else {
+                console.error('Failed to fetch available missions for banner in auth.js. Status:', response.status);
+                missionSelectorBannerAuth.innerHTML = '<option value="">Error</option>';
+                missionSelectorBannerAuth.disabled = true;
+            }
+        } catch (error) {
+            console.error('Error fetching missions for banner in auth.js:', error);
+            missionSelectorBannerAuth.innerHTML = '<option value="">Error</option>';
+            missionSelectorBannerAuth.disabled = true;
+        }
+
+        // Add event listener for mission change on non-index pages
+        // On index.html, dashboard.js handles the full page reload.
+        // For other pages, we might just update links or specific content.
+        if (window.location.pathname !== '/') {
+            missionSelectorBannerAuth.addEventListener('change', function() {
+                const selectedMission = this.value;
+                if (selectedMission && createReportBtnBannerAuth) {
+                    const defaultFormType = "pic_handoff_checklist";
+                    createReportBtnBannerAuth.href = `/mission/${selectedMission}/form/${defaultFormType}.html`;
+                }
+                // If the current page IS mission-specific (like mission_form.html), it should reload.
+                if (document.body.dataset.missionId && window.location.pathname.includes('/mission/')) {
+                     const currentUrl = new URL(window.location.href);
+                     currentUrl.pathname = currentUrl.pathname.replace(document.body.dataset.missionId, selectedMission);
+                     window.location.href = currentUrl.toString();
+                }
+            });
+        }
+    }
+
+    // Update PIC Handover link initially on all pages
+    if (createReportBtnBannerAuth) {
+        const initialMissionForPicLink = missionSelectorBannerAuth?.value || document.body.dataset.missionId;
+        if (initialMissionForPicLink) {
+            const defaultFormType = "pic_handoff_checklist";
+            createReportBtnBannerAuth.href = `/mission/${initialMissionForPicLink}/form/${defaultFormType}.html`;
+        } else if (missionSelectorBannerAuth && missionSelectorBannerAuth.options.length > 0 && missionSelectorBannerAuth.options[0].value) {
+            // Fallback to the first mission in the dropdown if no specific page mission ID
+            createReportBtnBannerAuth.href = `/mission/${missionSelectorBannerAuth.options[0].value}/form/pic_handoff_checklist.html`;
+        } else {
+            createReportBtnBannerAuth.href = "#"; // Default if no mission context at all
+        }
     }
 });
 

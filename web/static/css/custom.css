@@ -6,7 +6,11 @@
   /* This targets the <td> elements directly, ensuring the background is visible. */
 }
 
-/* ... other styles ... */
+/* Make sure the value is a shade lighter that the one */
+/* defined by bootstrap for bg-dark */
+.navbar-dark.bg-dark {
+    background-color: #343a40 !important; /* A slightly lighter shade of dark */
+}
 
 
 html {
@@ -75,7 +79,7 @@ footer .text-muted {
 }
 
 .scrollable-list-card {
-  max-height: 168px; /* Scaled: 250px * 0.67 = 167.5px, rounded */
+  max-height: 400px; /* Set a maximum height - Updated from previous value */
   overflow-y: auto;
 }
 
@@ -355,4 +359,3 @@ footer .text-muted {
     margin-bottom: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   }
 }
-

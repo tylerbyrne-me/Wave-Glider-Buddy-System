@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block body_class %}{% endblock %} {# Remove container-fluid and mt-4 from body for this page #}
+
+{% block title %}Daily Schedule - Wave Glider Buddy{% endblock %}
+
+{% block head_extra_css %}
+    {# Include DayPilot CSS theme #}
+    <link type="text/css" rel="stylesheet" href="{{ url_for('static', path='daypilot/scheduler_traditional.css') }}" />
+    <style>
+        /* Page-specific styles can go here or in custom.css */
+        .schedule-table th, .schedule-table td {
+            text-align: center;
+            vertical-align: middle;
+            min-width: 100px; /* Ensure columns have some width */
+        }
+        .schedule-table .time-slot-header {
+            font-size: 0.9em;
+        }
+        .schedule-table .user-cell {
+            /* Placeholder for future styling of cells where users sign up */
+            height: 60px; /* Give cells some height */
+        }
+
+        /* DayPilot specific styles (adjust based on actual DayPilot CSS) */
+        .scheduler_default_event_inner {
+            white-space: normal; /* Allow event text to wrap */
+            word-wrap: break-word; /* Prevent overflow */
+        }
+    </style>
+{% endblock %}
+{% block content_container_class %}{% endblock %} {# Override base.html's container-fluid #}
+
+{% block content_padding_top %}0px{% endblock %} {# Override if the default body padding is enough due to fixed-top nav #}
+
+{% block content %}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1>Daily Shift Schedule</h1>
+            {# <a href="#" id="closeSchedulePageBtn" class="btn btn-outline-secondary" title="Close this tab/window">Close Page</a> #}
+        </div>
+        <p class="text-muted">All times are displayed in your local timezone.</p>
+        
+        <!-- Schedule Controls -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="btn-group" role="group" aria-label="Schedule Navigation">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="prevBtn">Previous</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="todayBtn">Today</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="nextBtn">Next</button>
+            </div>
+            <div class="d-flex align-items-center">
+                 <span class="me-2 text-muted small" id="dateRangeDisplay"></span>
+                 <!-- Scale selector can be hidden or removed if only one view is used -->
+                 <select class="form-select form-select-sm" id="scaleSelector" aria-label="Select time scale" style="display: none;">
+                    <option value="SlotDay" selected>Time Slots (Week)</option>
+                 </select>
+                 <span class="ms-2 fst-italic">View: Time Slots (Weekly)</span>
+            </div>
+        </div>
+
+        <!-- Container for DayPilot Scheduler -->
+        <div id="dp" style="width: 100%; height: 500px; border: 1px solid #ccc;"></div>
+
+{% endblock %}
+
+{% block scripts %}
+    {# Ensure jQuery is loaded if DayPilot or your custom scripts need it #}
+    {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
+
+    {# auth.js should be loaded if not already in base.html or if schedule.js depends on it directly #}
+    {# Assuming auth.js is loaded in base.html or similar #}
+    <script>
+        async function initializeCurrentUserForScheduler() {
+            if (typeof getUserProfile === 'function') {
+                window.currentUser = await getUserProfile(); // from auth.js
+                if (!window.currentUser) {
+                    console.warn("Schedule page: Current user not available. Interactive features might be limited.");
+                }
+            } else {
+                console.error("Schedule page: getUserProfile function not found. Ensure auth.js is loaded.");
+            }
+        }
+    </script>
+
+    {# Include DayPilot JavaScript library from your static/daypilot folder #}
+    <script src="{{ url_for('static', path='daypilot/daypilot-all.min.js') }}"></script>
+
+    {# Link to your custom schedule.js if you move the script out #}
+    <script src="{{ url_for('static', path='js/schedule.js') }}"></script>
+{% endblock %}

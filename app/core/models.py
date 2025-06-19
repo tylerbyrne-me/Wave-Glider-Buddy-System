@@ -7,20 +7,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlmodel import JSON, Column
 from sqlmodel import Field as SQLModelField  # type: ignore
 from sqlmodel import Relationship, SQLModel
-
-VALID_REPORT_TYPES = [
-    "power",
-    "ctd",
-    "weather",
-    "waves",
-    "telemetry",
-    "ais",
-    "errors",
-    "vr2c",
-    "fluorometer",
-    "solar",
-    "wg_vm4",
-]
+# The VALID_REPORT_TYPES list is redundant as ReportTypeEnum serves as the source of truth.
+# If it was used for a specific purpose, that should be documented or refactored.
 
 
 class ReportTypeEnum(str, Enum):
@@ -45,10 +33,10 @@ class SourceEnum(str, Enum):
 class ReportDataParams(BaseModel):
     # Path parameters are handled by FastAPI directly in the function signature
     # Query parameters:
-    hours_back: int = Field(72, gt=0, le=8760)  # e.g. 1 year max
-    source: Optional[SourceEnum] = None
-    local_path: Optional[str] = None
-    refresh: bool = False
+    hours_back: int = Field(72, gt=0, le=8760, description="Number of hours of data to retrieve, relative to the latest data point for the mission.")
+    source: Optional[SourceEnum] = Field(None, description="Preferred data source: 'local' or 'remote'. Defaults to remote then local.")
+    local_path: Optional[str] = Field(None, description="Custom base path for local data, overrides default settings path.")
+    refresh: bool = Field(False, description="Force refresh data from source, bypassing cache.")
 
     @field_validator("local_path")
     def local_path_rules(cls, v, values):
@@ -70,12 +58,12 @@ class ReportDataParams(BaseModel):
 class ForecastParams(BaseModel):
     # Path parameters are handled by FastAPI directly
     # Query parameters:
-    lat: Optional[float] = Field(None, ge=-90, le=90)
-    lon: Optional[float] = Field(None, ge=-180, le=180)
-    source: Optional[SourceEnum] = None  # For telemetry lookup
-    local_path: Optional[str] = None  # For telemetry lookup
-    refresh: bool = False  # For telemetry lookup
-    force_marine: Optional[bool] = False
+    lat: Optional[float] = Field(None, ge=-90, le=90, description="Latitude for the forecast. If not provided, attempts to infer from telemetry.")
+    lon: Optional[float] = Field(None, ge=-180, le=180, description="Longitude for the forecast. If not provided, attempts to infer from telemetry.")
+    source: Optional[SourceEnum] = Field(None, description="Preferred source for telemetry lookup if lat/lon are inferred.")
+    local_path: Optional[str] = Field(None, description="Custom local path for telemetry lookup if lat/lon are inferred.")
+    refresh: bool = Field(False, description="Force refresh of telemetry data if used for lat/lon inference.")
+    force_marine: Optional[bool] = Field(False, description="Legacy or specific flag, currently not used by primary forecast endpoints.") # Clarified description
 
     @field_validator("local_path")
     def forecast_local_path_rules(cls, v, values):
@@ -109,46 +97,52 @@ class UserRoleEnum(str, Enum):
 
 
 class UserBase(BaseModel):
-    username: str
-    email: Optional[str] = None
-    full_name: Optional[str] = None
-    role: UserRoleEnum = UserRoleEnum.pilot  # Default role
+    username: str = Field(description="Unique username for the user.")
+    email: Optional[str] = Field(None, description="Email address of the user.")
+    full_name: Optional[str] = Field(None, description="Full name of the user.")
+    role: UserRoleEnum = Field(UserRoleEnum.pilot, description="Role of the user, determines access permissions.")
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(description="User's password (will be hashed).")
 
 
 class User(UserBase):
-    disabled: Optional[bool] = None
+    disabled: Optional[bool] = Field(None, description="Whether the user account is disabled.")
 
 
 # UserInDB will now be our SQLModel table for users
 class UserInDB(SQLModel, table=True):  # Inherit from SQLModel
     __tablename__ = "users"  # Explicit table name
 
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    username: str = SQLModelField(unique=True, index=True)
+    id: Optional[int] = SQLModelField(default=None, primary_key=True, description="Unique database identifier for the user.")
+    username: str = SQLModelField(unique=True, index=True, description="Unique username for the user.")
     email: Optional[str] = SQLModelField(
-        default=None, unique=True, index=True
-    )  # Made email unique and indexable
-    full_name: Optional[str] = SQLModelField(default=None)
-    hashed_password: str = SQLModelField()
+        default=None, unique=True, index=True, description="Email address of the user (must be unique if provided)."
+    )
+    full_name: Optional[str] = SQLModelField(default=None, description="Full name of the user.")
+    hashed_password: str = SQLModelField(description="Hashed password for the user.")
     role: UserRoleEnum = SQLModelField(
-        default=UserRoleEnum.pilot
-    )  # Role is now an SQLModelField
-    disabled: Optional[bool] = SQLModelField(default=False)
+        default=UserRoleEnum.pilot, description="Role of the user, determines access permissions."
+    )
+    disabled: Optional[bool] = SQLModelField(default=False, description="Whether the user account is disabled.")
+
+    # If you want a direct relationship from UserInDB to their shifts
+    # Ensure ShiftAssignment model is defined or forward-declared if it's below UserInDB
+    shift_assignments: List["ShiftAssignment"] = Relationship(back_populates="user")
+
+
 
 
 class UserUpdateForAdmin(BaseModel):  # New model for admin updates
     full_name: Optional[str] = None
-    email: Optional[str] = None
-    role: Optional[UserRoleEnum] = None
-    disabled: Optional[bool] = None
+    email: Optional[str] = Field(None, description="New email for the user. Must be unique if changed.")
+    role: Optional[UserRoleEnum] = Field(None, description="New role for the user.")
+    disabled: Optional[bool] = Field(None, description="New disabled status for the user account.")
 
 
 class PasswordUpdate(BaseModel):  # New model for password change
-    new_password: str
+    new_password: str = Field(description="The new password for the user.")
 
 
 class Token(BaseModel):
@@ -158,6 +152,7 @@ class Token(BaseModel):
 
 # Forward declaration for type hinting in relationships
 "StationMetadata"
+"ShiftAssignment" # Forward declare ShiftAssignment
 "OffloadLog"
 
 
@@ -165,20 +160,20 @@ class Token(BaseModel):
 class StationMetadataCore(
     BaseModel
 ):  # Renamed to avoid conflict with SQLModel table name if used directly
-    serial_number: Optional[str] = None
-    modem_address: Optional[int] = None
-    bottom_depth_m: Optional[float] = None
-    waypoint_number: Optional[str] = None  # WP # can be alphanumeric
-    last_offload_by_glider: Optional[str] = None  # Could be a mission ID or date string
-    station_settings: Optional[str] = None  # e.g., "300bps, 0db"
-    notes: Optional[str] = None  # General notes about the station itself
+    serial_number: Optional[str] = Field(None, description="Serial number of the station hardware.")
+    modem_address: Optional[int] = Field(None, description="Modem address of the station.")
+    bottom_depth_m: Optional[float] = Field(None, description="Bottom depth at the station location in meters.")
+    waypoint_number: Optional[str] = Field(None, description="Associated waypoint number or identifier.")
+    last_offload_by_glider: Optional[str] = Field(None, description="Identifier of the glider that last performed an offload (e.g., mission ID).")
+    station_settings: Optional[str] = Field(None, description="Configuration settings for the station (e.g., '300bps, 0db').")
+    notes: Optional[str] = Field(None, description="General notes or comments about the station.")
     display_status_override: Optional[str] = (
-        None  # e.g., "SKIPPED", for manual status override
+        Field(None, description="Manual override for the station's display status (e.g., 'SKIPPED', 'MAINTENANCE').")
     )
 
 
 class StationMetadataBase(StationMetadataCore):
-    station_id: str = Field(..., description="Unique Station Identifier, e.g., CBS001")
+    station_id: str = Field(..., description="Unique Station Identifier (e.g., CBS001). This is the primary key.")
     # Fields to be updated by the latest offload log or direct edit
     last_offload_timestamp_utc: Optional[datetime] = Field(
         default=None, # noqa
@@ -210,16 +205,16 @@ class StationMetadataUpdate(SQLModel):  # For partial updates of core station in
 
 # --- Offload Log Models ---
 class OffloadLogBase(SQLModel):  # Using SQLModel as base for direct table inheritance
-    arrival_date: Optional[datetime] = SQLModelField(default=None)
-    distance_command_sent_m: Optional[float] = SQLModelField(default=None)
-    time_first_command_sent_utc: Optional[datetime] = SQLModelField(default=None)
-    offload_start_time_utc: Optional[datetime] = SQLModelField(default=None)
-    offload_end_time_utc: Optional[datetime] = SQLModelField(default=None)
-    departure_date: Optional[datetime] = SQLModelField(default=None)
+    arrival_date: Optional[datetime] = SQLModelField(default=None, description="Date and time of glider arrival at the station.")
+    distance_command_sent_m: Optional[float] = SQLModelField(default=None, description="Distance (meters) from station when offload command was sent.")
+    time_first_command_sent_utc: Optional[datetime] = SQLModelField(default=None, description="UTC timestamp of the first offload command sent.")
+    offload_start_time_utc: Optional[datetime] = SQLModelField(default=None, description="UTC timestamp when the data offload started.")
+    offload_end_time_utc: Optional[datetime] = SQLModelField(default=None, description="UTC timestamp when the data offload ended.")
+    departure_date: Optional[datetime] = SQLModelField(default=None, description="Date and time of glider departure from the station.")
     was_offloaded: Optional[bool] = SQLModelField(
-        default=None
-    )  # True for 'y', False for 'n'
-    vrl_file_name: Optional[str] = SQLModelField(default=None)
+        default=None, description="Indicates if the offload was successful (True) or not (False)."
+    )
+    vrl_file_name: Optional[str] = SQLModelField(default=None, description="Name of the VRL file offloaded, if applicable.")
     offload_notes_file_size: Optional[str] = SQLModelField( # noqa
         default=None, # noqa
         description="Notes about the offload and/or file size"
@@ -229,12 +224,11 @@ class OffloadLogBase(SQLModel):  # Using SQLModel as base for direct table inher
 class OffloadLog(OffloadLogBase, table=True):
     __tablename__ = "offload_logs"
     id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    station_id: str = SQLModelField(
-        foreign_key="station_metadata.station_id", index=True
-    )
-    logged_by_username: str = SQLModelField(index=True)
+    station_id: str = SQLModelField(foreign_key="station_metadata.station_id", index=True, description="Identifier of the station this log pertains to.")
+    logged_by_username: str = SQLModelField(index=True, description="Username of the user who logged this offload attempt.")
     log_timestamp_utc: datetime = SQLModelField(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="UTC timestamp when this log entry was created."
     )
 
     station: "StationMetadata" = Relationship(back_populates="offload_logs")
@@ -258,39 +252,37 @@ class FormItemTypeEnum(str, Enum):
 
 
 class FormItem(BaseModel):
-    id: str  # Unique ID for the form item within the form
-    label: str
-    item_type: FormItemTypeEnum
-    value: Optional[str] = None  # For text_input, text_area, autofilled_value
-    is_verified: Optional[bool] = None  # For the new "verified" column 3 checkbox
-    is_checked: Optional[bool] = None  # For checkbox
-    comment: Optional[str] = None  # Optional comment for any item
-    required: bool = False
-    options: Optional[List[str]] = None  # For dropdown
-    placeholder: Optional[str] = None  # For text_input, text_area
+    id: str = Field(description="Unique identifier for the form item within its section.")
+    label: str = Field(description="Display label for the form item.")
+    item_type: FormItemTypeEnum = Field(description="The type of form input element.")
+    value: Optional[str] = Field(None, description="The value of the form item (for text, autofill, selected dropdown value).")
+    is_verified: Optional[bool] = Field(None, description="Verification status, typically for a secondary check.")
+    is_checked: Optional[bool] = Field(None, description="Checked status for checkbox items.")
+    comment: Optional[str] = Field(None, description="Optional user comment for this item.")
+    required: bool = Field(False, description="Whether this form item is mandatory.")
+    options: Optional[List[str]] = Field(None, description="List of options for dropdown type items.")
+    placeholder: Optional[str] = Field(None, description="Placeholder text for input fields.")
 
 
 class FormSection(BaseModel):
-    id: str  # Unique ID for the section
-    title: str
-    items: List[FormItem]
-    section_comment: Optional[str] = None
+    id: str = Field(description="Unique identifier for the form section.")
+    title: str = Field(description="Display title for the section.")
+    items: List[FormItem] = Field(description="List of form items within this section.")
+    section_comment: Optional[str] = Field(None, description="Optional comment for the entire section.")
 
 
 class MissionFormSchema(BaseModel):  # Defines the structure/template of a form
-    form_type: str  # e.g., "pre_deployment_checklist", "mission_log_entry"
-    title: str
-    description: Optional[str] = None
-    sections: List[FormSection]
+    form_type: str = Field(description="Identifier for the type of form (e.g., 'pre_deployment_checklist').")
+    title: str = Field(description="Display title of the form.")
+    description: Optional[str] = Field(None, description="Optional description of the form's purpose.")
+    sections: List[FormSection] = Field(description="List of sections that make up the form.")
 
 
 class MissionFormDataCreate(BaseModel):  # Payload for submitting form data
-    mission_id: str
-    form_type: str
-    form_title: ( # noqa
-        str  # Title of form instance, could be same as schema title or customized
-    )
-    sections_data: List[FormSection]  # The actual filled-out data
+    mission_id: str = Field(description="Identifier of the mission this form pertains to.")
+    form_type: str = Field(description="Type of the form being submitted.")
+    form_title: str = Field(description="Title of this specific form instance (can be same as schema title or customized).")
+    sections_data: List[FormSection] = Field(description="The actual filled-out data, structured by sections and items.")
 
 
 class MissionFormDataResponse(MissionFormDataCreate):  # What's stored and returned
@@ -304,35 +296,73 @@ class MissionFormDataResponse(MissionFormDataCreate):  # What's stored and retur
 class SubmittedForm(SQLModel, table=True):
     __tablename__ = "submitted_forms"  # Explicit table name
 
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    mission_id: str = SQLModelField(index=True)
-    form_type: str = SQLModelField(index=True)
-    form_title: str
+    id: Optional[int] = SQLModelField(default=None, primary_key=True, description="Unique database ID for the submitted form.")
+    mission_id: str = SQLModelField(index=True, description="Identifier of the mission this form pertains to.")
+    form_type: str = SQLModelField(index=True, description="Type of the form submitted.")
+    form_title: str = Field(description="Title of this specific form instance.")
 
     # Store sections_data as a JSONB/JSON column in the database
     # Pydantic List[FormSection] will be converted to JSON string for storage
     # and parsed back when reading. By typing it as List[dict] here, we ensure
     # that SQLAlchemy's JSON serializer receives a directly serializable type.
-    sections_data: List[dict] = SQLModelField(sa_column=Column(JSON))
+    sections_data: List[dict] = SQLModelField(sa_column=Column(JSON), description="The actual form data, stored as JSON.")
 
-    submitted_by_username: str = SQLModelField(index=True)
-    submission_timestamp: datetime  # datetime class is directly available
+    submitted_by_username: str = SQLModelField(index=True, description="Username of the user who submitted the form.")
+    submission_timestamp: datetime = Field(description="UTC timestamp when the form was submitted.")
 
 
+# --- Schedule Event Models ---
+class ScheduleEvent(BaseModel):
+    id: str  # Or int, DayPilot can handle both
+    text: str
+    start: datetime  # Will be ISO string in JSON
+    end: datetime    # Will be ISO string in JSON
+    resource: str    # Corresponds to resource ID (e.g., "MON", "TUE")
+    backColor: Optional[str] = None # Example: for styling
+    borderColor: Optional[str] = None
+    fontColor: Optional[str] = None
 # --- SQLModel for Station Metadata (incorporating previous StationMetadataBase) ---
+
+# New Pydantic model for creating schedule events from the client
+class ScheduleEventCreate(BaseModel):
+    start: str  # Expect ISO string from client
+    end: str    # Expect ISO string from client
+    resource: str
+    text: str   # This will be the username
+    id: Optional[str] = None # Client might send an ID, or backend generates
+
+class ShiftAssignment(SQLModel, table=True):
+    __tablename__ = "shift_assignments"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True, description="Unique database ID for the shift assignment.")
+    user_id: int = SQLModelField(foreign_key="users.id", index=True, description="ID of the user assigned to this shift.")
+    start_time_utc: datetime = SQLModelField(index=True, description="UTC start time of the shift.")
+    end_time_utc: datetime = SQLModelField(index=True, description="UTC end time of the shift.")
+    resource_id: str = SQLModelField(index=True, description="Resource identifier for the shift (e.g., day of week, specific date/time slot).")
+    # Optional: Store the original text (username) if needed for quick display, though can be joined
+    # event_text: str
+
+    # Relationship to User
+    user: Optional["UserInDB"] = Relationship(back_populates="shift_assignments")
+
+    created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    # last_modified_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}) # More advanced
+
+
+
 class StationMetadata(SQLModel, table=True):  # type: ignore
     __tablename__ = "station_metadata"
 
-    station_id: str = SQLModelField(default=..., primary_key=True, index=True)
-    serial_number: Optional[str] = SQLModelField(default=None, index=True)
+    station_id: str = SQLModelField(default=..., primary_key=True, index=True, description="Unique Station Identifier (e.g., CBS001). Primary key.")
+    serial_number: Optional[str] = SQLModelField(default=None, index=True, description="Serial number of the station hardware.")
     modem_address: Optional[int] = SQLModelField(
-        default=None
-    )  # Changed from str to int as per your original StationMetadataBase
-    bottom_depth_m: Optional[float] = SQLModelField(default=None)
-    waypoint_number: Optional[str] = SQLModelField(default=None)
-    last_offload_by_glider: Optional[str] = SQLModelField(default=None)
-    station_settings: Optional[str] = SQLModelField(default=None)
-    notes: Optional[str] = SQLModelField(default=None)
+        default=None, description="Modem address of the station."
+    )
+    bottom_depth_m: Optional[float] = SQLModelField(default=None, description="Bottom depth at the station location in meters.")
+    waypoint_number: Optional[str] = SQLModelField(default=None, description="Associated waypoint number or identifier.")
+    last_offload_by_glider: Optional[str] = SQLModelField(default=None, description="Identifier of the glider that last performed an offload.")
+    station_settings: Optional[str] = SQLModelField(default=None, description="Configuration settings for the station.")
+    notes: Optional[str] = SQLModelField(default=None, description="General notes or comments about the station.")
 
     last_offload_timestamp_utc: Optional[datetime] = SQLModelField(
         default=None,
@@ -352,7 +382,7 @@ class StationMetadata(SQLModel, table=True):  # type: ignore
 
     offload_logs: List["OffloadLog"] = Relationship(
         back_populates="station",
-        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
     )
 
 
