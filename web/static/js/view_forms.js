@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const backToDashboardBtn = document.getElementById('backToDashboardBtn');
     const userRole = document.body.dataset.userRole; // Get user role
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const formIdToAutoOpen = urlParams.get('form_id');
+
     async function fetchAndDisplayForms() {
         formsSpinner.style.display = 'block';
         formsTableContainer.style.display = 'none';
@@ -35,6 +38,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (forms.length === 0) {
                 noFormsMessage.style.display = 'block';
+                formsTableContainer.style.display = 'block'; // Ensure container is visible to show the message
+                
             } else {
                 const picHandoffHighlightedForMission = {}; // Object to track missions for PIC Handoff highlight
 
@@ -43,7 +48,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const row = formsTableBody.insertRow();
 
                     // General highlight for the absolute most recent form if user is a pilot
-                    if (userRole === 'pilot' && index === 0) { // Highlight if pilot and first (most recent) form
+                    if (userRole === 'pilot' && index === 0 && !formIdToAutoOpen) { // Highlight if pilot and first (most recent) form, and not auto-opening
                         row.classList.add('table-info'); // Light blue highlight
                     }
 
@@ -60,8 +65,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.insertCell().textContent = form.form_type;
                     row.insertCell().textContent = form.form_title;
                     row.insertCell().textContent = form.submitted_by_username;                    
-                    const submissionTime = new Date(form.submission_timestamp);
-                    row.insertCell().textContent = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
+                    const submissionDate = new Date(form.submission_timestamp); // Assuming timestamp is ISO string
+                    // Manually format UTC time for consistent display
+                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                    const year = submissionDate.getUTCFullYear();
+                    const month = submissionDate.getUTCMonth(); // 0-indexed
+                    const day = submissionDate.getUTCDate();
+                    const hours = submissionDate.getUTCHours();
+                    const minutes = submissionDate.getUTCMinutes();
+                    row.insertCell().textContent = `${monthNames[month]} ${day}, ${year} ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} UTC`;
                     
                     const actionsCell = row.insertCell();
                     const viewButton = document.createElement('button');
@@ -69,55 +81,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     viewButton.textContent = 'View Details';
                     viewButton.onclick = () => {
                         document.getElementById('formDetailsModalLabel').textContent = `Details for: ${form.form_title} (${form.form_type})`;
-                        formDetailsContentElement.innerHTML = ''; // Clear previous content
-
-                        if (form.sections_data && form.sections_data.length > 0) {
-                            form.sections_data.forEach(section => {
-                                const sectionDiv = document.createElement('div');
-                                sectionDiv.classList.add('mb-4'); // Spacing between sections
-
-                                const sectionTitle = document.createElement('h5');
-                                sectionTitle.textContent = section.title;
-                                sectionDiv.appendChild(sectionTitle);
-
-                                if (section.section_comment) {
-                                    const sectionCommentP = document.createElement('p');
-                                    sectionCommentP.classList.add('text-muted', 'fst-italic', 'ms-2');
-                                    sectionCommentP.textContent = `Section Notes: ${section.section_comment}`;
-                                    sectionDiv.appendChild(sectionCommentP);
-                                }
-
-                                const itemList = document.createElement('ul');
-                                itemList.classList.add('list-group', 'list-group-flush');
-
-                                section.items.forEach(item => {
-                                    const listItem = document.createElement('li');
-                                    listItem.classList.add('list-group-item', 'bg-transparent'); // bg-transparent for dark mode
-                                    
-                                    let itemValueDisplay = '';
-                                    if (item.item_type === 'checkbox') {
-                                        itemValueDisplay = item.is_checked ? 'Checked' : 'Unchecked';
-                                    } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
-                                        itemValueDisplay = item.value || 'N/A';
-                                    } else { // text_input, text_area
-                                        itemValueDisplay = item.value || '(empty)';
-                                    }
-
-                                    listItem.innerHTML = `<strong>${item.label}:</strong> ${itemValueDisplay}`;
-                                    if (item.comment) {
-                                        listItem.innerHTML += `<br><small class="text-info ms-3"><em>Comment: ${item.comment}</em></small>`;
-                                    }
-                                    itemList.appendChild(listItem);
-                                });
-                                sectionDiv.appendChild(itemList);
-                                formDetailsContentElement.appendChild(sectionDiv);
-                            });
-                        } else {
-                            formDetailsContentElement.textContent = 'No detailed section data available for this form.';
-                        }
+                        renderFormDetailsInModal(form);
                         formDetailsModal.show();
                     };
                     actionsCell.appendChild(viewButton);
+
+                    // If this form is the one to auto-open, click its view button
+                    if (formIdToAutoOpen && form.id.toString() === formIdToAutoOpen) {
+                        viewButton.click();
+                    }
                 });
                 formsTableContainer.style.display = 'block';
             }
@@ -128,6 +100,53 @@ document.addEventListener('DOMContentLoaded', function () {
             noFormsMessage.style.display = 'none';
         } finally {
             formsSpinner.style.display = 'none';
+        }
+    }
+    function renderFormDetailsInModal(form) {
+        formDetailsContentElement.innerHTML = ''; // Clear previous content
+
+        if (form.sections_data && form.sections_data.length > 0) {
+            form.sections_data.forEach(section => {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.classList.add('mb-4'); // Spacing between sections
+
+                const sectionTitle = document.createElement('h5');
+                sectionTitle.textContent = section.title;
+                sectionDiv.appendChild(sectionTitle);
+
+                if (section.section_comment) {
+                    const sectionCommentP = document.createElement('p');
+                    sectionCommentP.classList.add('text-muted', 'fst-italic', 'ms-2');
+                    sectionCommentP.textContent = `Section Notes: ${section.section_comment}`;
+                    sectionDiv.appendChild(sectionCommentP);
+                }
+
+                const itemList = document.createElement('ul');
+                itemList.classList.add('list-group', 'list-group-flush');
+
+                section.items.forEach(item => {
+                    const listItem = document.createElement('li');
+                    listItem.classList.add('list-group-item', 'bg-transparent'); // bg-transparent for dark mode
+                    
+                    let itemValueDisplay = '';
+                    if (item.item_type === 'checkbox') {
+                        itemValueDisplay = item.is_checked ? 'Checked' : 'Unchecked';
+                    } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
+                        itemValueDisplay = item.value || 'N/A';
+                    } else { // text_input, text_area
+                        itemValueDisplay = item.value || '(empty)';
+                    }
+                    listItem.innerHTML = `<strong>${item.label}:</strong> ${itemValueDisplay}`;
+                    if (item.comment) {
+                        listItem.innerHTML += `<br><small class="text-info ms-3"><em>Comment: ${item.comment}</em></small>`;
+                    }
+                    itemList.appendChild(listItem);
+                });
+                sectionDiv.appendChild(itemList);
+                formDetailsContentElement.appendChild(sectionDiv);
+            });
+        } else {
+            formDetailsContentElement.textContent = 'No detailed section data available for this form.';
         }
     }
 

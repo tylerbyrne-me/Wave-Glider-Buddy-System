@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}My PIC Handoff Submissions - Wave Glider Buddy{% endblock %}
+
+{% block body_class %}container mt-4{% endblock %}
+
+{% block head_extra_css %}
+    <style>
+        .table-responsive {
+            max-height: 70vh; /* Adjust as needed */
+        }
+        .modal-body pre { /* For raw JSON view if needed */
+            background-color: #333;
+            color: #f1f1f1;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        #myPicHandoffsDetailsContent { /* For structured HTML view */
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+    </style>
+{% endblock %}
+
+{% block banner_actions_dropdown_items %}
+    <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
+    <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
+    <li><a class="dropdown-item" href="/view_pic_handoffs.html" id="viewRecentPicSubmissionsLinkBanner">View Recent (24h)</a></li>
+{% endblock %}
+
+{% block content_padding_top %}0px{% endblock %}
+
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>My PIC Handoff Submissions</h1>
+        <button id="closeMyHandoffsBtn" class="btn btn-outline-secondary">Close Page</button>
+    </div>
+
+    <div id="myPicHandoffsSpinner" class="text-center my-5">
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading your PIC Handoffs...</span>
+        </div>
+        <p>Loading your PIC Handoffs...</p>
+    </div>
+
+    <div id="myPicHandoffsTableContainer" style="display:none;">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover table-sm">
+                <thead>
+                    <tr>
+                        <th>Mission ID</th>
+                        <th>Form Title</th>
+                        <th>Submission Time (UTC)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="myPicHandoffsTableBody">
+                    <!-- Rows will be inserted here by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <p id="noMyPicHandoffsMessage" class="text-center text-muted mt-3" style="display:none;">You have not submitted any PIC Handoff forms.</p>
+    </div>
+
+    {% set id_prefix = "myPicHandoffs" %}
+    {% include "_form_details_modal.html" %}
+
+{% endblock %}
+
+{% block body_extra_js %}
+    <script src="/static/js/my_pic_handoffs.js"></script>
+{% endblock %}

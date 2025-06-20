@@ -36,8 +36,12 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
     const prevBtn = document.getElementById('prevBtn');
     const todayBtn = document.getElementById('todayBtn');
     const nextBtn = document.getElementById('nextBtn');
-    // const scaleSelector = document.getElementById('scaleSelector'); // Selector will be removed/disabled
     const dateRangeDisplay = document.getElementById('dateRangeDisplay');
+    const downloadStartDateInput = document.getElementById('downloadStartDate');
+    const downloadEndDateInput = document.getElementById('downloadEndDate');
+    const downloadFormatSelect = document.getElementById('downloadFormat');
+    const downloadUserScopeSelect = document.getElementById('downloadUserScope');
+    const downloadScheduleBtn = document.getElementById('downloadScheduleBtn');
 
     // Define resources (these will be your columns, e.g., days of the week)
     // This will be dynamically set based on the view
@@ -103,6 +107,26 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
              console.warn("dpContainer not ready, falling back to Auto cellWidthSpec.");
         }
     }
+
+    // Helper function to safely call scheduler.message or fallback
+    function safeSchedulerMessage(html, options) {
+        if (scheduler && typeof scheduler.message === 'function') {
+            if (options) {
+                scheduler.message(html, options);
+            } else {
+                scheduler.message(html);
+            }
+        } else {
+            console.warn("scheduler.message is not a function. Falling back to DayPilot.Modal.alert. Message:", html, "Scheduler instance:", scheduler);
+            // Fallback to DayPilot.Modal.alert for a consistent look, though it's not auto-hiding.
+            // You could also use a simple window.alert() if DayPilot.Modal is also problematic.
+            if (typeof DayPilot !== "undefined" && DayPilot.Modal && typeof DayPilot.Modal.alert === 'function') {
+                DayPilot.Modal.alert(html.toString()); // Modal.alert expects a string
+            } else {
+                alert(html.toString().replace(/<[^>]*>?/gm, '')); // Basic strip HTML for plain alert
+            }
+        }
+    }
     // Load events from the backend
     // Pass start and end dates to the API
     async function loadScheduleEvents(start, end) {
@@ -125,7 +149,7 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
                 }
                 const errorData = await response.json();
                 console.error("Error loading schedule events:", response.status, errorData.detail);
-                scheduler.message("Error loading schedule: " + (errorData.detail || "Server error"));
+                safeSchedulerMessage("Error loading schedule: " + (errorData.detail || "Server error"));
                 return;
             }
             const events = await response.json();
@@ -139,8 +163,8 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
             // or by the forced "Full" update on initial load.
             // Avoid calling scheduler.update() here directly if refreshSchedulerAndUpdateView will call it. 
         } catch (error) {
-            console.error("Failed to fetch schedule events:", error);
-            scheduler.message("Failed to load schedule events. Check console for details.");
+            console.error("Failed to fetch schedule events:", error); // Keep console error
+            safeSchedulerMessage("Failed to load schedule events. Check console for details.");
         }
     }
 
@@ -211,16 +235,11 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
             const resourceObj = timeSlotResources.find(r => r.id === args.resource);
             const slotName = resourceObj ? resourceObj.name : args.resource;
             modalTitle = `Sign up for ${slotName} on ${args.start.toString("dddd, MMM d")}?`;
-        } else { // This else block might become unreachable if currentScale is always "SlotDay"
-            console.warn("onTimeRangeSelected called with unexpected scale:", currentScale);
-            scheduler.message("Invalid view state. Please refresh.", { delay: 4000 });
-            scheduler.clearSelection();
-            return;
         }
 
         if (isValidSelection) {
             if (!window.currentUser || !window.currentUser.username) {
-                scheduler.message("Error: User information not available. Please log in again.", { cssClass: "error", delay: 3000 });
+                safeSchedulerMessage("Error: User information not available. Please log in again.", { cssClass: "error", delay: 3000 });
                 scheduler.clearSelection();
                 return;
             }
@@ -251,23 +270,23 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
 
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({ detail: "Server error during sign-up." }));
-                        scheduler.message("Error signing up: " + (errorData.detail || "Server error"), { cssClass: "error", delay: 3000 });
+                        safeSchedulerMessage("Error signing up: " + (errorData.detail || "Server error"), { cssClass: "error", delay: 3000 });
                         return;
                     }
                     // const createdEvent = await response.json(); // Backend returns the created event
                     // If backend returns the created event with its DB ID, you could add it directly:
                     // scheduler.events.add(new DayPilot.Event(createdEvent));
                     // However, refreshScheduler() reloads all events, ensuring consistency,
-                    scheduler.message(`Shift added for ${currentUsername}.`);
+                    safeSchedulerMessage(`Shift added for ${currentUsername}.`);
                     refreshSchedulerAndUpdateView(); // Reload all events to ensure consistency
 
                 } catch (error) {
-                    scheduler.message("Network error signing up: " + error.message, { cssClass: "error", delay: 3000 });
+                    safeSchedulerMessage("Network error signing up: " + error.message, { cssClass: "error", delay: 3000 });
                 }
             }
         } else {
             const errorMessage = "Invalid selection."; // Simplified as other views are removed
-            scheduler.message(errorMessage, { delay: 4000 });
+            safeSchedulerMessage(errorMessage, { delay: 4000 });
             scheduler.clearSelection();
         }
     };
@@ -288,13 +307,58 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
                     const response = await fetchWithAuth(`/api/schedule/events/${eventData.id}`, { method: 'DELETE' });
                     if (!response.ok) { throw new Error((await response.json()).detail || "Server error during unassignment."); }
                     // scheduler.events.remove(args.e); // Optimistic update
-                    // Refreshing the whole scheduler is safer to ensure consistency and re-fetch data
-                    scheduler.message(`Shift unassigned.`); // Corrected message
+                    // Refreshing the whole scheduler is safer to ensure consistency and re-fetch data                    
+                    safeSchedulerMessage(`Shift unassigned.`); // Corrected message
                     refreshSchedulerAndUpdateView(); // Reload all events to ensure consistency
-                } catch (error) { scheduler.message("Error unassigning: " + error.message, { cssClass: "error", delay: 3000 }); }
+                } catch (error) { safeSchedulerMessage("Error unassigning: " + error.message, { cssClass: "error", delay: 3000 }); }
             }
         } else {
-            DayPilot.Modal.alert(`Shift details:<br/>Pilot: ${eventData.text}<br/>Start: ${args.e.start().toString("MM/dd/yyyy HH:mm")}<br/>End: ${args.e.end().toString("MM/dd/yyyy HH:mm")}`);
+            // Display shift details and PIC Handoff links
+            let modalContent = `<b>Shift Details:</b><br/>Pilot: ${eventData.text}<br/>Start: ${args.e.start().toString("MM/dd/yyyy HH:mm")}<br/>End: ${args.e.end().toString("MM/dd/yyyy HH:mm")}`;
+
+            try {
+                    const handoffResponse = await fetchWithAuth(`/api/schedule/events/${eventData.id}/pic_handoffs`);
+                    if (handoffResponse.ok) {
+                        const handoffForms = await handoffResponse.json();
+                        if (handoffForms.length > 0) {
+                            modalContent += `<br/><br/><b>PIC Handoffs during this shift:</b><ul>`;
+                            const twentyFourHoursAgo = new Date(new Date().getTime() - (24 * 60 * 60 * 1000));
+                            handoffForms.forEach(form => {
+                                const submissionTime = new Date(form.submission_timestamp);
+                                const isRecent = submissionTime > twentyFourHoursAgo;
+                                // Link to new view_pic_handoffs.html for recent, existing view_forms.html for older
+                                // We'll assume view_pic_handoffs.html can handle form_id and mission_id
+                                const viewUrl = isRecent ?
+                                    `/view_pic_handoffs.html?form_id=${form.form_db_id}&mission_id=${form.mission_id}` :
+                                    `/view_forms.html?form_id=${form.form_db_id}`; // Assuming view_forms.html can take form_id
+
+                                modalContent += `<li><a href="${viewUrl}" target="_blank">${form.mission_id} - PIC Handoff (${submissionTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} UTC)</a> by ${form.submitted_by_username}</li>`;
+                            });
+                            modalContent += `</ul>`;
+                        } else {
+                            modalContent += `<br/><br/><i>No PIC Handoff forms found for this shift and mission.</i>`;
+                        } // "and mission" part of the message can be removed or generalized now
+                    } else {
+                        console.error("Error fetching PIC Handoffs:", handoffResponse.status);
+                        modalContent += `<br/><br/><i>Could not load PIC Handoff information.</i>`;
+                    }
+                } catch (error) {
+                    console.error("Network error fetching PIC Handoffs:", error);
+                    modalContent += `<br/><br/><i>Error loading PIC Handoff information.</i>`;
+                }
+
+            DayPilot.Modal.alert(modalContent, {width: 450}); // Increased width for more content
+        }
+    };
+
+    // --- Highlight Current Day ---
+    scheduler.onBeforeCellRender = function(args) {
+        // console.log("onBeforeCellRender: cell.start:", args.cell.start, "today:", DayPilot.Date.today());
+        if (args.cell.start.getDatePart().getTime() === DayPilot.Date.today().getTime()) {
+            // Using a more distinct color for highlighting the current day.
+            // This is a light blue, adjust as needed for your theme.
+            args.cell.backColor = "#e3f2fd"; // A light blue, for example
+            // console.log("Highlighting current day:", args.cell.start);
         }
     };
 
@@ -388,6 +452,67 @@ document.addEventListener('DOMContentLoaded', async function () { // Make async
     // if (scaleSelector) {
     //     scaleSelector.addEventListener('change', function() { /* ... */ });
     // }
+
+    // Disable "My Shifts" option if no user is logged in
+    if (downloadUserScopeSelect && (!window.currentUser || !window.currentUser.username)) {
+        const myShiftsOption = downloadUserScopeSelect.querySelector('option[value="my_shifts"]');
+        if (myShiftsOption) {
+            myShiftsOption.disabled = true;
+        }
+    }
+    // --- Download Schedule Handler ---
+    if (downloadScheduleBtn) {
+        downloadScheduleBtn.addEventListener('click', handleDownloadSchedule);
+    }
+
+    async function handleDownloadSchedule() {
+        const startDate = downloadStartDateInput.value; // "YYYY-MM-DD"
+        const endDate = downloadEndDateInput.value;
+        const format = downloadFormatSelect.value;
+        const userScope = downloadUserScopeSelect.value;
+
+        if (!startDate || !endDate) {
+            safeSchedulerMessage("Please select both a start and end date for the download.", { cssClass: "error", delay: 3000 });
+            return;
+        }
+        if (new Date(startDate) > new Date(endDate)) {
+            safeSchedulerMessage("Start date cannot be after end date.", { cssClass: "error", delay: 3000 });
+            return;
+        }
+
+        let apiUrl = `/api/schedule/download?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&format=${encodeURIComponent(format)}&user_scope=${encodeURIComponent(userScope)}`;
+
+        let filenameSuffix = "";
+        if (userScope === "my_shifts" && window.currentUser && window.currentUser.username) {
+            filenameSuffix = `_${window.currentUser.username.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        }
+
+        try {
+            const response = await fetchWithAuth(apiUrl, { method: 'GET' }); // Assumes fetchWithAuth can handle non-JSON responses
+
+            if (!response.ok) {
+                const errorText = await response.text(); // Try to get text for more detailed error
+                console.error("Error downloading schedule:", response.status, errorText);
+                safeSchedulerMessage(`Error ${response.status} downloading: ${errorText || 'Server error'}`, { cssClass: "error", delay: 5000 });
+                return;
+            }
+
+            const blob = await response.blob();
+            const filename = `schedule_${startDate.replace(/-/g, '')}_to_${endDate.replace(/-/g, '')}${filenameSuffix}.${format}`;
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            safeSchedulerMessage("Schedule download started.", { delay: 2000 });
+
+        } catch (error) {
+            console.error("Failed to download schedule:", error);
+            safeSchedulerMessage("Network error downloading schedule: " + error.message, { cssClass: "error", delay: 3000 });
+        }
+    }
 
     // Initialize the scheduler
     console.log("Calling initial refreshScheduler.");

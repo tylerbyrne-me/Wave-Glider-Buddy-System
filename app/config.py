@@ -1,4 +1,6 @@
 # c:\Users\ty225269\Documents\Python Playground\Wave Glider Project\app\config.py
+import json
+from typing import Any # Import Any
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -11,28 +13,11 @@ class Settings(BaseSettings):
     remote_data_url: str = (
         "http://129.173.20.180:8086/"  # Base URL before specific output folders
     )
-    remote_mission_folder_map: dict[str, str] = {
-        # Example: "mission_code_alias": "Actual_Folder_Name_On_Server"
-        "m169": "m169-SV3-1071 (C34166NS)",
-        "m170": "m170-SV3-1070 (C34164NS)",
-        "m171": "m171-SV3-1121 (C34167NS)",
-        "m176": "m176-SV3-1070 (C34164NS)",
-        "m177": "m177-SV3-1071 (C34166NS)",
-        "m181": "m181-SV3-1121 (C34167NS)",
-        "m182": "m182-SV3-1071 (C34166NS)",
-        "m183": "m183-SV3-1070 (C34164NS)",
-        "m186": "m186-SV3-1071 (C34166NS)",
-        "m189": "m189-SV3-1121 (C34167NS)",
-        "m193": "m193-SV3-1121 (C34167NS)",
-        "m199": "m199-SV3-1070 (C34164NS)",
-        "m203": "m203-SV3-1070 (C34164NS)",
-        "m204": "m204-SV3-1070 (C34164NS)",
-        "m209": "m209-SV3-1071 (C34166NS)",
-        # Add other mappings here if needed, e.g., "m204": "m204-XYZ-1234"
-    }
+    # Store as JSON string in .env, parse here
+    remote_mission_folder_map_json: str = "{}"
+    # Store as JSON string in .env, parse here
     active_realtime_missions: list[str] = [
-        "m203",
-        "m204",
+        "m209",
     ]
     # Example: List of mission IDs considered active
     # In a real scenario, this list might be managed dynamically or via
@@ -50,21 +35,31 @@ class Settings(BaseSettings):
     # Default relative to project root if not overridden by .env
 
     # JWT Settings
-    jwt_secret_key: str = "plankt0n"  # CHANGE THIS!
+    # IMPORTANT: The default JWT_SECRET_KEY is INSECURE and for DEVELOPMENT ONLY.
+    # ALWAYS override this in your .env file with a strong, randomly generated key for production.
+    jwt_secret_key: str = "CHANGE_THIS_IN_DOT_ENV_FOR_PRODUCTION_NEVER_USE_THIS_DEFAULT"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60 * 24
     # 24 hours, adjust as needed
     forms_storage_mode: str = "local_json"  # Options: "local_json", "sqlite"
     sqlite_database_url: str = (
-        "sqlite:///./data_store/app_data.sqlite"
+        "sqlite:///./data_store/app_data.sqlite" # Reverted to original default
     )
-    # Default if not in .env
+    sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
+
+    # Parsed values (not loaded directly from env)
+    remote_mission_folder_map: dict[str, str] = {}
+
+    def model_post_init(self, __context: Any) -> None:
+        """Post-initialization hook to parse JSON strings."""
+        self.remote_mission_folder_map = json.loads(self.remote_mission_folder_map_json)
+
     sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        # plans to include custom parsing for maps from othre env var
+        env_prefix = "" # Ensure no prefix is added to env var names
 
 
 settings = Settings()

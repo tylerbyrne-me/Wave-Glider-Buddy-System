@@ -135,8 +135,9 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
     const viewFormsBtnBanner = document.getElementById('viewFormsBtnBanner');
     const registerUserBtnBanner = document.getElementById('registerUserBtnBanner');
     const userManagementBtnBanner = document.getElementById('userManagementBtnBanner');
-    const missionSelectorBannerAuth = document.getElementById('missionSelectorBanner'); // Get it here for auth.js scope
-    const createReportBtnBannerAuth = document.getElementById('createReportBtnBanner'); // For PIC Handover link
+    const missionSelectorBannerAuth = document.getElementById('missionSelectorBanner'); 
+    const picHandoffNavDropdown = document.getElementById('picHandoffNavDropdown'); // New dropdown
+    const submitNewPicHandoffLink = document.getElementById('submitNewPicHandoffLink');
 
     // Fetch user profile to update banner elements
     // Also used to determine which missions to show for pilots vs admin in mission dropdown
@@ -161,6 +162,10 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         } else {
             if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
             if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
+        }
+        // Show PIC Handoff dropdown for pilot or admin
+        if (picHandoffNavDropdown && (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin')) {
+            picHandoffNavDropdown.style.display = 'block';
         }
     } else { // No user logged in, ensure role-specific buttons are hidden
         if (viewFormsBtnBanner) viewFormsBtnBanner.style.display = 'none';
@@ -218,33 +223,36 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         // On index.html, dashboard.js handles the full page reload.
         // For other pages, we might just update links or specific content.
         if (window.location.pathname !== '/') {
-            missionSelectorBannerAuth.addEventListener('change', function() {
+            missionSelectorBannerAuth.addEventListener('change', function() { // Ensure this listener is added only once
                 const selectedMission = this.value;
-                if (selectedMission && createReportBtnBannerAuth) {
+                if (selectedMission && submitNewPicHandoffLink) {
                     const defaultFormType = "pic_handoff_checklist";
-                    createReportBtnBannerAuth.href = `/mission/${selectedMission}/form/${defaultFormType}.html`;
+                    submitNewPicHandoffLink.href = `/mission/${selectedMission}/form/${defaultFormType}.html`;
+                    submitNewPicHandoffLink.classList.remove('disabled');
                 }
                 // If the current page IS mission-specific (like mission_form.html), it should reload.
                 if (document.body.dataset.missionId && window.location.pathname.includes('/mission/')) {
                      const currentUrl = new URL(window.location.href);
                      currentUrl.pathname = currentUrl.pathname.replace(document.body.dataset.missionId, selectedMission);
                      window.location.href = currentUrl.toString();
+                } else if (!selectedMission && submitNewPicHandoffLink) {
+                    submitNewPicHandoffLink.href = "#";
+                    submitNewPicHandoffLink.classList.add('disabled');
                 }
             });
         }
     }
 
-    // Update PIC Handover link initially on all pages
-    if (createReportBtnBannerAuth) {
+    // Update "Submit New PIC Handoff" link initially on all pages
+    if (submitNewPicHandoffLink) {
         const initialMissionForPicLink = missionSelectorBannerAuth?.value || document.body.dataset.missionId;
         if (initialMissionForPicLink) {
             const defaultFormType = "pic_handoff_checklist";
-            createReportBtnBannerAuth.href = `/mission/${initialMissionForPicLink}/form/${defaultFormType}.html`;
-        } else if (missionSelectorBannerAuth && missionSelectorBannerAuth.options.length > 0 && missionSelectorBannerAuth.options[0].value) {
-            // Fallback to the first mission in the dropdown if no specific page mission ID
-            createReportBtnBannerAuth.href = `/mission/${missionSelectorBannerAuth.options[0].value}/form/pic_handoff_checklist.html`;
+            submitNewPicHandoffLink.href = `/mission/${initialMissionForPicLink}/form/${defaultFormType}.html`;
+            submitNewPicHandoffLink.classList.remove('disabled');
         } else {
-            createReportBtnBannerAuth.href = "#"; // Default if no mission context at all
+            submitNewPicHandoffLink.href = "#"; // Default if no mission context at all
+            submitNewPicHandoffLink.classList.add('disabled');
         }
     }
 });

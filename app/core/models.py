@@ -100,6 +100,7 @@ class UserBase(BaseModel):
     username: str = Field(description="Unique username for the user.")
     email: Optional[str] = Field(None, description="Email address of the user.")
     full_name: Optional[str] = Field(None, description="Full name of the user.")
+    color: Optional[str] = Field(default=None, description="User's assigned color for UI elements like schedule shifts.")
     role: UserRoleEnum = Field(UserRoleEnum.pilot, description="Role of the user, determines access permissions.")
 
 
@@ -124,6 +125,9 @@ class UserInDB(SQLModel, table=True):  # Inherit from SQLModel
     hashed_password: str = SQLModelField(description="Hashed password for the user.")
     role: UserRoleEnum = SQLModelField(
         default=UserRoleEnum.pilot, description="Role of the user, determines access permissions."
+    )
+    color: Optional[str] = SQLModelField(
+        default=None, description="User's assigned color for UI elements."
     )
     disabled: Optional[bool] = SQLModelField(default=False, description="Whether the user account is disabled.")
 
@@ -322,6 +326,14 @@ class ScheduleEvent(BaseModel):
     borderColor: Optional[str] = None
     fontColor: Optional[str] = None
 # --- SQLModel for Station Metadata (incorporating previous StationMetadataBase) ---
+
+# --- Model for PIC Handoff Link Information ---
+class PicHandoffLinkInfo(BaseModel):
+    form_db_id: int # The database ID of the SubmittedForm
+    mission_id: str
+    form_title: str # Should typically be "PIC Handoff Checklist" or similar
+    submitted_by_username: str
+    submission_timestamp: datetime
 
 # New Pydantic model for creating schedule events from the client
 class ScheduleEventCreate(BaseModel):
