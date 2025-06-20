@@ -95,7 +95,7 @@ def load_data_interactive(report_type: str, mission_id: str):
     # 2. Try remote (if local failed, not found, or user chose 'n')
     try:
         # Determine the actual folder name for the remote server
-        remote_folder_name = settings.remote_mission_folder_map.get(
+        remote_folder_name = settings.remote_mission_folder_map.get( # Use the parsed map
             mission_id, mission_id
         )
         console.print(

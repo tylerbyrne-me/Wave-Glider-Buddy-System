@@ -876,13 +876,13 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                     year: 'numeric',
                     month: 'short',
                     day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                const lat = parseFloat(forecastData.latitude_used).toFixed(3);
-                const lon = parseFloat(forecastData.longitude_used).toFixed(3);
-            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
+                    hour: '2-digit', // Corrected: Use forecastData
+                    minute: '2-digit', // Corrected: Use forecastData
+                    hour12: false // Corrected: Use forecastData
+                }); // Corrected: Use forecastData
+                const lat = parseFloat(forecastData.latitude_used).toFixed(3); // Corrected: Use forecastData
+                const lon = parseFloat(forecastData.longitude_used).toFixed(3); // Corrected: Use forecastData
+            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${lat}, Lon: ${lon}`;
              metaInfoContainer.style.display = 'block';
             } else {
                 metaInfoContainer.textContent = ''; // Clear if no data

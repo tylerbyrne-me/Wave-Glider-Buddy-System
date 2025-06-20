@@ -49,12 +49,37 @@
             </div>
             <div class="d-flex align-items-center">
                  <span class="me-2 text-muted small" id="dateRangeDisplay"></span>
-                 <!-- Scale selector can be hidden or removed if only one view is used -->
-                 <select class="form-select form-select-sm" id="scaleSelector" aria-label="Select time scale" style="display: none;">
-                    <option value="SlotDay" selected>Time Slots (Week)</option>
-                 </select>
                  <span class="ms-2 fst-italic">View: Time Slots (Weekly)</span>
             </div>
+        </div>
+
+        <!-- Download Controls -->
+        <div class="d-flex justify-content-start align-items-center mb-3 p-2 border rounded bg-light">
+            <span class="me-2 small fw-bold">Download Schedule:</span>
+            <div class="me-2">
+                <label for="downloadStartDate" class="form-label form-label-sm visually-hidden">Start Date</label>
+                <input type="date" class="form-control form-control-sm" id="downloadStartDate" style="width: auto;" title="Select start date for download">
+            </div>
+            <span class="me-2 small">to</span>
+            <div class="me-2">
+                <label for="downloadEndDate" class="form-label form-label-sm visually-hidden">End Date</label>
+                <input type="date" class="form-control form-control-sm" id="downloadEndDate" style="width: auto;" title="Select end date for download">
+            </div>
+            <div class="me-2">
+                <label for="downloadFormat" class="form-label form-label-sm visually-hidden">Format</label>
+                <select class="form-select form-select-sm" id="downloadFormat" style="width: auto;" title="Select download format">
+                    <option value="ics" selected>ICS (Calendar)</option>
+                    <option value="csv">CSV (Spreadsheet)</option>
+                </select>
+            </div>
+            <div class="me-2">
+                <label for="downloadUserScope" class="form-label form-label-sm visually-hidden">User Scope</label>
+                <select class="form-select form-select-sm" id="downloadUserScope" style="width: auto;" title="Select user scope for download">
+                    <option value="all_users" selected>All Users</option>
+                    <option value="my_shifts">My Shifts Only</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="downloadScheduleBtn">Download</button>
         </div>
 
         <!-- Container for DayPilot Scheduler -->

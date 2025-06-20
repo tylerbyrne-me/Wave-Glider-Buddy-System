@@ -70,7 +70,12 @@ def get_power_status(
 
     try:
         # Processor now handles copying and ensures UTC timestamps
-        df_power_processed = preprocess_power_df(df_power)
+        # Wrap preprocessor call in try-except
+        try:
+            df_power_processed = preprocess_power_df(df_power)
+        except Exception as e_proc:
+            logger.error(f"Error during power data preprocessing for summary: {e_proc}", exc_info=True)
+            return result_shell
     except Exception as e:
         logger.warning(f"Error preprocessing power data for summary: {e}")
         return result_shell
@@ -212,7 +217,7 @@ def get_power_status(
             "Panel2Power": panel2_power,
             "Panel4Power": panel4_power,
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -272,7 +277,7 @@ def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any
             if pd.notna(row["Timestamp"]) and pd.notna(row["battery_charging_power_w"]):
                 trend_data.append(
                     {
-                        "Timestamp": row["Timestamp"].strftime("%Y-%m-%dT%H:%M:%S"),
+                        "Timestamp": row["Timestamp"].isoformat(),
                         # Use battery_charging_power_w for the trend value
                         "value": row["battery_charging_power_w"],
                     }
@@ -316,7 +321,7 @@ def get_fluorometer_status(df_fluorometer: Optional[pd.DataFrame]) -> Dict:
             "Latitude": last_row.get("Latitude"),
             "Longitude": last_row.get("Longitude"),
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -373,7 +378,7 @@ def get_fluorometer_mini_trend(
                 trend_data.append(
                     {
                         "Timestamp": row["Timestamp"].strftime("%Y-%m-%dT%H:%M:%S"),
-                        "value": row[metric_col],
+                        "value": row[metric_col]
                     }
                 )
         return trend_data
@@ -428,7 +433,7 @@ def get_ctd_status(df_ctd: Optional[pd.DataFrame]) -> Dict:
             "HighestWaterTemperature24h": highest_temp_24h,
             "LowestWaterTemperature24h": lowest_temp_24h,
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -556,7 +561,7 @@ def get_weather_status(df_weather: Optional[pd.DataFrame]) -> Dict:
             "PressureHigh24h": pressure_high_24h,
             "PressureLow24h": pressure_low_24h,
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -701,7 +706,7 @@ def get_wave_status(df_waves: Optional[pd.DataFrame]) -> Dict:
             "WaveAmplitude": wave_amplitude,
             "SampleGaps": last_row.get("SampleGaps"),
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -857,7 +862,7 @@ def get_vr2c_status(df_vr2c: Optional[pd.DataFrame]) -> Dict:
             "DetectionCount": last_row.get("DetectionCount"),
             "PingCount": last_row.get("PingCount"),
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -1010,7 +1015,7 @@ def get_navigation_status(df_telemetry: Optional[pd.DataFrame]) -> Dict:
             "OceanCurrentSpeed": last_row.get("OceanCurrentSpeed"),
             "OceanCurrentDirection": last_row.get("OceanCurrentDirection"),
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -1055,7 +1060,7 @@ def get_navigation_mini_trend(
         return [
             {
                 "Timestamp": row["Timestamp"].strftime("%Y-%m-%dT%H:%M:%S"),
-                "value": row[metric_col],
+                "value": row[metric_col]
             }
             for _, row in df_trend_resampled.iterrows()
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col])
@@ -1095,7 +1100,7 @@ def get_wg_vm4_status(df_wg_vm4: Optional[pd.DataFrame]) -> Dict:
             "PlaceholderField1": "N/A", # noqa
             "PlaceholderField2": "N/A",
             "Timestamp": (
-                last_row["Timestamp"].strftime("%Y-%m-%d %H:%M:%S UTC")
+                last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))
                 else "N/A"
             ),
@@ -1144,7 +1149,7 @@ def get_wg_vm4_mini_trend(df_wg_vm4: Optional[pd.DataFrame]) -> List[Dict[str, A
         return [
             {
                 "Timestamp": row["Timestamp"].strftime("%Y-%m-%dT%H:%M:%S"),
-                "value": row[metric_col],
+                "value": row[metric_col]
             }
             for _, row in df_trend_resampled.iterrows()
             if pd.notna(row["Timestamp"]) and pd.notna(row[metric_col])

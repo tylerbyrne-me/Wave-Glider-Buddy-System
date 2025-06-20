@@ -1,10 +1,10 @@
 import asyncio
 import json  # For saving/loading forms to/from JSON
 import logging
-from datetime import timezone  # Import timezone directly
-from datetime import datetime, timedelta
+from datetime import timezone, date # Import timezone directly, Import date
+from datetime import datetime, timedelta 
 from pathlib import Path
-from typing import Annotated, Dict, List, Optional, Tuple # Added Annotated
+from typing import Annotated, Dict, List, Optional, Tuple 
 
 import httpx  # For async client in load_data_source
 import numpy as np  # For numeric operations if needed
@@ -12,13 +12,13 @@ import pandas as pd  # For DataFrame operations # type: ignore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import (  # Added status
     Depends,
-    FastAPI,
+    FastAPI, Form,
     HTTPException,
-    Request,
-    status, Query, Body, # Import Query
-    Form,
+    Query, # Import Query
+    Request, Body,
+    status, 
 )
-from fastapi.responses import HTMLResponse, JSONResponse  # type: ignore
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse  # type: ignore
 from cachetools import LRUCache # Import LRUCache
 from fastapi.security import OAuth2PasswordRequestForm  # type: ignore
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +28,9 @@ from sqlmodel import (  # type: ignore
     inspect,
     select,
 )
+import io # For CSV and ICS generation
+import csv # For CSV generation
+import ics # For ICS file generation
 
 from . import \
     auth_utils  # Import the auth_utils module itself for its functions
@@ -157,6 +160,9 @@ def _initialize_database_and_users():
                 logger.info(
                     "No users found in the database. Creating default users..."
                 )
+                # Use a local index for default user colors to ensure they get specific ones
+                # from the USER_COLORS palette in auth_utils.
+                default_user_color_idx = 0
                 default_users_data = [
                     {
                         "username": "adminuser",
@@ -164,6 +170,7 @@ def _initialize_database_and_users():
                         "email": "admin@example.com",
                         "password": "adminpass",
                         "role": models.UserRoleEnum.admin,
+                        "color": auth_utils.USER_COLORS[default_user_color_idx % len(auth_utils.USER_COLORS)],
                         "disabled": False,
                     },
                     {
@@ -172,6 +179,7 @@ def _initialize_database_and_users():
                         "email": "pilot@example.com",
                         "password": "pilotpass",
                         "role": models.UserRoleEnum.pilot,
+                        "color": auth_utils.USER_COLORS[(default_user_color_idx + 1) % len(auth_utils.USER_COLORS)],
                         "disabled": False,
                     },
                     {
@@ -180,9 +188,15 @@ def _initialize_database_and_users():
                         "email": "pilot_rt@example.com",
                         "password": "pilotrtpass",
                         "role": models.UserRoleEnum.pilot,
+                        "color": auth_utils.USER_COLORS[(default_user_color_idx + 2) % len(auth_utils.USER_COLORS)],
                         "disabled": False,
                     },
                 ]
+                # Advance the global next_color_index in auth_utils past the ones used for default users.
+                # This ensures that subsequent user registrations (via API) start assigning colors
+                # from the palette after the ones taken by default users.
+                auth_utils.next_color_index = (default_user_color_idx + len(default_users_data))
+
                 for user_data_dict in default_users_data:
                     user_create_model = models.UserCreate(**user_data_dict)
                     auth_utils.add_user_to_db(session, user_create_model)
@@ -915,9 +929,14 @@ async def populate_form_schema_with_dynamic_data(
         latest_power_df, _ = await load_data_source(
             "power", mission_id, current_user=current_user
         )
-        power_summary_values = summaries.get_power_status(latest_power_df).get(
-            "values", {}
-        )
+        power_summary = summaries.get_power_status(latest_power_df)
+        # Check if power_summary is a dictionary before trying to get 'values'
+        # Also check if the value associated with 'values' is not None
+        if isinstance(power_summary, dict) and power_summary.get("values") is not None:
+            power_summary_values = power_summary["values"] # Get the actual values dict
+        else:
+            power_summary_values = {} # Default to empty dict if summary is not a dict or 'values' is None
+
         current_battery_wh_value = (
             f"{power_summary_values.get('BatteryWattHours', 'N/A'):.0f} Wh"
             if pd.notna(power_summary_values.get("BatteryWattHours"))
@@ -1172,6 +1191,49 @@ async def get_all_submitted_forms(
 
     return forms
 
+@app.get("/api/forms/id/{form_db_id}", response_model=models.SubmittedForm)
+async def get_submitted_form_by_id(
+    form_db_id: int,
+    session: SQLModelSession = Depends(get_db_session),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    logger.info(f"User '{current_user.username}' requesting submitted form with DB ID: {form_db_id}")
+    db_form = session.get(models.SubmittedForm, form_db_id)
+    if not db_form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    # Add any role-based access control if necessary, e.g., pilots can only see recent forms
+    # For now, any authenticated user can fetch by ID if they know it.
+    return db_form
+
+@app.get("/api/forms/pic_handoffs/my", response_model=List[models.SubmittedForm])
+async def get_my_pic_handoff_submissions(
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' requesting their PIC Handoff submissions.")
+    statement = select(models.SubmittedForm).where(
+        models.SubmittedForm.form_type == "pic_handoff_checklist",
+        models.SubmittedForm.submitted_by_username == current_user.username
+    ).order_by(models.SubmittedForm.submission_timestamp.desc())
+    forms = session.exec(statement).all()
+    logger.info(f"Returning {len(forms)} PIC Handoff forms for user '{current_user.username}'.")
+    return forms
+
+@app.get("/api/forms/pic_handoffs/recent", response_model=List[models.SubmittedForm])
+async def get_recent_pic_handoff_submissions(
+    current_user: models.User = Depends(get_current_active_user), # Still require auth to view any
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' requesting recent PIC Handoff submissions (last 24h).")
+    twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    statement = select(models.SubmittedForm).where(
+        models.SubmittedForm.form_type == "pic_handoff_checklist",
+        models.SubmittedForm.submission_timestamp >= twenty_four_hours_ago
+    ).order_by(models.SubmittedForm.submission_timestamp.desc())
+    forms = session.exec(statement).all()
+    logger.info(f"Returning {len(forms)} recent PIC Handoff forms.")
+    return forms
+
 # --- Schedule ---
 
 @app.get("/schedule.html", response_class=HTMLResponse)
@@ -1238,16 +1300,17 @@ async def get_schedule_events_api(
     for assignment in db_assignments:
         # Fetch the user to get the username for the event text
         user = session.get(models.UserInDB, assignment.user_id)
-        username = user.username if user else "Unknown User"
+        username_display = user.username if user else "Unknown User"
+        user_color = user.color if user and user.color else "#DDDDDD" # Default grey if no color assigned
 
         response_events.append(
             models.ScheduleEvent(
                 id=str(assignment.id), # Ensure ID is string for DayPilot
-                text=username,
+                text=username_display,
                 start=assignment.start_time_utc, # Already datetime
                 end=assignment.end_time_utc,     # Already datetime
                 resource=assignment.resource_id,
-                # Add backColor or other properties if stored/derived
+                backColor=user_color # Add the user's assigned color
             )
         )
     logger.info(f"Returning {len(response_events)} events from database.")
@@ -1327,15 +1390,70 @@ async def create_schedule_event_api(
     session.commit()
     session.refresh(db_assignment)
     logger.info(f"ShiftAssignment created with ID {db_assignment.id} for user {current_user.username}")
+    user_assigned_color = user_in_db.color if user_in_db and user_in_db.color else "#DDDDDD"
 
     return models.ScheduleEvent(
         id=str(db_assignment.id),
         text=current_user.username, # For display
         start=db_assignment.start_time_utc,
         end=db_assignment.end_time_utc,
-        resource=db_assignment.resource_id
+        resource=db_assignment.resource_id,
+        backColor=user_assigned_color # Return the color for immediate display
     )
     # The return models.ScheduleEvent(**response_event_data) was a leftover from previous version, removed.
+
+
+@app.get("/api/schedule/events/{shift_assignment_id}/pic_handoffs", response_model=List[models.PicHandoffLinkInfo])
+async def get_pic_handoffs_for_shift(
+    shift_assignment_id: int,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' requesting PIC Handoffs for shift ID {shift_assignment_id}.")
+
+    shift_assignment = session.get(models.ShiftAssignment, shift_assignment_id)
+    if not shift_assignment:
+        raise HTTPException(status_code=404, detail="Shift assignment not found.")
+    
+    logger.info(f"Shift ID {shift_assignment_id} details: StartUTC='{shift_assignment.start_time_utc.isoformat()}', EndUTC='{shift_assignment.end_time_utc.isoformat()}'")
+
+    # Query SubmittedForm table
+    statement = select(models.SubmittedForm).where(
+        models.SubmittedForm.form_type == "pic_handoff_checklist", # Specific form type
+        models.SubmittedForm.submission_timestamp >= shift_assignment.start_time_utc,
+        models.SubmittedForm.submission_timestamp <= shift_assignment.end_time_utc
+    ).order_by(models.SubmittedForm.submission_timestamp.desc())
+
+    # For debugging: Log all PIC Handoffs to check their timestamps and form_types
+    all_pic_handoffs_debug_stmt = select(models.SubmittedForm).where(models.SubmittedForm.form_type == "pic_handoff_checklist").order_by(models.SubmittedForm.submission_timestamp.desc())
+    all_pic_handoffs_in_db = session.exec(all_pic_handoffs_debug_stmt).all()
+    logger.debug(f"Total 'pic_handoff_checklist' forms in DB: {len(all_pic_handoffs_in_db)}")
+    for f_debug in all_pic_handoffs_in_db[:5]: # Log first 5 for brevity
+        logger.debug(f"  Debug - Form ID: {f_debug.id}, Mission: {f_debug.mission_id}, Timestamp: {f_debug.submission_timestamp.isoformat()}, Type: {f_debug.form_type}")
+        # Optional: Filter by submitted_by_username if it must match the shift's user
+        # user_of_shift = session.get(models.UserInDB, shift_assignment.user_id)
+        # if user_of_shift:
+        #     statement = statement.where(models.SubmittedForm.submitted_by_username == user_of_shift.username)
+
+    submitted_forms = session.exec(statement).all()
+    logger.info(f"Query for shift {shift_assignment_id} (time range: {shift_assignment.start_time_utc.isoformat()} to {shift_assignment.end_time_utc.isoformat()}) found {len(submitted_forms)} matching 'pic_handoff_checklist' forms within the timeframe.")
+    if not submitted_forms and all_pic_handoffs_in_db:
+        logger.warning("No forms found for the specific shift time range, but 'pic_handoff_checklist' forms exist in general. Please verify timestamps and ensure they are UTC and overlap with the shift period.")
+
+
+    handoff_links = []
+    for form in submitted_forms:
+        handoff_links.append(
+            models.PicHandoffLinkInfo(
+                form_db_id=form.id, # type: ignore
+                mission_id=form.mission_id,
+                form_title=form.form_title, # Or a static "PIC Handoff"
+                submitted_by_username=form.submitted_by_username,
+                submission_timestamp=form.submission_timestamp
+            )
+        )
+    logger.info(f"Found {len(handoff_links)} PIC Handoff forms for shift {shift_assignment_id} across all missions.")
+    return handoff_links
 
 
 @app.delete("/api/schedule/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1378,6 +1496,114 @@ async def delete_schedule_event_api(
     return
 
 
+# --- Download Schedule Endpoint ---
+@app.get("/api/schedule/download")
+async def download_schedule_data(
+    start_date: date, # FastAPI will parse YYYY-MM-DD to datetime.date
+    end_date: date,
+    format: str = Query(..., pattern="^(ics|csv)$"), 
+    user_scope: str = Query("all_users", pattern="^(all_users|my_shifts)$"), # New parameter
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' requested schedule download. Format: {format}, Range: {start_date} to {end_date}, Scope: {user_scope}")
+    
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date.")
+
+    # Convert date to datetime for querying (start of day for start_date, end of day for end_date)
+    start_datetime_utc = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    # Add 1 day to end_date to include the whole day, then take min.time()
+    end_datetime_utc = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    statement = select(models.ShiftAssignment).where(
+        models.ShiftAssignment.start_time_utc >= start_datetime_utc,
+        models.ShiftAssignment.start_time_utc < end_datetime_utc 
+    )
+
+    user_in_db_for_filter = None
+    if user_scope == "my_shifts":
+        user_in_db_for_filter = auth_utils.get_user_from_db(session, current_user.username)
+        if not user_in_db_for_filter:
+            logger.error(f"Could not find UserInDB for current_user {current_user.username} when filtering for 'my_shifts'. This should not happen if user is authenticated.")
+            # This case is unlikely if get_current_active_user works, but as a safeguard:
+            raise HTTPException(status_code=404, detail="Current user details not found for filtering.")
+        statement = statement.where(models.ShiftAssignment.user_id == user_in_db_for_filter.id)
+
+    statement = statement.order_by(models.ShiftAssignment.start_time_utc)
+
+    db_assignments = session.exec(statement).all()
+
+    # Fetch user details for all assignments efficiently
+    # This is still useful even for "my_shifts" if we want to display the username, or for "all_users"
+    user_ids = {assign.user_id for assign in db_assignments}
+    users_map = {}
+    if user_ids:
+        users_stmt = select(models.UserInDB).where(models.UserInDB.id.in_(user_ids))
+        db_users = session.exec(users_stmt).all()
+        users_map = {user.id: user for user in db_users}
+
+    filename_suffix = ""
+    if user_scope == "my_shifts" and user_in_db_for_filter:
+        filename_suffix = f"_{user_in_db_for_filter.username.replace(' ', '_')}"
+    filename_base = f"schedule_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}{filename_suffix}"
+
+    if format == "ics":
+        cal = ics.Calendar()
+        for assignment in db_assignments:
+            user = users_map.get(assignment.user_id)
+            username = user.username if user else "Unknown User"
+            
+            slot_name_display = assignment.resource_id 
+            if assignment.resource_id.startswith("SLOT_"):
+                try:
+                    parts = assignment.resource_id.split("_") 
+                    slot_start_hour = int(parts[1])
+                    slot_end_hour = (slot_start_hour + 3) % 24 
+                    slot_name_display = f"{slot_start_hour:02d}:00-{slot_end_hour:02d}:00"
+                except (IndexError, ValueError):
+                    pass # Keep original resource_id if parsing fails
+
+            event_name = f"Shift: {username} ({slot_name_display})"
+            
+            ics_event = ics.Event()
+            ics_event.name = event_name
+            ics_event.begin = assignment.start_time_utc # Already UTC datetime
+            ics_event.end = assignment.end_time_utc     # Already UTC datetime
+            ics_event.description = f"Shift assigned to {username} for time slot {slot_name_display} on {assignment.start_time_utc.strftime('%Y-%m-%d')}."
+            cal.events.add(ics_event)
+        
+        content = str(cal)
+        media_type = "text/calendar"
+        filename = f"{filename_base}.ics"
+
+    elif format == "csv":
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+        headers = ["Subject", "Start Date", "Start Time", "End Date", "End Time", "Assigned To", "Time Slot ID", "Description"]
+        csv_writer.writerow(headers)
+
+        for assignment in db_assignments:
+            user = users_map.get(assignment.user_id)
+            username = user.username if user else "Unknown User"
+            slot_name_display = assignment.resource_id
+            if assignment.resource_id.startswith("SLOT_"):
+                try:
+                    parts = assignment.resource_id.split("_")
+                    slot_start_hour = int(parts[1]); slot_end_hour = (slot_start_hour + 3) % 24
+                    slot_name_display = f"{slot_start_hour:02d}:00-{slot_end_hour:02d}:00"
+                except: pass
+            subject = f"Shift: {username} ({slot_name_display})"
+            description = f"Shift for {username} covering time slot {slot_name_display} on {assignment.start_time_utc.strftime('%Y-%m-%d')}."
+            csv_writer.writerow([subject, assignment.start_time_utc.strftime("%Y-%m-%d"), assignment.start_time_utc.strftime("%H:%M:%S UTC"), assignment.end_time_utc.strftime("%Y-%m-%d"), assignment.end_time_utc.strftime("%H:%M:%S UTC"), username, assignment.resource_id, description])
+        content = output.getvalue()
+        media_type = "text/csv"
+        filename = f"{filename_base}.csv"
+        output.close()
+    else: # Should not be reached due to Query(pattern=...)
+        raise HTTPException(status_code=400, detail="Invalid format specified.")
+
+    return StreamingResponse(io.BytesIO(content.encode("utf-8")), media_type=media_type, headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
 
 # --- Admin User Management API Endpoints ---
 @app.get("/api/admin/users", response_model=List[models.User])
@@ -1946,6 +2172,25 @@ async def get_view_forms_page(
         "view_forms.html", {"request": request, "current_user": current_user}
     )
 
+
+@app.get("/my_pic_handoffs.html", response_class=HTMLResponse)
+async def get_my_pic_handoffs_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /my_pic_handoffs.html.")
+    return templates.TemplateResponse("my_pic_handoffs.html", {"request": request, "current_user": current_user})
+
+@app.get("/view_pic_handoffs.html", response_class=HTMLResponse)
+async def get_view_pic_handoffs_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /view_pic_handoffs.html.")
+    return templates.TemplateResponse("view_pic_handoffs.html", {"request": request, "current_user": current_user})
+
+# Ensure this is the last line or that other routes are defined before it if they share a common prefix.
+# Example: if you had a catch-all, it should be last.
 
 # --- HTML Route for Station Offload Status Page ---
 @app.get("/view_station_status.html", response_class=HTMLResponse)

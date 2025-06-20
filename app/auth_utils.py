@@ -19,6 +19,23 @@ from app.core.security import (  # TokenData imported from here, added get_passw
 # assuming it fetches them from settings.
 from app.db import get_db_session  # Import the new get_db_session
 
+# Color palette for user shifts
+USER_COLORS = [
+    "#FFADAD",  # Light Red
+    "#FFD6A5",  # Light Orange
+    "#FDFFB6",  # Light Yellow
+    "#CAFFBF",  # Light Green
+    "#9BF6FF",  # Light Cyan
+    "#A0C4FF",  # Light Blue
+    "#BDB2FF",  # Light Purple
+    "#FFC6FF",  # Light Magenta
+    "#D1C4E9",  # Light Lilac
+    "#BBDEFB",  # Pale Blue
+    "#C8E6C9",  # Pale Green
+    "#FFECB3",  # Pale Yellow
+]
+next_color_index = 0 # Used for assigning colors to newly registered users
+
 logger = logging.getLogger(__name__)
 
 # --- In-Memory User Store (Replace with DB in Production) ---
@@ -69,18 +86,29 @@ def add_user_to_db(
                 detail="Email already registered",
             )
 
+    global next_color_index
+    assigned_color = user_create.color # UserCreate inherits .color from UserBase
+
+    if not assigned_color: # If no color was provided (e.g., for a new registration via API)
+        assigned_color = USER_COLORS[next_color_index % len(USER_COLORS)]
+        next_color_index = (next_color_index + 1) # Simple increment, will wrap around due to modulo later
+        # next_color_index will be reset by app.py after default users are created to ensure
+        # fresh assignments for subsequent registrations.
+
     hashed_password = get_password_hash(user_create.password)
     user_in_db = UserInDB(
         username=user_create.username,
         full_name=user_create.full_name,
         email=user_create.email,
         hashed_password=hashed_password,
-        role=user_create.role,  # Defaults to pilot in UserCreate model
+        role=user_create.role,
+        color=assigned_color, # Store the assigned color
         disabled=False,
     )
     session.add(user_in_db)
     session.commit()
     session.refresh(user_in_db)
+    logger.info(f"User '{user_in_db.username}' added to DB with color '{assigned_color}'.")
     return user_in_db
 
 

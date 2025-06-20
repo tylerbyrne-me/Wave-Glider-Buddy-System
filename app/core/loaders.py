@@ -11,6 +11,7 @@ logger = logging.getLogger(
 )  # Keep this for actual operational logging
 DEFAULT_TIMEOUT = 10.0  # seconds
 RETRY_COUNT = 2  # Number of retries for loaders
+from ..config import settings # Import settings to access the map
 async def load_report(
     report_type: str,
     mission_id: str,
@@ -56,7 +57,7 @@ async def load_report(
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
         # If an external client is provided, use it directly without an
-        # additional 'async with'. If no client is provided, create one for
+        # additional 'async with'. If no client is provided, create one for # noqa
         # this specific operation.
         if client:
             # Assuming the client passed in might have its own
@@ -67,7 +68,7 @@ async def load_report(
         else:
             # This case should ideally not be hit if app.py always provides a
             # client for remote calls.
-            # However, as a fallback or for direct CLI usage:
+            # However, as a fallback or for direct CLI usage: # noqa
             transport = httpx.HTTPTransport(retries=RETRY_COUNT)
             async with httpx.AsyncClient(
                 timeout=DEFAULT_TIMEOUT, transport=transport
@@ -77,5 +78,5 @@ async def load_report(
                 return pd.read_csv(io.StringIO(response.text))
     else:
         raise ValueError(
-            "Either base_path or base_url must be provided to load_report." # noqa
+            "Either base_path or base_url must be provided to load_report."
         )

@@ -23,8 +23,18 @@
         </li>
       </ul>
       <ul class="navbar-nav ms-auto d-flex align-items-center">
-        <li class="nav-item me-3">
-          <a id="createReportBtnBanner" href="#" class="btn btn-sm btn-warning">PIC Handover</a>
+        <li class="nav-item">
+          {# PIC Handoff Dropdown - visibility controlled by auth.js #}
+          <div class="nav-item dropdown me-3" id="picHandoffNavDropdown" style="display: none;">
+              <a class="nav-link dropdown-toggle btn btn-sm btn-warning text-dark" href="#" id="picHandoffDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  PIC Handoff
+              </a>
+              <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="picHandoffDropdownLink">
+                  <li><a class="dropdown-item" id="submitNewPicHandoffLink" href="#">Submit New PIC Handoff</a></li>
+                  <li><a class="dropdown-item" id="viewMyPicSubmissionsLink" href="/my_pic_handoffs.html">View My Submissions</a></li>
+                  <li><a class="dropdown-item" id="viewRecentPicSubmissionsLink" href="/view_pic_handoffs.html">View Recent (24h)</a></li>
+              </ul>
+          </div>
         </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="actionsDropdownBanner" role="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</a>
