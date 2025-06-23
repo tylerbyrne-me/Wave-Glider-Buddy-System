@@ -16,45 +16,16 @@
       data-is-realtime="{{ is_current_mission_realtime | lower }}"
 {% endblock %}
 
-{% block banner_actions_dropdown_items %}
+{# This block now targets the new, smaller block within the Actions dropdown #}
+{% block page_specific_banner_actions %}
   {# Specific actions for the index.html page's banner #}
   <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#dataSourceModal">Change Data Source</a></li>
-  <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
-  <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
-  <li><a class="dropdown-item" href="#" id="refreshDataBtnBanner">Refresh Data</a></li>
-  {% if is_current_mission_realtime %}
-  <li><hr class="dropdown-divider"></li>
-  <li>
-    <div class="px-3 py-1">
-      <div class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
-        <label class="form-check-label small" for="autoRefreshToggleBanner" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh</label>
-      </div>
-    </div>
-  </li>
-  {% endif %}
-  {# Standard admin/user links will be inherited from _banner.html if not overridden, or handled by auth.js #}
-  {{ super() }} {# Includes default items from _banner.html if base.html's block was empty or also called super() #}
+
 {% endblock %}
 
 {% block content %}
   {# The main content of index.html starts here. The body padding for fixed-top navbar is handled by base.html #}
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <div>
-        <h1>Current Mission Status: <span id="currentMissionDisplay">{{ mission }}</span></h1>
-        <h6 class="text-muted fst-italic" id="dataSourceIndicator">
-          {{ display_source_path }}
-          {% if current_source_preference %}
-            <br><small>(Requested source: {{ "Local" if current_source_preference == 'local' else "Remote" }})</small>
-          {% endif %}
-        </h6>
-      </div>
-      <div class="d-flex align-items-center">
-        <div id="utcClock" class="me-3" style="font-size: 0.9rem; color: #adb5bd;">UTC: ...</div>
-        <div id="refreshCountdown" class="me-3" style="font-size: 0.9rem; color: #adb5bd; display: none;"></div>
-      </div>
-    </div>
-
+    <div class="d-flex justify-content-end align-items-center mb-3" style="height: 2.5rem;"></div>
   <div class="modal fade" id="dataSourceModal" tabindex="-1" aria-labelledby="dataSourceModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -63,6 +34,14 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
+            <div class="alert alert-info small" role="alert">
+            <strong>Currently Loading From:</strong><br>
+            <span class="font-monospace">{{ display_source_path }}</span>
+            {% if current_source_preference %}
+              <br><strong>Requested Source Type:</strong> {{ "Local" if current_source_preference == 'local' else "Remote" }}
+            {% endif %}
+          </div>
+          <hr>
           <div class="form-check mb-2"> {# Added margin-bottom #}
             <input class="form-check-input" type="radio" name="dataSourceOption" id="sourceRemote" value="remote" {% if not current_source_preference or current_source_preference == 'remote' %}checked{% endif %}>
             <label class="form-check-label" for="sourceRemote">
@@ -272,7 +251,20 @@
       <!-- AIS Summary Card -->
       <div class="summary-card" data-category="ais">
         <div class="summary-card-main-content">
-          <div class="mini-chart-placeholder"></div> <!-- Placeholder for chart area -->
+          <div class="mini-chart-placeholder"> <!-- Populated with list instead of chart -->
+            {% if not ais_summary_data %}
+              <span class="no-errors-message">No recent contacts.</span>
+            {% else %}
+              <ul class="error-message-list"> {# Re-using error list style for consistency #}
+                {% for v in ais_summary_data[:2] %} {# Display up to the two most recent contacts #}
+                  <li>
+                    <small class="text-muted">{{ v.LastSeenTimestamp.strftime('%m/%d %H:%M') if v.LastSeenTimestamp else "N/A" }}:</small>
+                    {{ v.ShipName[:25] if v.ShipName else "Unknown" }}{% if v.ShipName and v.ShipName|length > 25 %}...{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
           <div class="summary-card-text-content">   <!-- Removed full-width -->
             <h5>AIS Contacts</h5>
             <div class="mini-summary">
@@ -296,11 +288,11 @@
       <div class="summary-card" data-category="errors">
         <div class="summary-card-main-content">
           <div class="mini-chart-placeholder"> <!-- Error list will go here -->
-            {% if not errors_summary_data %}
+            {% if not recent_errors_list %}
               <span class="no-errors-message">No recent errors.</span>
             {% else %}
               <ul class="error-message-list">
-                {% for err in errors_summary_data[:2] %} {# Display up to the two most recent errors #}
+                {% for err in recent_errors_list[:2] %} {# Display up to the two most recent errors #}
                   <li>
                     <small class="text-muted">{{ err.Timestamp.strftime('%m/%d %H:%M') if err.Timestamp else "N/A" }}:</small>
                     {{ err.ErrorMessage[:25] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 25 %}...{% endif %}
@@ -312,8 +304,8 @@
           <div class="summary-card-text-content">   <!-- Removed full-width -->
             <h5>Errors {% if has_errors_data %}<span class="text-danger ms-1 position-absolute top-0 end-0 mt-1 me-1">❗</span>{% endif %}</h5>
             <div class="mini-summary">
-              {% if errors_summary_data %}
-                {{ errors_summary_data | length }} recent
+              {% if recent_errors_list %}
+                {{ recent_errors_list | length }} recent
               {% else %}
                 0 recent
               {% endif %}
@@ -363,13 +355,13 @@
           </div>
           <div class="card-body">
             <ul class="list-unstyled scrollable-list-card">
-              {% if errors_summary_data %} {# Updated variable name #}
-                {% for err in errors_summary_data %} {# Updated variable name #}
+              {% if recent_errors_list %}
+                {% for err in recent_errors_list %}
                   <li>{{ err.Timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if err.Timestamp else "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
                 {% endfor %}
               {% else %}
                 <li>No recent errors.</li>
-              {% endif %} {# Close the if/else for errors_summary_data #}
+              {% endif %}
             </ul>
           </div>
           <div class="card-footer text-muted small">
@@ -384,13 +376,40 @@
       <!-- Navigation Detail View (Initially Displayed or as per JS logic) -->
       <div class="category-detail-view card mb-4" id="detail-navigation" style="display: block;"> <!-- Default visible -->
         <div class="card h-100">
-          <div class="card-header">
-            <h2>Navigation</h2>
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h2 class="mb-0">Navigation</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-telemetry" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-telemetry" value="24" min="1" max="8760" data-report-type="telemetry">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-telemetry" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-telemetry" data-report-type="telemetry">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="telemetry">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="navigation">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
           </div>
           <div class="card-body">
             <div class="summary-content-area">
               {% if navigation_info and navigation_info['values'] %}
-              <div class="power-task-manager-summary mb-3">
+              <div class="power-task-manager-summary detail-summary-box mb-3">
                   <div class="row">
                       <!-- Column 1: Position & Waypoint -->
                       <div class="col-md-4 power-summary-column">
@@ -447,29 +466,29 @@
               {% endif %}
             </div>
             <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Navigation Trends (Last 72 hours, 1-hour avg)</h5>
+              <h5>Navigation Trends</h5>
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
-              <canvas id="navigationChart"></canvas>
+              <canvas id="telemetryChart"></canvas>
             </div>
             <!-- New Ocean Current Chart -->
             <hr class="my-4">
             <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Ocean Current & SOG (Last 72 hours, 1-hour avg)</h5>
+              <h5>Ocean Current & SOG</h5>
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
-              <canvas id="navigationCurrentChart"></canvas>
+              <canvas id="telemetryCurrentChart"></canvas>
             </div>
             <!-- New Heading Difference Chart -->
             <hr class="my-4">
             <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Sub Heading Difference & Ocean Current (Last 72 hours, 1-hour avg)</h5>
+              <h5>Sub Heading Difference & Ocean Current</h5>
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
-              <canvas id="navigationHeadingDiffChart"></canvas>
+              <canvas id="telemetryHeadingDiffChart"></canvas>
             </div>
           </div>
            <div class="card-footer text-muted small">
@@ -485,13 +504,40 @@
       <!-- Power Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-power" style="display: none;"> 
       <div class="card h-100">
-        <div class="card-header">
-          <h2>Power</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">Power</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-power" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-power" value="24" min="1" max="8760" data-report-type="power">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-power" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-power" data-report-type="power">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="power">Power Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="power">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if power_info and power_info['values'] %} {# Use bracket notation for checking the item #}
-            <div class="power-task-manager-summary mb-3"> {# Added mb-3 for spacing before chart #}
+            <div class="power-task-manager-summary detail-summary-box mb-3"> {# Added mb-3 for spacing before chart #}
                 <div class="row">
                     <!-- Column 1 -->
                     <div class="col-md-4 power-summary-column">
@@ -550,7 +596,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-            <h5>Power Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>Power Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -559,7 +605,7 @@
           <!-- New Solar Panel Chart -->
           <hr class="my-4">
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-            <h5>Individual Solar Panel Power (Last 72 hours, 1-hour avg)</h5>
+            <h5>Individual Solar Panel Power</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -580,13 +626,40 @@
       <!-- CTD Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-ctd" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>CTD</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">CTD</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-ctd" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-ctd" value="24" min="1" max="8760" data-report-type="ctd">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-ctd" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-ctd" data-report-type="ctd">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="ctd">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="ctd">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if ctd_info and ctd_info['values'] %} {# Use bracket notation for checking the item #}
-            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+            <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Water Temp, Conductivity, Salinity -->
                     <div class="col-md-6 power-summary-column"> {# Adjust col-md-X as needed #}
@@ -628,7 +701,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>CTD Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>CTD Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -637,7 +710,7 @@
           <!-- New CTD Profile Chart -->
           <hr class="my-4">
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>CTD Profile Aux (Last 72 hours, 1-hour avg)</h5>
+            <h5>CTD Profile Aux</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -657,13 +730,40 @@
       <!-- Weather Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-weather" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>Weather Sensor</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">Weather Sensor</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-weather" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-weather" value="24" min="1" max="8760" data-report-type="weather">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-weather" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-weather" data-report-type="weather">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="weather">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="weather">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if weather_info and weather_info['values'] %}
-            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+            <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Wind Speed, Wind Direction -->
                     <div class="col-md-4 power-summary-column">
@@ -717,7 +817,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Weather Sensor Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>Weather Sensor Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -757,13 +857,40 @@
       <!-- Wave Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-waves" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>Wave</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">Wave</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-waves" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-waves" value="24" min="1" max="8760" data-report-type="waves">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-waves" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-waves" data-report-type="waves">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="waves">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="waves">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if wave_info and wave_info['values'] %}
-            <div class="power-task-manager-summary mb-3"> {# Reusing power summary class for layout #}
+            <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Wave Height, Wave Height 24hr Avg -->
                     <div class="col-md-4 power-summary-column">
@@ -819,7 +946,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Wave Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>Wave Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -828,7 +955,7 @@
           <!-- New Wave Chart: Height vs Direction -->
           <hr class="my-4">
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Wave Height & Direction (Last 72 hours, 1-hour avg)</h5>
+            <h5>Wave Height & Direction</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -879,23 +1006,52 @@
       <!-- VR2C Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-vr2c" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>VR2C-MRx Acoustic Receiver</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">VR2C-MRx Acoustic Receiver</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-vr2c" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-vr2c" value="24" min="1" max="8760" data-report-type="vr2c">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-vr2c" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-vr2c" data-report-type="vr2c">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="vr2c">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="vr2c">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if vr2c_info and vr2c_info['values'] is not none %}
-            <ul class="list-unstyled mb-3">
-              <li>
-                Serial Number: {{ vr2c_info['values']['SerialNumber'] if vr2c_info['values']['SerialNumber'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-              <li>
-                Detection Count (DC): {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-              <li>
-                Ping Count (PC): {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-            </ul>
+            <div class="detail-summary-box mb-3">
+              <ul class="list-unstyled">
+                <li>
+                  Serial Number: {{ vr2c_info['values']['SerialNumber'] if vr2c_info['values']['SerialNumber'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+                <li>
+                  Detection Count (DC): {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+                <li>
+                  Ping Count (PC): {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+              </ul>
+            </div>
             {% elif vr2c_info and vr2c_info.latest_timestamp_str == "N/A" %}
             <p>Data unavailable.</p>
             {% else %}
@@ -903,7 +1059,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>VR2C Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>VR2C Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -923,26 +1079,55 @@
       <!-- Fluorometer Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-fluorometer" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>C3 Fluorometer</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">C3 Fluorometer</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-fluorometer" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-fluorometer" value="24" min="1" max="8760" data-report-type="fluorometer">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-fluorometer" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-fluorometer" data-report-type="fluorometer">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="fluorometer">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="fluorometer">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <div class="summary-content-area">
             {% if fluorometer_info and fluorometer_info['values'] is not none %}
-            <ul class="list-unstyled mb-3">
-              <li>
-                C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-              <li>
-                C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values']['C2_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-              <li>
-                C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values']['C3_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-              <li>
-                Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else '<span class="na-value">N/A</span>' | safe }}
-              </li>
-            </ul>
+            <div class="detail-summary-box mb-3">
+              <ul class="list-unstyled">
+                <li>
+                  C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+                <li>
+                  C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values']['C2_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+                <li>
+                  C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values']['C3_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+                <li>
+                  Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                </li>
+              </ul>
+            </div>
             {% elif fluorometer_info and fluorometer_info.latest_timestamp_str == "N/A" %}
             <p>Data unavailable.</p>
             {% else %}
@@ -950,7 +1135,7 @@
             {% endif %}
           </div>
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Fluorometer Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>Fluorometer Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -970,19 +1155,48 @@
       <!-- WG-VM4 Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-wg_vm4" style="display: none;">
       <div class="card h-100">
-        <div class="card-header">
-          <h2>WG-VM4 Sensor</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h2 class="mb-0">WG-VM4 Sensor</h2>
+            <div class="d-flex align-items-center">
+              <!-- Hours back control -->
+              <div class="input-group input-group-sm me-2" style="width: 150px;">
+                <label class="input-group-text" for="hours-back-wg_vm4" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="hours-back-wg_vm4" value="24" min="1" max="8760" data-report-type="wg_vm4">
+              </div>
+              <!-- Granularity control -->
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="granularity-select-wg_vm4" title="Set the data resampling interval.">Resample</label>
+                <select class="form-select granularity-select" id="granularity-select-wg_vm4" data-report-type="wg_vm4">
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <!-- Download Dropdown -->
+              <div class="dropdown ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="wg_vm4">Data as CSV</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="wg_vm4">Charts as PNG</a></li>
+                </ul>
+              </div>
+            </div>
         </div>
         <div class="card-body">
           <!-- WG-VM4 Health Summary (existing) -->
-          <div class="summary-content-area mb-3">
-            <h5>VM4 Health Summary</h5>
+          <div class="summary-content-area detail-summary-box mb-3">
             {% if wg_vm4_info and wg_vm4_info['values'] is not none %}
-            <ul class="list-unstyled mb-3">
-              <li>Serial Number: {{ wg_vm4_info['values']['SerialNumber'] if wg_vm4_info['values']['SerialNumber'] is not none else 'N/A' }}</li>
-              <li>Channel 0 Detections: {{ wg_vm4_info['values']['Channel0DetectionCount'] if wg_vm4_info['values']['Channel0DetectionCount'] is not none else 'N/A' }}</li>
-              <li>Channel 1 Detections: {{ wg_vm4_info['values']['Channel1DetectionCount'] if wg_vm4_info['values']['Channel1DetectionCount'] is not none else 'N/A' }}</li>
-            </ul>
+            <div>
+              <h5>VM4 Health Summary</h5>
+              <ul class="list-unstyled">
+                <li>Serial Number: {{ wg_vm4_info['values']['SerialNumber'] if wg_vm4_info['values']['SerialNumber'] is not none else 'N/A' }}</li>
+                <li>Channel 0 Detections: {{ wg_vm4_info['values']['Channel0DetectionCount'] if wg_vm4_info['values']['Channel0DetectionCount'] is not none else 'N/A' }}</li>
+                <li>Channel 1 Detections: {{ wg_vm4_info['values']['Channel1DetectionCount'] if wg_vm4_info['values']['Channel1DetectionCount'] is not none else 'N/A' }}</li>
+              </ul>
+            </div>
             {% elif wg_vm4_info and wg_vm4_info.latest_timestamp_str == "N/A" %}
             <p class="text-muted">VM4 health data unavailable.</p>
             {% else %}
@@ -1035,7 +1249,7 @@
           <div id="offloadSubmissionStatus" class="mt-3"></div>
 
           <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>WG-VM4 Trends (Last 72 hours, 1-hour avg)</h5>
+            <h5>WG-VM4 Trends</h5>
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1055,13 +1269,7 @@
   </div> <!-- End New Two-Column Layout / End Right Main Display Area -->
     <!-- --- Footer --- -->
   <hr>
-  <footer class="mt-4 mb-4">
-    <small class="text-muted">
-      Weather forecast data generated using ICON Wave forecast from the German Weather Service DWD.
-      <a href="https://open-meteo.com/" target="_blank">Open-Meteo.com</a>.
-      Development assisted by Google's Gemini models.
-    </small>
-  </footer>
+
 {% endblock %}
 
 {% block body_extra_js %}

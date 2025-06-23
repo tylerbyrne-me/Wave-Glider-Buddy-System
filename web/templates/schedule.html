@@ -5,27 +5,13 @@
 {% block title %}Daily Schedule - Wave Glider Buddy{% endblock %}
 
 {% block head_extra_css %}
-    {# Include DayPilot CSS theme #}
-    <link type="text/css" rel="stylesheet" href="{{ url_for('static', path='daypilot/scheduler_traditional.css') }}" />
+    {# FullCalendar CSS served locally #}
+    <link href="{{ url_for('static', path='fullcalendar/main.min.css') }}" rel="stylesheet" />
     <style>
-        /* Page-specific styles can go here or in custom.css */
-        .schedule-table th, .schedule-table td {
-            text-align: center;
-            vertical-align: middle;
-            min-width: 100px; /* Ensure columns have some width */
-        }
-        .schedule-table .time-slot-header {
-            font-size: 0.9em;
-        }
-        .schedule-table .user-cell {
-            /* Placeholder for future styling of cells where users sign up */
-            height: 60px; /* Give cells some height */
-        }
-
-        /* DayPilot specific styles (adjust based on actual DayPilot CSS) */
-        .scheduler_default_event_inner {
-            white-space: normal; /* Allow event text to wrap */
-            word-wrap: break-word; /* Prevent overflow */
+        /* Custom styles for FullCalendar */
+        #calendar {
+            max-width: 100%;
+            margin: 0 auto;
         }
     </style>
 {% endblock %}
@@ -82,8 +68,8 @@
             <button type="button" class="btn btn-primary btn-sm" id="downloadScheduleBtn">Download</button>
         </div>
 
-        <!-- Container for DayPilot Scheduler -->
-        <div id="dp" style="width: 100%; height: 500px; border: 1px solid #ccc;"></div>
+        <!-- Container for FullCalendar -->
+        <div id='calendar'></div>
 
 {% endblock %}
 
@@ -106,8 +92,8 @@
         }
     </script>
 
-    {# Include DayPilot JavaScript library from your static/daypilot folder #}
-    <script src="{{ url_for('static', path='daypilot/daypilot-all.min.js') }}"></script>
+    {# FullCalendar JS served locally #}
+    <script src="{{ url_for('static', path='fullcalendar/main.min.js') }}"></script>
 
     {# Link to your custom schedule.js if you move the script out #}
     <script src="{{ url_for('static', path='js/schedule.js') }}"></script>

@@ -633,24 +633,22 @@ async def _process_loaded_data_for_home_view(
 
 
     # Determine the primary display_source_path
-    display_source_path = "Data Source: Information unavailable or all loads failed"
+    display_source_path = "Information unavailable or all loads failed"
     found_primary_path_for_display = False
     priority_paths_checks = [
         (lambda p: "Remote:" in p and "output_realtime_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
         (lambda p: "Remote:" in p and "output_past_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
         (lambda p: "Local (Custom):" in p and "Data not loaded" not in p and "Error during load" not in p),
         (lambda p: p.startswith("Local (Default") and "Data not loaded" not in p and "Error during load" not in p),
+        (lambda p: "File Not Found" in p), # Handle file not found as a specific case
+        (lambda p: "Access Restricted" in p) # Handle access restricted
     ]
 
     for check_priority in priority_paths_checks:
         for report_type in report_types_order:
             path_info = source_paths_map.get(report_type, "")
             if check_priority(path_info):
-                path_to_display = path_info
-                if path_info.startswith("Remote: "): path_to_display = path_info.replace("Remote: ", "", 1).strip()
-                elif path_info.startswith("Local (Custom): "): path_to_display = path_info.replace("Local (Custom): ", "", 1).strip()
-                elif path_info.startswith("Local (Default): "): path_to_display = path_info.split(":", 1)[1].strip() if ":" in path_info else path_info
-                display_source_path = f"Data Source: {path_to_display}"
+                display_source_path = path_info # Pass the full, descriptive path info
                 found_primary_path_for_display = True
                 break
         if found_primary_path_for_display:
@@ -763,19 +761,20 @@ async def register_page(
     request: Request,
 ):
     # Serves the registration page
-    return templates.TemplateResponse("register.html", {"request": request})
-
+    return templates.TemplateResponse(
+        "register.html", {"request": request, "show_mission_selector": False}
+    )
 
 @app.get("/login.html", response_class=HTMLResponse)
 async def login_page(request: Request):
     # Serves the login page
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", {"request": request, "show_mission_selector": False})
 
 
 @app.get("/", response_class=HTMLResponse)  # Protected route
 async def home(
     request: Request,
-    mission: str = "m203",
+    mission: Optional[str] = Query(None),
     hours: int = 72,
     source: Optional[str] = None,
     local_path: Optional[str] = None,
@@ -783,7 +782,22 @@ async def home(
     # The user dependency is now handled by calling get_optional_current_user(request)
     # No direct Depends() for current_user in the signature for this HTML route.
 ):
-
+    # Determine the default mission if not provided in the URL
+    if mission is None:
+        # Prioritize the first mission from the sorted active list
+        if settings.active_realtime_missions:
+            mission = sorted(settings.active_realtime_missions)[0]
+            logger.info(f"No mission specified, defaulting to first active mission: {mission}")
+        # Fallback to the first mission from the sorted list of all missions
+        elif settings.remote_mission_folder_map:
+            all_missions = sorted(list(settings.remote_mission_folder_map.keys()))
+            mission = all_missions[0]
+            logger.info(f"No active missions, defaulting to first available mission: {mission}")
+        else:
+            # If no missions are configured at all, this is a critical error.
+            logger.error("CRITICAL: No missions are configured in settings (active_realtime_missions or remote_mission_folder_map). Cannot load dashboard.")
+            raise HTTPException(status_code=500, detail="No missions configured in application settings. Please contact an administrator.")
+        
     available_missions_for_template = []  # Pass an empty list initially.
 
     # Determine if the current mission is an active real-time mission
@@ -862,6 +876,8 @@ async def home(
             "current_local_path": local_path,  # Pass current local_path
             **processed_home_data, # Unpack all processed data into the context
             "current_user": actual_current_user,  # Pass user info to template
+            "show_mission_selector": True,  # Conditionally show mission selector
+
         },
     )
 
@@ -1261,8 +1277,10 @@ async def read_schedule_page(
         logger.info("Anonymous user accessing schedule page (relying on client-side auth check).")
 
     # For now, the page is static. Future enhancements might pass dynamic schedule data.
-    return templates.TemplateResponse("schedule.html", {"request": request, "current_user": current_user}) # Pass current_user
-
+    return templates.TemplateResponse(
+        "schedule.html",
+        {"request": request, "current_user": current_user, "show_mission_selector": False},
+    )  # Pass current_user
 
 @app.get("/api/schedule/events", response_model=List[models.ScheduleEvent])
 async def get_schedule_events_api(
@@ -1790,35 +1808,35 @@ async def get_report_data_for_plotting(
         )
         return JSONResponse(content=[])
 
-    # Resample to hourly mean (similar to your plotting scripts)
+    # Resample data based on user-defined granularity
     data_to_resample = recent_data.set_index("Timestamp")
     numeric_cols = data_to_resample.select_dtypes(include=[np.number])
     # Ensure numeric_cols is not empty before resampling
     if numeric_cols.empty:
         logger.info(
             f"No numeric data to resample for {report_type.value}, "
-            f"mission {mission_id} after filtering."
+            f"mission {mission_id} after filtering and before resampling."
         )
         return JSONResponse(content=[])
 
-    # Resample to hourly mean
-    hourly_data = numeric_cols.resample("1h").mean().reset_index()
+    # Perform resampling using the specified granularity
+    resampled_data = numeric_cols.resample(f"{params.granularity_minutes}min").mean().reset_index()
 
-    if report_type == "vr2c" and "PingCount" in hourly_data.columns:
-        hourly_data = hourly_data.sort_values(
+    if report_type == "vr2c" and "PingCount" in resampled_data.columns:
+        resampled_data = resampled_data.sort_values(
             by="Timestamp"
         )  # Ensure sorted for correct diff
-        hourly_data["PingCountDelta"] = hourly_data["PingCount"].diff()
+        resampled_data["PingCountDelta"] = resampled_data["PingCount"].diff()
         # The first PingCountDelta will be NaN, which is fine for plotting (Chart.js handles nulls)
     # Convert Timestamp objects to ISO 8601 strings for JSON serialization
-    if "Timestamp" in hourly_data.columns:
-        hourly_data["Timestamp"] = hourly_data["Timestamp"].dt.strftime(
+    if "Timestamp" in resampled_data.columns:
+        resampled_data["Timestamp"] = resampled_data["Timestamp"].dt.strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
 
-    # Replace NaN with None for JSON compatibility
-    hourly_data = hourly_data.replace({np.nan: None})
-    return JSONResponse(content=hourly_data.to_dict(orient="records"))
+    # Replace NaN with None for JSON compatibility and return
+    resampled_data = resampled_data.replace({np.nan: None})
+    return JSONResponse(content=resampled_data.to_dict(orient="records"))
 
 
 # ---
@@ -2169,8 +2187,12 @@ async def get_view_forms_page(
         f"accessing /view_forms.html."
     )
     return templates.TemplateResponse(
-        "view_forms.html", {"request": request, "current_user": current_user}
-    )
+        "view_forms.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "show_mission_selector": False,
+        },    )
 
 
 @app.get("/my_pic_handoffs.html", response_class=HTMLResponse)
@@ -2179,16 +2201,20 @@ async def get_my_pic_handoffs_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /my_pic_handoffs.html.")
-    return templates.TemplateResponse("my_pic_handoffs.html", {"request": request, "current_user": current_user})
-
+    return templates.TemplateResponse(
+        "my_pic_handoffs.html",
+        {"request": request, "current_user": current_user, "show_mission_selector": False},
+    )
 @app.get("/view_pic_handoffs.html", response_class=HTMLResponse)
 async def get_view_pic_handoffs_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /view_pic_handoffs.html.")
-    return templates.TemplateResponse("view_pic_handoffs.html", {"request": request, "current_user": current_user})
-
+    return templates.TemplateResponse(
+        "view_pic_handoffs.html",
+        {"request": request, "current_user": current_user, "show_mission_selector": False},
+    )
 # Ensure this is the last line or that other routes are defined before it if they share a common prefix.
 # Example: if you had a catch-all, it should be last.
 
@@ -2209,8 +2235,12 @@ async def get_view_station_status_page(
         f"accessing /view_station_status.html."
     )
     return templates.TemplateResponse(
-        "view_station_status.html", {"request": request, "current_user": current_user}
-    )
+        "view_station_status.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "show_mission_selector": False,
+        },    )
 
 
 # --- HTML Route for Admin User Management ---
@@ -2233,5 +2263,10 @@ async def get_admin_user_management_page(
         f"/admin/user_management.html. JS will verify admin role via API."
     )
     return templates.TemplateResponse(
-        "admin_user_management.html", {"request": request, "current_user": current_user}
+        "admin_user_management.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "show_mission_selector": False,
+        },
     )

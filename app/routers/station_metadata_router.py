@@ -2,12 +2,17 @@
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, List, Optional
+import io
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import pandas as pd
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi.responses import JSONResponse
 from sqlmodel import select  # Import select for queries
 
 from ..auth_utils import get_current_active_user, get_current_admin_user
 from ..core import models
+from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
 from ..db import SQLModelSession, get_db_session
 
@@ -23,8 +28,8 @@ router = APIRouter()
 # logger.debug("station_metadata_router.py - Defining POST /station_metadata/ (on router)") # Changed to logger
 @router.post(
     "/station_metadata/",
-    response_model=models.StationMetadataRead,
-    status_code=status.HTTP_201_CREATED,
+    response_model=models.StationMetadataCreateResponse, # Use the new response model
+    status_code=status.HTTP_200_OK, # Change status code to 200 for upsert
     tags=["Station Metadata Admin"],
 )
 async def create_or_update_station_metadata_on_router(
@@ -37,37 +42,14 @@ async def create_or_update_station_metadata_on_router(
         f"ROUTER: User '{current_user.username}' attempting to "
         f"create/update station: {station_data.station_id}"
     )
-
-    existing_station = session.get(models.StationMetadata, station_data.station_id)
-
-    if existing_station:
-        logger.info(
-            f"ROUTER: Station '{station_data.station_id}' already exists. Updating."
-        )
-        for key, value in station_data.model_dump(
-            exclude_unset=True
-        ).items():
-            setattr(existing_station, key, value)
-        session.add(existing_station)
-        session.commit()
-        session.refresh(existing_station)
-        # FastAPI will return 200 OK by default for updates if status_code isn't forced
-        # For simplicity, we'll let the decorator's 201 be used, or you can return a JSONResponse with 200.
-        # To be strictly RESTful, an update might return 200.
-        # However, since this endpoint handles both create and update,
-        # and the response_model is the same, this is acceptable.
-        # If you want to explicitly return 200 for updates:
-        # from fastapi.responses import JSONResponse
-        # return JSONResponse(content=existing_station.model_dump(), status_code=status.HTTP_200_OK)
-        return existing_station
-    else:
-        logger.info(f"ROUTER: Creating new station: {station_data.station_id}")
-        # SQLModel's model_validate is suitable here for creating an instance from Pydantic model
-        db_station = models.StationMetadata.model_validate(station_data)
-        session.add(db_station)
-        session.commit()
-        session.refresh(db_station)
-        return db_station  # FastAPI handles 201 Created due to decorator
+    # The original logic is now in a reusable CRUD function
+    db_station, is_created = station_metadata_crud.create_or_update_station(
+        session=session, station_data=station_data
+    )
+    return models.StationMetadataCreateResponse(
+        **db_station.model_dump(), # Unpack station data
+        is_created=is_created # Add the new flag
+    )
 
 
 # logger.debug("station_metadata_router.py - POST /station_metadata/ definition processed.") # Changed to logger
@@ -99,6 +81,111 @@ async def get_station_metadata_by_id_on_router(
 
 
 # logger.debug("station_metadata_router.py - GET /station_metadata/{station_id} definition processed.") # Changed to logger
+
+
+@router.post(
+    "/station_metadata/upload_csv/",
+    tags=["Station Metadata Admin"],
+    status_code=status.HTTP_200_OK,
+)
+async def upload_station_metadata_csv(
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+    file: UploadFile = File(...),
+):
+    """
+    Uploads a CSV file to bulk create or update station metadata.
+    Requires admin privileges.
+    The CSV must contain a 'station_id' column. Other columns matching the
+    StationMetadata model are optional (e.g., serial_number, modem_address, etc.).
+    """
+    logger.info(
+        f"ROUTER: User '{current_user.username}' attempting to upload station metadata CSV."
+    )
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Please upload a CSV file.",
+        )
+
+    contents = await file.read()
+    try:
+        # Use pandas to read the CSV from the in-memory bytes
+        df = pd.read_csv(io.BytesIO(contents))
+        # Standardize column names (lowercase, replace spaces with underscores)
+        df.columns = df.columns.str.lower().str.replace(" ", "_")
+    except Exception as e:
+        logger.error(f"ROUTER: Error parsing CSV file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error parsing CSV file: {e}",
+        )
+
+    required_columns = {"station_id"}
+    if not required_columns.issubset(df.columns):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CSV must contain the following columns: {', '.join(required_columns)}",
+        )
+
+    # --- NEW VALIDATION BLOCK ---
+    # Ensure the station_id column does not contain any null/empty values
+    if df['station_id'].isnull().any():
+        # Find the row numbers (1-based index for user feedback) of the null entries
+        null_rows = df[df['station_id'].isnull()].index + 2 # +1 for header, +1 for 0-based index
+        error_detail = f"CSV contains rows with a missing station_id. This column cannot be empty. See row(s): {', '.join(map(str, null_rows))}"
+        logger.error(f"ROUTER: CSV Upload Failed - {error_detail}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail,
+        )
+
+    # Convert all station_ids to string to handle cases where they might be read as numbers, and strip whitespace
+    df['station_id'] = df['station_id'].astype(str).str.strip()
+
+    # Check for duplicate station_ids within the CSV file itself
+    if df['station_id'].duplicated().any():
+        # Get the list of duplicated station_ids to show in the error message
+        duplicated_ids = sorted(df[df['station_id'].duplicated()]['station_id'].unique().tolist())
+        error_detail = f"Upload failed. The CSV file contains duplicate entries for the following station_ids, which is not allowed: {', '.join(duplicated_ids)}"
+        logger.error(f"ROUTER: CSV Upload Failed - {error_detail}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail,
+        )
+
+    # Replace numpy NaNs and pandas <NA> with None for Pydantic compatibility
+    df = df.replace({np.nan: None, pd.NA: None})
+
+    processed_count = 0
+    errors = []
+    for index, row in df.iterrows():
+        try:
+            # Convert row to dict and filter out None values so Pydantic uses defaults
+            row_dict = {k: v for k, v in row.to_dict().items() if v is not None}
+            station_data = models.StationMetadataCreate(**row_dict)
+            station_metadata_crud.create_or_update_station(
+                session=session, station_data=station_data
+            )
+            processed_count += 1
+        except Exception as e:
+            error_detail = f"Row {index + 2}: {e}"
+            logger.error(f"ROUTER: CSV Upload - {error_detail}")
+            errors.append(error_detail)
+
+    if errors:
+        # Return 207 Multi-Status if there are partial successes
+        return JSONResponse(
+            status_code=status.HTTP_207_MULTI_STATUS,
+            content={
+                "message": f"Processed {processed_count} of {len(df)} stations with {len(errors)} errors.",
+                "errors": errors,
+            },
+        )
+
+    return {
+        "message": f"Successfully created or updated {processed_count} stations from {file.filename}."
+    }
 
 
 @router.put(
@@ -182,6 +269,36 @@ async def search_station_metadata_on_router(
     return stations
 
 
+# logger.debug("station_metadata_router.py - Defining DELETE /station_metadata/{station_id} (on router)") # Changed to logger
+@router.delete(
+    "/station_metadata/{station_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Station Metadata Admin"],
+)
+async def delete_station_metadata_on_router(
+    station_id: str,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    logger.info(
+        f"ROUTER: User '{current_user.username}' attempting to delete station: "
+        f"{station_id}"
+    )
+
+    db_station = session.get(models.StationMetadata, station_id)
+    if not db_station:
+        logger.warning(f"ROUTER: Station with ID '{station_id}' not found for deletion.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Station not found"
+        )
+
+    session.delete(db_station)
+    session.commit()
+    logger.info(f"ROUTER: Station '{station_id}' deleted by user '{current_user.username}'.")
+    return
+
+
+# logger.debug("station_metadata_router.py - DELETE /station_metadata/{station_id} definition processed.") # Changed to logger
 # logger.debug("station_metadata_router.py - GET /station_metadata/ definition processed.") # Changed to logger
 
 

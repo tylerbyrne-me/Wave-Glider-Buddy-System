@@ -56,30 +56,39 @@
                 <h1 class="mb-1">Station Offload Status</h1>
                 <p class="text-muted mb-0">Offload status across all missions</p>
             </div>
-            <button class="btn btn-secondary" onclick="window.close();" title="Close this tab/window">Close Page</button>
+            <div>
+                <button class="btn btn-secondary" onclick="window.close();" title="Close this tab/window">Close Page</button>
+            </div>
         </div>
         <hr class="mb-4">
-        <!-- Search Input -->
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="flex-grow-1 me-2">
                 <input type="text" id="searchInput" class="form-control" placeholder="Filter by Station ID, Glider, or Serial...">
             </div>
-            <div class="btn-group">
-                <button class="btn btn-success" id="downloadCsvBtn" title="Download current view (filtered by search) as CSV" style="display: none;">
-                    <i class="fas fa-download me-1"></i> Download CSV
+            <div class="d-flex"> <!-- Wrapper for buttons -->
+                <button class="btn btn-primary me-2" id="addStationBtn" title="Add new Station" style="display: none;">
+                    <i class="fas fa-plus me-1"></i> Add Station
                 </button>
-                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" id="downloadCsvDropdownToggle" style="display: none;">
-                    <span class="visually-hidden">Toggle Dropdown</span>
+                <div class="btn-group">
+                    <button class="btn btn-success" id="downloadCsvBtn" title="Download current view (filtered by search) as CSV" style="display: none;">
+                        <i class="fas fa-download me-1"></i> Download CSV
+                    </button>
+                    <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" id="downloadCsvDropdownToggle" style="display: none;">
+                        <span class="visually-hidden">Toggle Dropdown</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="CBS">Download CBS* Stations</a></li>
+                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="NCAT">Download NCAT* Stations</a></li>
+                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="GULMPA">Download GULMPA* Stations</a></li>
+                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HALIBT">Download HALIBT* Stations</a></li>
+                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HFX">Download HFX* Stations</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="#" id="downloadAllFilteredCsvLink">Download All (Filtered by Search)</a></li>
+                    </ul>
+                </div>
+                <button class="btn btn-info ms-2" id="uploadCsvBtn" title="Upload station metadata from CSV" style="display: none;">
+                    <i class="fas fa-upload me-1"></i> Upload CSV
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="CBS">Download CBS* Stations</a></li>
-                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="NCAT">Download NCAT* Stations</a></li>
-                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="GULMPA">Download GULMPA* Stations</a></li>
-                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HALIBT">Download HALIBT* Stations</a></li>
-                    <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HFX">Download HFX* Stations</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="#" id="downloadAllFilteredCsvLink">Download All (Filtered by Search)</a></li>
-                </ul>
             </div>
         </div>
 
@@ -101,11 +110,11 @@
                         <th data-sort="status_text">Status <span class="sort-icon"></span></th>
                         <th data-sort="last_offload_timestamp_str">Last Log Update <span class="sort-icon"></span></th>
                         <th data-sort="vrl_file_name">VRL File Name <span class="sort-icon"></span></th>
-                    </tr>
+                    </tr><!-- Add Delete Button Here -->
                 </thead>
                 <tbody id="stationStatusTableBody">
                     <!-- Rows will be inserted here by JavaScript -->
-                    <tr><td colspan="6" class="text-center">Initializing...</td></tr>
+                    <tr><td colspan="7" class="text-center">Initializing...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -116,7 +125,10 @@
         <div class="modal-dialog modal-lg">
             <div class="modal-content bg-dark text-light">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="editLogStationModalLabel">Edit Station / Log Offload for: <span id="modalStationIdDisplay"></span></h5>
+                    <h5 class="modal-title" id="editLogStationModalLabel">
+                        <span id="modalTitleAction">Edit Station / Log Offload for:</span>
+                        <span id="modalStationIdDisplay"></span>
+                    </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
@@ -124,6 +136,12 @@
                         <input type="hidden" id="formStationId" name="station_id">
                         
                         <h4>Station Information</h4>
+                        <div class="mb-3" id="newStationIdContainer" style="display: none;">
+                            <label for="formNewStationId" class="form-label">Station ID <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="formNewStationId" placeholder="e.g., CBS01, NCAT05, etc.">
+                            <div class="form-text">This ID must be unique and cannot be changed after creation via this form.</div>
+                            <div class="invalid-feedback" id="formNewStationIdFeedback"></div>
+                        </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label for="formSerialNumber" class="form-label">Serial Number</label>
@@ -131,13 +149,15 @@
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label for="formModemAddress" class="form-label">Modem Address</label>
-                                <input type="text" class="form-control" id="formModemAddress" name="modem_address">
+                                <input type="number" class="form-control" id="formModemAddress" name="modem_address" step="1" placeholder="e.g., 12345">
+                                <div class="invalid-feedback" id="formModemAddressFeedback"></div>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label for="formBottomDepth" class="form-label">Bottom Depth (m)</label>
                                 <input type="number" step="any" class="form-control" id="formBottomDepth" name="bottom_depth_m">
+                                <div class="invalid-feedback" id="formBottomDepthFeedback"></div>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label for="formWaypointNumber" class="form-label">Waypoint Number/Name</label>
@@ -165,59 +185,88 @@
                             </select>
                         </div>
                         <button type="button" class="btn btn-primary mb-3" id="saveStationInfoBtn">Save Station Info</button>
+                        <div id="stationInfoResult" class="mt-3"></div>
                         
                         <hr class="my-4">
-                        
-                        <h4>Log New Offload</h4>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="formArrivalDate" class="form-label">Arrival Date (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="formArrivalDate" name="arrival_date">
+
+                        <div id="logNewOffloadSection">
+                            <h4>Log New Offload</h4>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="formArrivalDate" class="form-label">Arrival Date (Local Time)</label>
+                                    <input type="datetime-local" class="form-control" id="formArrivalDate" name="arrival_date">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="formDistanceSent" class="form-label">Distance when command sent (m)</label>
+                                    <input type="number" step="any" class="form-control" id="formDistanceSent" name="distance_command_sent_m">
+                                </div>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="formDistanceSent" class="form-label">Distance when command sent (m)</label>
-                                <input type="number" step="any" class="form-control" id="formDistanceSent" name="distance_command_sent_m">
+                            <div class="row">
+                                 <div class="col-md-6 mb-3">
+                                    <label for="formTimeFirstCommand" class="form-label">Time first command sent (Local Time)</label>
+                                    <input type="datetime-local" class="form-control" id="formTimeFirstCommand" name="time_first_command_sent_utc">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="formOffloadStartTime" class="form-label">Offload Start Time (Local Time)</label>
+                                    <input type="datetime-local" class="form-control" id="formOffloadStartTime" name="offload_start_time_utc">
+                                </div>
                             </div>
-                        </div>
-                        <div class="row">
-                             <div class="col-md-6 mb-3">
-                                <label for="formTimeFirstCommand" class="form-label">Time first command sent (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="formTimeFirstCommand" name="time_first_command_sent_utc">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="formOffloadEndTime" class="form-label">Offload End Time (Local Time)</label>
+                                    <input type="datetime-local" class="form-control" id="formOffloadEndTime" name="offload_end_time_utc">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="formDepartureDate" class="form-label">Departure Date (Local Time)</label>
+                                    <input type="datetime-local" class="form-control" id="formDepartureDate" name="departure_date">
+                                </div>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="formOffloadStartTime" class="form-label">Offload Start Time (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="formOffloadStartTime" name="offload_start_time_utc">
+                             <div class="mb-3">
+                                <label for="formVrlFileName" class="form-label">VRL File Name</label>
+                                <input type="text" class="form-control" id="formVrlFileName" name="vrl_file_name">
                             </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="formOffloadEndTime" class="form-label">Offload End Time (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="formOffloadEndTime" name="offload_end_time_utc">
+                            <div class="mb-3">
+                                <label for="formOffloadNotesFileSize" class="form-label">Offload Notes / File Size</label>
+                                <textarea class="form-control" id="formOffloadNotesFileSize" name="offload_notes_file_size" rows="2"></textarea>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="formDepartureDate" class="form-label">Departure Date (Local Time)</label>
-                                <input type="datetime-local" class="form-control" id="formDepartureDate" name="departure_date">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="formWasOffloaded" name="was_offloaded">
+                                <label class="form-check-label" for="formWasOffloaded">
+                                    Offloaded Successfully?
+                                </label>
                             </div>
+                            <button type="button" class="btn btn-success" id="logNewOffloadBtn">Log New Offload</button>
                         </div>
-                         <div class="mb-3">
-                            <label for="formVrlFileName" class="form-label">VRL File Name</label>
-                            <input type="text" class="form-control" id="formVrlFileName" name="vrl_file_name">
-                        </div>
-                        <div class="mb-3">
-                            <label for="formOffloadNotesFileSize" class="form-label">Offload Notes / File Size</label>
-                            <textarea class="form-control" id="formOffloadNotesFileSize" name="offload_notes_file_size" rows="2"></textarea>
-                        </div>
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" id="formWasOffloaded" name="was_offloaded">
-                            <label class="form-check-label" for="formWasOffloaded">
-                                Offloaded Successfully?
-                            </label>
-                        </div>
-                        <button type="button" class="btn btn-success" id="logNewOffloadBtn">Log New Offload</button>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload CSV Modal -->
+    <div class="modal fade" id="uploadCsvModal" tabindex="-1" aria-labelledby="uploadCsvModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="uploadCsvModalLabel">Upload Station Metadata CSV</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Upload a CSV file with station metadata. The required column is: <strong>station_id</strong>. Optional columns include: <strong>serial_number, modem_address, bottom_depth_m, waypoint_number, station_settings, notes, display_status_override</strong>.</p>
+                    <form id="uploadCsvForm">
+                        <div class="mb-3">
+                            <label for="csvFile" class="form-label">CSV File</label>
+                            <input class="form-control" type="file" id="csvFile" accept=".csv">
+                        </div>
+                    </form>
+                    <div id="uploadResult" class="mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="submitUploadBtn">Upload</button>
                 </div>
             </div>
         </div>
