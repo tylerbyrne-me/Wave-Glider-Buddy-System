@@ -4,15 +4,33 @@ document.addEventListener('DOMContentLoaded', async function () {
     const loadingSpinner = document.getElementById('loadingSpinner');
     const downloadCsvBtn = document.getElementById('downloadCsvBtn');
     const downloadCsvDropdownToggle = document.getElementById('downloadCsvDropdownToggle');
+    const uploadCsvBtn = document.getElementById('uploadCsvBtn');
 
-    // New modal and form elements
+    // Modal and form elements
     const editLogStationModalEl = document.getElementById('editLogStationModal');
+    const uploadCsvModalEl = document.getElementById('uploadCsvModal');
+    const submitUploadBtn = document.getElementById('submitUploadBtn');
+    const csvFile = document.getElementById('csvFile');
+    const uploadResult = document.getElementById('uploadResult');
+
+    const newStationIdContainer = document.getElementById('newStationIdContainer');
+    const formNewStationId = document.getElementById('formNewStationId');
+    const modalTitleAction = document.getElementById('modalTitleAction');
+    const modalStationIdDisplay = document.getElementById('modalStationIdDisplay');
+    const logNewOffloadSection = document.getElementById('logNewOffloadSection');
+
+    // Validation feedback elements
+    const formNewStationIdFeedback = document.getElementById('formNewStationIdFeedback');
+    const formModemAddressFeedback = document.getElementById('formModemAddressFeedback');
+    const formBottomDepthFeedback = document.getElementById('formBottomDepthFeedback');
+    const addStationBtn = document.getElementById('addStationBtn');
     const stationEditLogForm = document.getElementById('stationEditLogForm');
 
     let allStationsData = [];
     let currentSort = { column: 'station_id', order: 'asc' };
     let isAdmin = false;
 
+    const stationInfoResult = document.getElementById('stationInfoResult'); // For displaying save/add result
     // Function to initialize the page: check role, then fetch data
     async function initializePage() {
         if (loadingSpinner) loadingSpinner.style.display = 'block'; // Show spinner early
@@ -37,14 +55,18 @@ document.addEventListener('DOMContentLoaded', async function () {
                 isAdmin = true;
                 if (downloadCsvBtn) downloadCsvBtn.style.display = 'block'; // Show CSV download for admin
                 if (downloadCsvDropdownToggle) downloadCsvDropdownToggle.style.display = 'block';
+                if (uploadCsvBtn) uploadCsvBtn.style.display = 'block'; // Show upload button for admin
+                if (addStationBtn) addStationBtn.style.display = 'block'; // Show add station button for admin
             } else {
                 isAdmin = false;
                 if (downloadCsvBtn) downloadCsvBtn.style.display = 'none'; // Hide for non-admin
                 if (downloadCsvDropdownToggle) downloadCsvDropdownToggle.style.display = 'none';
+                if (uploadCsvBtn) uploadCsvBtn.style.display = 'none'; // Hide for non-admin
             }
         } catch (error) {
             console.warn("Could not determine user role for edit functionality.", error);
             isAdmin = false; // Default to non-admin on error
+            if (uploadCsvBtn) uploadCsvBtn.style.display = 'none';
             if (downloadCsvBtn) downloadCsvBtn.style.display = 'none';
             if (downloadCsvDropdownToggle) downloadCsvDropdownToggle.style.display = 'none';
         }
@@ -94,54 +116,77 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         stationsToRender.forEach(station => {
             const row = stationStatusTableBody.insertRow();
-            const idCell = row.insertCell();
-            // For the main table, station_id comes from the status_overview endpoint
-            const displayStationId = station.station_id || 'N/A';
+            // Function to add a cell with a button
+            const addCellWithButton = (row, text, colorClass, clickHandler, tooltip) => {
+                const cell = row.insertCell();
+                const button = document.createElement('button');
+                button.classList.add('btn', 'btn-sm', colorClass);
+                button.textContent = text;
+                button.title = tooltip;
+                button.onclick = clickHandler;
+                cell.appendChild(button);
+            };
 
             if (isAdmin) {
-                const editButton = document.createElement('button');
-                editButton.classList.add('btn', 'btn-sm', 'btn-outline-primary');
-                editButton.textContent = displayStationId;
-                editButton.title = `Edit / Log for ${displayStationId}`;
-                editButton.onclick = () => openEditLogModal(station.station_id); // station.station_id is the key
-                idCell.appendChild(editButton);
-            } else {
-                idCell.textContent = displayStationId;
-            }
+                row.insertCell().textContent = station.station_id || 'N/A';
+                row.insertCell().textContent = station.serial_number || 'N/A';
+                row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
+                row.insertCell().textContent = station.station_settings || '---'; // New column
 
-            row.insertCell().textContent = station.serial_number || 'N/A';
-            row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
-            row.insertCell().textContent = station.station_settings || '---'; // New column
+                 // --- Status Cell Text and Row Coloring ---            
+                const statusCell = row.insertCell();
+                statusCell.textContent = station.status_text || 'N/A'; // Text comes directly from backend
 
-            // --- Status Cell Text and Row Coloring ---            
-            const statusCell = row.insertCell();
-            statusCell.textContent = station.status_text || 'N/A'; // Text comes directly from backend
-            
-            row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A'; // Renamed to "Last Log Update"
-            row.insertCell().textContent = station.vrl_file_name || '---'; // New column
-            // Clear all potential status color classes from the row first
-            row.classList.remove(
-                'status-awaiting-offload', 'status-offloaded', 'status-failed-offload',
-                'status-skipped', 'status-unknown'
-                // Also remove old classes if they were different and might conflict
-                // 'status-up-to-date', 'status-needs-attention', 'status-pending-overdue', 'status-never-offloaded'
-            );
-            // Apply new class based on station.status_color (which is a key from backend)
-            if (station.status_color === 'grey') {
-                row.classList.add('status-awaiting-offload');
-            } else if (station.status_color === 'green') { // Or "blue" if backend sends that for offloaded
-                row.classList.add('status-offloaded');
-            } else if (station.status_color === 'red') {
-                row.classList.add('status-failed-offload');
-            } else if (station.status_color === 'yellow' || station.status_color === 'orange') { // For skipped
-                row.classList.add('status-skipped');
+                row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A'; // Renamed to "Last Log Update"
+                row.insertCell().textContent = station.vrl_file_name || '---'; // New column
+
+                // Add "Edit" and "Delete" buttons for admin users
+                addCellWithButton(row, "Edit", "btn-outline-primary", () => openEditLogModal(station.station_id), `Edit / Log for ${station.station_id}`);
+                addCellWithButton(row, "Delete", "btn-danger", () => deleteStation(station.station_id), `Delete ${station.station_id} metadata.`,);
+                
+                // Clear all potential status color classes from the row first
+                row.classList.remove(
+                    'status-awaiting-offload', 'status-offloaded', 'status-failed-offload',
+                    'status-skipped', 'status-unknown'
+                );
+                // Apply new class based on station.status_color (which is a key from backend)
+                if (station.status_color === 'grey') {
+                    row.classList.add('status-awaiting-offload');
+                } else if (station.status_color === 'green') { // Or "blue" if backend sends that for offloaded
+                    row.classList.add('status-offloaded');
+                } else if (station.status_color === 'red') {
+                    row.classList.add('status-failed-offload');
+                } else if (station.status_color === 'yellow' || station.status_color === 'orange') { // For skipped
+                    row.classList.add('status-skipped');
+                } else {
+                    row.classList.add('status-unknown'); // Fallback for any other color_key or "Unknown" status_text
+                }
             } else {
-                row.classList.add('status-unknown'); // Fallback for any other color_key or "Unknown" status_text
+
+                row.insertCell().textContent = station.station_id || 'N/A';
+                row.insertCell().textContent = station.serial_number || 'N/A';
+                row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
+                row.insertCell().textContent = station.station_settings || '---'; // New column
+                row.insertCell().textContent = station.status_text || 'N/A'; // Text comes directly from backend
+                row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A'; // Renamed to "Last Log Update"
+                row.insertCell().textContent = station.vrl_file_name || '---'; // New column
             }
         });
         updateSortIcons();
     }
 
+    // Helper functions for validation feedback
+    function showValidationFeedback(element, feedbackElement, message) {
+        element.classList.add('is-invalid');
+        feedbackElement.textContent = message;
+        feedbackElement.style.display = 'block'; // Make sure it's visible
+    }
+
+    function clearValidationFeedback(element, feedbackElement) {
+        element.classList.remove('is-invalid');
+        feedbackElement.textContent = '';
+        feedbackElement.style.display = 'none'; // Hide it
+    }
     function sortData(column) {
         const order = (currentSort.column === column && currentSort.order === 'asc') ? 'desc' : 'asc';
         currentSort = { column, order };
@@ -296,13 +341,28 @@ document.addEventListener('DOMContentLoaded', async function () {
         editLogStationModalInstance = new bootstrap.Modal(editLogStationModalEl);
     }
 
+    let uploadCsvModalInstance = null;
+    if (uploadCsvModalEl) {
+        uploadCsvModalInstance = new bootstrap.Modal(uploadCsvModalEl);
+    }
+
     async function openEditLogModal(stationId) {
         if (!isAdmin || !editLogStationModalInstance) return;
         
         currentEditingStationId = stationId;
+        // Clear all validation feedback and result messages when opening modal
+        clearValidationFeedback(formNewStationId, formNewStationIdFeedback);
+        clearValidationFeedback(formModemAddress, formModemAddressFeedback);
+        clearValidationFeedback(formBottomDepth, formBottomDepthFeedback);
+        if (stationInfoResult) stationInfoResult.innerHTML = '';
         if (stationEditLogForm) stationEditLogForm.reset(); // Clear previous data
         
-        document.getElementById('modalStationIdDisplay').textContent = stationId;
+        // Configure modal for "Edit" mode
+        if (modalTitleAction) modalTitleAction.textContent = "Edit Station / Log Offload for:";
+        if (modalStationIdDisplay) modalStationIdDisplay.textContent = stationId;
+        if (newStationIdContainer) newStationIdContainer.style.display = 'none';
+        if (logNewOffloadSection) logNewOffloadSection.style.display = 'block';
+
         document.getElementById('formStationId').value = stationId; // Hidden input
 
         if (loadingSpinner) loadingSpinner.style.display = 'block';
@@ -362,49 +422,94 @@ document.addEventListener('DOMContentLoaded', async function () {
     const saveStationInfoBtn = document.getElementById('saveStationInfoBtn');
     if (saveStationInfoBtn) {
         saveStationInfoBtn.addEventListener('click', async () => {
-        if (!currentEditingStationId) return;
-        if (loadingSpinner) loadingSpinner.style.display = 'block';
+            // Clear previous results and validation messages
+            if (stationInfoResult) stationInfoResult.innerHTML = '';
+            clearValidationFeedback(formNewStationId, formNewStationIdFeedback);
+            clearValidationFeedback(formModemAddress, formModemAddressFeedback);
+            clearValidationFeedback(formBottomDepth, formBottomDepthFeedback);
 
-        const payload = {
-            serial_number: document.getElementById('formSerialNumber').value.trim() || null,
-            modem_address: parseInt(document.getElementById('formModemAddress').value.trim(), 10) || null,
-            bottom_depth_m: parseFloat(document.getElementById('formBottomDepth').value) || null,
-            waypoint_number: document.getElementById('formWaypointNumber').value.trim() || null,
-            last_offload_by_glider: document.getElementById('formLastOffloadByGlider').value.trim() || null,
-            station_settings: document.getElementById('formStationSettings').value.trim() || null,
-            notes: document.getElementById('formStationNotes').value.trim() || null
-        };
-        // Handle display_status_override explicitly to send null if empty string
-        let overrideStatus = document.getElementById('formDisplayStatusOverride').value;
-        payload.display_status_override = overrideStatus === "" ? null : overrideStatus;
-        // Filter out null values if backend expects only provided fields
-        Object.keys(payload).forEach(key => (payload[key] === null || payload[key] === '') && delete payload[key]);
-        if (payload.modem_address && isNaN(payload.modem_address)) delete payload.modem_address;
-        if (payload.bottom_depth_m && isNaN(payload.bottom_depth_m)) delete payload.bottom_depth_m;
+            if (loadingSpinner) loadingSpinner.style.display = 'block';
 
-        try {
-            const response = await fetchWithAuth(`/api/station_metadata/${currentEditingStationId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
+            const isAdding = !currentEditingStationId;
+            let stationId = isAdding ? formNewStationId.value.trim() : currentEditingStationId;
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to save station info.' }));
-                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+            // --- Form Validation ---
+            if (isAdding && !stationId) {
+                showValidationFeedback(formNewStationId, formNewStationIdFeedback, 'Station ID is required.');
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+                formNewStationId.focus();
+                return;
             }
-            
-            await fetchStationStatuses();
-            if (editLogStationModalInstance) editLogStationModalInstance.hide();
-            alert('Station information saved successfully!');
-        } catch (error) {
-            console.error("Error saving station info:", error);
-            alert(`Error: ${error.message}`);
-        } finally {
-            if (loadingSpinner) loadingSpinner.style.display = 'none';
-        }
+
+            const modemAddressValue = document.getElementById('formModemAddress').value.trim();
+            if (modemAddressValue !== '' && isNaN(parseInt(modemAddressValue, 10))) { // Check for non-empty string that's not a number
+                showValidationFeedback(formModemAddress, formModemAddressFeedback, 'Modem Address must be a valid number.');
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+                document.getElementById('formModemAddress').focus();
+                return;
+            }
+
+            const bottomDepthValue = document.getElementById('formBottomDepth').value.trim();
+            if (bottomDepthValue !== '' && isNaN(parseFloat(bottomDepthValue))) { // Check for non-empty string that's not a number
+                showValidationFeedback(formBottomDepth, formBottomDepthFeedback, 'Bottom Depth must be a valid number.');
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+                document.getElementById('formBottomDepth').focus();
+                return;
+            }
+            // --- End Validation ---
+
+            const payload = {
+                station_id: stationId,
+                serial_number: document.getElementById('formSerialNumber').value.trim() || null,
+                modem_address: modemAddressValue ? parseInt(modemAddressValue, 10) : null,
+                bottom_depth_m: bottomDepthValue ? parseFloat(bottomDepthValue) : null,
+                waypoint_number: document.getElementById('formWaypointNumber').value.trim() || null,
+                last_offload_by_glider: document.getElementById('formLastOffloadByGlider').value.trim() || null,
+                station_settings: document.getElementById('formStationSettings').value.trim() || null,
+                notes: document.getElementById('formStationNotes').value.trim() || null,
+                display_status_override: document.getElementById('formDisplayStatusOverride').value || null
+            };
+
+            // Clean up payload: remove nulls for cleaner API calls
+            Object.keys(payload).forEach(key => {
+                if (payload[key] === null || payload[key] === '') delete payload[key];
+            });
+            // The NaN check is now part of the initial validation, so this is less critical but safe to keep
+            if (payload.modem_address && isNaN(payload.modem_address)) delete payload.modem_address;
+            if (payload.bottom_depth_m && isNaN(payload.bottom_depth_m)) delete payload.bottom_depth_m;
+
+            try {
+                const response = await fetchWithAuth('/api/station_metadata/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const resultData = await response.json(); // Parse response data
+
+                if (!response.ok) {
+                    throw new Error(resultData.detail || `Failed to ${isAdding ? 'add' : 'save'} station.`);
+                }
+
+                // Use resultData.is_created from the backend response
+                const finalSuccessMessage = resultData.is_created ?
+                    'Station added successfully!' :
+                    'Station information updated successfully!';
+                
+                if (stationInfoResult) {
+                    stationInfoResult.innerHTML = `<div class="alert alert-success">${finalSuccessMessage}</div>`;
+                }
+
+                await fetchStationStatuses();
+                // Do not hide modal immediately, let user see success message
+                // if (editLogStationModalInstance) editLogStationModalInstance.hide();
+
+            } catch (error) {
+                console.error(`Error ${isAdding ? 'saving' : 'adding'} station info:`, error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+            }
         });
     }
 
@@ -462,6 +567,70 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
+    if (uploadCsvBtn) {
+        uploadCsvBtn.addEventListener('click', () => {
+            if (uploadCsvModalInstance) {
+                // Reset modal state before showing
+                if (uploadResult) {
+                    uploadResult.innerHTML = '';
+                    uploadResult.className = 'mt-3';
+                }
+                if (csvFile) csvFile.value = '';
+                if (submitUploadBtn) submitUploadBtn.disabled = false;
+                uploadCsvModalInstance.show();
+            }
+        });
+    }
+
+    if (submitUploadBtn) {
+        submitUploadBtn.addEventListener('click', async () => {
+            if (!csvFile.files || csvFile.files.length === 0) {
+                uploadResult.innerHTML = '<div class="alert alert-warning">Please select a file to upload.</div>';
+                return;
+            }
+
+            const file = csvFile.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            submitUploadBtn.disabled = true;
+            uploadResult.innerHTML = '<div class="alert alert-info">Uploading...</div>';
+
+            try {
+                // Note: fetchWithAuth for FormData doesn't need Content-Type header; browser sets it with boundary.
+                const response = await fetchWithAuth('/api/station_metadata/upload_csv/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const resultData = await response.json();
+
+                if (!response.ok && response.status !== 207) { // 207 is Multi-Status for partial success
+                    throw new Error(resultData.detail || 'An unknown error occurred during upload.');
+                }
+
+                let alertClass = response.status === 207 ? 'alert-warning' : 'alert-success';
+                let resultHtml = `<div class="alert ${alertClass}">${resultData.message}</div>`;
+                if (resultData.errors && resultData.errors.length > 0) {
+                    resultHtml += '<h6>Errors:</h6><ul class="list-group">';
+                    resultData.errors.forEach(err => {
+                        resultHtml += `<li class="list-group-item list-group-item-danger bg-dark text-light">${err}</li>`;
+                    });
+                    resultHtml += '</ul>';
+                }
+                uploadResult.innerHTML = resultHtml;
+
+                await fetchStationStatuses(); // Refresh the main station table
+
+            } catch (error) {
+                console.error('Error uploading CSV:', error);
+                uploadResult.innerHTML = `<div class="alert alert-danger">Upload failed: ${error.message}</div>`;
+            } finally {
+                submitUploadBtn.disabled = false;
+            }
+        });
+    }
+
     // Remove old event delegation for 'edit-station-link' if it exists,
     // as we now add direct onclick handlers or specific buttons.
     // The old `stationStatusTableBody.addEventListener('click', function(event) { ... });`
@@ -496,4 +665,63 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Initial page load
     await initializePage();
+
+    
+    // --- Add Station Functionality ---
+    if (addStationBtn) {
+        addStationBtn.addEventListener('click', () => {
+            currentEditingStationId = null; // Ensure we are in "add" mode
+            // Clear form fields in the modal (including hidden fields)
+            if (stationEditLogForm) stationEditLogForm.reset(); // Clear all input, textarea, select
+            // Clear all validation feedback and result messages when opening modal
+            clearValidationFeedback(formNewStationId, formNewStationIdFeedback);
+            clearValidationFeedback(formModemAddress, formModemAddressFeedback);
+            clearValidationFeedback(formBottomDepth, formBottomDepthFeedback);
+            if (stationInfoResult) stationInfoResult.innerHTML = '';
+
+            // Configure modal for "Add" mode
+            if (modalTitleAction) modalTitleAction.textContent = "Add New Station";
+            if (modalStationIdDisplay) modalStationIdDisplay.textContent = ""; // Clear the station ID from title
+            
+            // Show the station ID input field for new stations
+            if (newStationIdContainer) newStationIdContainer.style.display = 'block';
+            if (formNewStationId) formNewStationId.value = '';
+
+            // Hide the "Log New Offload" section, as it's not applicable for a new station
+            if (logNewOffloadSection) logNewOffloadSection.style.display = 'none';
+
+            // Show the modal
+            if (editLogStationModalInstance) {
+                editLogStationModalInstance.show();
+            }
+        });
+    }
+
+    // --- Delete Station Functionality ---
+    async function deleteStation(stationId) {
+        if (!isAdmin) return; // Ensure only admin can delete
+
+        if (!confirm(`Are you sure you want to delete station "${stationId}"? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetchWithAuth(`/api/station_metadata/${stationId}`, {
+                method: 'DELETE',
+            });
+
+            if (response.status === 204) { // DELETE successful
+                alert(`Station "${stationId}" deleted successfully.`);
+                await fetchStationStatuses(); // Refresh the table
+            } else if (response.status === 404) {
+                alert(`Station "${stationId}" not found.`);
+            } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Failed to delete station.' }));
+                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error deleting station:', error);
+            alert(`Error: ${error.message}`);
+        }
+    }
 });

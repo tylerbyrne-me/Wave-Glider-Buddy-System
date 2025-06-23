@@ -2,14 +2,33 @@
 
 /* Apply highlight to the table cells (td) within the marked row (tr) */
 .table > tbody > tr.pic-handoff-highlight > td {
-  background-color: rgba(173, 216, 230, 0.25) !important; /* LightBlue with 25% opacity */
+  background-color: var(--highlight-bg) !important;
   /* This targets the <td> elements directly, ensuring the background is visible. */
 }
 
 /* Make sure the value is a shade lighter that the one */
 /* defined by bootstrap for bg-dark */
 .navbar-dark.bg-dark {
-    background-color: #343a40 !important; /* A slightly lighter shade of dark */
+    background-color: var(--navbar-bg) !important;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+}
+
+/* Increase font size for major banner elements by ~10% */
+.navbar .navbar-brand,
+.navbar .nav-link,
+.navbar .dropdown-item {
+    color: var(--navbar-link-color);
+
+    font-size: 1.05em; /* A subtle increase */
+}
+/* Adjust the new UTC clock and refresh countdown text size */
+.navbar #utcClockBanner,
+.navbar #refreshCountdown {
+    color: var(--navbar-link-color);
+
+    font-size: 0.9em;
+    white-space: nowrap; /* Prevent the clock from wrapping on smaller screens */
 }
 
 
@@ -21,18 +40,21 @@ html {
 
 body {
   /* You can set a global font family here if you want to override Bootstrap's default */
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
   font-family: 'Roboto', sans-serif; /* Example: Using Roboto */
 }
 
 .card {
   /* Add a subtle border that works with the dark theme */
   /* 1px * 0.67 = 0.67px. Consider keeping at 1px if too thin, or use a lighter color for perceived thinness. */
-  border: 1px solid rgba(255, 255, 255, 0.125); /* Kept at 1px for visibility, adjust if needed */
+  border: 1px solid var(--card-border); /* Kept at 1px for visibility, adjust if needed */
   /* You could add a very subtle box-shadow if desired, but be careful not to overdo it */
   /* box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); */
   transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out; /* For hover effect */
 }
 
+/* This hover effect is subtle, might need adjustment for light theme */
 .card:hover {
   transform: translateY(-1px); /* Scaled: -2px * 0.67 = -1.34px, rounded to -1px */
   box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15); /* Slightly more pronounced shadow on hover */
@@ -74,7 +96,7 @@ footer .text-muted {
 }
 
 .na-value {
-  color: #999; /* Lighter grey for N/A, adjust for dark theme if needed */
+  color: var(--secondary-color);
   font-style: italic;
 }
 
@@ -115,7 +137,7 @@ footer .text-muted {
   padding: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   height: calc(100vh - 168px); /* Scaled: 250px * 0.67 = 167.5px, rounded */
   overflow-y: auto;
-  border-right: 1px solid #444; /* Separator line */
+  border-right: 1px solid var(--card-border); /* Separator line */
   display: flex;
   flex-direction: column;
   gap: 7px; /* Scaled: 10px * 0.67 = 6.7px, rounded */
@@ -131,15 +153,15 @@ footer .text-muted {
 }
 
 .summary-card:hover {
-  background-color: #3a4a58; /* Darker hover for dark theme */
-  border-color: #566f85;
+  background-color: var(--card-hover-bg);
+  border-color: var(--card-hover-border);
 }
 
 .summary-card.active-card {
-  background-color: #3a3f44; /* A subtle, slightly lighter grey for dark mode active state */
-  border-color: #52585f;     /* A slightly more pronounced border for the active card */
+  background-color: var(--active-card-bg);
+  border-color: var(--active-card-border);
   border-left-width: 2px;    /* Scaled: 3px * 0.67 = 2.01px, rounded */
-  border-left-color: rgba(150, 180, 255, 0.8); /* Accent color for the left border, (default miniChartLineColor) */
+  border-left-color: var(--active-card-accent);
   /* The main text color is handled by the more specific rules below to ensure readability */
   /* Ensure padding is consistent or adjusted for the new internal layout */
   padding: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
@@ -148,11 +170,11 @@ footer .text-muted {
 .summary-card.active-card h5,
 .summary-card.active-card .mini-summary,
 .summary-card.active-card .summary-card-footer {
-  color: #fff !important; /* Override text-muted for active card */
+  color: var(--active-card-text) !important;
 }
 .summary-card.active-card .summary-card-footer {
-  color: #e0e0e0 !important; /* Slightly less bright for footer in active card */
-}
+  color: var(--active-card-text) !important;
+  opacity: 0.85;}
 
 /* New styles for summary card internal layout */
 .summary-card {
@@ -239,14 +261,14 @@ footer .text-muted {
 
 .mini-chart-placeholder .no-errors-message { /* Target span for "no errors" */
   font-size: 0.85rem; /* Similar to .mini-summary font size */
-  color: #888; /* Muted color */
+  color: var(--secondary-color);
   text-align: center;
   width: 100%;
 }
 
 .summary-card-footer {
   font-size: 0.75rem;
-  border-top: 1px solid #444; /* Kept at 1px */
+  border-top: 1px solid var(--card-border); /* Kept at 1px */
   padding-top: 3px; /* Scaled: 5px * 0.67 = 3.35px, rounded */
   margin-top: 5px; /* Scaled: 8px * 0.67 = 5.36px, rounded */
 }
@@ -276,9 +298,18 @@ footer .text-muted {
   /* padding: 10px; */ /* Scaled: 15px * 0.67 = 10px */
 }
 
+/* New style for the bordered/shaded summary box inside detail views */
+.detail-summary-box {
+  background-color: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-card-border-radius); /* Use Bootstrap's border radius for consistency */
+  padding: 1rem; /* Add some internal padding */
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.075); /* A subtle inner shadow for depth */
+}
+
 .power-summary-column .text-center .power-summary-header {
   font-size: 0.9rem; /* Will scale with html font-size: 67% */
-  color: #adb5bd; /* Muted text color from Bootstrap's default dark theme */
+  color: var(--secondary-color);
   margin-bottom: 0.1rem; /* Small space */
   text-transform: uppercase;
   letter-spacing: 0.5px; /* Slight letter spacing for headers */
@@ -288,7 +319,7 @@ footer .text-muted {
 .power-summary-column .text-center .power-summary-value-large {
   font-size: 2.2rem; /* Large font, will scale. (e.g., 2.2 * 16px * 0.67 = ~23.5px) */
   font-weight: 300; /* Lighter font weight for large numbers */
-  color: #e9ecef; /* Brighter text color */
+  color: var(--text-color);
   line-height: 1.1; /* Adjust line height for large font */
 }
 
@@ -301,19 +332,19 @@ footer .text-muted {
   display: flex;
   justify-content: space-between;
   padding: 0.2rem 0; /* Approx 3px scaled */
-  border-bottom: 1px solid #394046; /* Subtle separator for dark theme */
+  border-bottom: 1px solid var(--card-border); /* Subtle separator */
 }
 .power-summary-details-list li:last-child {
   border-bottom: none;
 }
 
 .power-summary-label {
-  color: #adb5bd; /* Muted text color for labels */
+  color: var(--secondary-color); /* Muted text color for labels */
 }
 
 .power-summary-value-right {
   font-weight: 500; /* Slightly bolder for values */
-  color: #e9ecef; /* Brighter text color */
+  color: var(--text-color); /* Brighter text color */
 }
 
 /* Status text styling for Time To Charge if it's not a numeric time */
@@ -329,7 +360,7 @@ footer .text-muted {
   display: inline-block; /* Allows transform and respects line height */
   font-size: 3.5rem;     /* Arrow size, scales with root font-size. (1.8 * 16px * 0.67 = ~19.3px) */
   line-height: 1;        /* Prevents extra vertical space due to large font size */
-  color: #ced4da;       /* Arrow color, adjust as needed for dark theme */
+  color: var(--secondary-color);       /* Arrow color */
 }
 
 /* .wave-propagation-label {
@@ -355,7 +386,7 @@ footer .text-muted {
     max-height: 201px; /* Scaled: 300px * 0.67 = 201px */
     overflow-y: auto;
     border-right: none;
-    border-bottom: 1px solid #444; /* Separator line when stacked */
+    border-bottom: 1px solid var(--card-border); /* Separator line when stacked */
     margin-bottom: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   }
 }

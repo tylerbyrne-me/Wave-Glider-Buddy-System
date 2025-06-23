@@ -34,6 +34,7 @@ class ReportDataParams(BaseModel):
     # Path parameters are handled by FastAPI directly in the function signature
     # Query parameters:
     hours_back: int = Field(72, gt=0, le=8760, description="Number of hours of data to retrieve, relative to the latest data point for the mission.")
+    granularity_minutes: Optional[int] = Field(15, ge=5, le=60, description="Data resampling interval in minutes for charts. Minimum 5, maximum 60.")
     source: Optional[SourceEnum] = Field(None, description="Preferred data source: 'local' or 'remote'. Defaults to remote then local.")
     local_path: Optional[str] = Field(None, description="Custom base path for local data, overrides default settings path.")
     refresh: bool = Field(False, description="Force refresh data from source, bypassing cache.")
@@ -415,3 +416,12 @@ class OffloadLogRead(OffloadLogBase):  # For API responses
     station_id: str
     logged_by_username: str
     log_timestamp_utc: datetime
+
+
+class StationMetadataCreateResponse(StationMetadataRead):
+    """
+    Response model for the create/update endpoint.
+    Includes all fields from StationMetadataRead plus a flag to indicate
+    if the resource was newly created or just updated.
+    """
+    is_created: bool

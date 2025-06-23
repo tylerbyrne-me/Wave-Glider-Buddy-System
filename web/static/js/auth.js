@@ -1,4 +1,57 @@
 document.addEventListener('DOMContentLoaded', async function () { // Made async for getUserProfile
+    // --- Theme Switcher Logic ---
+    // This is placed at the top to run immediately and prevent a flash of unstyled content (FOUC).
+    const themeSwitch = document.getElementById('themeSwitch');
+    const htmlEl = document.documentElement;
+
+    const getPreferredTheme = () => {
+        if (localStorage.getItem('theme')) {
+            return localStorage.getItem('theme');
+        }
+        // Default to dark theme if no preference is set
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    };
+
+    const setTheme = (theme) => {
+        htmlEl.setAttribute('data-bs-theme', theme);
+        if (themeSwitch) {
+            themeSwitch.checked = (theme === 'dark');
+        }
+        localStorage.setItem('theme', theme);
+    };
+
+    // Set the initial theme when the page loads
+    setTheme(getPreferredTheme());
+
+    // Add a listener for the toggle switch
+    if (themeSwitch) {
+        themeSwitch.addEventListener('change', () => {
+            setTheme(themeSwitch.checked ? 'dark' : 'light');
+        });
+    }
+
+    // --- Global UTC Clock in Banner ---
+    // This function is placed here in auth.js to run on every page.
+    // It's moved to the top of the listener to ensure it runs immediately
+    // without waiting for async operations like fetching user profiles.
+    function updateUtcClockBanner() {
+        const clockElement = document.getElementById('utcClockBanner');
+        if (clockElement) {
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            const hours = String(now.getUTCHours()).padStart(2, '0');
+            const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+            
+            clockElement.textContent = `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+        }
+    }
+    // Initialize clock immediately and set interval
+    updateUtcClockBanner();
+    setInterval(updateUtcClockBanner, 1000);
+
     const loginForm = document.getElementById('loginForm'); // Keep this
     const loginErrorDiv = document.getElementById('loginError');
     const registerForm = document.getElementById('registerForm');

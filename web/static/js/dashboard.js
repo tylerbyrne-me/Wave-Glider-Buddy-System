@@ -23,18 +23,26 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     let fluorometerChartInstance = null;
     let wgVm4ChartInstance = null; // New WG-VM4 chart
     let waveHeightDirectionChartInstance = null; // Keep this for Hs vs Dp
-    // Remove amplitude chart instances
     let waveSpectrumChartInstance = null; // Instance for the new Wave Spectrum chart
-    let navigationChartInstance = null; // Instance for the new Navigation chart
+    let telemetryChartInstance = null; // Instance for the new Telemetry chart
     let navigationCurrentChartInstance = null; // Instance for Ocean Current chart
     let navigationHeadingDiffChartInstance = null; // Instance for Heading Difference chart
 
-    // Define colors for dark mode charts
-    const miniChartInstances = {};
+    // --- Chart Color Variables ---
+    // We use 'let' so we can update them when the theme changes.
+    let chartTextColor, chartGridColor, miniChartLineColor;
 
-    const chartTextColor = 'rgba(255, 255, 255, 0.8)';
-    const chartGridColor = 'rgba(255, 255, 255, 0.1)';
-    const miniChartLineColor = 'rgba(150, 180, 255, 0.8)'; // A neutral light blue for mini charts
+    // Function to update the color variables from CSS
+    function updateChartColorVariables() {
+        const styles = getComputedStyle(document.documentElement);
+        chartTextColor = styles.getPropertyValue('--text-color').trim();
+        chartGridColor = styles.getPropertyValue('--card-border').trim();
+        miniChartLineColor = styles.getPropertyValue('--active-card-accent').trim();
+    }
+
+    // Initial call to set colors on page load
+    updateChartColorVariables();
+    const miniChartInstances = {};
 
     // Centralized Chart Colors
     const CHART_COLORS = {
@@ -72,28 +80,14 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     let autoRefreshEnabled = true; // Default to true, will be updated by checkbox/localStorage
     let countdownTimer = null;
 
-    function updateUtcClock() {
-        const clockElement = document.getElementById('utcClock');
-        if (clockElement) {
-            const now = new Date();
-            const utcString = now.toLocaleTimeString('en-US', {
-                timeZone: 'UTC',
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            clockElement.textContent = `UTC: ${utcString}`; // Shortened label
-        }
-    }
-
     function startCountdownTimer() {
         const countdownElement = document.getElementById('refreshCountdown');
-        if (!countdownElement) return;
+        const countdownContainer = document.getElementById('refreshCountdownContainer');
+        if (!countdownElement || !countdownContainer) return;
         if (!autoRefreshEnabled) return; // Don't start if disabled
 
         let remainingSeconds = autoRefreshIntervalMinutes * 60;
-        countdownElement.style.display = 'block'; // Show the countdown element
+        countdownContainer.style.display = 'block'; // Show the container li element
 
         function updateCountdownDisplay() {
             const minutes = Math.floor(remainingSeconds / 60);
@@ -118,52 +112,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             currentUrl.searchParams.set('mission', newMissionId);
             window.location.href = currentUrl.toString();
         });
-    }
-
-    async function fetchAndPopulateAvailableMissions() {
-        const missionSelectorBanner = document.getElementById('missionSelectorBanner');
-        if (!missionSelectorBanner) {
-            console.warn("Mission selector (missionSelectorBanner) not found in DOM.");
-            return;
-        }
-
-        console.log("Dashboard.js: fetchAndPopulateAvailableMissions() called."); // DEBUG
-        try {
-            const response = await fetchWithAuth('/api/available_missions'); // Use fetchWithAuth
-            if (response.status === 401 || response.status === 403) {
-                console.warn("Dashboard.js: Auth error fetching available missions. Logging out."); // DEBUG
-                logout(); // Token invalid or insufficient permissions
-                return;
-            }
-            const missions = await response.json();
-            console.log("Dashboard.js: Available missions fetched:", missions); // DEBUG
-
-            missionSelectorBanner.innerHTML = ''; // Clear existing options
-
-            if (missions.length === 0) {
-                const option = document.createElement('option');
-                option.value = "";
-                option.textContent = "No missions available";
-                missionSelectorBanner.appendChild(option);
-                missionSelectorBanner.disabled = true;
-            } else {
-                missionSelectorBanner.disabled = false;
-                // missions are already sorted by the backend
-                missions.forEach(m_id => {
-                    const option = document.createElement('option');
-                    option.value = m_id;
-                    option.textContent = m_id;
-                    if (m_id === missionId) { 
-                        option.selected = true;
-                    }
-                    missionSelectorBanner.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Error fetching or populating available missions:', error);
-            missionSelectorBanner.innerHTML = '<option value="">Error loading missions</option>';
-            missionSelectorBanner.disabled = true;
-        }
     }
 
     const dataSourceModalEl = document.getElementById('dataSourceModal'); // Get the modal element
@@ -204,25 +152,42 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
-    // --- Create Report Button ---
-    const createReportBtnBanner = document.getElementById('createReportBtnBanner');
-    // console.log("Dashboard.js: Attempting to set 'PIC Handover' button href. Element found:", !!createReportBtnBanner); // DEBUG
-    if (createReportBtnBanner) {
-        // Set a default form type for now, this could be made more dynamic later
-        // (e.g., a dropdown next to the button to select form type)
+    /**
+     * Updates all links that should point to the "Submit New PIC Handoff" form
+     * for the current mission. This includes the main banner button and any
+     * links in dropdowns. These links are identified by the class 'dynamic-pic-handoff-link'.
+     */
+    function updatePicHandoffLinks() {
+        const handoffLinks = document.querySelectorAll('.dynamic-pic-handoff-link');
+        
+        if (handoffLinks.length === 0) {
+            // This is a warning, not an error, as some pages might not have these links.
+            console.warn("Dashboard.js: No elements with class 'dynamic-pic-handoff-link' found. Links will not be updated.");
+            return;
+        }
+
         const defaultFormType = "pic_handoff_checklist"; // Changed to the new form type
         if (missionId && missionId.trim() !== "") {
-            createReportBtnBanner.href = `/mission/${missionId}/form/${defaultFormType}.html`;
-            // console.log(`Dashboard.js: 'PIC Handover' button href updated to: ${createReportBtnBanner.href}`); // DEBUG
+            const formUrl = `/mission/${missionId}/form/${defaultFormType}.html`;
+            handoffLinks.forEach(link => {
+                link.href = formUrl;
+                link.target = "_blank"; // Ensure it opens in a new tab
+                link.classList.remove('disabled'); // Ensure link is enabled
+            });
         } else {
-            console.error("Dashboard.js: missionId is undefined or empty. 'Create Report' button href NOT updated, remains default."); // DEBUG
+            console.error("Dashboard.js: missionId is undefined or empty. Disabling PIC Handoff links.");
+            // Disable the links if no missionId is available
+            handoffLinks.forEach(link => {
+                link.href = "#";
+                link.target = ""; // Remove target
+                link.classList.add('disabled');
+            });
         }
-    } else {
-        console.error("Dashboard.js: 'Create Report' button (id: createReportBtn) NOT FOUND in DOM."); // DEBUG
     }
 
     // Fetch and populate missions *after* auth check and other initial setup
-    fetchAndPopulateAvailableMissions();
+    updatePicHandoffLinks();
+
 
     // --- Auto-Refresh Toggle Logic ---
     const autoRefreshToggle = document.getElementById('autoRefreshToggleBanner');
@@ -234,8 +199,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             startCountdownTimer(); // Restart countdown if enabled and on a real-time mission
         } else {
             clearInterval(countdownTimer);
-            const countdownElement = document.getElementById('refreshCountdown');
-            if (countdownElement) countdownElement.style.display = 'none';
+            const countdownContainer = document.getElementById('refreshCountdownContainer');
+            if (countdownContainer) countdownContainer.style.display = 'none';
         }
     }
 
@@ -273,13 +238,20 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      * @param {number} hours - The number of hours back to fetch data for.
      * @returns {Promise<Array<Object>|null>} A promise that resolves with the chart data array or null if fetching fails.
      */
-    async function fetchChartData(reportType, mission, hours) {
+    async function fetchChartData(reportType, mission) {
         const chartCanvas = document.getElementById(`${reportType}Chart`); 
         const spinner = chartCanvas ? chartCanvas.parentElement.querySelector('.chart-spinner') : null;
         if (spinner) spinner.style.display = 'block';
 
+        // Find controls specific to this report type, if they exist.
+        const hoursInput = document.querySelector(`.hours-back-input[data-report-type="${reportType}"]`);
+        const granularitySelect = document.querySelector(`.granularity-select[data-report-type="${reportType}"]`);
+
+        const hours = hoursInput ? hoursInput.value : 72; // Default to 72 if no input found
+        const granularity = granularitySelect ? granularitySelect.value : 15; // Default to 15 min if no select found
+
         try {
-            let apiUrl = `/api/data/${reportType}/${mission}?hours_back=${hours}`;
+            let apiUrl = `/api/data/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
             apiUrl += `&source=${currentSource}`;
             if (currentSource === 'local' && currentLocalPath) {
                 apiUrl += `&local_path=${encodeURIComponent(currentLocalPath)}`;
@@ -481,19 +453,19 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     // Fetch and render the CTD chart on page load
-    fetchChartData('ctd', missionId, hoursBack).then(data => {
+    fetchChartData('ctd', missionId).then(data => {
         renderCtdChart(data); // Existing chart for Temp & Salinity
         renderCtdProfileChart(data); // New chart for Temp, Conductivity, DO
     });
     // Fetch and render the Weather Sensor chart on page load
-    fetchChartData('weather', missionId, hoursBack).then(data => {
+    fetchChartData('weather', missionId).then(data => {
         renderWeatherSensorChart(data);
     });
 
     // Fetch Power and Solar data concurrently, then render their charts
     Promise.all([
-        fetchChartData('power', missionId, hoursBack),
-        fetchChartData('solar', missionId, hoursBack)
+        fetchChartData('power', missionId),
+        fetchChartData('solar', missionId)
     ]).then(([powerData, solarData]) => {
         renderPowerChart(powerData); // Renders power chart (now without total solar)
         renderSolarPanelChart(solarData, powerData); // Pass both solar (individual) and power (for total solar) data
@@ -501,7 +473,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         // If Navigation is the default active view, this initial fetch might need adjustment
         // For now, assuming Power or another non-Telemetry chart is default.
         // If Navigation is default, its data should be fetched here too.
-        fetchChartData('telemetry', missionId, hoursBack).then(data => {
+        fetchChartData('telemetry', missionId).then(data => {
             renderNavigationChart(data);
             renderNavigationCurrentChart(data);
             renderNavigationHeadingDiffChart(data);
@@ -513,12 +485,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     });
     
     /**
-     * Renders the second CTD Chart (Profile Details) using Chart.js.
-     * Plots Water Temperature (left Y1), Conductivity (right Y), Dissolved Oxygen (left Y2, hidden).
+     * Renders the CTD Profile Chart using Chart.js.
+     * Plots Water Temperature (left Y1), Conductivity (right Y), Dissolved Oxygen (left Y2).
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderCtdProfileChart(chartData) {
-        // console.log('Attempting to render CTD Profile Chart. Data received:', chartData);
+        console.log('Attempting to render CTD Profile Chart. Data received:', chartData);
         const canvas = document.getElementById('ctdProfileChart');
         if (!canvas) {
             console.error("Canvas element 'ctdProfileChart' not found.");
@@ -536,7 +508,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             return;
         }
 
-        const datasets = [];
+        const datasets = []; // Define datasets here
         // Water Temperature (Left Y-axis 1, more transparent)
         if (chartData.some(d => d.WaterTemperature !== null && d.WaterTemperature !== undefined)) {
             datasets.push({
@@ -547,6 +519,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 tension: 0.1, fill: false
             });
         }
+        
         // Conductivity (Right Y-axis, now more transparent)
         if (chartData.some(d => d.Conductivity !== null && d.Conductivity !== undefined)) {
             datasets.push({
@@ -1102,12 +1075,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     // Fetch and render the Wave chart on page load
-    fetchChartData('waves', missionId, hoursBack).then(data => {
+    fetchChartData('waves', missionId).then(data => {
         renderWaveChart(data); // Renders Hs vs Tp chart (time-series)
         renderWaveHeightDirectionChart(data); // Call the reinstated function
         // Wave spectrum is loaded on demand when its detail card is clicked
     }); // This call was missing in the previous diff
-
+    
     /**
      * Renders the VR2C Chart using Chart.js.
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
@@ -1247,17 +1220,17 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     // Fetch and render the VR2C chart on page load
-    fetchChartData('vr2c', missionId, hoursBack).then(data => {
+    fetchChartData('vr2c', missionId).then(data => {
         renderVr2cChart(data);
     });
 
     // Fetch and render the Fluorometer chart on page load
-    fetchChartData('fluorometer', missionId, hoursBack).then(data => {
+    fetchChartData('fluorometer', missionId).then(data => {
         renderFluorometerChart(data);
     }); // Removed the stray closing brace from the next line
 
     // Fetch and render the WG-VM4 chart on page load (if it's the default view or for pre-loading)
-    fetchChartData('wg_vm4', missionId, hoursBack).then(data => {
+    fetchChartData('wg_vm4', missionId).then(data => {
         renderWgVm4Chart(data);
     });
 
@@ -1522,12 +1495,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     /**
-     * Renders the Navigation Chart using Chart.js.
+     * Renders the Telemetry Chart (Glider Speed/Heading) using Chart.js.
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
-    function renderNavigationChart(chartData) {
-        const canvas = document.getElementById('navigationChart');
-        if (!canvas) { console.error("Canvas 'navigationChart' not found."); return; }
+    function renderTelemetryChart(chartData) { // Renamed from renderNavigationChart
+        const canvas = document.getElementById('telemetryChart'); // Updated ID
+        if (!canvas) { console.error("Canvas 'telemetryChart' not found."); return; }
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1535,7 +1508,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
             ctx.fillText("No navigation trend data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
-            if (navigationChartInstance) { navigationChartInstance.destroy(); navigationChartInstance = null; }
+            if (telemetryChartInstance) { telemetryChartInstance.destroy(); telemetryChartInstance = null; } // Updated instance variable
             return;
         }
 
@@ -1572,12 +1545,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         if (datasets.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
             ctx.fillText("No plottable navigation data found.", ctx.canvas.width / 2, ctx.canvas.height / 2);
-            if (navigationChartInstance) { navigationChartInstance.destroy(); navigationChartInstance = null; }
+            if (telemetryChartInstance) { telemetryChartInstance.destroy(); telemetryChartInstance = null; } // Updated instance variable
             return;
         }
 
-        if (navigationChartInstance) { navigationChartInstance.destroy(); }
-        navigationChartInstance = new Chart(ctx, {
+        if (telemetryChartInstance) { telemetryChartInstance.destroy(); } // Updated instance variable
+        telemetryChartInstance = new Chart(ctx, { // Updated instance variable
             type: 'line',
             data: { datasets: datasets },
             options: {
@@ -1597,8 +1570,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderNavigationCurrentChart(chartData) {
-        const canvas = document.getElementById('navigationCurrentChart');
-        if (!canvas) { console.error("Canvas 'navigationCurrentChart' not found."); return; }
+        const canvas = document.getElementById('telemetryCurrentChart');
+        if (!canvas) { console.error("Canvas 'telemetryCurrentChart' not found."); return; }
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1668,8 +1641,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderNavigationHeadingDiffChart(chartData) {
-        const canvas = document.getElementById('navigationHeadingDiffChart');
-        if (!canvas) { console.error("Canvas 'navigationHeadingDiffChart' not found."); return; }
+        const canvas = document.getElementById('telemetryHeadingDiffChart');
+        if (!canvas) { console.error("Canvas 'telemetryHeadingDiffChart' not found."); return; }
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1812,11 +1785,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     // Reminder: Revisit threshold highlighting values
     // console.log("Reminder: Revisit and fine-tune threshold highlighting values in index.html for summaries.");
 
-    // Initialize and update the UTC clock
-    updateUtcClock(); // Initial call
-    setInterval(updateUtcClock, 1000); // Update every second
-
-    
     // --- NEW: Mini Chart Rendering ---
     function renderMiniChart(canvasId, trendData, chartColor = miniChartLineColor) {
         // console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
@@ -1996,45 +1964,228 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
 
                     // Special handling for Waves to trigger spectrum load when its detail view is shown
                     if (category === 'waves') {
+                        // The main wave charts are reloaded by the generic loader below
                         fetchAndRenderWaveSpectrum(missionId);
                         // Fetch and render marine forecast when Waves detail is shown
                         fetchMarineForecastData(missionId).then(data => renderMarineForecast(data));
-
-                    } else if (category === 'navigation') { // Fetch telemetry data for navigation chart
-                        fetchChartData('telemetry', missionId, hoursBack).then(data => {
-                            renderNavigationChart(data);
-                            renderNavigationCurrentChart(data);
-                            renderNavigationHeadingDiffChart(data);
-                        });
                     } else if (category === 'wg_vm4') {
-                        // Fetch and render WG-VM4 main chart when its detail view is shown
-                        fetchChartData('wg_vm4', missionId, hoursBack).then(data => renderWgVm4Chart(data));
                         // Initialize the offload log section specific to WG-VM4
                         if (typeof initializeWgVm4OffloadSection === 'function') initializeWgVm4OffloadSection();
                     }
-                } // <-- Missing closing brace for if (activeDetailView)
-            }); // <-- Missing closing brace for card.addEventListener
+                    // Generic loader for all cards to ensure data is refreshed on click
+                    const loader = getSensorLoader(category);
+                    if (loader) {
+                        loader();
+                    }
+                }
+            });
         });
-    } // <-- Closing brace for handleLeftPanelClicks function
+    }
+
+    function getSensorLoader(reportType) {
+        // Map the UI category 'navigation' to the data/API report type 'telemetry'.
+        // This allows the 'navigation' card click and initial load to trigger the 'telemetry' data loader,
+        // while the controls within the detail view can still correctly use 'telemetry'.
+        if (reportType === 'navigation') {
+            reportType = 'telemetry';
+        }
+        const loaders = {
+            'power': () => Promise.all([fetchChartData('power', missionId), fetchChartData('solar', missionId)]).then(([powerData, solarData]) => {
+                renderPowerChart(powerData);
+                renderSolarPanelChart(solarData, powerData);
+            }).catch(error => { console.error("Error loading power/solar data:", error); renderPowerChart(null); renderSolarPanelChart(null, null); }), // Add catch for initial load
+            'ctd': () => fetchChartData('ctd', missionId).then(data => {
+                renderCtdChart(data);
+                renderCtdProfileChart(data);
+            }),
+            'weather': () => fetchChartData('weather', missionId).then(data => renderWeatherSensorChart(data)),
+            'waves': () => fetchChartData('waves', missionId).then(data => {
+                renderWaveChart(data);
+                renderWaveHeightDirectionChart(data);
+            }),
+            'vr2c': () => fetchChartData('vr2c', missionId).then(data => renderVr2cChart(data)),
+            'fluorometer': () => fetchChartData('fluorometer', missionId).then(data => renderFluorometerChart(data)),
+            'wg_vm4': () => fetchChartData('wg_vm4', missionId).then(data => renderWgVm4Chart(data)),
+            'telemetry': () => fetchChartData('telemetry', missionId).then(data => { // This key is used by controls and mapped from 'navigation'
+                renderTelemetryChart(data); // Updated function name
+                renderNavigationCurrentChart(data);
+                renderNavigationHeadingDiffChart(data);
+            }).catch(error => { console.error("Error loading telemetry data:", error); renderTelemetryChart(null); renderNavigationCurrentChart(null); renderNavigationHeadingDiffChart(null); }) // Add catch for telemetry
+        };
+        return loaders[reportType];
+    }
+
+    function initializeInteractiveControls() {
+        document.querySelectorAll('.hours-back-input, .granularity-select').forEach(input => {
+            input.addEventListener('change', (event) => {
+                const reportType = event.target.dataset.reportType;
+                const loader = getSensorLoader(reportType);
+                if (loader) {
+                    loader();
+                }
+            });
+        });
+    }
+    
+    function initializeRefreshButtons() {
+        document.querySelectorAll('.refresh-chart-button').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const reportType = event.target.dataset.reportType;
+                const loader = getSensorLoader(reportType);
+                if (loader) loader();
+            });
+        });
+    }
+
+    // --- Theme Change Handler ---
+    function updateAllChartInstances() {
+        const chartInstances = [
+            powerChartInstance, ctdChartInstance, weatherSensorChartInstance,
+            waveChartInstance, vr2cChartInstance, ctdProfileChartInstance,
+            solarPanelChartInstance, fluorometerChartInstance, wgVm4ChartInstance,
+            waveHeightDirectionChartInstance, waveSpectrumChartInstance,
+            telemetryChartInstance, navigationCurrentChartInstance,
+            navigationHeadingDiffChartInstance
+        ];
+
+        chartInstances.forEach(chart => {
+            if (chart) {
+                // Update scales
+                Object.keys(chart.options.scales).forEach(scaleKey => {
+                    const scale = chart.options.scales[scaleKey];
+                    if (scale.title) scale.title.color = chartTextColor;
+                    if (scale.ticks) scale.ticks.color = chartTextColor;
+                    if (scale.grid && scale.grid.drawOnChartArea !== false) {
+                        scale.grid.color = chartGridColor;
+                    }
+                });
+                // Update legend
+                if (chart.options.plugins.legend) {
+                    chart.options.plugins.legend.labels.color = chartTextColor;
+                }
+                chart.update('none'); // Update without animation
+            }
+        });
+        
+        // Re-render mini charts as their colors are in the dataset
+        initializeMiniCharts();
+    }
+
+    function initializeDownloadButtons() {
+        document.querySelectorAll('.download-csv-btn').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const reportType = this.dataset.reportType;
+                downloadChartDataAsCsv(reportType);
+            });
+        });
+
+        document.querySelectorAll('.save-charts-btn').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const category = this.dataset.reportType; // This is the category like 'navigation'
+                saveChartsAsPng(category);
+            });
+        });
+    }
+
+    function downloadChartDataAsCsv(reportType) {
+        const mission = document.body.dataset.missionId;
+        const hoursInput = document.querySelector(`.hours-back-input[data-report-type="${reportType}"]`);
+        const granularitySelect = document.querySelector(`.granularity-select[data-report-type="${reportType}"]`);
+
+        const hours = hoursInput ? hoursInput.value : 72;
+        const granularity = granularitySelect ? granularitySelect.value : 15;
+
+        const source = new URLSearchParams(window.location.search).get('source') || 'remote';
+        const localPath = new URLSearchParams(window.location.search).get('local_path') || '';
+
+        // Note: This endpoint needs to be created in app.py
+        let apiUrl = `/api/download_csv/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
+        apiUrl += `&source=${source}`;
+        if (source === 'local' && localPath) {
+            apiUrl += `&local_path=${encodeURIComponent(localPath)}`;
+        }
+
+        // Trigger download by navigating to the URL
+        window.location.href = apiUrl;
+    }
+
+    function saveChartsAsPng(category) {
+        const detailView = document.getElementById(`detail-${category}`);
+        if (!detailView) {
+            console.error(`Detail view for category ${category} not found.`);
+            return;
+        }
+
+        const mission = document.body.dataset.missionId;
+        const canvases = detailView.querySelectorAll('canvas');
+        if (canvases.length === 0) {
+            alert(`No charts found to save for the ${category} view.`);
+            return;
+        }
+
+        const chartInstanceMap = { 'powerChart': powerChartInstance, 'solarPanelChart': solarPanelChartInstance, 'ctdChart': ctdChartInstance, 'ctdProfileChart': ctdProfileChartInstance, 'weatherSensorChart': weatherSensorChartInstance, 'waveChart': waveChartInstance, 'waveHeightDirectionChart': waveHeightDirectionChartInstance, 'waveSpectrumChart': waveSpectrumChartInstance, 'vr2cChart': vr2cChartInstance, 'fluorometerChart': fluorometerChartInstance, 'wgVm4Chart': wgVm4ChartInstance, 'telemetryChart': telemetryChartInstance, 'telemetryCurrentChart': navigationCurrentChartInstance, 'telemetryHeadingDiffChart': navigationHeadingDiffChartInstance };
+
+        canvases.forEach(canvas => {
+            const chartId = canvas.id;
+            const chartInstance = chartInstanceMap[chartId];
+
+            if (chartInstance) {
+                const newCanvas = document.createElement('canvas');
+                newCanvas.width = chartInstance.canvas.width;
+                newCanvas.height = chartInstance.canvas.height;
+                const newCtx = newCanvas.getContext('2d');
+                const bodyStyles = getComputedStyle(document.body);
+                const bgColor = bodyStyles.getPropertyValue('--bs-body-bg').trim();
+                newCtx.fillStyle = bgColor;
+                newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+                newCtx.drawImage(chartInstance.canvas, 0, 0);
+                const image = newCanvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.href = image;
+                link.download = `${mission}_${chartId}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                console.warn(`No chart instance found for canvas with ID: ${chartId}`);
+            }
+        });
+    }
+
+    // Observer to watch for theme changes on the <html> element
+    const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'data-bs-theme') {
+                // A brief delay allows the browser to compute the new CSS variable values
+                setTimeout(() => {
+                    updateChartColorVariables(); // Get new colors from CSS
+                    updateAllChartInstances();   // Apply new colors to existing charts
+                }, 50);
+                break; // No need to check other mutations
+            }
+        }
+    });
+    observer.observe(document.documentElement, { attributes: true });
 
     // Initialize new UI features
     initializeMiniCharts();
     handleLeftPanelClicks();
+    initializeInteractiveControls();
+    initializeDownloadButtons();
 
     // Initial data load for the default active view (Navigation)
     // This ensures the main chart for the default view loads without needing a click.
     const defaultActiveCategory = document.querySelector('#left-nav-panel .summary-card.active-card')?.dataset.category;
-    if (defaultActiveCategory === 'navigation') {
-        fetchChartData('telemetry', missionId, hoursBack).then(data => {
-            renderNavigationChart(data);
-            renderNavigationCurrentChart(data);
-            renderNavigationHeadingDiffChart(data);
-        });
-    } else if (defaultActiveCategory === 'waves') {
+    if (defaultActiveCategory === 'waves') {
         // If waves is the default, also fetch its marine forecast
         fetchAndRenderWaveSpectrum(missionId); // Already there for spectrum
         fetchMarineForecastData(missionId).then(data => renderMarineForecast(data));
 
+    } else {
+        // For other default active categories, ensure their data is loaded
+        const loader = getSensorLoader(defaultActiveCategory);
+        if (loader) loader();
     }
-    // console.log("Dashboard setup complete");
 });
