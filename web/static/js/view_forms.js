@@ -65,15 +65,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.insertCell().textContent = form.form_type;
                     row.insertCell().textContent = form.form_title;
                     row.insertCell().textContent = form.submitted_by_username;                    
-                    const submissionDate = new Date(form.submission_timestamp); // Assuming timestamp is ISO string
-                    // Manually format UTC time for consistent display
-                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const year = submissionDate.getUTCFullYear();
-                    const month = submissionDate.getUTCMonth(); // 0-indexed
-                    const day = submissionDate.getUTCDate();
-                    const hours = submissionDate.getUTCHours();
-                    const minutes = submissionDate.getUTCMinutes();
-                    row.insertCell().textContent = `${monthNames[month]} ${day}, ${year} ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} UTC`;
+                    const submissionDate = new Date(form.submission_timestamp);
+                    // Standardize UTC time formatting for consistency and robustness.
+                    const datePart = submissionDate.toLocaleDateString('en-US', {
+                        year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
+                    });
+                    const timePart = submissionDate.toLocaleTimeString('en-GB', {
+                        hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+                    });
+                    // Combine parts to match the original format "Mon Day Year HH:MM UTC"
+                    row.insertCell().textContent = `${datePart.replace(',', '')} ${timePart} UTC`;
                     
                     const actionsCell = row.insertCell();
                     const viewButton = document.createElement('button');

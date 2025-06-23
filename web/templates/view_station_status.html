@@ -110,11 +110,12 @@
                         <th data-sort="status_text">Status <span class="sort-icon"></span></th>
                         <th data-sort="last_offload_timestamp_str">Last Log Update <span class="sort-icon"></span></th>
                         <th data-sort="vrl_file_name">VRL File Name <span class="sort-icon"></span></th>
-                    </tr><!-- Add Delete Button Here -->
+                        <th>Actions</th>
+                    </tr>
                 </thead>
                 <tbody id="stationStatusTableBody">
                     <!-- Rows will be inserted here by JavaScript -->
-                    <tr><td colspan="7" class="text-center">Initializing...</td></tr>
+                    <tr><td colspan="8" class="text-center">Initializing...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -193,7 +194,7 @@
                             <h4>Log New Offload</h4>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="formArrivalDate" class="form-label">Arrival Date (Local Time)</label>
+                                    <label for="formArrivalDate" class="form-label">Arrival Date (UTC)</label>
                                     <input type="datetime-local" class="form-control" id="formArrivalDate" name="arrival_date">
                                 </div>
                                 <div class="col-md-6 mb-3">
@@ -203,21 +204,21 @@
                             </div>
                             <div class="row">
                                  <div class="col-md-6 mb-3">
-                                    <label for="formTimeFirstCommand" class="form-label">Time first command sent (Local Time)</label>
+                                    <label for="formTimeFirstCommand" class="form-label">Time first command sent (UTC)</label>
                                     <input type="datetime-local" class="form-control" id="formTimeFirstCommand" name="time_first_command_sent_utc">
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="formOffloadStartTime" class="form-label">Offload Start Time (Local Time)</label>
+                                    <label for="formOffloadStartTime" class="form-label">Offload Start Time (UTC)</label>
                                     <input type="datetime-local" class="form-control" id="formOffloadStartTime" name="offload_start_time_utc">
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="formOffloadEndTime" class="form-label">Offload End Time (Local Time)</label>
+                                    <label for="formOffloadEndTime" class="form-label">Offload End Time (UTC)</label>
                                     <input type="datetime-local" class="form-control" id="formOffloadEndTime" name="offload_end_time_utc">
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="formDepartureDate" class="form-label">Departure Date (Local Time)</label>
+                                    <label for="formDepartureDate" class="form-label">Departure Date (UTC)</label>
                                     <input type="datetime-local" class="form-control" id="formDepartureDate" name="departure_date">
                                 </div>
                             </div>

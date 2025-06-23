@@ -35,8 +35,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     async function initializePage() {
         if (loadingSpinner) loadingSpinner.style.display = 'block'; // Show spinner early
         if (stationStatusTableBody) {
-            // Update colspan to 7 for the new table structure
-            stationStatusTableBody.innerHTML = '<tr><td colspan="7" class="text-center">Initializing...</td></tr>';
+            // Update colspan to 8 for the new table structure with an Actions column
+            stationStatusTableBody.innerHTML = '<tr><td colspan="8" class="text-center">Initializing...</td></tr>';
         }
 
         if (typeof checkAuth !== 'function' || !checkAuth()) {
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             renderTable(allStationsData);
         } catch (error) {
             console.error('Error fetching station statuses:', error);
-            stationStatusTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading data: ${error.message}</td></tr>`;
+            stationStatusTableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error loading data: ${error.message}</td></tr>`;
         } finally {
             if (loadingSpinner) loadingSpinner.style.display = 'none';
         }
@@ -107,70 +107,53 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (!stationsToRender || stationsToRender.length === 0) {
             const currentFilter = searchInput ? searchInput.value : "";
             if (currentFilter) {
-                stationStatusTableBody.innerHTML = `<tr><td colspan="7" class="text-center">No stations match your filter "${currentFilter}".</td></tr>`;
+                stationStatusTableBody.innerHTML = `<tr><td colspan="8" class="text-center">No stations match your filter "${currentFilter}".</td></tr>`;
             } else {
-                stationStatusTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No station data available.</td></tr>';
+                stationStatusTableBody.innerHTML = '<tr><td colspan="8" class="text-center">No station data available.</td></tr>';
             }
             return;
         }
 
         stationsToRender.forEach(station => {
             const row = stationStatusTableBody.insertRow();
-            // Function to add a cell with a button
-            const addCellWithButton = (row, text, colorClass, clickHandler, tooltip) => {
-                const cell = row.insertCell();
-                const button = document.createElement('button');
-                button.classList.add('btn', 'btn-sm', colorClass);
-                button.textContent = text;
-                button.title = tooltip;
-                button.onclick = clickHandler;
-                cell.appendChild(button);
-            };
 
+            // Data cells (7 columns)
+            row.insertCell().textContent = station.station_id || 'N/A';
+            row.insertCell().textContent = station.serial_number || 'N/A';
+            row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
+            row.insertCell().textContent = station.station_settings || '---';
+            const statusCell = row.insertCell();
+            statusCell.textContent = station.status_text || 'N/A';
+            row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A';
+            row.insertCell().textContent = station.vrl_file_name || '---';
+
+            // Actions cell (8th column)
+            const actionsCell = row.insertCell();
             if (isAdmin) {
-                row.insertCell().textContent = station.station_id || 'N/A';
-                row.insertCell().textContent = station.serial_number || 'N/A';
-                row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
-                row.insertCell().textContent = station.station_settings || '---'; // New column
+                actionsCell.classList.add('text-nowrap'); // Prevent buttons from wrapping on small screens
 
-                 // --- Status Cell Text and Row Coloring ---            
-                const statusCell = row.insertCell();
-                statusCell.textContent = station.status_text || 'N/A'; // Text comes directly from backend
+                const editButton = document.createElement('button');
+                editButton.classList.add('btn', 'btn-sm', 'btn-outline-primary', 'me-1');
+                editButton.title = `Edit / Log for ${station.station_id}`;
+                editButton.innerHTML = `<i class="fas fa-edit"></i> Edit`;
+                editButton.onclick = () => openEditLogModal(station.station_id);
+                actionsCell.appendChild(editButton);
 
-                row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A'; // Renamed to "Last Log Update"
-                row.insertCell().textContent = station.vrl_file_name || '---'; // New column
-
-                // Add "Edit" and "Delete" buttons for admin users
-                addCellWithButton(row, "Edit", "btn-outline-primary", () => openEditLogModal(station.station_id), `Edit / Log for ${station.station_id}`);
-                addCellWithButton(row, "Delete", "btn-danger", () => deleteStation(station.station_id), `Delete ${station.station_id} metadata.`,);
-                
-                // Clear all potential status color classes from the row first
-                row.classList.remove(
-                    'status-awaiting-offload', 'status-offloaded', 'status-failed-offload',
-                    'status-skipped', 'status-unknown'
-                );
-                // Apply new class based on station.status_color (which is a key from backend)
-                if (station.status_color === 'grey') {
-                    row.classList.add('status-awaiting-offload');
-                } else if (station.status_color === 'green') { // Or "blue" if backend sends that for offloaded
-                    row.classList.add('status-offloaded');
-                } else if (station.status_color === 'red') {
-                    row.classList.add('status-failed-offload');
-                } else if (station.status_color === 'yellow' || station.status_color === 'orange') { // For skipped
-                    row.classList.add('status-skipped');
-                } else {
-                    row.classList.add('status-unknown'); // Fallback for any other color_key or "Unknown" status_text
-                }
-            } else {
-
-                row.insertCell().textContent = station.station_id || 'N/A';
-                row.insertCell().textContent = station.serial_number || 'N/A';
-                row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
-                row.insertCell().textContent = station.station_settings || '---'; // New column
-                row.insertCell().textContent = station.status_text || 'N/A'; // Text comes directly from backend
-                row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A'; // Renamed to "Last Log Update"
-                row.insertCell().textContent = station.vrl_file_name || '---'; // New column
+                const deleteButton = document.createElement('button');
+                deleteButton.classList.add('btn', 'btn-sm', 'btn-danger');
+                deleteButton.title = `Delete ${station.station_id} metadata.`;
+                deleteButton.innerHTML = `<i class="fas fa-trash-alt"></i> Delete`;
+                deleteButton.onclick = () => deleteStation(station.station_id);
+                actionsCell.appendChild(deleteButton);
             }
+
+            // Apply row coloring based on status
+            row.classList.remove('status-awaiting-offload', 'status-offloaded', 'status-failed-offload', 'status-skipped', 'status-unknown');
+            if (station.status_color === 'grey') row.classList.add('status-awaiting-offload');
+            else if (station.status_color === 'green') row.classList.add('status-offloaded');
+            else if (station.status_color === 'red') row.classList.add('status-failed-offload');
+            else if (station.status_color === 'yellow' || station.status_color === 'orange') row.classList.add('status-skipped');
+            else row.classList.add('status-unknown');
         });
         updateSortIcons();
     }
@@ -411,9 +394,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     function getIsoFromDatetimeLocal(elementId) {
         const val = document.getElementById(elementId).value;
         if (val) {
-            const localDate = new Date(val);
-            if (!isNaN(localDate.valueOf())) {
-                return localDate.toISOString();
+            // When a user enters a time into a datetime-local input based on a "(UTC)" label,
+            // we must interpret that time as UTC. Appending 'Z' to the string tells the
+            // Date constructor to parse it as UTC, not as the browser's local time.
+            const utcDate = new Date(val + 'Z');
+            // Check if the date is valid after parsing
+            if (!isNaN(utcDate.valueOf())) {
+                return utcDate.toISOString();
             }
         }
         return null;
