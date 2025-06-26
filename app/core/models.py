@@ -1,5 +1,5 @@
 from datetime import (datetime,  # Import the datetime module and timezone
-                      timezone)
+                      timezone, date) # Import date
 from enum import Enum  # type: ignore
 from typing import List, Optional, TYPE_CHECKING
 
@@ -340,6 +340,7 @@ class ScheduleEvent(SQLModel):
     resourceEditable: bool = True
     overlap: bool = False  # Shifts should not overlap with other shifts or unavailability
     display: str = "auto"  # 'auto' for shifts, 'background' for unavailability
+    groupId: Optional[str] = None # For grouping events visually (e.g., consecutive LRI blocks)
     allDay: bool = False # Add allDay property
 
 
@@ -350,6 +351,12 @@ class ScheduleEventCreate(BaseModel):
     resource: str
     text: Optional[str] = None   # Text is now optional, will be filled by backend
     id: Optional[str] = None # Client might send an ID, or backend generates
+
+# New Pydantic model for creating LRI blocks from the client
+class LRIBlockCreate(BaseModel):
+    start_date: date # Expect YYYY-MM-DD from client
+    end_date: date   # Expect YYYY-MM-DD from client
+    reason: Optional[str] = None # Optional reason for the block
 
 
 class UserUnavailabilityBase(SQLModel):

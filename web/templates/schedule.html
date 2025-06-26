@@ -41,6 +41,27 @@
         .fc-daygrid-day-frame {
             min-height: 8em; /* Adjust this value as needed to control cell height */
         }
+        /* Make time grid slots in week/day view look clickable */
+        .fc-timegrid-slot {
+            cursor: pointer;
+        }
+        .fc-timegrid-slot:hover {
+            /* Use a theme-aware variable for the hover background */
+            background-color: var(--bs-tertiary-bg);
+        }
+        /* Styles for LRI Block events */
+        .fc-daygrid-event.fc-event-lri-block,
+        .fc-h-event.fc-event-lri-block,
+        .fc-timegrid-event.fc-event-lri-block {
+            background-color: #ADD8E6; /* Light Blue for LRI blocks */
+            border-color: #ADD8E6;
+            color: #333; /* Darker text for contrast */
+            font-weight: bold;
+        }
+        /* Set a fixed height for timegrid slots to prevent event stacking/overlap */
+        .fc-timegrid-slot-lane {
+            height: 4em !important; /* Use !important to ensure override. Adjust value as needed. */
+        }
     </style>
 {% endblock %}
 {% block content_container_class %}container{% endblock %} {# Use container for centered content with margins #}
@@ -59,7 +80,11 @@
         
         <!-- Schedule Controls -->
         <div class="d-flex justify-content-end align-items-center mb-3">
-            <button type="button" class="btn btn-outline-danger btn-sm" id="blockTimeBtn">Block Out Time</button>
+            <div class="btn-group me-2" role="group" aria-label="Schedule Actions">
+                <button type="button" class="btn btn-outline-danger btn-sm" id="blockTimeBtn">Block Out Time</button>
+                <button type="button" class="btn btn-outline-info btn-sm" id="blockLriTimeBtn" style="display:none;">Block LRI Time</button>
+                <button type="button" class="btn btn-outline-warning btn-sm" id="clearRangeBtn" style="display:none;">Clear Range</button>
+            </div>
             <div class="d-flex align-items-center">
                  <span class="me-2 text-muted small" id="dateRangeDisplay"></span>
                  <span class="ms-2 fst-italic">View: Time Slots (Weekly)</span>
@@ -133,6 +158,69 @@
     </div>
 </div>
 
+<!-- Block LRI Time Modal -->
+<div class="modal fade" id="blockLriTimeModal" tabindex="-1" aria-labelledby="blockLriTimeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="blockLriTimeModalLabel">Block LRI Piloting Time</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>This will block out specific 3-hour shifts for LRI piloting based on the standard schedule:</p>
+                <ul>
+                    <li>**Weekdays (Mon-Fri, non-holidays):** 23:00-11:00 local time</li>
+                    <li>**Weekends & Holidays:** All 3-hour shifts</li>
+                </ul>
+                <form id="blockLriTimeForm">
+                    <div class="mb-3">
+                        <label for="lriBlockStartDate" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="lriBlockStartDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="lriBlockEndDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="lriBlockEndDate" required>
+                    </div>
+                    <div class="alert alert-danger" id="blockLriTimeError" style="display:none;"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitBlockLriTimeBtn">Block LRI Time</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Clear Date Range Modal -->
+<div class="modal fade" id="clearRangeModal" tabindex="-1" aria-labelledby="clearRangeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clearRangeModalLabel">Clear Date Range</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Select a date range to clear all shifts, LRI blocks, and unavailability entries. This action cannot be undone.</p>
+                <form id="clearRangeForm">
+                    <div class="mb-3">
+                        <label for="clearStartDate" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="clearStartDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="clearEndDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="clearEndDate" required>
+                    </div>
+                    <div class="alert alert-danger" id="clearRangeError" style="display:none;"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="submitClearRangeBtn">Clear Range</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

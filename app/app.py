@@ -27,6 +27,7 @@ from sqlmodel import (  # type: ignore
     SQLModel,
     inspect,
     select,
+    delete, # Add this import for deletion operations
 )
 import io # For CSV and ICS generation
 import csv # For CSV generation
@@ -154,55 +155,67 @@ def _initialize_database_and_users():
     with SQLModelSession(sqlite_engine) as session:
         inspector = inspect(sqlite_engine)
         if inspector.has_table(models.UserInDB.__tablename__):  # type: ignore
-            statement = select(models.UserInDB)
-            existing_user = session.exec(statement).first()
-            if not existing_user:
-                logger.info(
-                    "No users found in the database. Creating default users..."
-                )
-                # Use a local index for default user colors to ensure they get specific ones
-                # from the USER_COLORS palette in auth_utils.
-                default_user_color_idx = 0
-                default_users_data = [
-                    {
-                        "username": "adminuser",
-                        "full_name": "Admin User",
-                        "email": "admin@example.com",
-                        "password": "adminpass",
-                        "role": models.UserRoleEnum.admin,
-                        "color": auth_utils.USER_COLORS[default_user_color_idx % len(auth_utils.USER_COLORS)],
-                        "disabled": False,
-                    },
-                    {
-                        "username": "pilotuser",
-                        "full_name": "Pilot User",
-                        "email": "pilot@example.com",
-                        "password": "pilotpass",
-                        "role": models.UserRoleEnum.pilot,
-                        "color": auth_utils.USER_COLORS[(default_user_color_idx + 1) % len(auth_utils.USER_COLORS)],
-                        "disabled": False,
-                    },
-                    {
-                        "username": "pilot_rt_only",
-                        "full_name": "Realtime Pilot",
-                        "email": "pilot_rt@example.com",
-                        "password": "pilotrtpass",
-                        "role": models.UserRoleEnum.pilot,
-                        "color": auth_utils.USER_COLORS[(default_user_color_idx + 2) % len(auth_utils.USER_COLORS)],
-                        "disabled": False,
-                    },
-                ]
-                # Advance the global next_color_index in auth_utils past the ones used for default users.
-                # This ensures that subsequent user registrations (via API) start assigning colors
-                # from the palette after the ones taken by default users.
-                auth_utils.next_color_index = (default_user_color_idx + len(default_users_data))
+            # The original logic only created default users if the table was completely empty.
+            # This new logic checks for each default user individually, making it robust
+            # to adding new default users later.
+            
+            # Use a local index for default user colors to ensure they get specific ones
+            # from the USER_COLORS palette in auth_utils.
+            default_user_color_idx = 0
+            default_users_data = [
+                {
+                    "username": "adminuser",
+                    "full_name": "Admin User",
+                    "email": "admin@example.com",
+                    "password": "adminpass",
+                    "role": models.UserRoleEnum.admin,
+                    "color": auth_utils.USER_COLORS[default_user_color_idx % len(auth_utils.USER_COLORS)],
+                    "disabled": False,
+                },
+                {
+                    "username": "pilotuser",
+                    "full_name": "Pilot User",
+                    "email": "pilot@example.com",
+                    "password": "pilotpass",
+                    "role": models.UserRoleEnum.pilot,
+                    "color": auth_utils.USER_COLORS[(default_user_color_idx + 1) % len(auth_utils.USER_COLORS)],
+                    "disabled": False,
+                },
+                {
+                    "username": "pilot_rt_only",
+                    "full_name": "Realtime Pilot",
+                    "email": "pilot_rt@example.com",
+                    "password": "pilotrtpass",
+                    "role": models.UserRoleEnum.pilot,
+                    "color": auth_utils.USER_COLORS[(default_user_color_idx + 2) % len(auth_utils.USER_COLORS)],
+                    "disabled": False,
+                },
+                {
+                    "username": "LRI_PILOT", # Special user for LRI-blocked shifts
+                    "full_name": "LRI Piloting Block",
+                    "email": "lri@example.com",
+                    "password": "lripass", # Password doesn't matter as user is disabled
+                    "role": models.UserRoleEnum.pilot, # Can be pilot or a new 'lri' role if needed
+                    "color": "#ADD8E6", # Light Blue for LRI blocks
+                    "disabled": True, # LRI_PILOT cannot log in
+                },
+            ]
 
-                for user_data_dict in default_users_data:
+            # Check for each default user and create if missing
+            for user_data_dict in default_users_data:
+                existing_user = auth_utils.get_user_from_db(session, user_data_dict["username"])
+                if not existing_user:
+                    logger.info(f"Default user '{user_data_dict['username']}' not found. Creating...")
                     user_create_model = models.UserCreate(**user_data_dict)
                     auth_utils.add_user_to_db(session, user_create_model)
-                logger.info(f"{len(default_users_data)} default users created.")
-            else:
-                logger.info("Existing users found. Skipping default user creation.")
+                else:
+                    logger.info(f"Default user '{user_data_dict['username']}' already exists. Skipping.")
+
+            # Reset the color index based on all users, to avoid re-assigning colors on restart
+            all_users_statement = select(models.UserInDB)
+            all_users_in_db = session.exec(all_users_statement).all()
+            auth_utils.next_color_index = len(all_users_in_db)
+            logger.info(f"Color index reset to {auth_utils.next_color_index} based on {len(all_users_in_db)} total users.")
         else:
             logger.error(
                 f"'{models.UserInDB.__tablename__}' table still does not exist "
@@ -1327,6 +1340,7 @@ async def get_schedule_events_api(
     response_events = []
 
     # Process Shift Assignments
+    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT") # Fetch LRI_PILOT once
     for assignment in db_assignments:
         # Fetch the user to get the username for the event text
         user = session.get(models.UserInDB, assignment.user_id)
@@ -1336,26 +1350,79 @@ async def get_schedule_events_api(
         # Determine if the current user can edit this shift
         is_editable = (current_user.id == user.id) if user else False
         # Admins can edit/delete any shift
-        if current_user.role == models.UserRoleEnum.admin:
-            is_editable = True
+        event_group_id = None # Initialize groupId
+
+        event_type = "shift"
+        display_type = "auto"
+        all_day = False
+        event_text = username_display
+        event_back_color = user_color
+
+        if lri_pilot_user and assignment.user_id == lri_pilot_user.id:
+            event_type = "lri_block"
+            event_text = "LRI Block"
+            event_back_color = lri_pilot_user.color # Use LRI's specific color
+            display_type = "block" # Display as a solid block
+            all_day = False # Treat as a timed event to show in the main grid
+            is_editable = current_user.role == models.UserRoleEnum.admin # Only admin can edit/delete LRI blocks
+            event_group_id = str(lri_pilot_user.id) # Group all LRI blocks
+        else:
+            # For regular shifts, admins can edit/delete any
+            if current_user.role == models.UserRoleEnum.admin:
+                is_editable = True
+            # Group regular shifts by the user who owns them
+            if user:
+                event_group_id = str(user.id)
+
+        # Allow shifts and LRI blocks to visually overlap/merge
+        event_overlap = False
+        if event_type in ["shift", "lri_block"]:
+            event_overlap = True
 
         response_events.append(
             models.ScheduleEvent(
-                id=str(assignment.id), # Ensure ID is string for DayPilot
-                text=username_display,
-                start=assignment.start_time_utc, # Already datetime
-                end=assignment.end_time_utc,     # Already datetime
-                resource=assignment.resource_id, # Resource ID for the slot
-                backColor=user_color, # User's assigned color
-                type="shift", # Explicitly mark as shift
-                editable=is_editable, # Only owner or admin can edit/delete
-                startEditable=False, # Shifts are fixed to slots, not draggable
-                durationEditable=False, # Shifts are fixed to slots, not resizable
-                resourceEditable=False, # Shifts are fixed to slots, not movable between resources
-                overlap=False, # Shifts should not overlap with other shifts or unavailability
-                display="auto", # Display as a normal event
-                user_role=user.role if user else None,
+                id=str(assignment.id),
+                text=event_text,
+                start=assignment.start_time_utc,
+                end=assignment.end_time_utc,
+                resource=assignment.resource_id,
+                backColor=event_back_color,
+                type=event_type,
+                editable=is_editable,
+                startEditable=False,
+                durationEditable=False,
+                resourceEditable=False,
+                overlap=event_overlap,
+                groupId=event_group_id,
+                display=display_type,
+                allDay=all_day,
+                user_role=user.role if user else None, # This needs to be False to show in main container
                 user_color=user_color
+            )
+        )
+    
+    # Process Canadian Holidays
+    holidays = _get_canadian_holidays(start_date.date(), end_date.date())
+    for holiday_date, holiday_name in holidays:
+        response_events.append(
+            models.ScheduleEvent(
+                id=f"holiday-{holiday_date.strftime('%Y%m%d')}", # Unique ID for holiday
+                text=f"Holiday: {holiday_name}",
+                start=datetime.combine(holiday_date, datetime.min.time(), tzinfo=timezone.utc),
+                end=datetime.combine(holiday_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+                resource="", # No specific resource
+                backColor="#D3D3D3", # Light grey for holidays
+                type="holiday",
+                editable=False, # Holidays are not editable
+                startEditable=False,
+                durationEditable=False,
+                resourceEditable=False,
+                overlap=False,
+                groupId=None, # Holidays don't need grouping
+                display="background", # Display as a background event
+                allDay=False, # Mark as a timed event to show in main container
+                user_role=None,
+                user_color="#D3D3D3"
             )
         )
     
@@ -1385,6 +1452,7 @@ async def get_schedule_events_api(
                 durationEditable=False, # Not resizable
                 resourceEditable=False, # Not movable
                 overlap=False, # Unavailability should not overlap with shifts (handled by logic)
+                groupId=str(user.id) if user else None, # Group unavailability by user
                 display="block", # Display as a solid block event
                 allDay=True, # Mark as an all-day event
                 user_role=user.role if user else None,
@@ -1395,10 +1463,10 @@ async def get_schedule_events_api(
     return response_events
 
 
-@app.post("/api/schedule/events", response_model=models.ScheduleEvent, status_code=status.HTTP_201_CREATED)
+@app.post("/api/schedule/shifts", response_model=models.ScheduleEvent, status_code=status.HTTP_201_CREATED)
 async def create_schedule_event_api(
     event_in: models.ScheduleEventCreate, # Use the new model from models.py
-    current_user: models.User = Depends(get_current_active_user),
+    current_user: models.User = Depends(get_current_active_user), # This is for regular shifts
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"User '{current_user.username}' creating event. Client data: {event_in}")
@@ -1433,11 +1501,12 @@ async def create_schedule_event_api(
 
     # --- Basic Validation ---
     duration_hours = (final_end_dt - final_start_dt).total_seconds() / 3600
-    valid_start_hours_utc = [23, 2, 5, 8, 11, 14, 17, 20] # Valid UTC start hours
     
-    if not (abs(duration_hours - 3) < 0.01 and final_start_dt.hour in valid_start_hours_utc and final_start_dt.minute == 0 and final_start_dt.second == 0):
-        logger.warning(f"Invalid shift slot attempted: {final_start_dt.hour}:{final_start_dt.minute} for {duration_hours} hours UTC. Original event_in: {event_in}")
-        raise HTTPException(status_code=400, detail="Invalid shift slot. Must be a 3-hour block starting on a designated UTC hour (02,05,08,11,14,17,20,23).")
+    # The frontend's getSlotForTime function is the source of truth for valid slots.
+    # We just validate that it's a 3-hour block starting on the hour.
+    if not (abs(duration_hours - 3) < 0.01 and final_start_dt.minute == 0 and final_start_dt.second == 0):
+        logger.warning(f"Invalid shift slot attempted: Start time must be on the hour and duration must be 3 hours. Received start: {final_start_dt}, end: {final_end_dt}")
+        raise HTTPException(status_code=400, detail="Invalid shift slot. Must be a 3-hour block starting on a designated hour.")
 
     # Fetch the UserInDB instance to get the user's database ID
     user_in_db = auth_utils.get_user_from_db(session, current_user.username)
@@ -1452,7 +1521,7 @@ async def create_schedule_event_api(
         models.ShiftAssignment.start_time_utc < final_end_dt,   # Use final_end_dt
         models.ShiftAssignment.end_time_utc > final_start_dt     # Use final_start_dt
     )
-    existing_assignment = session.exec(overlap_statement).first()
+    existing_assignment = session.exec(overlap_statement).first() # This now correctly checks for overlaps with LRI blocks too
     if existing_assignment:
         logger.warning(f"Overlap detected for resource {final_resource_id} at {final_start_dt}")
         raise HTTPException(status_code=409, detail="This shift slot is already taken.")
@@ -1475,11 +1544,127 @@ async def create_schedule_event_api(
         text=current_user.username, # For display
         start=db_assignment.start_time_utc,
         end=db_assignment.end_time_utc,
-        resource=db_assignment.resource_id,
+        resource=db_assignment.resource_id, # This is the ISO string of the start time
+        groupId=str(user_in_db.id), # Group regular shifts by user ID for potential merging
         backColor=user_assigned_color # Return the color for immediate display
     )
     # The return models.ScheduleEvent(**response_event_data) was a leftover from previous version, removed.
 
+@app.post("/api/schedule/lri_blocks", response_model=List[models.ScheduleEvent], status_code=status.HTTP_201_CREATED)
+async def create_lri_blocks_api(
+    block_in: models.LRIBlockCreate, # New model for LRI block creation
+    current_admin: models.User = Depends(get_current_admin_user), # Only admins can create LRI blocks
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"Admin '{current_admin.username}' creating LRI blocks from {block_in.start_date} to {block_in.end_date}.")
+
+    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    if not lri_pilot_user:
+        raise HTTPException(status_code=500, detail="LRI_PILOT user not found in database. Please ensure it's initialized.")
+
+    created_events = []
+    current_date = block_in.start_date
+    
+    # Valid UTC start hours corresponding to local 23:00, 02:00, 05:00, etc. assuming ADT (UTC-3)
+    valid_start_hours_utc = [2, 5, 8, 11, 14, 17, 20, 23]
+
+    while current_date <= block_in.end_date:
+        # Determine if it's a weekday or weekend
+        is_weekday = current_date.weekday() < 5 # Monday is 0, Friday is 4
+
+        # Get Canadian holidays for the current year
+        holidays_for_year = {h[0] for h in _get_canadian_holidays(current_date, current_date)} # Just need the date part
+        is_holiday = current_date in holidays_for_year
+
+        hours_to_block = []
+        if is_weekday and not is_holiday:
+            # Weekdays: 23:00 - 11:00 local time
+            # Assuming ADT (UTC-3):
+            # 23:00 local -> 02:00 UTC (next day)
+            # 02:00 local -> 05:00 UTC
+            # 05:00 local -> 08:00 UTC
+            # 08:00 local -> 11:00 UTC
+            hours_to_block = [2, 5, 8, 11] # UTC hours
+        elif not is_weekday or is_holiday: # Weekends or Holidays
+            # All shifts
+            hours_to_block = valid_start_hours_utc # All 3-hour UTC blocks
+        
+        for hour_utc in hours_to_block:
+            # Construct UTC datetime for the start of the shift
+            shift_start_utc = datetime.combine(current_date, datetime.min.time(), tzinfo=timezone.utc).replace(hour=hour_utc)
+            shift_end_utc = shift_start_utc + timedelta(hours=3)
+
+            # Check for overlaps before creating
+            overlap_statement = select(models.ShiftAssignment).where(
+                models.ShiftAssignment.resource_id == shift_start_utc.isoformat(), # Use ISO string as resource ID
+                models.ShiftAssignment.start_time_utc < shift_end_utc,
+                models.ShiftAssignment.end_time_utc > shift_start_utc
+            )
+            existing_assignment = session.exec(overlap_statement).first()
+            if existing_assignment:
+                logger.warning(f"Skipping LRI block for {shift_start_utc.isoformat()} due to existing assignment.")
+                continue # Skip this slot if already taken
+
+            db_assignment = models.ShiftAssignment(
+                user_id=lri_pilot_user.id,
+                start_time_utc=shift_start_utc,
+                end_time_utc=shift_end_utc,
+                resource_id=shift_start_utc.isoformat(), # Use ISO string as resource ID
+            )
+            session.add(db_assignment)
+            session.commit()
+            session.refresh(db_assignment)
+            logger.info(f"LRI ShiftAssignment created with ID {db_assignment.id} for {shift_start_utc.isoformat()}")
+            
+            created_events.append(
+                models.ScheduleEvent(
+                    id=str(db_assignment.id),
+                    text="LRI Block",
+                    start=db_assignment.start_time_utc,
+                    end=db_assignment.end_time_utc,
+                    resource=db_assignment.resource_id,
+                    backColor=lri_pilot_user.color,
+                    type="lri_block",
+                    editable=True, # Admin can delete
+                    startEditable=False,
+                    durationEditable=False,
+                    resourceEditable=False,
+                    overlap=False,
+                    groupId=str(lri_pilot_user.id), # Group all LRI blocks
+                    display="block",
+                    allDay=False,
+                    user_role=lri_pilot_user.role,
+                    user_color=lri_pilot_user.color
+                )
+            )
+        current_date += timedelta(days=1)
+    
+    return created_events
+
+@app.delete("/api/schedule/lri_blocks/{shift_assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lri_block_api(
+    shift_assignment_id: int,
+    current_admin: models.User = Depends(get_current_admin_user), # Only admins can delete LRI blocks
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"Admin '{current_admin.username}' attempting to delete LRI block ID: {shift_assignment_id}")
+    
+    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    if not lri_pilot_user:
+        raise HTTPException(status_code=500, detail="LRI_PILOT user not found.")
+
+    db_assignment = session.get(models.ShiftAssignment, shift_assignment_id)
+    if not db_assignment:
+        raise HTTPException(status_code=404, detail="LRI block not found.")
+
+    # Ensure it's actually an LRI block before deleting
+    if db_assignment.user_id != lri_pilot_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this shift (not an LRI block).")
+
+    session.delete(db_assignment)
+    session.commit()
+    logger.info(f"LRI block ID {shift_assignment_id} deleted successfully.")
+    return
 
 @app.post("/api/schedule/unavailability", response_model=models.UserUnavailabilityResponse, status_code=status.HTTP_201_CREATED)
 async def create_unavailability_api(
@@ -1556,6 +1741,43 @@ async def delete_unavailability_api(
     return
 
 
+@app.delete("/api/schedule/clear_range", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_range_api(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    Admin-only endpoint to clear all shifts, LRI blocks, and unavailability
+    entries that overlap with the specified date range.
+    """
+    logger.info(f"Admin '{current_admin.username}' attempting to clear all shifts and blocks from {start_date} to {end_date}")
+
+    start_of_range_utc = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    end_of_range_utc = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    # Delete ShiftAssignments (any shift that overlaps with the target day)
+    shift_delete_statement = delete(models.ShiftAssignment).where(
+        models.ShiftAssignment.start_time_utc < end_of_range_utc,
+        models.ShiftAssignment.end_time_utc > start_of_range_utc
+    )
+    shifts_deleted_result = session.exec(shift_delete_statement)
+    shifts_deleted_count = shifts_deleted_result.rowcount
+    logger.info(f"Deleted {shifts_deleted_count} shift assignments for range {start_date} to {end_date}.")
+
+    # Delete UserUnavailabilities (any unavailability that overlaps with the target day)
+    unavailability_delete_statement = delete(models.UserUnavailability).where(
+        models.UserUnavailability.start_time_utc < end_of_range_utc,
+        models.UserUnavailability.end_time_utc > start_of_range_utc
+    )
+    unavailabilities_deleted_result = session.exec(unavailability_delete_statement)
+    unavailabilities_deleted_count = unavailabilities_deleted_result.rowcount
+    logger.info(f"Deleted {unavailabilities_deleted_count} unavailability entries for range {start_date} to {end_date}.")
+
+    session.commit()
+    return
+
 @app.get("/api/schedule/events/{shift_assignment_id}/pic_handoffs", response_model=List[models.PicHandoffLinkInfo])
 async def get_pic_handoffs_for_shift(
     shift_assignment_id: int,
@@ -1609,47 +1831,63 @@ async def get_pic_handoffs_for_shift(
     return handoff_links
 
 
-@app.delete("/api/schedule/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/api/schedule/shifts/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule_event_api(
     event_id: str,
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"User '{current_user.username}' attempting to delete event ID: {event_id}")
-
-    try:
-        # Check if it's an unavailability event (prefixed with "unavail-")
-        if event_id.startswith("unavail-"):
+    
+    # Handle Unavailability events first, as they have a prefixed ID
+    if event_id.startswith("unavail-"):
+        try:
             unavailability_id = int(event_id.split("-")[1])
             return await delete_unavailability_api(unavailability_id, current_user, session)
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid unavailability event ID format.")
+
+    # Handle ShiftAssignment events (both regular shifts and LRI blocks)
+    try:
         assignment_id = int(event_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid event ID format.")
+        raise HTTPException(status_code=400, detail="Invalid shift event ID format.")
 
     db_assignment = session.get(models.ShiftAssignment, assignment_id)
 
     if not db_assignment:
-        logger.warning(f"Event ID {event_id} not found for deletion.")
-        raise HTTPException(status_code=404, detail="Event not found.")
-
-    # Fetch the UserInDB instance to get the user's database ID for comparison
-    user_in_db_for_auth = auth_utils.get_user_from_db(session, current_user.username)
-    if not user_in_db_for_auth:
-        logger.error(f"Consistency error: User '{current_user.username}' found by token but not in DB for event deletion auth.")
-        raise HTTPException(status_code=500, detail="User not found in database for authorization.")
-
+        logger.warning(f"Shift assignment ID {assignment_id} not found for deletion.")
+        raise HTTPException(status_code=404, detail="Shift assignment not found.")
 
     # Authorization check
-    if db_assignment.user_id != user_in_db_for_auth.id and current_user.role != models.UserRoleEnum.admin:
-        # Fetch owner's username for logging, if necessary
+    is_admin = current_user.role == models.UserRoleEnum.admin
+    
+    # Fetch the UserInDB instance for the current user to get their DB ID
+    user_in_db_for_auth = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db_for_auth:
+        logger.error(f"Consistency error: User '{current_user.username}' not found in DB for auth.")
+        raise HTTPException(status_code=500, detail="User not found in database for authorization.")
+
+    # Check if it's an LRI block
+    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    is_lri_block = lri_pilot_user and db_assignment.user_id == lri_pilot_user.id
+
+    if is_lri_block:
+        if not is_admin:
+            logger.warning(f"Non-admin user '{current_user.username}' attempted to delete LRI block ID {assignment_id}.")
+            raise HTTPException(status_code=403, detail="Only administrators can delete LRI blocks.")
+        # Admin is allowed to proceed
+    elif db_assignment.user_id != user_in_db_for_auth.id and not is_admin:
+        # It's a regular shift, but user is not the owner and not an admin
         owner = session.get(models.UserInDB, db_assignment.user_id)
         owner_username = owner.username if owner else "unknown"
         logger.warning(f"User '{current_user.username}' not authorized to delete event ID {event_id} owned by '{owner_username}'.")
         raise HTTPException(status_code=403, detail="Not authorized to delete this event.")
-
+    
+    # If we reach here, the user is authorized to delete the shift assignment
     session.delete(db_assignment)
     session.commit()
-    logger.info(f"Event ID {event_id} deleted successfully.")
+    logger.info(f"Shift assignment ID {assignment_id} deleted successfully by '{current_user.username}'.")
     return
 
 
@@ -1763,6 +2001,52 @@ async def download_schedule_data(
     return StreamingResponse(io.BytesIO(content.encode("utf-8")), media_type=media_type, headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
 
 # --- Admin User Management API Endpoints ---
+
+def _get_canadian_holidays(start_date: date, end_date: date) -> List[Tuple[date, str]]:
+    """
+    Returns a list of Canadian federal holidays within the given date range.
+    Hardcoded for simplicity to avoid external API dependencies.
+    """
+    holidays = []
+    # Common Federal Holidays (dates might shift slightly for some)
+    # For 2025
+    if start_date.year <= 2025 <= end_date.year:
+        holidays.extend([
+            (date(2025, 1, 1), "New Year's Day"),
+            (date(2025, 4, 18), "Good Friday"),
+            (date(2025, 5, 19), "Victoria Day"),
+            (date(2025, 7, 1), "Canada Day"),
+            (date(2025, 9, 1), "Labour Day"),
+            (date(2025, 10, 13), "Thanksgiving Day"),
+            (date(2025, 11, 11), "Remembrance Day"),
+            (date(2025, 12, 25), "Christmas Day"),
+            (date(2025, 12, 26), "Boxing Day"),
+        ])
+    # For 2026
+    if start_date.year <= 2026 <= end_date.year:
+        holidays.extend([
+            (date(2026, 1, 1), "New Year's Day"),
+            (date(2026, 4, 3), "Good Friday"),
+            (date(2026, 5, 18), "Victoria Day"),
+            (date(2026, 7, 1), "Canada Day"),
+            (date(2026, 9, 7), "Labour Day"),
+            (date(2026, 10, 12), "Thanksgiving Day"),
+            (date(2026, 11, 11), "Remembrance Day"),
+            (date(2026, 12, 25), "Christmas Day"),
+            (date(2026, 12, 26), "Boxing Day"),
+        ])
+    # Add more years as needed
+
+    # Filter holidays to only include those within the requested range
+    filtered_holidays = [
+        (h_date, h_name)
+        for h_date, h_name in holidays
+        if start_date <= h_date <= end_date
+    ]
+    return filtered_holidays
+
+
+
 @app.get("/api/admin/users", response_model=List[models.User])
 async def admin_list_users(
     current_admin: models.User = Depends(get_current_admin_user),
