@@ -762,7 +762,7 @@ async def register_page(
 ):
     # Serves the registration page
     return templates.TemplateResponse(
-        "register.html", {"request": request, "show_mission_selector": False}
+        "register.html", {"request": request}
     )
 
 @app.get("/login.html", response_class=HTMLResponse)
@@ -876,7 +876,7 @@ async def home(
             "current_local_path": local_path,  # Pass current local_path
             **processed_home_data, # Unpack all processed data into the context
             "current_user": actual_current_user,  # Pass user info to template
-            "show_mission_selector": True,  # Conditionally show mission selector
+            # show_mission_selector removed, banner handles its own mission selector
 
         },
     )
@@ -1279,7 +1279,7 @@ async def read_schedule_page(
     # For now, the page is static. Future enhancements might pass dynamic schedule data.
     return templates.TemplateResponse(
         "schedule.html",
-        {"request": request, "current_user": current_user, "show_mission_selector": False},
+        {"request": request, "current_user": current_user}, # Removed show_mission_selector
     )  # Pass current_user
 
 @app.get("/api/schedule/events", response_model=List[models.ScheduleEvent])
@@ -1288,6 +1288,7 @@ async def get_schedule_events_api(
     end_date: Optional[datetime] = Query(None, alias="end"),     # Accept end date
 
     current_user: models.User = Depends(get_current_active_user), # Ensure user is authenticated
+    # session: SQLModelSession = Depends(get_db_session) # Already injected by get_current_active_user
     session: SQLModelSession = Depends(get_db_session)
 ):
     """
@@ -1312,14 +1313,31 @@ async def get_schedule_events_api(
         logger.info(f"No date range provided, fetching all events (or implement a default server-side range).")
         statement = select(models.ShiftAssignment)
 
-    db_assignments = session.exec(statement).all()
+    db_assignments = session.exec(statement).all() # Fetch shifts
+
+    # Fetch unavailability events for the same range
+    unavailability_statement = select(models.UserUnavailability)
+    if start_date and end_date:
+        unavailability_statement = unavailability_statement.where(
+            models.UserUnavailability.start_time_utc < end_date,
+            models.UserUnavailability.end_time_utc > start_date
+        )
+    db_unavailabilities = session.exec(unavailability_statement).all()
 
     response_events = []
+
+    # Process Shift Assignments
     for assignment in db_assignments:
         # Fetch the user to get the username for the event text
         user = session.get(models.UserInDB, assignment.user_id)
         username_display = user.username if user else "Unknown User"
         user_color = user.color if user and user.color else "#DDDDDD" # Default grey if no color assigned
+
+        # Determine if the current user can edit this shift
+        is_editable = (current_user.id == user.id) if user else False
+        # Admins can edit/delete any shift
+        if current_user.role == models.UserRoleEnum.admin:
+            is_editable = True
 
         response_events.append(
             models.ScheduleEvent(
@@ -1327,8 +1345,50 @@ async def get_schedule_events_api(
                 text=username_display,
                 start=assignment.start_time_utc, # Already datetime
                 end=assignment.end_time_utc,     # Already datetime
-                resource=assignment.resource_id,
-                backColor=user_color # Add the user's assigned color
+                resource=assignment.resource_id, # Resource ID for the slot
+                backColor=user_color, # User's assigned color
+                type="shift", # Explicitly mark as shift
+                editable=is_editable, # Only owner or admin can edit/delete
+                startEditable=False, # Shifts are fixed to slots, not draggable
+                durationEditable=False, # Shifts are fixed to slots, not resizable
+                resourceEditable=False, # Shifts are fixed to slots, not movable between resources
+                overlap=False, # Shifts should not overlap with other shifts or unavailability
+                display="auto", # Display as a normal event
+                user_role=user.role if user else None,
+                user_color=user_color
+            )
+        )
+    
+    # Process User Unavailabilities
+    for unavailability in db_unavailabilities:
+        user = session.get(models.UserInDB, unavailability.user_id)
+        username_display = user.username if user else "Unknown User"
+        # Use distinct colors for unavailability based on role
+        unavailability_color = "#FFD700" if user and user.role == models.UserRoleEnum.admin else "#808080" # Gold for Admin, Grey for Pilot
+        
+        # Determine if the current user can edit this unavailability
+        is_editable = (current_user.id == user.id) if user else False
+        if current_user.role == models.UserRoleEnum.admin:
+            is_editable = True
+
+        response_events.append(
+            models.ScheduleEvent(
+                id=f"unavail-{unavailability.id}", # Prefix to distinguish from shifts
+                text=f"UNAVAILABLE: {username_display} ({unavailability.reason or 'No Reason'})",
+                start=unavailability.start_time_utc,
+                end=unavailability.end_time_utc,
+                resource="", # Unavailability doesn't belong to a specific slot resource
+                backColor=unavailability_color,
+                type="unavailability", # Explicitly mark as unavailability
+                editable=is_editable, # Only owner or admin can edit/delete
+                startEditable=False, # Not draggable
+                durationEditable=False, # Not resizable
+                resourceEditable=False, # Not movable
+                overlap=False, # Unavailability should not overlap with shifts (handled by logic)
+                display="block", # Display as a solid block event
+                allDay=True, # Mark as an all-day event
+                user_role=user.role if user else None,
+                user_color=unavailability_color
             )
         )
     logger.info(f"Returning {len(response_events)} events from database.")
@@ -1421,6 +1481,81 @@ async def create_schedule_event_api(
     # The return models.ScheduleEvent(**response_event_data) was a leftover from previous version, removed.
 
 
+@app.post("/api/schedule/unavailability", response_model=models.UserUnavailabilityResponse, status_code=status.HTTP_201_CREATED)
+async def create_unavailability_api(
+    unavailability_in: models.UserUnavailabilityCreate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' creating unavailability: {unavailability_in}")
+
+    # Fetch the UserInDB instance to get the user's database ID
+    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db:
+        raise HTTPException(status_code=500, detail="User not found in database.")
+
+    # Basic validation: end date must not be before start date.
+    if unavailability_in.start_time_utc > unavailability_in.end_time_utc:
+        raise HTTPException(status_code=400, detail="End date cannot be before start date.")
+
+    # Adjust end date to be exclusive for full-day events.
+    # The user selects the last day they are unavailable. We add one day to make the range correct.
+    exclusive_end_time = unavailability_in.end_time_utc + timedelta(days=1)
+
+    # Check for overlaps with existing shifts for the current user
+    overlap_statement = select(models.ShiftAssignment).where(
+        models.ShiftAssignment.user_id == user_in_db.id,
+        models.ShiftAssignment.start_time_utc < exclusive_end_time,
+        models.ShiftAssignment.end_time_utc > unavailability_in.start_time_utc
+    )
+    existing_shift_overlap = session.exec(overlap_statement).first()
+    if existing_shift_overlap:
+        raise HTTPException(status_code=409, detail="Cannot block out time that overlaps with your existing shifts.")
+
+    db_unavailability = models.UserUnavailability(
+        user_id=user_in_db.id,
+        start_time_utc=unavailability_in.start_time_utc,
+        end_time_utc=exclusive_end_time, # Store the exclusive end time
+        reason=unavailability_in.reason,
+    )
+    session.add(db_unavailability)
+    session.commit()
+    session.refresh(db_unavailability)
+    logger.info(f"UserUnavailability created with ID {db_unavailability.id} for user {current_user.username}")
+
+    return models.UserUnavailabilityResponse(
+        id=db_unavailability.id,
+        user_id=db_unavailability.user_id,
+        username=current_user.username,
+        user_role=current_user.role,
+        user_color=user_in_db.color,
+        start_time_utc=db_unavailability.start_time_utc,
+        end_time_utc=db_unavailability.end_time_utc,
+        reason=db_unavailability.reason,
+        created_at_utc=db_unavailability.created_at_utc
+    )
+
+@app.delete("/api/schedule/unavailability/{unavailability_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_unavailability_api(
+    unavailability_id: int,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    logger.info(f"User '{current_user.username}' attempting to delete unavailability ID: {unavailability_id}")
+    db_unavailability = session.get(models.UserUnavailability, unavailability_id)
+    if not db_unavailability:
+        raise HTTPException(status_code=404, detail="Unavailability entry not found.")
+
+    # Authorization: Only the owner or an admin can delete
+    if db_unavailability.user_id != current_user.id and current_user.role != models.UserRoleEnum.admin:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this unavailability entry.")
+
+    session.delete(db_unavailability)
+    session.commit()
+    logger.info(f"Unavailability ID {unavailability_id} deleted successfully.")
+    return
+
+
 @app.get("/api/schedule/events/{shift_assignment_id}/pic_handoffs", response_model=List[models.PicHandoffLinkInfo])
 async def get_pic_handoffs_for_shift(
     shift_assignment_id: int,
@@ -1483,6 +1618,10 @@ async def delete_schedule_event_api(
     logger.info(f"User '{current_user.username}' attempting to delete event ID: {event_id}")
 
     try:
+        # Check if it's an unavailability event (prefixed with "unavail-")
+        if event_id.startswith("unavail-"):
+            unavailability_id = int(event_id.split("-")[1])
+            return await delete_unavailability_api(unavailability_id, current_user, session)
         assignment_id = int(event_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid event ID format.")
@@ -2190,8 +2329,7 @@ async def get_view_forms_page(
         "view_forms.html",
         {
             "request": request,
-            "current_user": current_user,
-            "show_mission_selector": False,
+            "current_user": current_user, # Removed show_mission_selector
         },    )
 
 
@@ -2202,8 +2340,8 @@ async def get_my_pic_handoffs_page(
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /my_pic_handoffs.html.")
     return templates.TemplateResponse(
-        "my_pic_handoffs.html",
-        {"request": request, "current_user": current_user, "show_mission_selector": False},
+        "my_pic_handoffs.html", # Removed show_mission_selector
+        {"request": request, "current_user": current_user},
     )
 @app.get("/view_pic_handoffs.html", response_class=HTMLResponse)
 async def get_view_pic_handoffs_page(
@@ -2211,9 +2349,9 @@ async def get_view_pic_handoffs_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /view_pic_handoffs.html.")
-    return templates.TemplateResponse(
+    return templates.TemplateResponse( # Removed show_mission_selector
         "view_pic_handoffs.html",
-        {"request": request, "current_user": current_user, "show_mission_selector": False},
+        {"request": request, "current_user": current_user},
     )
 # Ensure this is the last line or that other routes are defined before it if they share a common prefix.
 # Example: if you had a catch-all, it should be last.
@@ -2238,8 +2376,7 @@ async def get_view_station_status_page(
         "view_station_status.html",
         {
             "request": request,
-            "current_user": current_user,
-            "show_mission_selector": False,
+            "current_user": current_user, # Removed show_mission_selector
         },    )
 
 
@@ -2266,7 +2403,6 @@ async def get_admin_user_management_page(
         "admin_user_management.html",
         {
             "request": request,
-            "current_user": current_user,
-            "show_mission_selector": False,
+            "current_user": current_user, # Removed show_mission_selector
         },
     )

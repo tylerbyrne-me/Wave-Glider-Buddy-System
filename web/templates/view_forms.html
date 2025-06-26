@@ -24,13 +24,6 @@
     {# data-user-role and data-username are already in base.html #}
 {% endblock %}
 
-{% block banner_actions_dropdown_items %}
-    {# Customize actions for this specific page type #}
-    <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
-    <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
-    {# View Submitted Forms is this page, so not included. Admin links are handled by auth.js based on role. #}
-{% endblock %}
-
 {% block content_padding_top %}0px{% endblock %} {# Body already has padding-top from base.html #}
 
 {% block content %}

@@ -9,23 +9,14 @@
   {# Bootstrap, Font Awesome, Roboto, custom.css are in base.html #}
 {% endblock %}
 
-{% block body_class %}container-fluid py-4{% endblock %} {# Override default body_class from base.html #}
+{% block body_class %}container-fluid{% endblock %} {# Removed py-4. Body padding is handled by base.html for fixed-top navbar. #}
 
 {% block body_data_attributes %}
-  data-mission-id="{{ mission }}"
-      data-is-realtime="{{ is_current_mission_realtime | lower }}"
-{% endblock %}
-
-{# This block now targets the new, smaller block within the Actions dropdown #}
-{% block page_specific_banner_actions %}
-  {# Specific actions for the index.html page's banner #}
-  <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#dataSourceModal">Change Data Source</a></li>
-
+  data-mission-id="{{ mission }}" {# data-is-realtime is now passed directly to _banner.html #}
 {% endblock %}
 
 {% block content %}
   {# The main content of index.html starts here. The body padding for fixed-top navbar is handled by base.html #}
-    <div class="d-flex justify-content-end align-items-center mb-3" style="height: 2.5rem;"></div>
   <div class="modal fade" id="dataSourceModal" tabindex="-1" aria-labelledby="dataSourceModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -74,7 +65,7 @@
   </div>
 
     <!-- New Two-Column Layout for Dashboard Content -->
-  <div class="row" id="dashboard-main-content">
+  <div class="row mt-3" id="dashboard-main-content"> {# Added mt-3 for spacing below new banner #}
     <!-- Left Navigation Panel (Summary Cards) -->
     <div class="col-md-3" id="left-nav-panel">
       <!-- Navigation Summary Card -->
@@ -258,7 +249,7 @@
               <ul class="error-message-list"> {# Re-using error list style for consistency #}
                 {% for v in ais_summary_data[:2] %} {# Display up to the two most recent contacts #}
                   <li>
-                    <small class="text-muted">{{ v.LastSeenTimestamp.strftime('%m/%d %H:%M') if v.LastSeenTimestamp else "N/A" }}:</small>
+                    <small class="text-muted">{{ v.LastSeenTimestamp.strftime('%m-%d %H:%M') if v.LastSeenTimestamp else "N/A" }}:</small>
                     {{ v.ShipName[:25] if v.ShipName else "Unknown" }}{% if v.ShipName and v.ShipName|length > 25 %}...{% endif %}
                   </li>
                 {% endfor %}
@@ -294,7 +285,7 @@
               <ul class="error-message-list">
                 {% for err in recent_errors_list[:2] %} {# Display up to the two most recent errors #}
                   <li>
-                    <small class="text-muted">{{ err.Timestamp.strftime('%m/%d %H:%M') if err.Timestamp else "N/A" }}:</small>
+                    <small class="text-muted">{{ err.Timestamp.strftime('%m-%d %H:%M') if err.Timestamp else "N/A" }}:</small>
                     {{ err.ErrorMessage[:25] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 25 %}...{% endif %}
                   </li>
                 {% endfor %}

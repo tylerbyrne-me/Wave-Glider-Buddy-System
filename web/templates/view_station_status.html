@@ -41,13 +41,6 @@
     {# data-username and data-user-role are handled by base.html #}
 {% endblock %}
 
-{% block banner_actions_dropdown_items %}
-    {# Customize actions for this specific page type #}
-    <li><a class="dropdown-item" href="/view_forms.html" id="viewFormsBtnBanner" target="_blank" style="display: none;">View Submitted Forms</a></li>
-    <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
-    {# Admin links are handled by auth.js based on role. #}
-{% endblock %}
-
 {% block content_padding_top %}0px{% endblock %} {# Body already has padding-top from base.html #}
 
 {% block content %}
@@ -195,7 +188,7 @@
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="formArrivalDate" class="form-label">Arrival Date (UTC)</label>
-                                    <input type="datetime-local" class="form-control" id="formArrivalDate" name="arrival_date">
+                                    <input type="date" class="form-control" id="formArrivalDate" name="arrival_date">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="formDistanceSent" class="form-label">Distance when command sent (m)</label>
@@ -219,7 +212,7 @@
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="formDepartureDate" class="form-label">Departure Date (UTC)</label>
-                                    <input type="datetime-local" class="form-control" id="formDepartureDate" name="departure_date">
+                                    <input type="date" class="form-control" id="formDepartureDate" name="departure_date">
                                 </div>
                             </div>
                              <div class="mb-3">

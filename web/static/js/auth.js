@@ -188,8 +188,7 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
     const viewFormsBtnBanner = document.getElementById('viewFormsBtnBanner');
     const registerUserBtnBanner = document.getElementById('registerUserBtnBanner');
     const userManagementBtnBanner = document.getElementById('userManagementBtnBanner');
-    const missionSelectorBannerAuth = document.getElementById('missionSelectorBanner'); 
-    const picHandoffNavDropdown = document.getElementById('picHandoffNavDropdown'); // New dropdown
+    const missionSelectorDropdownMenu = document.getElementById('missionSelectorDropdownMenu'); // New dropdown menu for missions
     const submitNewPicHandoffLink = document.getElementById('submitNewPicHandoffLink');
 
     // Fetch user profile to update banner elements
@@ -202,12 +201,13 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             usernameDisplayBanner.textContent = currentUserForBanner.username;
         }
 
+        // Admin Management Dropdown
+        const adminManagementDropdown = document.getElementById('adminManagementDropdown');
+        if (adminManagementDropdown) {
+            adminManagementDropdown.style.display = (currentUserForBanner.role === 'admin') ? 'block' : 'none';
+        }
         if (viewFormsBtnBanner) {
-            if (currentUserForBanner.role === 'admin' || currentUserForBanner.role === 'pilot') {
-                viewFormsBtnBanner.style.display = 'block';
-            } else {
-                viewFormsBtnBanner.style.display = 'none';
-            }
+            // This is now part of Admin Management dropdown, so its individual display is handled by that.
         }
         if (currentUserForBanner.role === 'admin') {
             if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'block';
@@ -216,25 +216,29 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
             if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
         }
-        // Show PIC Handoff dropdown for pilot or admin
-        if (picHandoffNavDropdown && (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin')) {
-            picHandoffNavDropdown.style.display = 'block';
+
+        // PIC Management Dropdown
+        const picManagementDropdown = document.getElementById('picManagementDropdown');
+        if (picManagementDropdown) {
+            picManagementDropdown.style.display = (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin') ? 'block' : 'none';
         }
     } else { // No user logged in, ensure role-specific buttons are hidden
         if (viewFormsBtnBanner) viewFormsBtnBanner.style.display = 'none';
         if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
         if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
+        if (document.getElementById('adminManagementDropdown')) document.getElementById('adminManagementDropdown').style.display = 'none';
+        if (document.getElementById('picManagementDropdown')) document.getElementById('picManagementDropdown').style.display = 'none';
     }
 
     // --- Populate Mission Selector in Banner (if present on the page) ---
-    if (missionSelectorBannerAuth) {
+    if (missionSelectorDropdownMenu) {
         const pageMissionId = document.body.dataset.missionId; // Available on index.html, mission_form.html etc.
 
         try {
             const response = await fetchWithAuth('/api/available_missions');
             if (response.ok) {
                 const missions = await response.json();
-                missionSelectorBannerAuth.innerHTML = ''; // Clear existing options
+                missionSelectorDropdownMenu.innerHTML = ''; // Clear existing options
 
                 if (missions.length === 0) {
                     const option = document.createElement('option');
@@ -242,24 +246,21 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                     option.textContent = "No missions";
                     missionSelectorBannerAuth.appendChild(option);
                     missionSelectorBannerAuth.disabled = true;
+                    // Also disable the dropdown toggle if no missions
+                    document.getElementById('missionDashboardDropdown').classList.add('disabled');
                 } else {
-                    missionSelectorBannerAuth.disabled = false;
-                    let missionSelected = false;
                     missions.forEach(m_id => {
-                        const option = document.createElement('option');
-                        option.value = m_id;
-                        option.textContent = m_id;
+                        const listItem = document.createElement('li');
+                        const link = document.createElement('a');
+                        link.classList.add('dropdown-item');
+                        link.href = `/?mission=${m_id}`; // Link to dashboard with selected mission
+                        link.textContent = m_id;
                         if (pageMissionId && m_id === pageMissionId) {
-                            option.selected = true;
-                            missionSelected = true;
+                            link.classList.add('active'); // Highlight active mission
                         }
-                        missionSelectorBannerAuth.appendChild(option);
+                        listItem.appendChild(link);
+                        missionSelectorDropdownMenu.appendChild(listItem);
                     });
-                    // If no specific mission was selected (e.g., on view_forms.html),
-                    // and there are missions, select the first one by default.
-                    if (!missionSelected && missions.length > 0 && missionSelectorBannerAuth.options.length > 0) {
-                        missionSelectorBannerAuth.options[0].selected = true;
-                    }
                 }
             } else {
                 console.error('Failed to fetch available missions for banner in auth.js. Status:', response.status);
@@ -272,40 +273,33 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             missionSelectorBannerAuth.disabled = true;
         }
 
-        // Add event listener for mission change on non-index pages
-        // On index.html, dashboard.js handles the full page reload.
-        // For other pages, we might just update links or specific content.
-        if (window.location.pathname !== '/') {
-            missionSelectorBannerAuth.addEventListener('change', function() { // Ensure this listener is added only once
-                const selectedMission = this.value;
-                if (selectedMission && submitNewPicHandoffLink) {
-                    const defaultFormType = "pic_handoff_checklist";
-                    submitNewPicHandoffLink.href = `/mission/${selectedMission}/form/${defaultFormType}.html`;
-                    submitNewPicHandoffLink.classList.remove('disabled');
-                }
-                // If the current page IS mission-specific (like mission_form.html), it should reload.
-                if (document.body.dataset.missionId && window.location.pathname.includes('/mission/')) {
-                     const currentUrl = new URL(window.location.href);
-                     currentUrl.pathname = currentUrl.pathname.replace(document.body.dataset.missionId, selectedMission);
-                     window.location.href = currentUrl.toString();
-                } else if (!selectedMission && submitNewPicHandoffLink) {
-                    submitNewPicHandoffLink.href = "#";
-                    submitNewPicHandoffLink.classList.add('disabled');
-                }
-            });
-        }
+        // Update "Submit New PIC Handoff" link when mission changes (for non-dashboard pages)
+        // For dashboard, mission selection reloads the page, so this is for other pages.
+        // This listener is on the dropdown menu itself, not the individual links.
+        missionSelectorDropdownMenu.addEventListener('click', function(event) {
+            const targetLink = event.target.closest('.dropdown-item');
+            if (targetLink && targetLink.href.includes('/?mission=')) {
+                const newMissionId = new URL(targetLink.href).searchParams.get('mission');
+                updateSubmitNewPicHandoffLink(newMissionId);
+            }
+        });
+
+        // Initial update of the "Submit New PIC Handoff" link
+        updateSubmitNewPicHandoffLink(pageMissionId);
     }
 
-    // Update "Submit New PIC Handoff" link initially on all pages
-    if (submitNewPicHandoffLink) {
-        const initialMissionForPicLink = missionSelectorBannerAuth?.value || document.body.dataset.missionId;
-        if (initialMissionForPicLink) {
+    function updateSubmitNewPicHandoffLink(missionId) {
+        if (submitNewPicHandoffLink) {
             const defaultFormType = "pic_handoff_checklist";
-            submitNewPicHandoffLink.href = `/mission/${initialMissionForPicLink}/form/${defaultFormType}.html`;
-            submitNewPicHandoffLink.classList.remove('disabled');
-        } else {
-            submitNewPicHandoffLink.href = "#"; // Default if no mission context at all
-            submitNewPicHandoffLink.classList.add('disabled');
+            if (missionId) {
+                submitNewPicHandoffLink.href = `/mission/${missionId}/form/${defaultFormType}.html`;
+                submitNewPicHandoffLink.target = "_blank"; // Open in new tab
+                submitNewPicHandoffLink.classList.remove('disabled');
+            } else {
+                submitNewPicHandoffLink.href = "#";
+                submitNewPicHandoffLink.target = "_self"; // Default to same tab
+                submitNewPicHandoffLink.classList.add('disabled');
+            }
         }
     }
 });

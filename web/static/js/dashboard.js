@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     console.log("Dashboard.js: checkAuth() passed."); // DEBUG
     const missionId = document.body.dataset.missionId;
     // console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
-    const hoursBack = 72; // update as need in hours
     const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isRealtimeMission = document.body.dataset.isRealtime === 'true';
     const urlParams = new URLSearchParams(window.location.search);
@@ -105,15 +104,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         countdownTimer = setInterval(updateCountdownDisplay, 1000);
     }
 
-    if (document.getElementById('missionSelectorBanner')) { // Target new banner selector
-        document.getElementById('missionSelectorBanner').addEventListener('change', function() {
-            const newMissionId = this.value;
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('mission', newMissionId);
-            window.location.href = currentUrl.toString();
-        });
-    }
-
     const dataSourceModalEl = document.getElementById('dataSourceModal'); // Get the modal element
     if (dataSourceModalEl) {
         const localPathInputGroup = document.getElementById('localPathInputGroup');
@@ -152,41 +142,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
-    /**
-     * Updates all links that should point to the "Submit New PIC Handoff" form
-     * for the current mission. This includes the main banner button and any
-     * links in dropdowns. These links are identified by the class 'dynamic-pic-handoff-link'.
-     */
-    function updatePicHandoffLinks() {
-        const handoffLinks = document.querySelectorAll('.dynamic-pic-handoff-link');
-        
-        if (handoffLinks.length === 0) {
-            // This is a warning, not an error, as some pages might not have these links.
-            console.warn("Dashboard.js: No elements with class 'dynamic-pic-handoff-link' found. Links will not be updated.");
-            return;
-        }
-
-        const defaultFormType = "pic_handoff_checklist"; // Changed to the new form type
-        if (missionId && missionId.trim() !== "") {
-            const formUrl = `/mission/${missionId}/form/${defaultFormType}.html`;
-            handoffLinks.forEach(link => {
-                link.href = formUrl;
-                link.target = "_blank"; // Ensure it opens in a new tab
-                link.classList.remove('disabled'); // Ensure link is enabled
-            });
-        } else {
-            console.error("Dashboard.js: missionId is undefined or empty. Disabling PIC Handoff links.");
-            // Disable the links if no missionId is available
-            handoffLinks.forEach(link => {
-                link.href = "#";
-                link.target = ""; // Remove target
-                link.classList.add('disabled');
-            });
-        }
-    }
-
     // Fetch and populate missions *after* auth check and other initial setup
-    updatePicHandoffLinks();
 
 
     // --- Auto-Refresh Toggle Logic ---
@@ -1067,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
 
         if (marineForecastData.fetched_at_utc && marineForecastData.latitude_used !== undefined) {
             const fetchedDate = new Date(marineForecastData.fetched_at_utc);
-            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleTimeString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} UTC for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
+            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleTimeString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
             metaInfoContainer.style.display = 'block';
         } else {
             metaInfoContainer.style.display = 'none';
@@ -1210,7 +1166,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yHeight: { type: 'linear', position: 'left', title: { display: true, text: 'Wave Height (m)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDirection: { type: 'linear', position: 'right', title: { display: true, text: 'Wave Direction (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1386,7 +1342,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yPrimary: { type: 'linear', position: 'left', title: { display: true, text: 'Fluorescence Units', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
                     yTemp: { type: 'linear', position: 'right', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false } }
                 },
@@ -1556,7 +1512,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Speed (knots)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yHeading: { type: 'linear', position: 'right', title: { display: true, text: 'Heading (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1627,7 +1583,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Speed (knots)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDirection: { type: 'linear', position: 'right', title: { display: true, text: 'Direction (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1702,7 +1658,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Ocean Current (kn)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDiff: { type: 'linear', position: 'right', title: { display: true, text: 'Heading Diff (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: -180, max: 180 }, grid: { drawOnChartArea: false } }
                 },
@@ -1765,7 +1721,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm' }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yDetections: { type: 'linear', position: 'left', title: { display: true, text: 'Detection Counts', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } }
                 },
                 plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }

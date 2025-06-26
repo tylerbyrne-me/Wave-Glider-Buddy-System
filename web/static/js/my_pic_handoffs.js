@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if (closeButton) {
-        closeButton.addEventListener('click', () => {
+        closeButton.addEventListener('click', () => { // Keep close button as requested
             window.close(); // Consider providing a fallback if window.close() is blocked
             // Fallback: window.location.href = '/';
         });
@@ -64,15 +64,19 @@ document.addEventListener('DOMContentLoaded', function () {
             const row = tableBody.insertRow();
             row.insertCell().textContent = form.mission_id;
             row.insertCell().textContent = form.form_title;
-            const submissionDate = new Date(form.submission_timestamp);
-            // Manually format UTC time for consistent display
-            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            const year = submissionDate.getUTCFullYear();
-            const month = submissionDate.getUTCMonth(); // 0-indexed
-            const day = submissionDate.getUTCDate();
-            const hours = submissionDate.getUTCHours();
-            const minutes = submissionDate.getUTCMinutes();
-            row.insertCell().textContent = `${monthNames[month]} ${day}, ${year} ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} UTC`;
+            // *** THIS IS THE FIX ***
+            // Ensure the timestamp string is parsed as UTC by appending 'Z' if it's not already in ISO format.
+            const submissionTimestampStr = form.submission_timestamp.endsWith('Z') ? form.submission_timestamp : form.submission_timestamp + 'Z';
+            const submissionDate = new Date(submissionTimestampStr);
+
+            // Use toLocaleString for robust, standardized formatting.
+            const datePart = submissionDate.toLocaleDateString('en-US', {
+                year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
+            });
+            const timePart = submissionDate.toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+            });
+            row.insertCell().textContent = `${datePart.replace(',', '')} ${timePart} UTC`;
 
             const actionsCell = row.insertCell();
             const viewButton = document.createElement('button');
@@ -90,8 +94,12 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
         modalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`; // Keep title format
-        
-        let contentHtml = `<p><strong>Submitted by:</strong> ${form.submitted_by_username} at ${new Date(form.submission_timestamp).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC</p><hr>`;
+
+        // Re-using the robust time formatting for the modal view as well.
+        const submissionTimestampStr = form.submission_timestamp.endsWith('Z') ? form.submission_timestamp : form.submission_timestamp + 'Z';
+        const submissionDate = new Date(submissionTimestampStr);
+        const formattedTime = submissionDate.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
+        let contentHtml = `<p><strong>Submitted by:</strong> ${form.submitted_by_username} at ${formattedTime}</p><hr>`;
 
         if (form.sections_data && Array.isArray(form.sections_data)) {
             form.sections_data.forEach(section => {

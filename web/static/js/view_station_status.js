@@ -129,16 +129,18 @@ document.addEventListener('DOMContentLoaded', async function () {
 
             // Actions cell (8th column)
             const actionsCell = row.insertCell();
+            actionsCell.classList.add('text-nowrap'); // Prevent buttons from wrapping on small screens
+
+            // The "Edit" button should be available to all authenticated users to log offloads.
+            const editButton = document.createElement('button');
+            editButton.classList.add('btn', 'btn-sm', 'btn-outline-primary', 'me-1');
+            editButton.title = `Edit / Log for ${station.station_id}`;
+            editButton.innerHTML = `<i class="fas fa-edit"></i> Edit`;
+            editButton.onclick = () => openEditLogModal(station.station_id);
+            actionsCell.appendChild(editButton);
+
+            // The "Delete" button is restricted to admins.
             if (isAdmin) {
-                actionsCell.classList.add('text-nowrap'); // Prevent buttons from wrapping on small screens
-
-                const editButton = document.createElement('button');
-                editButton.classList.add('btn', 'btn-sm', 'btn-outline-primary', 'me-1');
-                editButton.title = `Edit / Log for ${station.station_id}`;
-                editButton.innerHTML = `<i class="fas fa-edit"></i> Edit`;
-                editButton.onclick = () => openEditLogModal(station.station_id);
-                actionsCell.appendChild(editButton);
-
                 const deleteButton = document.createElement('button');
                 deleteButton.classList.add('btn', 'btn-sm', 'btn-danger');
                 deleteButton.title = `Delete ${station.station_id} metadata.`;
@@ -330,8 +332,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     async function openEditLogModal(stationId) {
-        if (!isAdmin || !editLogStationModalInstance) return;
-        
+        // Any authenticated user can open the modal to log an offload.
+        if (!editLogStationModalInstance) return;
+
         currentEditingStationId = stationId;
         // Clear all validation feedback and result messages when opening modal
         clearValidationFeedback(formNewStationId, formNewStationIdFeedback);
@@ -508,12 +511,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (loadingSpinner) loadingSpinner.style.display = 'block';
 
             const payload = {
-                arrival_date: getIsoFromDatetimeLocal('formArrivalDate'),
+                // For 'date' inputs, the value is already in 'YYYY-MM-DD' format, which FastAPI handles.
+                arrival_date: document.getElementById('formArrivalDate').value || null,
                 distance_command_sent_m: parseFloat(document.getElementById('formDistanceSent').value) || null,
                 time_first_command_sent_utc: getIsoFromDatetimeLocal('formTimeFirstCommand'),
                 offload_start_time_utc: getIsoFromDatetimeLocal('formOffloadStartTime'),
                 offload_end_time_utc: getIsoFromDatetimeLocal('formOffloadEndTime'),
-                departure_date: getIsoFromDatetimeLocal('formDepartureDate'),
+                departure_date: document.getElementById('formDepartureDate').value || null,
                 was_offloaded: document.getElementById('formWasOffloaded').checked,
                 vrl_file_name: document.getElementById('formVrlFileName').value.trim() || null,
                 offload_notes_file_size: document.getElementById('formOffloadNotesFileSize').value.trim() || null,
@@ -651,7 +655,7 @@ document.addEventListener('DOMContentLoaded', async function () {
      }
 
     // Initial page load
-    await initializePage();
+    initializePage(); // No await here, as it's called within DOMContentLoaded
 
     
     // --- Add Station Functionality ---

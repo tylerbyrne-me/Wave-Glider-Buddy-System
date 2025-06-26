@@ -12,12 +12,19 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="/static/css/themes.css">
     <link rel="stylesheet" href="/static/css/custom.css">
-    {% block head_extra_css %}{% endblock %}
     <style>
+        /* Custom CSS variables for banner */
+        :root {
+            --banner-height: 110px; /* Total height of the two-row banner, increased for proper spacing */
+            --banner-top-row-height: 50px;
+            --banner-bottom-row-height: 50px;
+            --banner-padding-x: 1.5rem; /* Consistent padding for left/right */
+        }
         body { /* Increased padding-top to accommodate taller banner and provide spacing */
-            padding-top: 90px;
+            padding-top: var(--banner-height);
         }
     </style>
+    {% block head_extra_css %}{% endblock %}
 </head>
 <body class="{% block body_class %}container-fluid mt-4{% endblock %}"
       data-username="{{ current_user.username if current_user else '' }}"

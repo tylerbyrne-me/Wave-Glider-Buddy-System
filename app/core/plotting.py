@@ -16,9 +16,12 @@ def ensure_plots_dir():
 
 def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
     power_df = preprocess_power_df(power_df)
-    recent_power = power_df[
-        power_df["Timestamp"] > datetime.now() - timedelta(hours=hours_back)
-    ]
+    if power_df.empty or "Timestamp" not in power_df.columns or power_df["Timestamp"].isnull().all():
+        return None
+    
+    max_timestamp = power_df["Timestamp"].max()
+    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    recent_power = power_df[power_df["Timestamp"] > cutoff_time]
     if recent_power.empty:
         return None
 
@@ -72,12 +75,12 @@ def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
 
 def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
     ctd_df = preprocess_ctd_df(ctd_df)
-    if ctd_df.empty:
+    if ctd_df.empty or "Timestamp" not in ctd_df.columns or ctd_df["Timestamp"].isnull().all():
         return None
 
-    recent_data = ctd_df[
-        ctd_df["Timestamp"] > datetime.now() - timedelta(hours=hours_back)
-    ]
+    max_timestamp = ctd_df["Timestamp"].max()
+    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    recent_data = ctd_df[ctd_df["Timestamp"] > cutoff_time]
     if recent_data.empty:
         return None
 
@@ -133,9 +136,12 @@ def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
 
 def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None):
     weather_df = preprocess_weather_df(weather_df)
-    recent_weather = weather_df[
-        weather_df["Timestamp"] > datetime.now() - timedelta(hours=hours_back)
-    ]
+    if weather_df.empty or "Timestamp" not in weather_df.columns or weather_df["Timestamp"].isnull().all():
+        return None
+    
+    max_timestamp = weather_df["Timestamp"].max()
+    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    recent_weather = weather_df[weather_df["Timestamp"] > cutoff_time]
     if recent_weather.empty:
         return None
 
@@ -175,9 +181,12 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
 
 def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
     wave_df = preprocess_wave_df(wave_df)
-    recent = wave_df[
-        wave_df["Timestamp"] > datetime.now() - timedelta(hours=hours_back)
-    ]
+    if wave_df.empty or "Timestamp" not in wave_df.columns or wave_df["Timestamp"].isnull().all():
+        return None
+
+    max_timestamp = wave_df["Timestamp"].max()
+    cutoff_time = max_timestamp - timedelta(hours=hours_back)
+    recent = wave_df[wave_df["Timestamp"] > cutoff_time]
     if recent.empty:
         return None
 
