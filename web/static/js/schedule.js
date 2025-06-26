@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', async function () {
     // This function was moved from schedule.html to make this script more self-contained.
+    const LRI_PILOT_USERNAME = "LRI_PILOT"; // Must match the username in auth_utils.py
+
     async function initializeCurrentUserForScheduler() {
         if (typeof getUserProfile === 'function') {
             window.currentUser = await getUserProfile(); // from auth.js
@@ -44,6 +46,22 @@ document.addEventListener('DOMContentLoaded', async function () {
     const submitBlockTimeBtn = document.getElementById('submitBlockTimeBtn');
     const blockTimeErrorDiv = document.getElementById('blockTimeError');
 
+    // Block LRI Time Modal Elements
+    const blockLriTimeBtn = document.getElementById('blockLriTimeBtn');
+    const blockLriTimeModal = new bootstrap.Modal(document.getElementById('blockLriTimeModal'));
+    const lriBlockStartDateInput = document.getElementById('lriBlockStartDate');
+    const lriBlockEndDateInput = document.getElementById('lriBlockEndDate');
+    const submitBlockLriTimeBtn = document.getElementById('submitBlockLriTimeBtn');
+    const blockLriTimeErrorDiv = document.getElementById('blockLriTimeError');
+
+    // Clear Range Modal Elements
+    const clearRangeBtn = document.getElementById('clearRangeBtn');
+    const clearRangeModal = new bootstrap.Modal(document.getElementById('clearRangeModal'));
+    const clearStartDateInput = document.getElementById('clearStartDate');
+    const clearEndDateInput = document.getElementById('clearEndDate');
+    const submitClearRangeBtn = document.getElementById('submitClearRangeBtn');
+    const clearRangeErrorDiv = document.getElementById('clearRangeError');
+
     let mainCalendar; // Only one calendar instance now
 
 
@@ -57,56 +75,66 @@ document.addEventListener('DOMContentLoaded', async function () {
             right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' // View buttons
         },        allDaySlot: true, // Enable the all-day slot to display unavailability
         dayMaxEvents: 3, // Show 3 events max before displaying a "+more" link
+        slotDuration: '03:00:00', // Set the duration of each time slot to 3 hours
+        slotLabelInterval: '03:00', // Display a label for each 3-hour slot
+        slotLabelFormat: {
+            hour: 'numeric',
+            minute: '2-digit',
+            meridiem: 'short'
+        }, // Format the slot labels to show the start time of the 3-hour block
         eventMinHeight: 20, // Ensure events have a minimum height even without text
-        height: 'auto', // Adjust height to content
-        slotMinTime: "00:00:00",
-        slotMaxTime: "24:00:00",
-        selectable: true,
-        selectMirror: true,
+        height: 'auto', // Let the content define the height to avoid rendering bugs with vh units
+        slotMinTime: "02:00:00", // Start the grid at 02:00 local time to align with shift blocks
+        slotMaxTime: "26:00:00", // End the grid at 02:00 local time the next day (24 hours later)
+        selectable: false, // Disable drag-to-select, we will use dateClick
+        selectMirror: false,
         nowIndicator: true,
 
         // Fetch events from our backend
         // This will be set later by mainCalendar.setOption('events', ...)
 
-        // Handle creating a new shift
-        select: async function(selectionInfo) {
+        // Handle creating a new shift by clicking on a time slot
+        dateClick: async function(info) {
+            // Only allow creating shifts in time-gridded views (Week or Day)
+            if (!info.view.type.startsWith('timeGrid')) {
+                alert("Please switch to Week or Day view to add a shift by clicking on a time slot.");
+                return;
+            }
             if (!window.currentUser || !window.currentUser.username) {
                 alert("Error: User information not available. Please log in again.");
                 return;
             }
 
-            const modalTitle = `Sign up for shift on ${selectionInfo.start.toLocaleDateString()} from ${selectionInfo.start.toLocaleTimeString()} to ${selectionInfo.end.toLocaleTimeString()}?`;
+            // Determine the precise 3-hour slot based on the clicked time
+            const slot = getSlotForTime(info.date);
+            if (!slot) {
+                console.error("Could not determine a valid shift slot for the clicked time.");
+                return; // Should not happen if logic is correct
+            }
+
+            const modalTitle = `Sign up for shift on ${slot.start.toLocaleDateString()} from ${slot.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${slot.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}?`;
             if (confirm(modalTitle)) {
-                // --- Timezone Correction ---
-                // The server is likely performing a double UTC conversion. To counteract this,
-                // we adjust the time on the client before sending it. We convert the local
-                // time (e.g., 2:00 AM ADT) to a new Date object that represents the same
-                // clock time in UTC (2:00 AM UTC).
-                const start = selectionInfo.start;
-                const end = selectionInfo.end;
-
-                // getTimezoneOffset() returns the difference in minutes between UTC and local time.
-                // For ADT (UTC-3), this is 180. We subtract this offset.
-                const offsetMinutes = start.getTimezoneOffset();
-                const correctedStart = new Date(start.getTime() - (offsetMinutes * 60 * 1000));
-                const correctedEnd = new Date(end.getTime() - (offsetMinutes * 60 * 1000));
-
                 const newEventData = {
-                    start: correctedStart.toISOString(),
-                    end: correctedEnd.toISOString(),
-                    resource: 'default', // FullCalendar needs a resource, even if not displayed
+                    start: slot.start.toISOString(),
+                    end: slot.end.toISOString(),
+                    // Use the slot's start time as a unique resource ID to prevent double booking
+                    resource: slot.start.toISOString(),
                     text: window.currentUser.username,
                 };
 
                 try {
-                    const response = await fetchWithAuth('/api/schedule/events', {
+                    const response = await fetchWithAuth('/api/schedule/shifts', { // Use new shifts endpoint
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
                         body: JSON.stringify(newEventData),
                     });
 
                     if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ detail: "Server error during sign-up." }));
+                        const errorData = await response.json().catch(() => ({
+                            detail: "Server error during sign-up."
+                        }));
                         throw new Error(errorData.detail || "Server error");
                     }
                     alert(`Shift added for ${window.currentUser.username}.`);
@@ -115,8 +143,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     alert("Error signing up: " + error.message);
                 }
             }
-            calendar.unselect(); // Clear the selection
-        }, // End select callback
+        }, // End dateClick callback
 
         // Handle clicking an existing shift
         eventClick: async function(clickInfo) {
@@ -128,7 +155,21 @@ document.addEventListener('DOMContentLoaded', async function () {
                 alert("User information not available. Please log in again.");
                 return;
             }
-
+            
+            // Handle LRI block event click
+            if (event.extendedProps.type === "lri_block") {
+                if (window.currentUser.role === 'admin') {
+                    if (confirm(`Do you want to remove this LRI Block?`)) {
+                        try {
+                            const response = await fetchWithAuth(`/api/schedule/lri_blocks/${event.id}`, { method: 'DELETE' });
+                            if (!response.ok) { throw new Error((await response.json()).detail || "Server error during LRI block removal."); }
+                            alert("LRI Block removed.");
+                            event.remove(); // Optimistic update
+                        } catch (error) { alert("Error removing LRI Block: " + error.message); }
+                    }
+                } else { alert("This slot is reserved for LRI."); }
+                return; // Stop further processing for LRI blocks
+            }
             // Handle unavailability event click
             if (event.extendedProps.type === "unavailability") {
                 if (confirm(`Do you want to remove this unavailability: ${event.title}?`)) {
@@ -143,8 +184,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
             } else if (originalTitle === window.currentUser.username) { // User clicked their own shift
                 if (confirm("Do you want to unassign yourself from this shift?")) {
-                    try {
-                        const response = await fetchWithAuth(`/api/schedule/events/${event.id}`, { method: 'DELETE' });
+                    try { // Use new shifts endpoint
+                        const response = await fetchWithAuth(`/api/schedule/shifts/${event.id}`, { method: 'DELETE' });
                         if (!response.ok) {
                             throw new Error((await response.json()).detail || "Server error during unassignment.");
                         }
@@ -190,6 +231,24 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Update the date range display when the view changes
         datesSet: function(dateInfo) {
             updateDateRangeDisplay(dateInfo.start, dateInfo.end);
+        },
+
+        // Add tooltips to events
+        eventDidMount: function(info) {
+            const eventType = info.event.extendedProps.type;
+            let tooltipText = '';
+
+            if (eventType === "lri_block" || eventType === "holiday" || eventType === "unavailability") {
+                tooltipText = info.event.title; // Title already contains the descriptive text
+            } else if (eventType === "shift") {
+                // For shifts, combine pilot name and time range
+                const originalTitle = info.event.extendedProps.originalTitle;
+                tooltipText = `Pilot: ${originalTitle}\n${info.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${info.event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+            }
+
+            if (tooltipText) {
+                info.el.title = tooltipText;
+            }
         }
     });
 
@@ -226,9 +285,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                     durationEditable: event.durationEditable,
                     resourceEditable: event.resourceEditable,
                     overlap: event.overlap,
+                    groupId: event.groupId, // Pass groupId for event merging
                     display: event.display,
                     // Add classNames for unavailability events based on role
-                    classNames: event.type === "unavailability" 
+                    classNames: event.type === "lri_block"
+                        ? [`fc-event-lri-block`]
+                        : event.type === "unavailability" 
                         ? [`fc-event-unavailability-${event.user_role}`] 
                         : ['fc-event-shift'], // Add a class for shift events
                     extendedProps: { // Store original data for popups
@@ -248,6 +310,44 @@ document.addEventListener('DOMContentLoaded', async function () {
     mainCalendar.setOption('events', fetchAllScheduleEvents);
     mainCalendar.render();
 
+    /**
+     * Determines the correct 3-hour shift slot for a given clicked time.
+     * Shift start times are fixed in UTC.
+     * @param {Date} clickedDate The date/time the user clicked on the calendar.
+     * @returns {{start: Date, end: Date}|null} An object with start and end Date objects for the slot, or null.
+     */
+    function getSlotForTime(clickedDate) {
+        // Valid shift start hours in LOCAL time.
+        // These are the start times of your 3-hour blocks: 23:00, 02:00, 05:00, etc.
+        const validLocalStartHours = [23, 20, 17, 14, 11, 8, 5, 2]; // Sorted descending
+        const clickedLocalHour = clickedDate.getHours(); // Get local hour
+
+        let slotStartHourLocal = -1;
+
+        // Special handling for the 23:00-02:00 local shift, which spans midnight.
+        // If clicked hour is 23, 0, or 1, it belongs to the 23:00 shift.
+        if (clickedLocalHour >= 23 || clickedLocalHour < 2) {
+            slotStartHourLocal = 23;
+        } else {
+            // For other shifts, find the latest start hour that is less than or equal to the clicked hour.
+            for (const startHour of validLocalStartHours) {
+                if (clickedLocalHour >= startHour) {
+                    slotStartHourLocal = startHour;
+                    break;
+                }
+            }
+        }
+
+        const slotStartDate = new Date(clickedDate.getFullYear(), clickedDate.getMonth(), clickedDate.getDate(), slotStartHourLocal, 0, 0, 0);
+        // If the clicked local hour was 00:xx or 01:xx, it belongs to the 23:00 shift of the *previous* day.
+        if (slotStartHourLocal === 23 && clickedLocalHour < 2) {
+            slotStartDate.setDate(slotStartDate.getDate() - 1);
+        }
+
+        const slotEndDate = new Date(slotStartDate.getTime() + (3 * 60 * 60 * 1000)); // Add 3 hours
+
+        return { start: slotStartDate, end: slotEndDate };
+    }
     // --- Navigation and UI Update Handlers ---
     function updateDateRangeDisplay(start, end) {
         // FullCalendar's `end` is exclusive, so subtract one day for display
@@ -360,5 +460,108 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (myShiftsOption) {
             myShiftsOption.disabled = true;
         }
+    }
+
+    // --- Block LRI Time Logic ---
+    if (blockLriTimeBtn) {
+        // Show button only for admins
+        if (window.currentUser && window.currentUser.role === 'admin') {
+            blockLriTimeBtn.style.display = 'inline-block';
+        }
+        blockLriTimeBtn.addEventListener('click', () => {
+            // Pre-fill dates based on current view in main calendar
+            const currentView = mainCalendar.view;
+            lriBlockStartDateInput.value = currentView.currentStart.toISOString().split('T')[0];
+            lriBlockEndDateInput.value = currentView.currentEnd.toISOString().split('T')[0];
+            blockLriTimeErrorDiv.style.display = 'none'; // Hide previous errors
+            blockLriTimeModal.show();
+        });
+    }
+
+    if (submitBlockLriTimeBtn) {
+        submitBlockLriTimeBtn.addEventListener('click', async () => {
+            const startDate = lriBlockStartDateInput.value;
+            const endDate = lriBlockEndDateInput.value;
+
+            if (!startDate || !endDate) {
+                blockLriTimeErrorDiv.textContent = "Start and end dates are required.";
+                blockLriTimeErrorDiv.style.display = 'block';
+                return;
+            }
+            if (new Date(startDate) > new Date(endDate)) {
+                blockLriTimeErrorDiv.textContent = "End date cannot be before start date.";
+                blockLriTimeErrorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetchWithAuth('/api/schedule/lri_blocks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        start_date: startDate, 
+                        end_date: endDate,
+                        reason: "LRI Piloting Block" // Optional reason
+                    }),
+                });
+                if (!response.ok) { 
+                    throw new Error((await response.json()).detail || "Server error blocking LRI time."); 
+                }
+                blockLriTimeModal.hide();
+                mainCalendar.refetchEvents(); // Refresh calendar to show new LRI blocks
+            } catch (error) {
+                blockLriTimeErrorDiv.textContent = "Error blocking LRI time: " + error.message;
+                blockLriTimeErrorDiv.style.display = 'block';
+            }
+        });
+    }
+
+    // --- Clear Date Range Logic (Admin Only) ---
+    if (clearRangeBtn) {
+        // Show button only for admins
+        if (window.currentUser && window.currentUser.role === 'admin') {
+            clearRangeBtn.style.display = 'inline-block';
+        }
+        clearRangeBtn.addEventListener('click', () => {
+            // Pre-fill dates based on current view in main calendar
+            const currentView = mainCalendar.view;
+            clearStartDateInput.value = currentView.currentStart.toISOString().split('T')[0];
+            // Default end date to be same as start date for convenience
+            clearEndDateInput.value = currentView.currentStart.toISOString().split('T')[0];
+            clearRangeErrorDiv.style.display = 'none'; // Hide previous errors
+            clearRangeModal.show();
+        });
+    }
+
+    if (submitClearRangeBtn) {
+        submitClearRangeBtn.addEventListener('click', async () => {
+            const startDate = clearStartDateInput.value;
+            const endDate = clearEndDateInput.value;
+
+            if (!startDate || !endDate) {
+                clearRangeErrorDiv.textContent = "Start and end dates are required.";
+                clearRangeErrorDiv.style.display = 'block';
+                return;
+            }
+            if (new Date(startDate) > new Date(endDate)) {
+                clearRangeErrorDiv.textContent = "End date cannot be before start date.";
+                clearRangeErrorDiv.style.display = 'block';
+                return;
+            }
+
+            if (confirm(`Are you sure you want to clear ALL shifts, LRI blocks, and unavailability from ${startDate} to ${endDate}? This action cannot be undone.`)) {
+                try {
+                    const apiUrl = `/api/schedule/clear_range?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+                    const response = await fetchWithAuth(apiUrl, { method: 'DELETE' });
+                    if (!response.ok) { throw new Error((await response.json()).detail || "Server error during clear operation."); }
+                    alert(`All shifts and blocks from ${startDate} to ${endDate} cleared successfully.`);
+                    clearRangeModal.hide();
+                    mainCalendar.refetchEvents(); // Reload events
+                } catch (error) {
+                    clearRangeErrorDiv.textContent = "Error clearing range: " + error.message;
+                    clearRangeErrorDiv.style.display = 'block';
+                }
+            }
+        });
     }
 });
