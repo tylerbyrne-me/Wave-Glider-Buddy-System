@@ -1,5 +1,6 @@
 import logging  # Add logging
-
+from typing import Dict, List
+ 
 import numpy as np
 import pandas as pd
 
@@ -66,6 +67,42 @@ def _initial_dataframe_setup(
     # logger.debug(
     #     f"DataFrame became empty after timestamp processing for '{target_timestamp_col}'."
     # )
+    return df_processed
+
+def _apply_common_processing(
+    df: pd.DataFrame,
+    timestamp_col: str,
+    rename_map: Dict[str, str],
+    numeric_cols: List[str],
+) -> pd.DataFrame:
+    """
+    Applies a common sequence of preprocessing steps: timestamp setup, renaming, and numeric conversion.
+    """
+    df_processed = _initial_dataframe_setup(df, timestamp_col)
+    if df_processed.empty:
+        # To ensure schema consistency even for empty dataframes, add expected columns
+        expected_cols = [timestamp_col] + list(rename_map.values())
+        for col in expected_cols:
+            if col not in df_processed.columns:
+                if col == timestamp_col:
+                    df_processed[col] = pd.Series(dtype="datetime64[ns, UTC]")
+                else:
+                    df_processed[col] = np.nan
+        return df_processed
+
+    df_processed = df_processed.rename(columns=rename_map)
+
+    all_expected_cols = [timestamp_col] + list(rename_map.values())
+
+    for col in all_expected_cols:
+        if col not in df_processed.columns:
+            df_processed[col] = np.nan
+
+        if col in numeric_cols:
+            df_processed[col] = pd.to_numeric(
+                df_processed[col], errors="coerce"
+            )
+
     return df_processed
 
 
@@ -163,10 +200,6 @@ def preprocess_power_df(df):
 
 def preprocess_ctd_df(df):
     timestamp_col = "Timestamp"
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        return df_processed
-
     rename_map = {
         "temperature (degC)": "WaterTemperature",
         "salinity (PSU)": "Salinity",
@@ -174,70 +207,33 @@ def preprocess_ctd_df(df):
         "oxygen (freq)": "DissolvedOxygen",
         "pressure (dbar)": "Pressure",
     }
-    df_processed = df_processed.rename(columns=rename_map)
-
-    expected_final_cols = [timestamp_col] + list(rename_map.values())
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            df_processed[target_col] = np.nan
-        elif target_col != timestamp_col:  # Convert data columns to numeric
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
-    return df_processed
+    numeric_cols = list(rename_map.values())
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 
 def preprocess_weather_df(df):
     timestamp_col = "Timestamp"
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        return df_processed
-
     rename_map = {
         "avgTemp(C)": "AirTemperature",
         "avgWindSpeed(kt)": "WindSpeed",
         "gustSpeed(kt)": "WindGust",
         "avgWindDir(deg)": "WindDirection",
-        # Changed to use avgPress(mbar) from CSV
         "avgPress(mbar)": "BarometricPressure",
     }
-    df_processed = df_processed.rename(columns=rename_map)
-
-    expected_final_cols = [timestamp_col] + list(rename_map.values())
-
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            df_processed[target_col] = np.nan
-        elif target_col != timestamp_col:
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
-    return df_processed
+    numeric_cols = list(rename_map.values())
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 
 def preprocess_wave_df(df):
     timestamp_col = "Timestamp"
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        return df_processed
-
     rename_map = {
         "hs (m)": "SignificantWaveHeight",
         "tp (s)": "WavePeriod",
         "dp (deg)": "MeanWaveDirection",
-        "sample Gaps": "SampleGaps",  # Corrected to match CSV header "sample Gaps"
-    }  # This processes "GPS Waves Sensor Data.csv"
-    df_processed = df_processed.rename(columns=rename_map)
-
-    expected_final_cols = [timestamp_col] + list(rename_map.values())
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            df_processed[target_col] = np.nan
-        elif target_col != timestamp_col:
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
-    return df_processed
+        "sample Gaps": "SampleGaps",
+    }
+    numeric_cols = list(rename_map.values())
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 
 def preprocess_wave_spectrum_dfs(
@@ -500,107 +496,27 @@ def preprocess_vr2c_df(df):
 
 def preprocess_fluorometer_df(df):
     timestamp_col = "Timestamp"
-    # logger.info(
-    #     f"Fluorometer Preprocessing: Initial df columns: {df.columns.tolist()}"
-    # )
-
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        # Ensure even an empty DF from initial setup has the expected columns
-        for col in [
-            timestamp_col,
-            "Latitude",
-            "Longitude",
-            "C1_Avg",
-            "C2_Avg",
-            "C3_Avg",
-            "Temperature_Fluor",
-        ]:
-            if col not in df_processed.columns:
-                df_processed[col] = (
-                    np.nan
-                    if col != timestamp_col
-                    else pd.Series(dtype="datetime64[ns, UTC]")
-                )
-        return df_processed
     rename_map = {
-        "latitude": "Latitude",  # Standardize capitalization
-        "longitude": "Longitude",  # Standardize capitalization
+        "latitude": "Latitude",
+        "longitude": "Longitude",
         "c1Avg": "C1_Avg",
         "c2Avg": "C2_Avg",
         "c3Avg": "C3_Avg",
-        "temp": "Temperature_Fluor",  # To avoid conflict with other temp sensors if any
-    } # noqa
-    df_processed = df_processed.rename(columns=rename_map)
-    # logger.info(
-    #     f"Fluorometer Preprocessing: df columns after rename: {df_processed.columns.tolist()}"
-    # )
-
-    # Ensure all target columns exist, fill with NaN if not, and convert to numeric # noqa
-    expected_final_cols = [
-        timestamp_col,
-        "Latitude",
-        "Longitude",
-        "C1_Avg",
-        "C2_Avg",
-        "C3_Avg",
-        "Temperature_Fluor",
-    ]
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            logger.warning(
-                f"Fluorometer Preprocessing: Target column '{target_col}' "
-                f"not found after rename. Adding as NaN."
-            )
-            df_processed[target_col] = np.nan
-
-        if target_col != timestamp_col:  # Convert data columns to numeric
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
-
-    # logger.info(
-    #     f"Fluorometer Preprocessing: After to_numeric (first 5 rows of C1_Avg, Temp):\nC1_Avg:\n{df_processed['C1_Avg'].head() if 'C1_Avg' in df_processed.columns else 'N/A'}\nTemperature_Fluor:\n{df_processed['Temperature_Fluor'].head() if 'Temperature_Fluor' in df_processed.columns else 'N/A'}"
-    # )
-    return df_processed
+        "temp": "Temperature_Fluor",
+    }
+    numeric_cols = list(rename_map.values())
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 
 def preprocess_solar_df(df: pd.DataFrame) -> pd.DataFrame:
-    timestamp_col = "Timestamp"  # Standardized name
-    # Note: The raw CSV uses "timeStamp" which _initial_dataframe_setup will handle
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        # Ensure even an empty DF has the expected columns
-        for col in [
-            timestamp_col,
-            "Panel1Power",
-            "Panel2Power",
-            "Panel4Power",
-        ]:  # Panel3Power is intentionally Panel2Power
-            if col not in df_processed.columns:
-                df_processed[col] = (
-                    np.nan
-                    if col != timestamp_col
-                    else pd.Series(dtype="datetime64[ns, UTC]")
-                )
-        return df_processed
-
+    timestamp_col = "Timestamp"
     rename_map = {
         "panelPower1": "Panel1Power",
         "panelPower3": "Panel2Power",  # As per request: panelPower3 is labeled Panel 2
         "panelPower4": "Panel4Power",
     }
-    df_processed = df_processed.rename(columns=rename_map)
-
-    expected_final_cols = [timestamp_col, "Panel1Power", "Panel2Power", "Panel4Power"]
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            df_processed[target_col] = np.nan
-        elif target_col != timestamp_col:  # Convert data columns to numeric
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
-    return df_processed
+    numeric_cols = list(rename_map.values())
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 
 def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -608,38 +524,7 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
     # The raw CSV uses "lastLocationFix" and "gliderTimeStamp". # noqa
 
     # _initial_dataframe_setup will try to standardize one of them to "Timestamp".
-    # We'll prioritize 'lastLocationFix' if both are present and become 'Timestamp'.
-
-    df_processed = _initial_dataframe_setup(
-        df, timestamp_col
-    )  # Standardizes 'lastLocationFix' to 'Timestamp'
-    if df_processed.empty:
-        # Ensure even an empty DF has the expected columns
-        expected_cols = [
-            timestamp_col,
-            "Latitude",
-            "Longitude",
-            "GliderHeading",
-            "GliderSpeed",
-            "TargetWaypoint",
-            "DistanceToWaypoint",
-            "SpeedOverGround",
-            "OceanCurrentSpeed",
-            "OceanCurrentDirection",
-            "HeadingFloatDegrees",
-            "DesiredBearingDegrees",
-            "HeadingSubDegrees",
-        ]
-        for col in expected_cols:
-            if col not in df_processed.columns:
-                df_processed[col] = (
-                    np.nan
-                    if col != timestamp_col
-                    else pd.Series(dtype="datetime64[ns, UTC]")
-                )
-        return df_processed
-
-    # Rename columns to a consistent style and ensure they are numeric where appropriate
+    # We'll prioritize 'lastLocationFix' if both are present and become 'Timestamp'. # noqa
     rename_map = {
         "latitude": "Latitude",
         "longitude": "Longitude",
@@ -650,18 +535,10 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         "speedOverGround": "SpeedOverGround",
         "oceanCurrent": "OceanCurrentSpeed",
         "oceanCurrentDirection": "OceanCurrentDirection",
-        # Heading of the glider
-        # Speed of the glider (m/s)
-        # Name/ID of the target waypoint
-        # Distance to the target waypoint (km)
-        # SOG (m/s)
-        # Ocean current speed (m/s)
-        # Ocean current direction (deg)
         "headingFloatDegrees": "HeadingFloatDegrees",  # Often the more accurate heading
         "desiredBearingDegrees": "DesiredBearingDegrees",  # Added
         "headingSubDegrees": "HeadingSubDegrees",  # Added
     }
-    df_processed = df_processed.rename(columns=rename_map)
 
     numeric_cols_to_ensure = [
         "Latitude",
@@ -676,22 +553,16 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         "DesiredBearingDegrees",
         "HeadingSubDegrees",  # Added
     ]
-    expected_final_cols = [timestamp_col] + numeric_cols_to_ensure + ["TargetWaypoint"]
 
-    for target_col in expected_final_cols:
-        if target_col not in df_processed.columns:
-            df_processed[target_col] = np.nan
-        if target_col in numeric_cols_to_ensure:
-            df_processed[target_col] = pd.to_numeric(
-                df_processed[target_col], errors="coerce"
-            )
+    df_processed = _apply_common_processing(
+        df, timestamp_col, rename_map, numeric_cols_to_ensure
+    )
+    if df_processed.empty:
+        return df_processed
 
     # Prioritize 'HeadingFloatDegrees' for 'GliderHeading' if 'gliderHeading'
     # is NaN or missing
-    if (
-        "GliderHeading" in df_processed.columns
-        and "HeadingFloatDegrees" in df_processed.columns
-    ):
+    if "GliderHeading" in df_processed.columns and "HeadingFloatDegrees" in df_processed.columns:
         df_processed["GliderHeading"] = df_processed["GliderHeading"].fillna(
             df_processed["HeadingFloatDegrees"]
         )
@@ -704,42 +575,12 @@ def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
     Preprocesses the WG-VM4 data.
     Placeholder: Standardizes timestamp and ensures essential columns.
     """
-    timestamp_col = "Timestamp"  # Standardized name, raw is "timeStamp"
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        # Ensure even an empty DF has the expected columns for consistency
-        expected_cols = [
-            timestamp_col,
-            "SerialNumber",
-            "Channel0DetectionCount",
-            "Channel1DetectionCount",
-        ]
-        for col in expected_cols:
-            if col not in df_processed.columns:
-                df_processed[col] = (
-                    np.nan
-                    if col != timestamp_col
-                    else pd.Series(dtype="datetime64[ns, UTC]")
-                )
-        return df_processed
-
+    timestamp_col = "Timestamp"
     rename_map = {
-        # From "Vemco VM4 Daily Local Health.csv"
         "serial Number": "SerialNumber",
         "channel[0] Detection Count": "Channel0DetectionCount",
         "channel[1] Detection Count": "Channel1DetectionCount",
     }
-    df_processed = df_processed.rename(columns=rename_map)
+    numeric_cols = ["Channel0DetectionCount", "Channel1DetectionCount"]
 
-    # Ensure numeric conversion for relevant columns
-    for col in ["Channel0DetectionCount", "Channel1DetectionCount"]:
-        if col in df_processed.columns:
-            df_processed[col] = pd.to_numeric(df_processed[col], errors="coerce")
-        else:
-            df_processed[col] = np.nan
-
-    # Ensure SerialNumber exists
-    if "SerialNumber" not in df_processed.columns:
-        df_processed["SerialNumber"] = np.nan
-
-    return df_processed
+    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)

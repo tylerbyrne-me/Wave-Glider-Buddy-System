@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     let inputHtml = '';
                     switch (item.item_type) {
                         case 'checkbox':
-                            inputHtml = `<div class="form-check mt-2"> {/* Add some top margin for alignment */}
+                            inputHtml = `<div class="form-check mt-2">
                                            <input class="form-check-input" type="checkbox" id="${item.id}" name="${item.id}" ${item.is_checked ? 'checked' : ''} ${item.required ? 'required' : ''}>
                                            <label class="form-check-label" for="${item.id}">Check if complete/verified</label>
                                          </div>`;
@@ -258,7 +258,9 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             const result = await response.json();
             if (response.ok) {
-                const submissionTime = new Date(result.submission_timestamp);
+                // Ensure the timestamp string from the server is parsed as UTC.
+                const submissionTimestampStr = result.submission_timestamp.endsWith('Z') ? result.submission_timestamp : result.submission_timestamp + 'Z';
+                const submissionTime = new Date(submissionTimestampStr);
                 // Using en-GB for a common 24-hour format, and explicitly stating UTC
                 const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
                 submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;

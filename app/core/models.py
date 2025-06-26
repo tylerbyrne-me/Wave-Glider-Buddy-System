@@ -1,7 +1,7 @@
 from datetime import (datetime,  # Import the datetime module and timezone
                       timezone)
 from enum import Enum  # type: ignore
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import JSON, Column
@@ -9,6 +9,9 @@ from sqlmodel import Field as SQLModelField  # type: ignore
 from sqlmodel import Relationship, SQLModel
 # The VALID_REPORT_TYPES list is redundant as ReportTypeEnum serves as the source of truth.
 # If it was used for a specific purpose, that should be documented or refactored.
+
+if TYPE_CHECKING:
+    from .models import UserInDB  # noqa: F401
 
 
 class ReportTypeEnum(str, Enum):
@@ -110,6 +113,7 @@ class UserCreate(UserBase):
 
 
 class User(UserBase):
+    id: int
     disabled: Optional[bool] = Field(None, description="Whether the user account is disabled.")
 
 
@@ -135,6 +139,9 @@ class UserInDB(SQLModel, table=True):  # Inherit from SQLModel
     # If you want a direct relationship from UserInDB to their shifts
     # Ensure ShiftAssignment model is defined or forward-declared if it's below UserInDB
     shift_assignments: List["ShiftAssignment"] = Relationship(back_populates="user")
+    unavailabilities: List["UserUnavailability"] = Relationship(
+        back_populates="user"
+    )
 
 
 
@@ -317,32 +324,59 @@ class SubmittedForm(SQLModel, table=True):
 
 
 # --- Schedule Event Models ---
-class ScheduleEvent(BaseModel):
-    id: str  # Or int, DayPilot can handle both
+class ScheduleEvent(SQLModel):
+    id: str
     text: str
-    start: datetime  # Will be ISO string in JSON
-    end: datetime    # Will be ISO string in JSON
-    resource: str    # Corresponds to resource ID (e.g., "MON", "TUE")
-    backColor: Optional[str] = None # Example: for styling
-    borderColor: Optional[str] = None
-    fontColor: Optional[str] = None
-# --- SQLModel for Station Metadata (incorporating previous StationMetadataBase) ---
+    start: datetime
+    end: datetime
+    resource: str
+    backColor: Optional[str] = None
+    type: str = "shift"  # Add a type field, default to "shift"
+    user_role: Optional[UserRoleEnum] = None # Add user role for styling unavailability
+    user_color: Optional[str] = None # Add user color for styling unavailability
+    editable: bool = True  # Add editable flag for frontend
+    startEditable: bool = True
+    durationEditable: bool = True
+    resourceEditable: bool = True
+    overlap: bool = False  # Shifts should not overlap with other shifts or unavailability
+    display: str = "auto"  # 'auto' for shifts, 'background' for unavailability
+    allDay: bool = False # Add allDay property
 
-# --- Model for PIC Handoff Link Information ---
-class PicHandoffLinkInfo(BaseModel):
-    form_db_id: int # The database ID of the SubmittedForm
-    mission_id: str
-    form_title: str # Should typically be "PIC Handoff Checklist" or similar
-    submitted_by_username: str
-    submission_timestamp: datetime
 
 # New Pydantic model for creating schedule events from the client
 class ScheduleEventCreate(BaseModel):
     start: str  # Expect ISO string from client
     end: str    # Expect ISO string from client
     resource: str
-    text: str   # This will be the username
+    text: Optional[str] = None   # Text is now optional, will be filled by backend
     id: Optional[str] = None # Client might send an ID, or backend generates
+
+
+class UserUnavailabilityBase(SQLModel):
+    start_time_utc: datetime
+    end_time_utc: datetime
+    reason: Optional[str] = None
+
+
+class UserUnavailability(UserUnavailabilityBase, table=True):
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    user_id: int = SQLModelField(foreign_key="users.id") # Corrected foreign key table name and used SQLModelField
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc)) # Used SQLModelField
+
+    user: Optional["UserInDB"] = Relationship(back_populates="unavailabilities")
+
+
+class UserUnavailabilityCreate(UserUnavailabilityBase):
+    pass  # No additional fields needed for creation
+
+
+class UserUnavailabilityResponse(UserUnavailabilityBase):
+    id: int
+    user_id: int
+    username: str  # For frontend display
+    user_role: UserRoleEnum  # For frontend coloring
+    user_color: str  # For frontend coloring
+    created_at_utc: datetime
 
 class ShiftAssignment(SQLModel, table=True):
     __tablename__ = "shift_assignments"
@@ -360,6 +394,15 @@ class ShiftAssignment(SQLModel, table=True):
 
     created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     # last_modified_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}) # More advanced
+
+
+# --- Model for PIC Handoff Link Information ---
+class PicHandoffLinkInfo(BaseModel):
+    form_db_id: int # The database ID of the SubmittedForm
+    mission_id: str
+    form_title: str # Should typically be "PIC Handoff Checklist" or similar
+    submitted_by_username: str
+    submission_timestamp: datetime
 
 
 

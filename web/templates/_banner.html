@@ -1,88 +1,88 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top" style="height: var(--banner-height);">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/">Wave Glider Buddy System</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNavDropdown">
-      <ul class="navbar-nav me-auto align-items-center">
-        <!-- Mission Selector (Conditional) -->
-        {% if show_mission_selector %}
-        <div class="d-flex align-items-center me-3">
-          <label for="missionSelectorBanner" class="nav-link mb-0 me-2">Mission:</label>
-          <select id="missionSelectorBanner" class="form-select form-select-sm bg-dark text-white border-secondary" style="width: auto;">
-            <!-- Options populated by JS. For index.html, Jinja also pre-populates. -->
-            {% if mission and available_missions %}
-              {% for m_id in available_missions | sort %}
-                <option value="{{ m_id }}" {% if m_id == mission %}selected{% endif %}>{{ m_id }}</option>
-              {% endfor %}
-            {% else %}
-              <option value="">N/A</option>
-            {% endif %}
-          </select>
+    <div class="d-flex flex-column w-100"> {# New wrapper div to stack rows vertically #}
+      <!-- Top Row -->
+      <div class="navbar-top-row d-flex align-items-center" style="height: var(--banner-top-row-height);"> {# Removed justify-content-between #}
+        <div class="d-flex align-items-center" style="padding-left: var(--banner-padding-x);"> {# Removed width: 30% #}
+          <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
         </div>
-        {% endif %}
-      </ul>
-      <ul class="navbar-nav ms-auto d-flex align-items-center">
-        <li class="nav-item me-3">
-          <span id="utcClockBanner" class="navbar-text"></span>
-        </li>
-        <!-- Refresh countdown, only visible on dashboard page -->
-        <li class="nav-item me-3" id="refreshCountdownContainer" style="display: none;">
-          <span id="refreshCountdown" class="navbar-text"></span>
-        </li>
-        <!-- PIC Handoff Dropdown - visibility controlled by auth.js -->
-        <li class="nav-item dropdown me-3" id="picHandoffNavDropdown" style="display: none;">
-            <a class="nav-link dropdown-toggle btn btn-sm btn-warning text-dark" href="#" id="picHandoffDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                PIC Handoff
+        <div class="d-flex align-items-center flex-grow-1 justify-content-center"> {# Added flex-grow-1 and justify-content-center #}
+          <span id="utcClockBanner" class="navbar-text"></span> {# Removed me-3 #}
+        </div>
+        <ul class="navbar-nav" style="padding-right: var(--banner-padding-x);"> {# Added padding-right for consistent right margin #}
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false"> {# Removed text-align:right, as it's handled by flexbox #}
+              <span id="usernameDisplayBanner">{{ current_user.username if current_user else 'User' }}</span>
             </a>
-            <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="picHandoffDropdownLink">
-                <li><a class="dropdown-item dynamic-pic-handoff-link" id="submitNewPicHandoffLink" href="#">Submit New PIC Handoff</a></li>
-                <li><a class="dropdown-item" id="viewMyPicSubmissionsLink" href="/my_pic_handoffs.html">View My Submissions</a></li>
-                <li><a class="dropdown-item" id="viewRecentPicSubmissionsLink" href="/view_pic_handoffs.html">View Recent (24h)</a></li>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+              <li><a class="dropdown-item" href="#">User Settings (TBD)</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="#" id="logoutBtnBanner">Logout</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <div class="px-3 py-1">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
+                    <label class="form-check-label small" for="themeSwitch">Dark Mode</label>
+                  </div>
+                </div>
+              </li>
             </ul>
-        </li>
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="actionsDropdownBanner" role="button" data-bs-toggle="dropdown" aria-expanded="false">Actions</a>
-          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionsDropdownBanner">
-            {# This block is for page-specific actions. Child templates can override this. #}
-            {% block page_specific_banner_actions %}{% endblock %}
-            {# Auto-refresh toggle is specific to the dashboard, but we put the logic here. #}
-            {# It will only render if the 'is_current_mission_realtime' variable is passed as true from the backend, #}
-            {# which only happens for the main dashboard route. #}
-            {% if is_current_mission_realtime %}
-            <li><hr class="dropdown-divider"></li>
-            <li>
-              <div class="px-3 py-1">
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
-                  <label class="form-check-label small" for="autoRefreshToggleBanner" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh</label>
-                </div>
-              </div>
-            </li>
-            {% endif %}
-            {# Default items, always present unless explicitly hidden by JS or overridden by page_specific_banner_actions #}
-            <li><a class="dropdown-item" href="/view_station_status.html" id="viewStationStatusBtnBanner" target="_blank">Station Offload Status</a></li>
-            <li><a class="dropdown-item" href="/schedule.html" id="viewScheduleBtnBanner" target="_blank">Daily Schedule</a></li>
-            <li><a class="dropdown-item" href="/view_forms.html" id="viewFormsBtnBanner" target="_blank" style="display: none;">View Submitted Forms</a></li>
-            <li><a class="dropdown-item" href="/register.html" id="registerUserBtnBanner" target="_blank" style="display: none;">Register New User</a></li>
-            <li><a class="dropdown-item" href="/admin/user_management.html" id="userManagementBtnBanner" target="_blank" style="display: none;">User Management</a></li>
+          </li>
+        </ul>
+      </div>
 
-            <li><hr class="dropdown-divider"></li>
-            <li>
-              <div class="px-3 py-1">
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
-                  <label class="form-check-label small" for="themeSwitch">Dark Mode</label>
-                </div>
-              </div>
-            </li>
-
-            <li><hr class="dropdown-divider"></li> {# Separator before user actions #}
-            <li><a class="dropdown-item" href="#" id="logoutBtnBanner">Logout (<span id="usernameDisplayBanner">{{ current_user.username if current_user else 'User' }}</span>)</a></li> {# User-specific logout #}
-          </ul>
-        </li>
-      </ul>
+      <!-- Bottom Row -->
+      <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
+        <ul class="navbar-nav d-flex justify-content-start" style="padding-left: var(--banner-padding-x); width:100%;"> {# Changed justify-content-around to justify-content-start #}
+          <li class="nav-item me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link" href="#">Home (TBD)</a>
+          </li>
+          <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link dropdown-toggle" href="#" id="missionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Mission Dashboard
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="missionDashboardDropdown" id="missionSelectorDropdownMenu">
+              <!-- Mission options populated by JS -->
+              <li><a class="dropdown-item" href="/">Loading Missions...</a></li>
+            </ul>
+          </li>
+          <li class="nav-item me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link" href="/schedule.html">Schedule</a>
+          </li>
+          <li class="nav-item me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
+          </li>
+          <li class="nav-item dropdown me-3" id="picManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
+            <a class="nav-link dropdown-toggle" href="#" id="picManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              PIC Management
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="picManagementDropdownLink">
+              <li><a class="dropdown-item dynamic-pic-handoff-link" href="#">Submit New PIC Handoff</a></li>
+              <li><a class="dropdown-item" href="/my_pic_handoffs.html">My PIC Handoffs</a></li>
+              <li><a class="dropdown-item" href="/view_pic_handoffs.html">Recent PIC Handoffs (24h)</a></li>
+            </ul>
+          </li>
+          <li class="nav-item dropdown me-3" id="adminManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
+            <a class="nav-link dropdown-toggle" href="#" id="adminManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Admin Management
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="adminManagementDropdownLink">
+              <li><a class="dropdown-item" href="/admin/user_management.html">User Management</a></li>
+              <li><a class="dropdown-item" href="/view_forms.html">View All Forms</a></li>
+            </ul>
+          </li>
+          <!-- Auto-refresh toggle, only visible on dashboard page -->
+          {% if is_current_mission_realtime %}
+          <li class="nav-item ms-auto me-3" id="refreshCountdownContainer">
+            <div class="form-check form-switch d-flex align-items-center"> {# Removed float:right #}
+              <input class="form-check-input me-2" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
+              <label class="form-check-label small text-white" for="autoRefreshToggleBanner" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh <span id="refreshCountdown"></span></label>
+            </div>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
     </div>
   </div>
 </nav>

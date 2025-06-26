@@ -64,8 +64,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.insertCell().textContent = form.mission_id;
                     row.insertCell().textContent = form.form_type;
                     row.insertCell().textContent = form.form_title;
-                    row.insertCell().textContent = form.submitted_by_username;                    
-                    const submissionDate = new Date(form.submission_timestamp);
+                    row.insertCell().textContent = form.submitted_by_username;
+                    // Ensure the timestamp string is parsed as UTC by appending 'Z' if it's not already in ISO format.
+                    // This prevents the browser from interpreting a naive timestamp (e.g., "YYYY-MM-DD HH:MM:SS") as local time.
+                    const submissionTimestampStr = form.submission_timestamp.endsWith('Z') ? form.submission_timestamp : form.submission_timestamp + 'Z';
+                    const submissionDate = new Date(submissionTimestampStr);
                     // Standardize UTC time formatting for consistency and robustness.
                     const datePart = submissionDate.toLocaleDateString('en-US', {
                         year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
@@ -155,7 +158,7 @@ document.addEventListener('DOMContentLoaded', function () {
     fetchAndDisplayForms();
 
     // Event listener for the "Close Page" button
-    if (backToDashboardBtn) {
+    if (backToDashboardBtn) { // Keep close button as requested
         backToDashboardBtn.addEventListener('click', function(event) {
             event.preventDefault(); // Prevent default anchor behavior
             window.close();

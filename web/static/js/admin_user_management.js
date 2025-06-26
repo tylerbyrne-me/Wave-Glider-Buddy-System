@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Event listener for the "Close Page" button
-    if (closeUserManagementPageBtn) {
+    if (closeUserManagementPageBtn) { // Keep close button as requested
         closeUserManagementPageBtn.addEventListener('click', function(event) {
             event.preventDefault(); // Prevent default anchor behavior if any
             window.close();

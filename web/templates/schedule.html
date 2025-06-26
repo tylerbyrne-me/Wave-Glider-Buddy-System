@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block body_class %}{% endblock %} {# Remove container-fluid and mt-4 from body for this page #}
+{% block body_class %}{% endblock %} {# Remove container-fluid and mt-4 from body for this page, padding handled by base.html #}
 
 {% block title %}Daily Schedule - Wave Glider Buddy{% endblock %}
 
@@ -8,18 +8,49 @@
     {# FullCalendar CSS served locally #}
     <link href="{{ url_for('static', path='fullcalendar/main.min.css') }}" rel="stylesheet" />
     <style>
-        /* Custom styles for FullCalendar */
+        /* Custom styles for FullCalendar (general) */
         #calendar {
             max-width: 100%;
             margin: 0 auto;
         }
+        /* Adjust FullCalendar's default button styling to match Bootstrap */
+        .fc .fc-button {
+            background-color: var(--bs-btn-bg);
+            border-color: var(--bs-btn-border-color);
+            color: var(--bs-btn-color);
+            --fc-button-active-bg-color: var(--bs-btn-active-bg);
+            --fc-button-active-border-color: var(--bs-btn-active-border-color);
+            --fc-button-active-color: var(--bs-btn-active-color);
+        }
+        /* Styles for unavailability events */
+        .fc-daygrid-event.fc-event-unavailability-admin,
+        .fc-h-event.fc-event-unavailability-admin {
+            background-color: var(--bs-warning); /* Gold for admin unavailability */
+            border-color: var(--bs-warning);
+        }
+        .fc-daygrid-event.fc-event-unavailability-pilot,
+        .fc-h-event.fc-event-unavailability-pilot {
+            background-color: var(--bs-secondary); /* Grey for pilot unavailability */
+            border-color: var(--bs-secondary);
+        }
+        /* Style for minimalist shift events */
+        .fc-timegrid-event.fc-event-shift {
+            border: 1px solid rgba(0, 0, 0, 0.25) !important; /* Add a subtle border to define the block */
+        }
+        /* Increase the height of day cells in month view */
+        .fc-daygrid-day-frame {
+            min-height: 8em; /* Adjust this value as needed to control cell height */
+        }
     </style>
 {% endblock %}
-{% block content_container_class %}{% endblock %} {# Override base.html's container-fluid #}
-
-{% block content_padding_top %}0px{% endblock %} {# Override if the default body padding is enough due to fixed-top nav #}
-
+{% block content_container_class %}container{% endblock %} {# Use container for centered content with margins #}
 {% block content %}
+<div class="mt-3">
+    {# The h1 and custom navigation buttons are now handled by FullCalendar's headerToolbar #}
+    <!-- Main Schedule View Container -->
+    <div class="mb-3">
+        {# The h1 and custom navigation buttons are now handled by FullCalendar's headerToolbar #}
+        {# The dateRangeDisplay and view type text are also handled by FullCalendar's title #}
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h1>Daily Shift Schedule</h1>
             {# <a href="#" id="closeSchedulePageBtn" class="btn btn-outline-secondary" title="Close this tab/window">Close Page</a> #}
@@ -27,12 +58,8 @@
         <p class="text-muted">All times are displayed in your local timezone.</p>
         
         <!-- Schedule Controls -->
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="btn-group" role="group" aria-label="Schedule Navigation">
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="prevBtn">Previous</button>
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="todayBtn">Today</button>
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="nextBtn">Next</button>
-            </div>
+        <div class="d-flex justify-content-end align-items-center mb-3">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="blockTimeBtn">Block Out Time</button>
             <div class="d-flex align-items-center">
                  <span class="me-2 text-muted small" id="dateRangeDisplay"></span>
                  <span class="ms-2 fst-italic">View: Time Slots (Weekly)</span>
@@ -70,6 +97,41 @@
 
         <!-- Container for FullCalendar -->
         <div id='calendar'></div>
+    </div>
+</div>
+
+<!-- Block Out Time Modal -->
+<div class="modal fade" id="blockTimeModal" tabindex="-1" aria-labelledby="blockTimeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="blockTimeModalLabel">Block Out Time</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="blockTimeForm">
+                    <div class="mb-3">
+                        <label for="unavailabilityStartDate" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="unavailabilityStartDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="unavailabilityEndDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="unavailabilityEndDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="unavailabilityReason" class="form-label">Reason (Optional)</label>
+                        <input type="text" class="form-control" id="unavailabilityReason" placeholder="e.g., Vacation, Training">
+                    </div>
+                    <div class="alert alert-danger" id="blockTimeError" style="display:none;"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitBlockTimeBtn">Block Time</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
 
@@ -77,24 +139,13 @@
     {# Ensure jQuery is loaded if DayPilot or your custom scripts need it #}
     {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
 
-    {# auth.js should be loaded if not already in base.html or if schedule.js depends on it directly #}
-    {# Assuming auth.js is loaded in base.html or similar #}
-    <script>
-        async function initializeCurrentUserForScheduler() {
-            if (typeof getUserProfile === 'function') {
-                window.currentUser = await getUserProfile(); // from auth.js
-                if (!window.currentUser) {
-                    console.warn("Schedule page: Current user not available. Interactive features might be limited.");
-                }
-            } else {
-                console.error("Schedule page: getUserProfile function not found. Ensure auth.js is loaded.");
-            }
-        }
-    </script>
-
     {# FullCalendar JS served locally #}
     <script src="{{ url_for('static', path='fullcalendar/main.min.js') }}"></script>
 
     {# Link to your custom schedule.js if you move the script out #}
     <script src="{{ url_for('static', path='js/schedule.js') }}"></script>
+{% endblock %}
+
+{% block body_extra_js %}
+    {# auth.js is loaded in base.html #}
 {% endblock %}
