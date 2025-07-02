@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Wave Glider Buddy{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <!-- Main Content Area -->
+        <div class="col-lg-9">
+            <h1>Welcome, {{ current_user.full_name or current_user.username }}!</h1>
+            
+            <!-- Announcements Panel -->
+            <div id="announcementsPanel" class="mb-4">
+                <!-- Active announcements will be loaded here by home.js -->
+                <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading announcements...</span></div></div>
+            </div>
+
+            <p class="lead">This is your home page. Select an option to get started.</p>
+            <hr>
+            
+            <!-- Quick Links -->
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Mission Dashboard</h5>
+                            <p class="card-text">View detailed real-time and historical data for active and past missions.</p>
+                            <a href="/" class="btn btn-primary mt-auto">Go to Dashboard</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Daily Schedule</h5>
+                            <p class="card-text">View and sign up for piloting shifts for all ongoing missions.</p>
+                            <a href="/schedule.html" class="btn btn-primary mt-auto">View Schedule</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Sidebar: User-Specific Information -->
+        <div class="col-lg-3">
+            <div class="card sticky-top" style="top: 130px;">
+                <div class="card-header"><h5 class="mb-0">My Upcoming Shifts</h5></div>
+                <div class="card-body" id="upcomingShiftsContent" style="max-height: 400px; overflow-y: auto;">
+                    <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div></div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="/schedule.html" class="btn btn-sm btn-outline-primary">View Full Schedule</a>
+                </div>
+            </div>
+            <!-- New Timesheet Status Panel -->
+            <div class="card mt-4">
+                <div class="card-header"><h5 class="mb-0">My Timesheet Status</h5></div>
+                <div class="card-body" id="timesheetStatusContent" style="max-height: 400px; overflow-y: auto;">
+                    <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div></div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="/payroll/my_timesheets.html" class="btn btn-sm btn-outline-primary">View My Timesheets</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+  <!-- Include the Showdown library for Markdown rendering in announcements -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+  <script src="{{ url_for('static', path='js/home.js') }}"></script>
+{% endblock %}

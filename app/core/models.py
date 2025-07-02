@@ -11,7 +11,7 @@ from sqlmodel import Relationship, SQLModel
 # If it was used for a specific purpose, that should be documented or refactored.
 
 if TYPE_CHECKING:
-    from .models import UserInDB  # noqa: F401
+    from .models import UserInDB, Timesheet, PayPeriod  # noqa: F401
 
 
 class ReportTypeEnum(str, Enum):
@@ -139,9 +139,8 @@ class UserInDB(SQLModel, table=True):  # Inherit from SQLModel
     # If you want a direct relationship from UserInDB to their shifts
     # Ensure ShiftAssignment model is defined or forward-declared if it's below UserInDB
     shift_assignments: List["ShiftAssignment"] = Relationship(back_populates="user")
-    unavailabilities: List["UserUnavailability"] = Relationship(
-        back_populates="user"
-    )
+    unavailabilities: List["UserUnavailability"] = Relationship(back_populates="user")
+    timesheets: List["Timesheet"] = Relationship(back_populates="user")
 
 
 
@@ -165,6 +164,8 @@ class Token(BaseModel):
 # Forward declaration for type hinting in relationships
 "StationMetadata"
 "ShiftAssignment" # Forward declare ShiftAssignment
+"PayPeriod"
+"Timesheet"
 "OffloadLog"
 
 
@@ -411,7 +412,67 @@ class PicHandoffLinkInfo(BaseModel):
     submitted_by_username: str
     submission_timestamp: datetime
 
+# --- Pay Period and Timesheet Models ---
 
+class PayPeriodStatusEnum(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+class PayPeriod(SQLModel, table=True):
+    __tablename__ = "pay_periods"
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    name: str = SQLModelField(index=True, description="Name of the pay period (e.g., 'June 1-15, 2025').")
+    start_date: date = SQLModelField(description="Start date of the pay period.")
+    end_date: date = SQLModelField(description="End date of the pay period.")
+    status: PayPeriodStatusEnum = SQLModelField(default=PayPeriodStatusEnum.OPEN, description="Status of the pay period.")
+    created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+    timesheets: List["Timesheet"] = Relationship(back_populates="pay_period")
+
+class PayPeriodCreate(BaseModel):
+    name: str
+    start_date: date
+    end_date: date
+
+class PayPeriodUpdate(BaseModel):
+    name: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: Optional[PayPeriodStatusEnum] = None
+
+
+class TimesheetStatusEnum(str, Enum):
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class Timesheet(SQLModel, table=True):
+    __tablename__ = "timesheets"
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    user_id: int = SQLModelField(foreign_key="users.id", index=True)
+    pay_period_id: int = SQLModelField(foreign_key="pay_periods.id", index=True)
+    
+    calculated_hours: float = SQLModelField(description="Total hours calculated from shifts for the period.")
+    adjusted_hours: Optional[float] = SQLModelField(default=None, description="Admin-adjusted hours, overrides calculated_hours if set.")
+    notes: Optional[str] = SQLModelField(default=None, description="Optional notes from the pilot.")
+    reviewer_notes: Optional[str] = SQLModelField(default=None, description="Notes added by the administrator during review.")
+    status: TimesheetStatusEnum = SQLModelField(default=TimesheetStatusEnum.SUBMITTED)
+    submission_timestamp: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    is_active: bool = SQLModelField(default=True, index=True, description="Indicates if this is the most recent submission for this user/period.")
+    
+    # Relationships
+    user: "UserInDB" = Relationship(back_populates="timesheets")
+    pay_period: "PayPeriod" = Relationship(back_populates="timesheets")
+
+class TimesheetCreate(BaseModel):
+    pay_period_id: int
+    calculated_hours: float
+    notes: Optional[str] = None
+
+class TimesheetUpdate(BaseModel):
+    status: Optional[TimesheetStatusEnum] = None
+    adjusted_hours: Optional[float] = None
+    reviewer_notes: Optional[str] = None
 
 class StationMetadata(SQLModel, table=True):  # type: ignore
     __tablename__ = "station_metadata"
@@ -466,6 +527,20 @@ class OffloadLogRead(OffloadLogBase):  # For API responses
     station_id: str
     logged_by_username: str
     log_timestamp_utc: datetime
+
+class TimesheetRead(BaseModel):
+    id: int
+    user_id: int
+    username: str # For display
+    pay_period_id: int
+    pay_period_name: str # For display
+    calculated_hours: float
+    adjusted_hours: Optional[float]
+    notes: Optional[str]
+    reviewer_notes: Optional[str] # For display
+    status: TimesheetStatusEnum
+    submission_timestamp: datetime
+    is_active: bool
 
 
 class StationMetadataCreateResponse(StationMetadataRead):

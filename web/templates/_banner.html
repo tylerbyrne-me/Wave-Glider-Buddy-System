@@ -4,7 +4,9 @@
       <!-- Top Row -->
       <div class="navbar-top-row d-flex align-items-center" style="height: var(--banner-top-row-height);"> {# Removed justify-content-between #}
         <div class="d-flex align-items-center" style="padding-left: var(--banner-padding-x);"> {# Left aligned title #}
-          <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
+          <a class="navbar-brand" href="/home.html" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
+            <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
+          </a>
         </div>
         <div class="d-flex align-items-center me-auto ms-auto"> {# Use auto margins for centering #}
           <span id="utcClockBanner" class="navbar-text"></span> {# Removed me-3 #}
@@ -35,9 +37,6 @@
       <!-- Bottom Row -->
       <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
         <ul class="navbar-nav d-flex" style="padding-left: var(--banner-padding-x); width:100%;"> {# Removed justify-content-start for individual item control #}
-          <li class="nav-item me-3"> {# Added me-3 for spacing #}
-            <a class="nav-link" href="#">Home (TBD)</a>
-          </li>
           <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="missionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Mission Dashboard
@@ -52,6 +51,15 @@
           </li>
           <li class="nav-item me-3"> {# Added me-3 for spacing #}
             <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
+          </li>
+          <li class="nav-item dropdown me-3" id="payrollDropdown" style="display: none;">
+            <a class="nav-link dropdown-toggle" href="#" id="payrollDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Payroll
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="payrollDropdownLink">
+              <li><a class="dropdown-item" href="/payroll/submit.html">Submit Timesheet</a></li>
+              <li><a class="dropdown-item" href="/payroll/my_timesheets.html">My Timesheets</a></li>
+            </ul>
           </li>
           <li class="nav-item dropdown me-3" id="picManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="picManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -68,7 +76,11 @@
               Admin Management
             </a>
             <ul class="dropdown-menu" aria-labelledby="adminManagementDropdownLink">
+              <li><a class="dropdown-item" href="/admin/announcements.html">Manage Announcements</a></li>
               <li><a class="dropdown-item" href="/admin/user_management.html">User Management</a></li>
+              <li><a class="dropdown-item" href="/admin/pay_periods.html">Manage Pay Periods</a></li>
+              <li><a class="dropdown-item" href="/admin/timesheets.html">View Submitted Timesheets</a></li>
+              <li><a class="dropdown-item" href="/admin/reports.html">Generate Reports</a></li>
               <li><a class="dropdown-item" href="/view_forms.html">View All Forms</a></li>
             </ul>
           </li>

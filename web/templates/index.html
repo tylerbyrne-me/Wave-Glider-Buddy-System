@@ -3,10 +3,7 @@
 {% block title %}Wave Glider Status - {{ mission }}{% endblock %}
 
 {% block head_extra_css %}
-  <!-- Include Chart.js and its date adapter -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  {# Bootstrap, Font Awesome, Roboto, custom.css are in base.html #}
+  {# Chart.js and its adapter are now loaded globally in base.html #}
 {% endblock %}
 
 {% block body_class %}container-fluid{% endblock %} {# Removed py-4. Body padding is handled by base.html for fixed-top navbar. #}

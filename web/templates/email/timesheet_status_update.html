@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .header { background-color: #f2f2f2; padding: 15px; text-align: center; border-bottom: 1px solid #ddd; border-radius: 8px 8px 0 0; }
+        .status-approved { color: #28a745; font-weight: bold; text-transform: uppercase; }
+        .status-rejected { color: #dc3545; font-weight: bold; text-transform: uppercase; }
+        .notes { background-color: #f9f9f9; border-left: 4px solid #ccc; padding: 15px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Timesheet Status Update</h2>
+        </div>
+        <p>Hello {{ user_name }},</p>
+        <p>This is a notification regarding your timesheet submission for the pay period: <strong>{{ pay_period_name }}</strong>.</p>
+        <p>Your timesheet has been <strong class="status-{{ 'approved' if is_approved else 'rejected' }}">{{ status }}</strong>.</p>
+        {% if reviewer_notes %}
+        <div class="notes">
+            <strong>Administrator Notes:</strong>
+            <p style="margin: 5px 0 0 0;">{{ reviewer_notes }}</p>
+        </div>
+        {% endif %}
+        <p style="margin-top: 20px;">Thank you,<br>The Wave Glider Buddy System</p>
+    </div>
+</body>
+</html>
