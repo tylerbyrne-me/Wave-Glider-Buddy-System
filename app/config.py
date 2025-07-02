@@ -47,14 +47,22 @@ class Settings(BaseSettings):
     )
     sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
 
+    # --- Email Settings for Timesheet Notifications ---
+    # Replace these with your actual SMTP server details, preferably in a .env file.
+    MAIL_USERNAME: str = "your-email@example.com"
+    MAIL_PASSWORD: str = "your-email-password"
+    MAIL_FROM: str = "no-reply@wgbuddy.com"
+    MAIL_PORT: int = 587
+    MAIL_SERVER: str = "smtp.example.com"
+    MAIL_STARTTLS: bool = True
+    MAIL_SSL_TLS: bool = False
+
     # Parsed values (not loaded directly from env)
     remote_mission_folder_map: dict[str, str] = {}
 
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization hook to parse JSON strings."""
         self.remote_mission_folder_map = json.loads(self.remote_mission_folder_map_json)
-
-    sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
 
     class Config:
         env_file = ".env"

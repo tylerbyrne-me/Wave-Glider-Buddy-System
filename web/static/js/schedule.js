@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     if (typeof checkAuth === 'function' && !checkAuth()) {
         console.log("Schedule.js: checkAuth() failed. Aborting calendar initialization.");
-        return;
+        return; 
     }
 
     // UI Elements
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     // --- FullCalendar Initialization ---
     mainCalendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth', // Default view is month
-        timeZone: 'local', // Explicitly set to local timezone for display
+        timeZone: 'America/Halifax', // Force display in Atlantic Daylight Time (ADT)
         headerToolbar: {
             left: 'prev,next today', // Navigation buttons
             center: 'title', // Month/Week/Day title
@@ -114,6 +114,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
             const modalTitle = `Sign up for shift on ${slot.start.toLocaleDateString()} from ${slot.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${slot.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}?`;
             if (confirm(modalTitle)) {
+                // Add a flag to prevent multiple submissions.
+                if (this.isSubmitting) return; // If already submitting, ignore click
+                this.isSubmitting = true;
+
                 const newEventData = {
                     start: slot.start.toISOString(),
                     end: slot.end.toISOString(),
@@ -139,6 +143,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                     }
                     alert(`Shift added for ${window.currentUser.username}.`);
                     mainCalendar.refetchEvents(); // Reload events to show the new one
+                    // Clear the submission flag after a short delay.
+                    setTimeout(() => { this.isSubmitting = false; }, 1000);
+
                 } catch (error) {
                     alert("Error signing up: " + error.message);
                 }
@@ -237,7 +244,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         eventDidMount: function(info) {
             const eventType = info.event.extendedProps.type;
             let tooltipText = '';
-
+            
             if (eventType === "lri_block" || eventType === "holiday" || eventType === "unavailability") {
                 tooltipText = info.event.title; // Title already contains the descriptive text
             } else if (eventType === "shift") {
@@ -312,39 +319,43 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     /**
      * Determines the correct 3-hour shift slot for a given clicked time.
-     * Shift start times are fixed in UTC.
+     * Shift start times are fixed in ADT (UTC-3).
      * @param {Date} clickedDate The date/time the user clicked on the calendar.
      * @returns {{start: Date, end: Date}|null} An object with start and end Date objects for the slot, or null.
      */
     function getSlotForTime(clickedDate) {
-        // Valid shift start hours in LOCAL time.
-        // These are the start times of your 3-hour blocks: 23:00, 02:00, 05:00, etc.
-        const validLocalStartHours = [23, 20, 17, 14, 11, 8, 5, 2]; // Sorted descending
-        const clickedLocalHour = clickedDate.getHours(); // Get local hour
+        // Since FullCalendar is now in ADT, clickedDate is already in ADT.
+        const clickedAdtHour = clickedDate.getHours();
 
-        let slotStartHourLocal = -1;
+        // Valid ADT start hours for the 3-hour blocks.
+        const validStartHours = [2, 5, 8, 11, 14, 17, 20, 23];
+        let slotStartHour = -1;
 
-        // Special handling for the 23:00-02:00 local shift, which spans midnight.
-        // If clicked hour is 23, 0, or 1, it belongs to the 23:00 shift.
-        if (clickedLocalHour >= 23 || clickedLocalHour < 2) {
-            slotStartHourLocal = 23;
+        // Handle the 23:00 shift which spans midnight
+        if (clickedAdtHour >= 23 || clickedAdtHour < 2) {
+            slotStartHour = 23;
         } else {
-            // For other shifts, find the latest start hour that is less than or equal to the clicked hour.
-            for (const startHour of validLocalStartHours) {
-                if (clickedLocalHour >= startHour) {
-                    slotStartHourLocal = startHour;
+            // Find the latest valid start hour that is less than or equal to the clicked hour
+            for (let i = validStartHours.length - 1; i >= 0; i--) {
+                if (clickedAdtHour >= validStartHours[i]) {
+                    slotStartHour = validStartHours[i];
                     break;
                 }
             }
         }
 
-        const slotStartDate = new Date(clickedDate.getFullYear(), clickedDate.getMonth(), clickedDate.getDate(), slotStartHourLocal, 0, 0, 0);
-        // If the clicked local hour was 00:xx or 01:xx, it belongs to the 23:00 shift of the *previous* day.
-        if (slotStartHourLocal === 23 && clickedLocalHour < 2) {
-            slotStartDate.setDate(slotStartDate.getDate() - 1);
+        if (slotStartHour === -1) {
+            console.error("Could not determine a valid shift slot for hour:", clickedAdtHour);
+            return null; // Should not happen
         }
 
+        const slotStartDate = new Date(clickedDate.getFullYear(), clickedDate.getMonth(), clickedDate.getDate());
+        slotStartDate.setHours(slotStartHour, 0, 0, 0);
+        
         const slotEndDate = new Date(slotStartDate.getTime() + (3 * 60 * 60 * 1000)); // Add 3 hours
+
+        console.log("getSlotForTime - clickedDate:", clickedDate.toISOString());
+        console.log("getSlotForTime - slot:", {start: slotStartDate.toISOString(), end: slotEndDate.toISOString()});
 
         return { start: slotStartDate, end: slotEndDate };
     }

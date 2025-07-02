@@ -78,8 +78,8 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                 if (response.ok) {
                     const data = await response.json();
                     localStorage.setItem('accessToken', data.access_token);
-                    // Redirect to the main dashboard or the page they were trying to access
-                    window.location.href = '/';
+                    // Redirect to the new home page
+                    window.location.href = '/home.html';
                 } else {
                     const errorData = await response.json();
                     const detail = errorData.detail || `Login failed (Status: ${response.status})`;
@@ -222,12 +222,19 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         if (picManagementDropdown) {
             picManagementDropdown.style.display = (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin') ? 'block' : 'none';
         }
+
+        // Payroll Dropdown
+        const payrollDropdown = document.getElementById('payrollDropdown');
+        if (payrollDropdown) {
+            payrollDropdown.style.display = (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin') ? 'block' : 'none';
+        }
     } else { // No user logged in, ensure role-specific buttons are hidden
         if (viewFormsBtnBanner) viewFormsBtnBanner.style.display = 'none';
         if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
         if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
         if (document.getElementById('adminManagementDropdown')) document.getElementById('adminManagementDropdown').style.display = 'none';
         if (document.getElementById('picManagementDropdown')) document.getElementById('picManagementDropdown').style.display = 'none';
+        if (document.getElementById('payrollDropdown')) document.getElementById('payrollDropdown').style.display = 'none';
     }
 
     // --- Populate Mission Selector in Banner (if present on the page) ---
@@ -319,9 +326,9 @@ function checkAuth() {
         window.location.href = '/login.html';
         return false;
     }
-    // If on login page and token exists, redirect to dashboard
+    // If on login page and token exists, redirect to home page
     if (token && window.location.pathname === '/login.html') {
-        window.location.href = '/';
+        window.location.href = '/home.html';
         return true; // Or false, as we are redirecting away
     }
     return !!token; // Returns true if token exists, false otherwise

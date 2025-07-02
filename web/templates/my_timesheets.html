@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}My Timesheets - Wave Glider Buddy{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>My Timesheet Submissions</h1>
+        <a href="/payroll/submit.html" class="btn btn-primary">Submit New Timesheet</a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <p>This page shows the history of all your timesheet submissions. Rejected timesheets can be edited and resubmitted from here.</p>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">Pay Period</th>
+                            <th scope="col">Submission Date</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Calculated Hours</th>
+                            <th scope="col">Adjusted Hours</th>
+                            <th scope="col">Admin Notes</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timesheetsTableBody">
+                        <!-- Loading spinner -->
+                        <tr>
+                            <td colspan="7" class="text-center">
+                                <div class="spinner-border" role="status">
+                                    <span class="visually-hidden">Loading submissions...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+<script src="{{ url_for('static', path='js/my_timesheets.js') }}"></script>
+{% endblock %}
