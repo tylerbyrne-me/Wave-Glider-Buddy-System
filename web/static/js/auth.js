@@ -334,9 +334,16 @@ function checkAuth() {
     return !!token; // Returns true if token exists, false otherwise
 }
 
-function logout() {
+async function logout() {
     localStorage.removeItem('accessToken');
-    // Also consider clearing other session-related data if any
+    try {
+        // Call the server to clear the HttpOnly cookie
+        await fetch('/logout', { method: 'POST' });
+    } catch (error) {
+        // Log the error but proceed with client-side logout anyway
+        console.error("Failed to call server logout endpoint, but proceeding with client-side logout.", error);
+    }
+    // Redirect to login page
     window.location.href = '/login.html';
 }
 

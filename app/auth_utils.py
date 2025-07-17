@@ -252,16 +252,22 @@ async def get_optional_current_user(
     request: Request,
     session: SQLModelSession = Depends(get_db_session),  # Inject DB session
 ) -> Optional[User]:
+    token: Optional[str] = None
+    
+    # 1. Try to get token from Authorization header (for API calls from JS)
     auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        return None
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
 
-    # scheme, param = get_authorization_scheme_param(auth_header) # fastapi.security.utils
-    # For simplicity, assuming "Bearer <token>" format
-    parts = auth_header.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
+    # 2. If no header, fall back to checking the cookie (for page loads)
+    if not token:
+        token = request.cookies.get("access_token_cookie")
+
+    # If no token could be found from either source, the user is anonymous. Return early.
+    if not token:
         return None
-    token = parts[1]
 
     token_data = decode_access_token(token)
     if not token_data or not token_data.username:

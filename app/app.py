@@ -1,9 +1,14 @@
 import asyncio
 import json  # For saving/loading forms to/from JSON
 import calendar # For month range calculation
+import shutil
 import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+# --- Configure Logging ---
+logging.basicConfig(level=logging.INFO, format='%(levelname)-5.5s [%(name)s] %(message)s')
+
 from typing import Annotated, Dict, List, Optional, Tuple 
 
 import httpx  # For async client in load_data_source
@@ -12,15 +17,15 @@ import pandas as pd  # For DataFrame operations # type: ignore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import (  # Added status
     BackgroundTasks,
-    Depends,
+    Depends, UploadFile, File,
     FastAPI, Form,
-    HTTPException,
+    HTTPException, Response,
     Query, # Import Query
     Request, Body,
     status, 
 )
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse  # type: ignore
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse  # type: ignore
 from cachetools import LRUCache # Import LRUCache
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from fastapi.security import OAuth2PasswordRequestForm  # type: ignore
@@ -100,6 +105,35 @@ class AcknowledgedByInfo(SQLModel):
 class AnnouncementReadWithAcks(AnnouncementRead):
     acknowledged_by: List[AcknowledgedByInfo] = []
 
+# --- Mission Info Models (Imported from models.py) ---
+# These are just for reference, the actual definitions are in app/core/models.py
+# We will import them below.
+# class MissionOverview(SQLModel, table=True): ...
+# class MissionGoal(SQLModel, table=True): ...
+# class MissionNote(SQLModel, table=True): ...
+#
+# class MissionOverviewUpdate(BaseModel): ...
+# class MissionGoalCreate(BaseModel): ...
+# class MissionGoalUpdate(BaseModel): ...
+# class MissionNoteCreate(BaseModel): ...
+# class MissionInfoResponse(BaseModel): ...
+
+# --- Home Page Panel Models ---
+class UpcomingShift(SQLModel):
+    mission_id: str
+    start_time_utc: datetime
+    end_time_utc: datetime
+
+class MyTimesheetStatus(SQLModel):
+    current_period_status: str
+    hours_this_period: float
+
+class MissionGoalToggle(BaseModel):
+    is_completed: bool
+
+
+
+
 
 # --- End New Models ---
 
@@ -146,6 +180,7 @@ app.mount(
 )
 
 logger = logging.getLogger(__name__)
+logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
 # ---
 
 # In-memory cache: key -> (data, actual_source_path_str, cache_timestamp).
@@ -574,6 +609,11 @@ async def refresh_active_mission_cache():
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
     logger.info("Application startup event initiated.")  # Changed from print
+    # Create directory for mission plan uploads if it doesn't exist
+    MISSION_PLANS_DIR = PROJECT_ROOT / "web" / "static" / "mission_plans"
+    MISSION_PLANS_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Mission plans directory checked/created at: {MISSION_PLANS_DIR}")
+
     scheduler.add_job(
         refresh_active_mission_cache,
         "interval",
@@ -780,12 +820,30 @@ async def _process_loaded_data_for_home_view(
         "has_errors_data": bool(recent_errors_list),
     }
 
+async def _get_mission_info(mission_id: str, session: SQLModelSession) -> models.MissionInfoResponse:
+    """Helper to fetch all info (overview, goals, notes) for a mission."""
+    overview = session.get(models.MissionOverview, mission_id)
+
+    goals_stmt = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.id)
+    goals = session.exec(goals_stmt).all()
+
+    notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
+    notes = session.exec(notes_stmt).all()
+
+    return models.MissionInfoResponse(
+        overview=overview,
+        goals=goals,
+        notes=notes
+    )
+
 # --- Authentication Endpoint ---
-@app.post("/token", response_model=models.Token)
+@app.post("/token") # Removed response_model to allow setting cookies on the Response
 async def login_for_access_token(
+    response: Response, # Inject the Response object
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: SQLModelSession = Depends(get_db_session),  # Inject session
 ):
+    """Authenticates user and returns a token in the body and sets a secure cookie."""
     user_in_db = auth_utils.get_user_from_db(
         session, form_data.username
     )  # Pass session
@@ -808,8 +866,25 @@ async def login_for_access_token(
     access_token = create_access_token(
         data={"sub": user_in_db.username, "role": user_in_db.role.value}
     )
+
+    # Set the access token in an HttpOnly cookie
+    response.set_cookie(
+        key="access_token_cookie",
+        value=access_token,
+        httponly=True,  # Prevents client-side JS from accessing the cookie
+        samesite="lax", # Recommended for security
+        # secure=True, # In production with HTTPS, this should be True
+        # max_age=... # Optionally set an expiry
+    )
+
+    # Also return the token in the response body for client-side JS that needs it
     return {"access_token": access_token, "token_type": "bearer"}
 
+@app.post("/logout")
+async def logout_user(response: Response):
+    """Clears the authentication cookie."""
+    response.delete_cookie(key="access_token_cookie")
+    return {"message": "Logged out successfully"}
 
 # --- Registration Endpoint ---
 @app.post("/register", response_model=models.User)
@@ -855,8 +930,7 @@ async def home(
     source: Optional[str] = None,
     local_path: Optional[str] = None,
     refresh: bool = False,
-    # The user dependency is now handled by calling get_optional_current_user(request)
-    # No direct Depends() for current_user in the signature for this HTML route.
+    actual_current_user: Optional[models.User] = Depends(get_optional_current_user),
 ):
     # Determine the default mission if not provided in the URL
     if mission is None:
@@ -878,8 +952,6 @@ async def home(
 
     # Determine if the current mission is an active real-time mission
     is_current_mission_realtime = mission in settings.active_realtime_missions
-    # Attempt to get current user. This needs to be defined before being passed to load_data_source.
-    actual_current_user: Optional[models.User] = await get_optional_current_user(request)
     results = await asyncio.gather(
         load_data_source(
             "power", mission, source, local_path, refresh, actual_current_user
@@ -1895,6 +1967,32 @@ async def get_pic_handoffs_for_shift(
     logger.info(f"Found {len(handoff_links)} PIC Handoff forms for shift {shift_assignment_id} across all missions.")
     return handoff_links
 
+@app.get("/api/schedule/my-upcoming-shifts", response_model=List[UpcomingShift])
+async def get_my_upcoming_shifts(
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    Gets the current user's upcoming shifts (next 5).
+    """
+    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db:
+        raise HTTPException(status_code=404, detail="Current user not found in database.")
+
+    now_utc = datetime.now(timezone.utc)
+    
+    statement = select(
+        models.ShiftAssignment.resource_id.label("mission_id"),
+        models.ShiftAssignment.start_time_utc,
+        models.ShiftAssignment.end_time_utc
+    ).where(
+        models.ShiftAssignment.user_id == user_in_db.id,
+        models.ShiftAssignment.start_time_utc > now_utc
+    ).order_by(models.ShiftAssignment.start_time_utc).limit(5)
+
+    results = session.exec(statement).all()
+    return [UpcomingShift.model_validate(row) for row in results]
+
 
 @app.delete("/api/schedule/shifts/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule_event_api(
@@ -2243,6 +2341,51 @@ async def get_my_timesheet_submissions(
     
     results = session.exec(statement).all()
     return [models.TimesheetRead.model_validate(ts.model_dump() | {"username": user_in_db.username, "pay_period_name": pp.name}) for ts, pp in results]
+
+@app.get("/api/timesheets/my-timesheet-status", response_model=MyTimesheetStatus)
+async def get_my_timesheet_status_for_home_panel(
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    Gets a summary of the user's timesheet status for the current/most recent pay period.
+    """
+    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db:
+        raise HTTPException(status_code=404, detail="Current user not found in database.")
+
+    # Find the most recent pay period that is currently open
+    now = date.today()
+    current_pay_period = session.exec(
+        select(models.PayPeriod)
+        .where(models.PayPeriod.start_date <= now, models.PayPeriod.end_date >= now, models.PayPeriod.status == models.PayPeriodStatusEnum.OPEN)
+        .order_by(models.PayPeriod.start_date.desc())
+    ).first()
+
+    if not current_pay_period:
+        return MyTimesheetStatus(current_period_status="No Open Period", hours_this_period=0.0)
+
+    # Check the user's timesheet status for this period
+    timesheet_status = "Not Submitted"
+    active_timesheet = session.exec(
+        select(models.Timesheet).where(
+            models.Timesheet.user_id == user_in_db.id,
+            models.Timesheet.pay_period_id == current_pay_period.id,
+            models.Timesheet.is_active == True
+        )
+    ).first()
+
+    if active_timesheet:
+        timesheet_status = active_timesheet.status.value.capitalize()
+
+    # Calculate hours logged in this period
+    start_datetime = datetime.combine(current_pay_period.start_date, datetime.min.time(), tzinfo=timezone.utc)
+    end_datetime = datetime.combine(current_pay_period.end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    shifts = session.exec(select(models.ShiftAssignment).where(models.ShiftAssignment.user_id == user_in_db.id, models.ShiftAssignment.start_time_utc >= start_datetime, models.ShiftAssignment.end_time_utc < end_datetime)).all()
+    total_hours = sum((shift.end_time_utc - shift.start_time_utc).total_seconds() / 3600 for shift in shifts)
+
+    return MyTimesheetStatus(current_period_status=f"{current_pay_period.name}: {timesheet_status}", hours_this_period=total_hours)
+
 
 @app.get("/api/admin/timesheets/{timesheet_id}/history", response_model=List[models.TimesheetRead])
 async def admin_get_timesheet_history(
@@ -2733,24 +2876,62 @@ async def get_admin_reports_page(
 @app.get("/home.html", response_class=HTMLResponse)
 async def get_home_page(
     request: Request,
-    current_user: Optional[models.User] = Depends(get_optional_current_user)
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+    session: SQLModelSession = Depends(get_db_session)
 ):
     """
-    Serves the main home/splash page.
+    Serves the main home/splash page with tabbed views for all active missions.
     """
-    # This page requires a logged-in user. The checkAuth() in JS will handle
-    # redirecting to login if no user is present.
+    logger.info(f"--- GET /home.html endpoint entered by user: {current_user.username if current_user else 'Anonymous'} ---")
     if not current_user:
-        # This is a server-side guard. JS should handle the redirect, but this prevents
-        # an error if someone tries to access it directly without being logged in.
-        # We can't easily redirect here without more complex logic, so we'll
-        # let the template render a "please log in" state, and JS will redirect.
-        pass
+        # If the user is not authenticated, redirect them to the login page.
+        # The page requires server-side rendering with user data.
+        logger.info("User not authenticated for /home.html, redirecting to login.")
+        return RedirectResponse(url="/login.html?source=home", status_code=status.HTTP_302_FOUND)
 
-    logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /home.html.")
+    # 1. Get the list of missions considered "active" from settings.
+    statically_active_missions = sorted(list(set(settings.active_realtime_missions)))
+    logger.info(f"Found statically active missions in settings: {statically_active_missions}")
+
+    # 2. Find which of those active missions actually have an overview in the database.
+    if not statically_active_missions:
+        logger.warning("The 'active_realtime_missions' list in settings is empty. No missions to display.")
+        missions_to_display = []
+    else:
+        overview_missions_stmt = select(models.MissionOverview.mission_id).where(
+            models.MissionOverview.mission_id.in_(statically_active_missions)
+        ).order_by(models.MissionOverview.mission_id)
+        
+        # Execute the query and log the raw result for debugging
+        mission_id_rows = session.exec(overview_missions_stmt).all()
+        logger.info(f"Database query for overviews returned {len(mission_id_rows)} rows for the active missions.")
+
+        # When selecting a single column, session.exec().all() returns a list of scalars (e.g., ['m209', 'm210']).
+        # The previous list comprehension [row[0] for row in mission_id_rows] was incorrectly taking the first character of each string.
+        # The correct approach is to just use the returned list directly.
+        missions_to_display = mission_id_rows
+        logger.info(f"After processing, the final list of mission IDs to display is: {missions_to_display}")
+    
+    # 3. Fetch mission info (overview, goals, notes) for the final list of missions.
+    active_mission_data = {}
+    if missions_to_display:
+        for mission_id in missions_to_display:
+            active_mission_data[mission_id] = await _get_mission_info(mission_id, session)
+    elif statically_active_missions:
+        logger.warning(
+            "No mission overviews will be displayed. This is because no 'MissionOverview' entries were found in the database "
+            "for any of the active missions listed in settings. Please verify the 'mission_id' in the 'missionoverview' "
+            "table matches an entry in 'active_realtime_missions'."
+        )
+    
     return templates.TemplateResponse(
         "home.html",
-        {"request": request, "current_user": current_user},
+        {
+            "request": request, 
+            "current_user": current_user,
+            "active_missions": missions_to_display, # Pass the final list
+            "active_mission_data": active_mission_data,
+        },
     )
 
 @app.get("/admin/announcements.html", response_class=HTMLResponse)
@@ -2772,6 +2953,234 @@ async def get_admin_announcements_page(
         "admin_announcements.html",
         {"request": request, "current_user": current_user},
     )
+
+@app.get("/admin/mission_overviews.html", response_class=HTMLResponse)
+async def get_admin_mission_overviews_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    """
+    Serves the admin page for managing mission overviews.
+    JS on the page will verify admin role for API calls.
+    """
+    username_for_log = (
+        current_user.username if current_user else "anonymous/unauthenticated"
+    )
+    logger.info(
+        f"User '{username_for_log}' accessing /admin/mission_overviews.html. JS will verify admin role."
+    )
+    return templates.TemplateResponse(
+        "admin_mission_overviews.html",
+        {"request": request, "current_user": current_user},
+    )
+
+# --- Mission Info API Endpoints ---
+
+@app.post("/api/missions/{mission_id}/overview/upload_plan", response_model=dict)
+async def upload_mission_plan_file(
+    mission_id: str,
+    file: UploadFile = File(...),
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """
+    Uploads a mission plan document (PDF, DOC, DOCX) for a specific mission.
+    Admin only.
+    """
+    logger.info(f"Admin '{current_admin.username}' uploading plan for mission '{mission_id}'. Filename: {file.filename}")
+
+    # Basic validation for file type
+    allowed_content_types = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ]
+    if file.content_type not in allowed_content_types:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, DOC, and DOCX are allowed.")
+
+    # Sanitize filename
+    file_extension = Path(file.filename).suffix
+    safe_filename = f"{mission_id}_plan{file_extension}"
+    
+    # Define paths
+    mission_plans_dir = Path(__file__).resolve().parent.parent / "web" / "static" / "mission_plans"
+    file_path = mission_plans_dir / safe_filename
+    
+    try:
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        file.file.close()
+
+    file_url = f"/static/mission_plans/{safe_filename}"
+    logger.info(f"Mission plan for '{mission_id}' saved to '{file_path}'. URL: {file_url}")
+    
+    return {"file_url": file_url}
+
+@app.get("/api/missions/{mission_id}/info", response_model=models.MissionInfoResponse)
+async def get_mission_info_api(
+    mission_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Gets all overview, goals, and notes for a specific mission."""
+    logger.info(f"User '{current_user.username}' requesting info for mission '{mission_id}'.")
+    return await _get_mission_info(mission_id, session)
+
+@app.put("/api/missions/{mission_id}/overview", response_model=models.MissionOverview)
+async def create_or_update_mission_overview(
+    mission_id: str,
+    overview_in: models.MissionOverviewUpdate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Creates or updates the mission overview."""
+    logger.info(f"User '{current_user.username}' updating overview for mission '{mission_id}'.")
+    db_overview = session.get(models.MissionOverview, mission_id)
+    if not db_overview:
+        db_overview = models.MissionOverview(mission_id=mission_id, **overview_in.model_dump(exclude_unset=True))
+    else:
+        update_data = overview_in.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_overview, key, value)
+        # Manually trigger updated_at_utc timestamp
+        db_overview.updated_at_utc = datetime.now(timezone.utc)
+
+    session.add(db_overview)
+    session.commit()
+    session.refresh(db_overview)
+    return db_overview
+
+@app.post("/api/missions/{mission_id}/goals", response_model=models.MissionGoal, status_code=status.HTTP_201_CREATED)
+async def create_mission_goal(
+    mission_id: str,
+    goal_in: models.MissionGoalCreate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Creates a new mission goal."""
+    logger.info(f"User '{current_user.username}' creating goal for mission '{mission_id}': {goal_in.description}")
+    db_goal = models.MissionGoal(mission_id=mission_id, description=goal_in.description)
+    session.add(db_goal)
+    session.commit()
+    session.refresh(db_goal)
+    return db_goal
+
+@app.put("/api/missions/goals/{goal_id}", response_model=models.MissionGoal)
+async def update_mission_goal(
+    goal_id: int,
+    goal_update: models.MissionGoalUpdate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Updates a mission goal (e.g., marks it as complete or changes description)."""
+    db_goal = session.get(models.MissionGoal, goal_id)
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Mission goal not found.")
+
+    update_data = goal_update.model_dump(exclude_unset=True)
+
+    if "is_completed" in update_data:
+        db_goal.is_completed = update_data["is_completed"]
+        if db_goal.is_completed:
+            db_goal.completed_by_username = current_user.username
+            db_goal.completed_at_utc = datetime.now(timezone.utc)
+        else:
+            db_goal.completed_by_username = None
+            db_goal.completed_at_utc = None
+
+    if "description" in update_data and update_data["description"] is not None:
+        db_goal.description = update_data["description"]
+
+    session.add(db_goal)
+    session.commit()
+    session.refresh(db_goal)
+    logger.info(f"User '{current_user.username}' updated goal ID {goal_id}.")
+    return db_goal
+
+@app.delete("/api/missions/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mission_goal(
+    goal_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Deletes a mission goal (Admin only)."""
+    db_goal = session.get(models.MissionGoal, goal_id)
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Mission goal not found.")
+    session.delete(db_goal)
+    session.commit()
+    logger.info(f"Admin '{current_admin.username}' deleted goal ID {goal_id}.")
+    return
+
+@app.post("/api/missions/{mission_id}/goals/{goal_id}/toggle", response_model=models.MissionGoal)
+async def toggle_mission_goal_completion(
+    mission_id: str,
+    goal_id: int,
+    goal_toggle: MissionGoalToggle,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Toggles the completion status of a mission goal."""
+    db_goal = session.get(models.MissionGoal, goal_id)
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Mission goal not found.")
+
+    if db_goal.mission_id != mission_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Goal ID {goal_id} does not belong to mission '{mission_id}'.",
+        )
+
+    logger.info(
+        f"User '{current_user.username}' toggling goal ID {goal_id} to completed={goal_toggle.is_completed}."
+    )
+
+    db_goal.is_completed = goal_toggle.is_completed
+    if goal_toggle.is_completed:
+        db_goal.completed_by_username = current_user.username
+        db_goal.completed_at_utc = datetime.now(timezone.utc)
+    else:
+        db_goal.completed_by_username = None
+        db_goal.completed_at_utc = None
+
+    session.add(db_goal)
+    session.commit()
+    session.refresh(db_goal)
+    return db_goal
+
+@app.post("/api/missions/{mission_id}/notes", response_model=models.MissionNote, status_code=status.HTTP_201_CREATED)
+async def create_mission_note(
+    mission_id: str,
+    note_in: models.MissionNoteCreate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Creates a new mission note."""
+    logger.info(f"User '{current_user.username}' creating note for mission '{mission_id}'.")
+    db_note = models.MissionNote(
+        mission_id=mission_id,
+        content=note_in.content,
+        created_by_username=current_user.username
+    )
+    session.add(db_note)
+    session.commit()
+    session.refresh(db_note)
+    return db_note
+
+@app.delete("/api/missions/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mission_note(
+    note_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """Deletes a mission note (Admin only)."""
+    db_note = session.get(models.MissionNote, note_id)
+    if not db_note:
+        raise HTTPException(status_code=404, detail="Mission note not found.")
+    session.delete(db_note)
+    session.commit()
+    logger.info(f"Admin '{current_admin.username}' deleted note ID {note_id}.")
+    return
 
 # --- Announcement API Endpoints ---
 
@@ -3411,13 +3820,10 @@ async def get_mission_form_page(
     request: Request,
     mission_id: str,
     form_type: str,
-    # current_user: models.User = Depends(get_current_active_user) # Remove direct auth dependency for HTML page
+    actual_current_user: Optional[models.User] = Depends(get_optional_current_user),
 ):
-    # Attempt to get current user, but don't require it for serving the page.
+    # The `actual_current_user` is now correctly injected by FastAPI.
     # The JS on the page will handle auth checks for API calls.
-    actual_current_user: Optional[models.User] = await get_optional_current_user(
-        request
-    )
     username_for_log = (
         actual_current_user.username if actual_current_user else "anonymous"
     )

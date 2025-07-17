@@ -3,19 +3,138 @@
 {% block title %}Home - Wave Glider Buddy{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container mt-4" 
+     data-user-role="{{ current_user.role if current_user.is_authenticated else '' }}"
+     data-user-id="{{ current_user.id if current_user.is_authenticated else '' }}">
     <div class="row">
         <!-- Main Content Area -->
         <div class="col-lg-9">
             <h1>Welcome, {{ current_user.full_name or current_user.username }}!</h1>
-            
+
             <!-- Announcements Panel -->
             <div id="announcementsPanel" class="mb-4">
                 <!-- Active announcements will be loaded here by home.js -->
                 <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading announcements...</span></div></div>
             </div>
 
-            <p class="lead">This is your home page. Select an option to get started.</p>
+            <!-- Tabbed Interface for Mission Briefings -->
+            {% if active_missions %}
+                <!-- Nav tabs -->
+                <ul class="nav nav-tabs mt-4" id="missionBriefingTabs" role="tablist">
+                    {% for mission_id in active_missions %}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ mission_id }}" data-bs-toggle="tab" data-bs-target="#pane-{{ mission_id }}" type="button" role="tab" aria-controls="pane-{{ mission_id }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+                            Mission {{ mission_id }}
+                        </button>
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                <!-- Tab panes -->
+                <div class="tab-content" id="missionBriefingTabsContent">
+                    {% for mission_id, mission_info in active_mission_data.items() %}
+                    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="pane-{{ mission_id }}" role="tabpanel" aria-labelledby="tab-{{ mission_id }}" tabindex="0">
+                        <!-- This is the entire mission briefing card, now inside a tab pane -->
+                        <div class="card border-top-0 rounded-0 rounded-bottom mt-0 mb-4 mission-info-section" data-mission-id="{{ mission_id }}">
+                            <div class="card-body">
+                                <div class="row">
+                                    <!-- Left side: Overview and Notes -->
+                                    <div class="col-lg-7">
+                                        <!-- Mission Overview Section -->
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h4 class="mb-0">Mission Overview</h4>
+                                            {% if current_user and current_user.role == 'admin' %}
+                                                <a href="/admin/mission_overviews.html" class="btn btn-sm btn-outline-secondary" title="Edit Mission Overview"><i class="fas fa-pencil-alt"></i> Edit</a>
+                                            {% endif %}
+                                        </div>
+                                        <div class="mission-overview-content">
+                                            {% if mission_info.overview and mission_info.overview.document_url %}
+                                                <p>A detailed overview is available. <a href="{{ mission_info.overview.document_url }}" target="_blank">View Document</a></p>
+                                            {% else %}
+                                                <p class="text-muted">No mission overview has been defined.</p>
+                                            {% endif %}
+                                        </div>
+
+                                        <hr>
+
+                                        <!-- Mission Notes Section -->
+                                        <div class="mt-4">
+                                            <h4 class="mb-3">Mission Notes</h4>
+                                            <div class="mission-notes-container">
+                                                <ul class="list-group mission-notes-list">
+                                                    {% if mission_info.notes %}
+                                                        {% for note in mission_info.notes %}
+                                                            <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="{{ note.id }}">
+                                                              <div>
+                                                                <p class="mb-1">{{ note.content | e }}</p>
+                                                                <small class="text-muted">
+                                                                    &mdash; {{ note.created_by_username or 'Unknown' }} on {{ note.created_at_utc.strftime('%Y-%m-%d %H:%M UTC') }}
+                                                                </small>
+                                                              </div>
+                                                              {% if current_user and (current_user.role == 'admin' or current_user.id == note.created_by_user_id) %}
+                                                              <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="{{ note.id }}"><i class="fas fa-trash-alt"></i></button>
+                                                              {% endif %}
+                                                            </li>
+                                                        {% endfor %}
+                                                    {% else %}
+                                                        <li class="list-group-item text-muted no-mission-notes-placeholder">No mission notes have been added.</li>
+                                                    {% endif %}
+                                                </ul>
+                                                {% if current_user %} {# Any authenticated user can add a note #}
+                                                <div class="card mt-3">
+                                                  <div class="card-body p-2">
+                                                      <textarea class="form-control new-mission-note-content" rows="2" placeholder="Add a new mission note..."></textarea>
+                                                      <button class="btn btn-sm btn-primary mt-2 add-mission-note-btn">Add Note</button>
+                                                  </div>
+                                                </div>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Right side: Goals -->
+                                    <div class="col-lg-5">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                          <h4 class="mb-0">Mission Goals</h4>
+                                          {% if current_user and current_user.role == 'admin' %}
+                                              <button class="btn btn-sm btn-primary add-goal-btn" title="Add New Goal"><i class="fas fa-plus"></i> Add Goal</button>
+                                          {% endif %}
+                                        </div>
+                                        <ul class="list-group mission-goals-list">
+                                            {% if mission_info.goals %}
+                                                {% for goal in mission_info.goals %}
+                                                    <li class="list-group-item d-flex justify-content-between align-items-start" data-goal-id="{{ goal.id }}">
+                                                        <div class="form-check flex-grow-1">
+                                                            <input class="form-check-input mission-goal-checkbox" type="checkbox" value="" id="goal-{{ mission_id }}-{{ goal.id }}" data-goal-id="{{ goal.id }}" {% if goal.is_completed %}checked{% endif %}>
+                                                            <label class="form-check-label {% if goal.is_completed %}text-decoration-line-through text-muted{% endif %}" for="goal-{{ mission_id }}-{{ goal.id }}">
+                                                                {{ goal.description | e }}
+                                                            </label>
+                                                            {% if current_user and current_user.role == 'admin' %}
+                                                              <button class="btn btn-sm btn-link p-0 ms-2 edit-goal-btn" title="Edit Goal" data-goal-id="{{ goal.id }}" data-description="{{ goal.description | e }}"><i class="fas fa-pencil-alt"></i></button>
+                                                              <button class="btn btn-sm btn-link p-0 ms-2 text-danger delete-goal-btn" title="Delete Goal" data-goal-id="{{ goal.id }}"><i class="fas fa-trash-alt"></i></button>
+                                                            {% endif %}
+                                                        </div>
+                                                        {% if goal.is_completed %}
+                                                            <span class="badge bg-success rounded-pill small ms-2" title="Completed at {{ goal.completed_at_utc.strftime('%Y-%m-%d %H:%M UTC') if goal.completed_at_utc else '' }}">
+                                                                By: {{ goal.completed_by_username }}
+                                                            </span>
+                                                        {% endif %}
+                                                    </li>
+                                                {% endfor %}
+                                            {% else %}
+                                                <li class="list-group-item text-muted no-mission-goals-placeholder">No mission goals have been defined.</li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                </div> <!-- /.row -->
+                            </div> <!-- /.card-body -->
+                        </div> <!-- /.card -->
+                    </div> <!-- /.tab-pane -->
+                    {% endfor %}
+                </div> <!-- /.tab-content -->
+            {% else %}
+            <div class="alert alert-info">No missions are currently available to display.</div>
+            {% endif %}
+
             <hr>
             
             <!-- Quick Links -->
@@ -64,6 +183,34 @@
             </div>
         </div>
     </div>
+
+    <!-- Modals for Admin Actions -->
+    {% if current_user and current_user.role == 'admin' %}
+    <!-- Add/Edit Goal Modal -->
+    <div class="modal fade" id="goalModal" tabindex="-1" aria-labelledby="goalModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="goalModalLabel">Add Mission Goal</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="goalForm">
+              <input type="hidden" id="goalIdInput">
+              <div class="mb-3">
+                <label for="goalDescriptionInput" class="form-label">Goal Description</label>
+                <textarea class="form-control" id="goalDescriptionInput" rows="3" required></textarea>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="button" class="btn btn-primary" id="saveGoalBtn">Save Goal</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 

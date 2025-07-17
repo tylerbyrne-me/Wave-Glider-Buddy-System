@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Admin: Manage Mission Overviews{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Manage Mission Overviews</h1>
+        <a href="/" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            Select a Mission to Edit
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="missionSelect" class="form-label">Mission:</label>
+                    <div class="input-group">
+                        <select class="form-select" id="missionSelect">
+                            <option selected disabled>Loading missions...</option>
+                        </select>
+                        <span class="input-group-text" id="missionSpinner" style="display: none;">
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <div id="overviewFormContainer" style="display: none;">
+                <h4 id="editingMissionTitle"></h4>
+                <form id="overviewForm">
+                    <!-- New File Upload Section -->
+                    <div class="mb-3">
+                        <label class="form-label">Formal Plan Document</label>
+                        <div id="currentPlanContainer" class="mb-2" style="display: none;">
+                            <p class="mb-1">
+                                <strong>Current Plan:</strong> 
+                                <a href="#" id="currentPlanLink" target="_blank"></a>
+                                <button type="button" class="btn btn-sm btn-outline-danger ms-2" id="removePlanBtn">Remove</button>
+                            </p>
+                        </div>
+                        <div id="uploadPlanContainer">
+                            <label for="documentUpload" class="form-label small">Upload New Plan (PDF, DOC, DOCX):</label>
+                            <input type="file" class="form-control" id="documentUpload" accept=".pdf,.doc,.docx">
+                            <div class="form-text">Uploading a new file will replace the current one.</div>
+                        </div>
+                        <input type="hidden" id="documentUrlInput"> <!-- Hidden input to hold the URL for submission -->
+                    </div>
+                    <div class="mb-3">
+                        <label for="comments" class="form-label">High-Level Comments</label>
+                        <textarea class="form-control" id="comments" rows="6" placeholder="Enter high-level mission comments here..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="saveOverviewBtn">Save Overview</button>
+                </form>
+                <div id="saveStatus" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+<script src="{{ url_for('static', path='js/admin_mission_overviews.js') }}"></script>
+{% endblock %}
