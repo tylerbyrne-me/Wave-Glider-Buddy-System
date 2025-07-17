@@ -4,7 +4,7 @@ from enum import Enum  # type: ignore
 from typing import List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
-from sqlmodel import JSON, Column
+from sqlmodel import JSON, Column, Text
 from sqlmodel import Field as SQLModelField  # type: ignore
 from sqlmodel import Relationship, SQLModel
 # The VALID_REPORT_TYPES list is redundant as ReportTypeEnum serves as the source of truth.
@@ -542,6 +542,58 @@ class TimesheetRead(BaseModel):
     submission_timestamp: datetime
     is_active: bool
 
+
+# --- Mission Info Models ---
+
+class MissionOverview(SQLModel, table=True):
+    __tablename__ = "mission_overview"
+    mission_id: str = SQLModelField(primary_key=True, description="The mission identifier, e.g., 'm203'.")
+    document_url: Optional[str] = SQLModelField(default=None, description="URL to the formal mission plan document (.doc, .pdf).")
+    comments: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="High-level comments about the mission.")
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+
+class MissionGoal(SQLModel, table=True):
+    __tablename__ = "mission_goals"
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="The mission this goal belongs to.")
+    description: str = SQLModelField(description="The text of the mission goal.")
+    is_completed: bool = SQLModelField(default=False, index=True)
+    completed_by_username: Optional[str] = SQLModelField(default=None)
+    completed_at_utc: Optional[datetime] = SQLModelField(default=None)
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+class MissionNote(SQLModel, table=True):
+    __tablename__ = "mission_notes"
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="The mission this note belongs to.")
+    content: str = SQLModelField(sa_column=Column(Text), description="The content of the note.")
+    created_by_username: str
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+# --- Pydantic models for API interaction ---
+
+class MissionOverviewUpdate(BaseModel):
+    document_url: Optional[str] = None
+    comments: Optional[str] = None
+
+class MissionGoalCreate(BaseModel):
+    description: str
+
+class MissionGoalUpdate(BaseModel):
+    is_completed: bool
+    description: Optional[str] = None
+
+class MissionNoteCreate(BaseModel):
+    content: str
+
+class MissionInfoResponse(BaseModel):
+    overview: Optional[MissionOverview] = None
+    goals: List[MissionGoal] = []
+    notes: List[MissionNote] = []
 
 class StationMetadataCreateResponse(StationMetadataRead):
     """
