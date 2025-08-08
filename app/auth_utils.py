@@ -177,16 +177,31 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Dependency Functions ---
 async def get_current_user_token_data(
-    token: str = Depends(oauth2_scheme)
+    request: Request
 ) -> TokenData:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = None
+
+    # 1. Try Authorization header
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    # 2. Try cookie if no header
+    if not token:
+        token = request.cookies.get("access_token_cookie")
+
+    if not token:
+        raise credentials_exception
+
     token_data = decode_access_token(token)
     if token_data is None or token_data.username is None:
-        # F541: f-string is missing placeholders (fixed by removing f-string)
         logger.warning("Token decoding failed or username missing in token.")
         raise credentials_exception
     return token_data

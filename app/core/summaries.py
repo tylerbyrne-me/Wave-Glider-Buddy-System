@@ -168,150 +168,155 @@ def _generate_mini_trend(
 def get_power_status(
     df_power: Optional[pd.DataFrame], df_solar: Optional[pd.DataFrame] = None
 ) -> Dict:
-    result_shell, df_power_processed, last_row = _get_common_status_data(
-        df_power, preprocess_power_df, "Power"
-    )
-    if last_row is None:
-        return result_shell
+    """Returns a summary dict for power status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_power_processed, last_row = _get_common_status_data(
+            df_power, preprocess_power_df, "Power"
+        )
+        if last_row is None:
+            return result_shell
 
-    # All subsequent logic for get_power_status should be at this indentation level:
-    df_last_24h = df_power_processed[
-        df_power_processed["Timestamp"]
-        > (last_row["Timestamp"] - pd.Timedelta(hours=24))
-    ]
+        # All subsequent logic for get_power_status should be at this indentation level:
+        df_last_24h = df_power_processed[
+            df_power_processed["Timestamp"]
+            > (last_row["Timestamp"] - pd.Timedelta(hours=24))
+        ]
 
-    battery_wh = last_row.get("BatteryWattHours")
-    battery_percentage = None
-    if battery_wh is not None and pd.notna(battery_wh):
-        try:
-            battery_percentage_calculated = (
-                float(battery_wh) / BATTERY_MAX_WH
-            ) * 100
-            battery_percentage = max(0, min(battery_percentage_calculated, 100))
-        except (ValueError, TypeError) as e_calc:
-            logger.warning(
-                f"PowerSummaryDebug: Could not calculate battery percentage "
-                f"for value: {battery_wh}. Error: {e_calc}"
+        battery_wh = last_row.get("BatteryWattHours")
+        battery_percentage = None
+        if battery_wh is not None and pd.notna(battery_wh):
+            try:
+                battery_percentage_calculated = (
+                    float(battery_wh) / BATTERY_MAX_WH
+                ) * 100
+                battery_percentage = max(0, min(battery_percentage_calculated, 100))
+            except (ValueError, TypeError) as e_calc:
+                logger.warning(
+                    f"PowerSummaryDebug: Could not calculate battery percentage "
+                    f"for value: {battery_wh}. Error: {e_calc}"
+                )
+        else:
+            logger.info(
+                f"PowerSummaryDebug: Condition NOT met for battery_wh = "
+                f"{battery_wh}. pd.notna(battery_wh) is {pd.notna(battery_wh)}"
             )
-    else:
-        logger.info(
-            f"PowerSummaryDebug: Condition NOT met for battery_wh = "
-            f"{battery_wh}. pd.notna(battery_wh) is {pd.notna(battery_wh)}"
+
+        # Get Battery Charge Rate (assuming 'battery_charging_power_w' column from processor)
+        battery_charge_rate_w = last_row.get("battery_charging_power_w")
+
+        # Calculate Time to Charge
+        time_to_charge_str = "N/A"
+        if (
+            battery_percentage is not None
+            and pd.notna(battery_percentage)
+            and battery_charge_rate_w is not None
+            and pd.notna(battery_charge_rate_w)
+        ):
+            if battery_charge_rate_w <= 0:
+                time_to_charge_str = "Discharging"
+                if battery_percentage < 10:  # Example: 10% threshold
+                    time_to_charge_str = "Low & Discharging"
+            elif battery_percentage >= 99.5:
+                # Nearly full
+                time_to_charge_str = "Fully Charged"
+            else:
+                energy_needed_wh = (1.0 - (battery_percentage / 100.0)) * BATTERY_MAX_WH
+                if energy_needed_wh < 0:
+                    energy_needed_wh = 0
+
+                if battery_charge_rate_w > 0:
+                    time_hours_decimal = energy_needed_wh / battery_charge_rate_w
+                    if time_hours_decimal > 200:
+                        time_to_charge_str = ">200h"
+                    elif time_hours_decimal < 0.0167 and energy_needed_wh > 0:
+                        # Less than 1 minute
+                        time_to_charge_str = "<1m" # noqa
+                    elif (
+                        time_hours_decimal == 0
+                        and energy_needed_wh == 0
+                        and battery_percentage < 99.5
+                    ):
+                        time_to_charge_str = "Stalled"
+                    else:
+                        hours = int(time_hours_decimal)
+                        minutes = int((time_hours_decimal * 60) % 60)
+                        time_to_charge_str = f"{hours}h {minutes}m"
+                elif battery_charge_rate_w == 0 and battery_percentage < 99.5:
+                    time_to_charge_str = "Stalled (0W)"
+
+        # Initialize panel power values
+        panel1_power = None
+        panel2_power = None
+        panel4_power = None
+
+        if df_solar is not None and not df_solar.empty:
+            try:
+                # Assuming preprocess_solar_df is available and imported
+                from .processors import preprocess_solar_df  # Ensure import
+
+                df_solar_processed = preprocess_solar_df(df_solar)
+                if (
+                    not df_solar_processed.empty
+                    and "Timestamp" in df_solar_processed.columns
+                ):
+                    # Find solar data closest to the power data's last_row timestamp
+                    # Using merge_asof for robust closest timestamp matching
+                    df_power_ts = pd.DataFrame({"Timestamp": [last_row["Timestamp"]]})
+                    merged_df = pd.merge_asof(
+                        df_power_ts.sort_values("Timestamp"),
+                        df_solar_processed.sort_values("Timestamp"),
+                        on="Timestamp",
+                        direction="nearest",
+                        # Optional: only consider if within 1 hour
+                        tolerance=pd.Timedelta(hours=1),
+                    )
+                    if not merged_df.empty and not merged_df.iloc[0].isnull().all():
+                        last_solar_row = merged_df.iloc[0]
+                        panel1_power = last_solar_row.get("Panel1Power")
+                        panel2_power = last_solar_row.get(
+                            "Panel2Power"
+                        )  # from panelPower3
+                        panel4_power = last_solar_row.get("Panel4Power")
+            except Exception as e_solar:
+                logger.warning(
+                    f"Error processing solar data for power summary: {e_solar}"
+                )
+
+        # Calculate 24-hour averages
+        avg_output_port_power_24hr_w = (
+            df_last_24h["output_port_power_w"].mean()
+            if not df_last_24h.empty and "output_port_power_w" in df_last_24h
+            else None
+        )
+        avg_solar_input_24hr_w = (
+            df_last_24h["SolarInputWatts"].mean()
+            if not df_last_24h.empty and "SolarInputWatts" in df_last_24h
+            else None
         )
 
-    # Get Battery Charge Rate (assuming 'battery_charging_power_w' column from processor)
-    battery_charge_rate_w = last_row.get("battery_charging_power_w")
-
-    # Calculate Time to Charge
-    time_to_charge_str = "N/A"
-    if (
-        battery_percentage is not None
-        and pd.notna(battery_percentage)
-        and battery_charge_rate_w is not None
-        and pd.notna(battery_charge_rate_w)
-    ):
-        if battery_charge_rate_w <= 0:
-            time_to_charge_str = "Discharging"
-            if battery_percentage < 10:  # Example: 10% threshold
-                time_to_charge_str = "Low & Discharging"
-        elif battery_percentage >= 99.5:
-            # Nearly full
-            time_to_charge_str = "Fully Charged"
-        else:
-            energy_needed_wh = (1.0 - (battery_percentage / 100.0)) * BATTERY_MAX_WH
-            if energy_needed_wh < 0:
-                energy_needed_wh = 0
-
-            if battery_charge_rate_w > 0:
-                time_hours_decimal = energy_needed_wh / battery_charge_rate_w
-                if time_hours_decimal > 200:
-                    time_to_charge_str = ">200h"
-                elif time_hours_decimal < 0.0167 and energy_needed_wh > 0:
-                    # Less than 1 minute
-                    time_to_charge_str = "<1m" # noqa
-                elif (
-                    time_hours_decimal == 0
-                    and energy_needed_wh == 0
-                    and battery_percentage < 99.5
-                ):
-                    time_to_charge_str = "Stalled"
-                else:
-                    hours = int(time_hours_decimal)
-                    minutes = int((time_hours_decimal * 60) % 60)
-                    time_to_charge_str = f"{hours}h {minutes}m"
-            elif battery_charge_rate_w == 0 and battery_percentage < 99.5:
-                time_to_charge_str = "Stalled (0W)"
-
-    # Initialize panel power values
-    panel1_power = None
-    panel2_power = None
-    panel4_power = None
-
-    if df_solar is not None and not df_solar.empty:
-        try:
-            # Assuming preprocess_solar_df is available and imported
-            from .processors import preprocess_solar_df  # Ensure import
-
-            df_solar_processed = preprocess_solar_df(df_solar)
-            if (
-                not df_solar_processed.empty
-                and "Timestamp" in df_solar_processed.columns
-            ):
-                # Find solar data closest to the power data's last_row timestamp
-                # Using merge_asof for robust closest timestamp matching
-                df_power_ts = pd.DataFrame({"Timestamp": [last_row["Timestamp"]]})
-                merged_df = pd.merge_asof(
-                    df_power_ts.sort_values("Timestamp"),
-                    df_solar_processed.sort_values("Timestamp"),
-                    on="Timestamp",
-                    direction="nearest",
-                    # Optional: only consider if within 1 hour
-                    tolerance=pd.Timedelta(hours=1),
-                )
-                if not merged_df.empty and not merged_df.iloc[0].isnull().all():
-                    last_solar_row = merged_df.iloc[0]
-                    panel1_power = last_solar_row.get("Panel1Power")
-                    panel2_power = last_solar_row.get(
-                        "Panel2Power"
-                    )  # from panelPower3
-                    panel4_power = last_solar_row.get("Panel4Power")
-        except Exception as e_solar:
-            logger.warning(
-                f"Error processing solar data for power summary: {e_solar}"
-            )
-
-    # Calculate 24-hour averages
-    avg_output_port_power_24hr_w = (
-        df_last_24h["output_port_power_w"].mean()
-        if not df_last_24h.empty and "output_port_power_w" in df_last_24h
-        else None
-    )
-    avg_solar_input_24hr_w = (
-        df_last_24h["SolarInputWatts"].mean()
-        if not df_last_24h.empty and "SolarInputWatts" in df_last_24h
-        else None
-    )
-
-    result_shell["values"] = {
-        "BatteryWattHours": battery_wh,
-        "SolarInputWatts": last_row.get("SolarInputWatts"),
-        "BatteryPercentage": battery_percentage,
-        "PowerDrawWatts": last_row.get("PowerDrawWatts"),
-        "NetPowerWatts": last_row.get("NetPowerWatts"),
-        "BatteryChargeRateW": battery_charge_rate_w,
-        "TimeToChargeStr": time_to_charge_str,
-        "AvgOutputPortPower24hrW": avg_output_port_power_24hr_w,
-        "AvgSolarInput24hrW": avg_solar_input_24hr_w,
-        "Panel1Power": panel1_power,
-        "Panel2Power": panel2_power,
-        "Panel4Power": panel4_power,
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+        result_shell["values"] = {
+            "BatteryWattHours": battery_wh,
+            "SolarInputWatts": last_row.get("SolarInputWatts"),
+            "BatteryPercentage": battery_percentage,
+            "PowerDrawWatts": last_row.get("PowerDrawWatts"),
+            "NetPowerWatts": last_row.get("NetPowerWatts"),
+            "BatteryChargeRateW": battery_charge_rate_w,
+            "TimeToChargeStr": time_to_charge_str,
+            "AvgOutputPortPower24hrW": avg_output_port_power_24hr_w,
+            "AvgSolarInput24hrW": avg_solar_input_24hr_w,
+            "Panel1Power": panel1_power,
+            "Panel2Power": panel2_power,
+            "Panel4Power": panel4_power,
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_power_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -327,27 +332,32 @@ def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any
 
 
 def get_fluorometer_status(df_fluorometer: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_fluorometer_processed, last_row = _get_common_status_data(
-        df_fluorometer, preprocess_fluorometer_df, "Fluorometer"
-    )
-    if last_row is None:
-        return result_shell
+    """Returns a summary dict for fluorometer status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_fluorometer_processed, last_row = _get_common_status_data(
+            df_fluorometer, preprocess_fluorometer_df, "Fluorometer"
+        )
+        if last_row is None:
+            return result_shell
 
-    # All subsequent logic for get_fluorometer_status should be at this indentation level:
-    result_shell["values"] = {
-            "C1_Avg": last_row.get("C1_Avg"),
-            "C2_Avg": last_row.get("C2_Avg"),
-            "C3_Avg": last_row.get("C3_Avg"),
-            "Temperature_Fluor": last_row.get("Temperature_Fluor"),
-            "Latitude": last_row.get("Latitude"),
-            "Longitude": last_row.get("Longitude"),
-            "Timestamp": (
-                last_row["Timestamp"].isoformat()
-                if pd.notna(last_row.get("Timestamp"))
-                else "N/A"
-            ),
-        }
-    return result_shell
+        # All subsequent logic for get_fluorometer_status should be at this indentation level:
+        result_shell["values"] = {
+                "C1_Avg": last_row.get("C1_Avg"),
+                "C2_Avg": last_row.get("C2_Avg"),
+                "C3_Avg": last_row.get("C3_Avg"),
+                "Temperature_Fluor": last_row.get("Temperature_Fluor"),
+                "Latitude": last_row.get("Latitude"),
+                "Longitude": last_row.get("Longitude"),
+                "Timestamp": (
+                    last_row["Timestamp"].isoformat()
+                    if pd.notna(last_row.get("Timestamp"))
+                    else "N/A"
+                ),
+            }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_fluorometer_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_fluorometer_mini_trend(
@@ -364,44 +374,49 @@ def get_fluorometer_mini_trend(
 
 
 def get_ctd_status(df_ctd: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_ctd_processed, last_row = _get_common_status_data(
-        df_ctd, preprocess_ctd_df, "CTD"
-    )
-    if last_row is None:
+    """Returns a summary dict for CTD status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_ctd_processed, last_row = _get_common_status_data(
+            df_ctd, preprocess_ctd_df, "CTD"
+        )
+        if last_row is None:
+            return result_shell
+
+        # All subsequent logic for get_ctd_status should be at this indentation level:
+        # Calculate Highest and Lowest Water Temperature from the last 24 hours
+        df_last_24h = df_ctd_processed[
+            df_ctd_processed["Timestamp"]
+            > (last_row["Timestamp"] - pd.Timedelta(hours=24))
+        ]
+        highest_temp_24h = (
+            df_last_24h["WaterTemperature"].max()
+            if not df_last_24h.empty and "WaterTemperature" in df_last_24h
+            else None
+        )
+        lowest_temp_24h = (
+            df_last_24h["WaterTemperature"].min()
+            if not df_last_24h.empty and "WaterTemperature" in df_last_24h
+            else None
+        )
+
+        result_shell["values"] = {
+            "WaterTemperature": last_row.get("WaterTemperature"),
+            "Salinity": last_row.get("Salinity"),
+            "Conductivity": last_row.get("Conductivity"),
+            "DissolvedOxygen": last_row.get("DissolvedOxygen"),
+            "Pressure": last_row.get("Pressure"),
+            "HighestWaterTemperature24h": highest_temp_24h,
+            "LowestWaterTemperature24h": lowest_temp_24h,
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
         return result_shell
-
-    # All subsequent logic for get_ctd_status should be at this indentation level:
-    # Calculate Highest and Lowest Water Temperature from the last 24 hours
-    df_last_24h = df_ctd_processed[
-        df_ctd_processed["Timestamp"]
-        > (last_row["Timestamp"] - pd.Timedelta(hours=24))
-    ]
-    highest_temp_24h = (
-        df_last_24h["WaterTemperature"].max()
-        if not df_last_24h.empty and "WaterTemperature" in df_last_24h
-        else None
-    )
-    lowest_temp_24h = (
-        df_last_24h["WaterTemperature"].min()
-        if not df_last_24h.empty and "WaterTemperature" in df_last_24h
-        else None
-    )
-
-    result_shell["values"] = {
-        "WaterTemperature": last_row.get("WaterTemperature"),
-        "Salinity": last_row.get("Salinity"),
-        "Conductivity": last_row.get("Conductivity"),
-        "DissolvedOxygen": last_row.get("DissolvedOxygen"),
-        "Pressure": last_row.get("Pressure"),
-        "HighestWaterTemperature24h": highest_temp_24h,
-        "LowestWaterTemperature24h": lowest_temp_24h,
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_ctd_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_ctd_mini_trend(df_ctd: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -416,60 +431,65 @@ def get_ctd_mini_trend(df_ctd: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
 
 
 def get_weather_status(df_weather: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_weather_processed, last_row = _get_common_status_data(
-        df_weather, preprocess_weather_df, "Weather"
-    )
-    if last_row is None:
+    """Returns a summary dict for weather status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_weather_processed, last_row = _get_common_status_data(
+            df_weather, preprocess_weather_df, "Weather"
+        )
+        if last_row is None:
+            return result_shell
+
+        # All subsequent logic for get_weather_status should be at this indentation level:
+        # Calculate 24-hour High/Low for AirTemperature and BarometricPressure
+        df_last_24h = df_weather_processed[
+            df_weather_processed["Timestamp"]
+            > (last_row["Timestamp"] - pd.Timedelta(hours=24))
+        ]
+
+        air_temp_high_24h = (
+            df_last_24h["AirTemperature"].max()
+            if not df_last_24h.empty and "AirTemperature" in df_last_24h
+            else None
+        )
+        air_temp_low_24h = (
+            df_last_24h["AirTemperature"].min()
+            if not df_last_24h.empty and "AirTemperature" in df_last_24h
+            else None
+        )
+
+        pressure_high_24h = (
+            df_last_24h["BarometricPressure"].max()
+            if not df_last_24h.empty and "BarometricPressure" in df_last_24h
+            else None
+        )
+        pressure_low_24h = (
+            df_last_24h["BarometricPressure"].min()
+            if not df_last_24h.empty and "BarometricPressure" in df_last_24h
+            else None
+        )
+
+        result_shell["values"] = {
+            "AirTemperature": last_row.get("AirTemperature"),
+            "WindSpeed": last_row.get("WindSpeed"),
+            "WindGust": last_row.get("WindGust"),
+            "WindDirection": last_row.get("WindDirection"),
+            # GustDirection will use WindDirection as per current processing
+            "GustDirection": last_row.get("WindDirection"),
+            "BarometricPressure": last_row.get("BarometricPressure"),
+            "AirTemperatureHigh24h": air_temp_high_24h,
+            "AirTemperatureLow24h": air_temp_low_24h,
+            "PressureHigh24h": pressure_high_24h,
+            "PressureLow24h": pressure_low_24h,
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
         return result_shell
-
-    # All subsequent logic for get_weather_status should be at this indentation level:
-    # Calculate 24-hour High/Low for AirTemperature and BarometricPressure
-    df_last_24h = df_weather_processed[
-        df_weather_processed["Timestamp"]
-        > (last_row["Timestamp"] - pd.Timedelta(hours=24))
-    ]
-
-    air_temp_high_24h = (
-        df_last_24h["AirTemperature"].max()
-        if not df_last_24h.empty and "AirTemperature" in df_last_24h
-        else None
-    )
-    air_temp_low_24h = (
-        df_last_24h["AirTemperature"].min()
-        if not df_last_24h.empty and "AirTemperature" in df_last_24h
-        else None
-    )
-
-    pressure_high_24h = (
-        df_last_24h["BarometricPressure"].max()
-        if not df_last_24h.empty and "BarometricPressure" in df_last_24h
-        else None
-    )
-    pressure_low_24h = (
-        df_last_24h["BarometricPressure"].min()
-        if not df_last_24h.empty and "BarometricPressure" in df_last_24h
-        else None
-    )
-
-    result_shell["values"] = {
-        "AirTemperature": last_row.get("AirTemperature"),
-        "WindSpeed": last_row.get("WindSpeed"),
-        "WindGust": last_row.get("WindGust"),
-        "WindDirection": last_row.get("WindDirection"),
-        # GustDirection will use WindDirection as per current processing
-        "GustDirection": last_row.get("WindDirection"),
-        "BarometricPressure": last_row.get("BarometricPressure"),
-        "AirTemperatureHigh24h": air_temp_high_24h,
-        "AirTemperatureLow24h": air_temp_low_24h,
-        "PressureHigh24h": pressure_high_24h,
-        "PressureLow24h": pressure_low_24h,
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_weather_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_weather_mini_trend(df_weather: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -484,76 +504,81 @@ def get_weather_mini_trend(df_weather: Optional[pd.DataFrame]) -> List[Dict[str,
 
 
 def get_wave_status(df_waves: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_waves_processed, last_row = _get_common_status_data(
-        df_waves, preprocess_wave_df, "Wave"
-    )
-    if last_row is None:
-        return result_shell
+    """Returns a summary dict for wave status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_waves_processed, last_row = _get_common_status_data(
+            df_waves, preprocess_wave_df, "Wave"
+        )
+        if last_row is None:
+            return result_shell
 
-    # All subsequent logic for get_wave_status should be at this indentation level:
-    # Calculate 24-hour average for SignificantWaveHeight
-    df_last_24h = df_waves_processed[
-        df_waves_processed["Timestamp"]
-        > (last_row["Timestamp"] - pd.Timedelta(hours=24))
-    ]
-    avg_wave_height_24h = (
-        df_last_24h["SignificantWaveHeight"].mean()
-        if not df_last_24h.empty and "SignificantWaveHeight" in df_last_24h
-        else None
-    )
+        # All subsequent logic for get_wave_status should be at this indentation level:
+        # Calculate 24-hour average for SignificantWaveHeight
+        df_last_24h = df_waves_processed[
+            df_waves_processed["Timestamp"]
+            > (last_row["Timestamp"] - pd.Timedelta(hours=24))
+        ]
+        avg_wave_height_24h = (
+            df_last_24h["SignificantWaveHeight"].mean()
+            if not df_last_24h.empty and "SignificantWaveHeight" in df_last_24h
+            else None
+        )
 
-    # Calculate Wave Amplitude
-    significant_wave_height = last_row.get("SignificantWaveHeight")
-    wave_amplitude = (
-        (significant_wave_height / 2)
-        if significant_wave_height is not None
-        and pd.notna(significant_wave_height)
-        else None
-    )
+        # Calculate Wave Amplitude
+        significant_wave_height = last_row.get("SignificantWaveHeight")
+        wave_amplitude = (
+            (significant_wave_height / 2)
+            if significant_wave_height is not None
+            and pd.notna(significant_wave_height)
+            else None
+        )
 
-    # Filter MeanWaveDirection for outliers
-    mean_direction_raw = last_row.get("MeanWaveDirection")
-    mean_direction_display_value = "N/A"  # Default display
-    mean_direction_numeric_value = None  # For potential numeric use if valid
-    mean_direction_status = "missing"  # Default status
+        # Filter MeanWaveDirection for outliers
+        mean_direction_raw = last_row.get("MeanWaveDirection")
+        mean_direction_display_value = "N/A"  # Default display
+        mean_direction_numeric_value = None  # For potential numeric use if valid
+        mean_direction_status = "missing"  # Default status
 
-    if pd.notna(mean_direction_raw):
-        try:
-            val_as_int = int(mean_direction_raw)
-            if val_as_int == 9999 or val_as_int == -9999:
-                mean_direction_display_value = "N/A (Outlier)"
-                mean_direction_status = "outlier"
-            else:
-                mean_direction_display_value = (
-                    f"{val_as_int:.0f} °"  # Format valid number
+        if pd.notna(mean_direction_raw):
+            try:
+                val_as_int = int(mean_direction_raw)
+                if val_as_int == 9999 or val_as_int == -9999:
+                    mean_direction_display_value = "N/A (Outlier)"
+                    mean_direction_status = "outlier"
+                else:
+                    mean_direction_display_value = (
+                        f"{val_as_int:.0f} °"  # Format valid number
+                    )
+                    mean_direction_numeric_value = val_as_int
+                    mean_direction_status = "valid"
+            except ValueError:
+                logger.warning(
+                    f"Could not convert MeanWaveDirection "
+                    f"'{mean_direction_raw}' to int for outlier check."
                 )
-                mean_direction_numeric_value = val_as_int
-                mean_direction_status = "valid"
-        except ValueError:
-            logger.warning(
-                f"Could not convert MeanWaveDirection "
-                f"'{mean_direction_raw}' to int for outlier check."
-            )
-            # Indicate a parsing error
-            mean_direction_display_value = "N/A (Error)"
-            mean_direction_status = "error"
+                # Indicate a parsing error
+                mean_direction_display_value = "N/A (Error)"
+                mean_direction_status = "error"
 
-    result_shell["values"] = {
-        "SignificantWaveHeight": significant_wave_height,
-        "SignificantWaveHeightAvg24h": avg_wave_height_24h,
-        "WavePeriod": last_row.get("WavePeriod"),
-        "MeanDirectionDisplay": mean_direction_display_value,
-        "MeanDirectionNumeric": mean_direction_numeric_value,
-        "MeanDirectionStatus": mean_direction_status,
-        "WaveAmplitude": wave_amplitude,
-        "SampleGaps": last_row.get("SampleGaps"),
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+        result_shell["values"] = {
+            "SignificantWaveHeight": significant_wave_height,
+            "SignificantWaveHeightAvg24h": avg_wave_height_24h,
+            "WavePeriod": last_row.get("WavePeriod"),
+            "MeanDirectionDisplay": mean_direction_display_value,
+            "MeanDirectionNumeric": mean_direction_numeric_value,
+            "MeanDirectionStatus": mean_direction_status,
+            "WaveAmplitude": wave_amplitude,
+            "SampleGaps": last_row.get("SampleGaps"),
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_wave_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_wave_mini_trend(df_waves: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -635,24 +660,29 @@ def get_recent_errors(error_df, max_age_hours=24):
 
 
 def get_vr2c_status(df_vr2c: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_vr2c_processed, last_row = _get_common_status_data(
-        df_vr2c, preprocess_vr2c_df, "VR2C"
-    )
-    if last_row is None:
-        return result_shell
+    """Returns a summary dict for VR2C status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_vr2c_processed, last_row = _get_common_status_data(
+            df_vr2c, preprocess_vr2c_df, "VR2C"
+        )
+        if last_row is None:
+            return result_shell
 
-    # All subsequent logic for get_vr2c_status should be at this indentation level:
-    result_shell["values"] = {
-            "SerialNumber": last_row.get("SerialNumber"),
-            "DetectionCount": last_row.get("DetectionCount"),
-            "PingCount": last_row.get("PingCount"),
-            "Timestamp": (
-                last_row["Timestamp"].isoformat()
-                if pd.notna(last_row.get("Timestamp"))
-                else "N/A"
-            ),
-        }
-    return result_shell
+        # All subsequent logic for get_vr2c_status should be at this indentation level:
+        result_shell["values"] = {
+                "SerialNumber": last_row.get("SerialNumber"),
+                "DetectionCount": last_row.get("DetectionCount"),
+                "PingCount": last_row.get("PingCount"),
+                "Timestamp": (
+                    last_row["Timestamp"].isoformat()
+                    if pd.notna(last_row.get("Timestamp"))
+                    else "N/A"
+                ),
+            }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_vr2c_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -668,75 +698,80 @@ def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]
 
 
 def get_navigation_status(df_telemetry: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_telemetry_processed, last_row = _get_common_status_data(
-        df_telemetry, preprocess_telemetry_df, "Navigation"
-    )
-    if last_row is None:
-        return result_shell
-
-    # All subsequent logic for get_navigation_status should be at this indentation level:
-    # Calculate 24-hour metrics
-    df_last_24h = df_telemetry_processed[
-        df_telemetry_processed["Timestamp"]
-        > (last_row["Timestamp"] - pd.Timedelta(hours=24))
-    ]
-
-    # Speed Over Ground metrics
-    avg_sog_24h = (
-        df_last_24h["SpeedOverGround"].mean()
-        if not df_last_24h.empty
-        and "SpeedOverGround" in df_last_24h.columns
-        and pd.api.types.is_numeric_dtype(df_last_24h["SpeedOverGround"])
-        else None
-    )
-
-    # Distance Traveled metrics (using 'DistanceToWaypoint' which is processed 'gliderDistance')
-    METERS_TO_NAUTICAL_MILES = 0.000539957
-
-    total_distance_mission_meters = (
-        df_telemetry_processed["DistanceToWaypoint"].sum()
-        if "DistanceToWaypoint" in df_telemetry_processed.columns
-        and pd.api.types.is_numeric_dtype(
-            df_telemetry_processed["DistanceToWaypoint"]
+    """Returns a summary dict for navigation status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_telemetry_processed, last_row = _get_common_status_data(
+            df_telemetry, preprocess_telemetry_df, "Navigation"
         )
-        else 0
-    )
-    distance_traveled_24h_meters = (
-        df_last_24h["DistanceToWaypoint"].sum()
-        if not df_last_24h.empty
-        and "DistanceToWaypoint" in df_last_24h.columns
-        and pd.api.types.is_numeric_dtype(df_last_24h["DistanceToWaypoint"])
-        else 0
-    )
+        if last_row is None:
+            return result_shell
 
-    total_distance_mission_nm = (
-        total_distance_mission_meters * METERS_TO_NAUTICAL_MILES
-        if pd.notna(total_distance_mission_meters)
-        else None
-    )
-    distance_traveled_24h_nm = (
-        distance_traveled_24h_meters * METERS_TO_NAUTICAL_MILES
-        if pd.notna(distance_traveled_24h_meters)
-        else None
-    )
+        # All subsequent logic for get_navigation_status should be at this indentation level:
+        # Calculate 24-hour metrics
+        df_last_24h = df_telemetry_processed[
+            df_telemetry_processed["Timestamp"]
+            > (last_row["Timestamp"] - pd.Timedelta(hours=24))
+        ]
 
-    result_shell["values"] = {
-        "Latitude": last_row.get("Latitude"),
-        "Longitude": last_row.get("Longitude"),
-        "GliderHeading": last_row.get("GliderHeading"),
-        "SpeedOverGround": last_row.get("SpeedOverGround"),
-        "AvgSpeedOverGround24h": avg_sog_24h,
-        "TotalDistanceTraveledMissionNM": total_distance_mission_nm,
-        "DistanceTraveled24hNM": distance_traveled_24h_nm,
-        "OceanCurrentSpeed": last_row.get("OceanCurrentSpeed"),
-        "OceanCurrentDirection": last_row.get("OceanCurrentDirection"),
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+        # Speed Over Ground metrics
+        avg_sog_24h = (
+            df_last_24h["SpeedOverGround"].mean()
+            if not df_last_24h.empty
+            and "SpeedOverGround" in df_last_24h.columns
+            and pd.api.types.is_numeric_dtype(df_last_24h["SpeedOverGround"])
+            else None
+        )
+
+        # Distance Traveled metrics (using 'DistanceToWaypoint' which is processed 'gliderDistance')
+        METERS_TO_NAUTICAL_MILES = 0.000539957
+
+        total_distance_mission_meters = (
+            df_telemetry_processed["DistanceToWaypoint"].sum()
+            if "DistanceToWaypoint" in df_telemetry_processed.columns
+            and pd.api.types.is_numeric_dtype(
+                df_telemetry_processed["DistanceToWaypoint"]
+            )
+            else 0
+        )
+        distance_traveled_24h_meters = (
+            df_last_24h["DistanceToWaypoint"].sum()
+            if not df_last_24h.empty
+            and "DistanceToWaypoint" in df_last_24h.columns
+            and pd.api.types.is_numeric_dtype(df_last_24h["DistanceToWaypoint"])
+            else 0
+        )
+
+        total_distance_mission_nm = (
+            total_distance_mission_meters * METERS_TO_NAUTICAL_MILES
+            if pd.notna(total_distance_mission_meters)
+            else None
+        )
+        distance_traveled_24h_nm = (
+            distance_traveled_24h_meters * METERS_TO_NAUTICAL_MILES
+            if pd.notna(distance_traveled_24h_meters)
+            else None
+        )
+
+        result_shell["values"] = {
+            "Latitude": last_row.get("Latitude"),
+            "Longitude": last_row.get("Longitude"),
+            "GliderHeading": last_row.get("GliderHeading"),
+            "SpeedOverGround": last_row.get("SpeedOverGround"),
+            "AvgSpeedOverGround24h": avg_sog_24h,
+            "TotalDistanceTraveledMissionNM": total_distance_mission_nm,
+            "DistanceTraveled24hNM": distance_traveled_24h_nm,
+            "OceanCurrentSpeed": last_row.get("OceanCurrentSpeed"),
+            "OceanCurrentDirection": last_row.get("OceanCurrentDirection"),
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_navigation_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_navigation_mini_trend(
@@ -753,27 +788,32 @@ def get_navigation_mini_trend(
 
 
 def get_wg_vm4_status(df_wg_vm4: Optional[pd.DataFrame]) -> Dict:
-    result_shell, df_wg_vm4_processed, last_row = _get_common_status_data(
-        df_wg_vm4, preprocess_wg_vm4_df, "WG-VM4"
-    )
-    if last_row is None:
-        return result_shell
+    """Returns a summary dict for WG-VM4 status. Returns safe defaults and logs errors if data is missing or malformed."""
+    try:
+        result_shell, df_wg_vm4_processed, last_row = _get_common_status_data(
+            df_wg_vm4, preprocess_wg_vm4_df, "WG-VM4"
+        )
+        if last_row is None:
+            return result_shell
 
-    # All subsequent logic for get_wg_vm4_status should be at this indentation level:
-    result_shell["values"] = {
-        "SerialNumber": last_row.get("SerialNumber"),
-        "Channel0DetectionCount": last_row.get("Channel0DetectionCount"),
-        "Channel1DetectionCount": last_row.get("Channel1DetectionCount"),
-        # Add other relevant fields as placeholders or once decided
-        "PlaceholderField1": "N/A",
-        "PlaceholderField2": "N/A",
-        "Timestamp": (
-            last_row["Timestamp"].isoformat()
-            if pd.notna(last_row.get("Timestamp"))
-            else "N/A"
-        ),
-    }
-    return result_shell
+        # All subsequent logic for get_wg_vm4_status should be at this indentation level:
+        result_shell["values"] = {
+            "SerialNumber": last_row.get("SerialNumber"),
+            "Channel0DetectionCount": last_row.get("Channel0DetectionCount"),
+            "Channel1DetectionCount": last_row.get("Channel1DetectionCount"),
+            # Add other relevant fields as placeholders or once decided
+            "PlaceholderField1": "N/A",
+            "PlaceholderField2": "N/A",
+            "Timestamp": (
+                last_row["Timestamp"].isoformat()
+                if pd.notna(last_row.get("Timestamp"))
+                else "N/A"
+            ),
+        }
+        return result_shell
+    except Exception as e:
+        logger.warning(f"Error in get_wg_vm4_status: {e}", exc_info=True)
+        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_wg_vm4_mini_trend(df_wg_vm4: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:

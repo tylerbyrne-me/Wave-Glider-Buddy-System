@@ -434,12 +434,15 @@ class PayPeriodCreate(BaseModel):
     start_date: date
     end_date: date
 
-class PayPeriodUpdate(BaseModel):
+class PayPeriodUpdate(SQLModel):
     name: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: Optional[PayPeriodStatusEnum] = None
+    status: Optional['PayPeriodStatusEnum'] = None
 
+class MonthlyChartData(BaseModel):
+    pilot_name: str
+    total_hours: float
 
 class TimesheetStatusEnum(str, Enum):
     SUBMITTED = "submitted"
@@ -473,6 +476,12 @@ class TimesheetUpdate(BaseModel):
     status: Optional[TimesheetStatusEnum] = None
     adjusted_hours: Optional[float] = None
     reviewer_notes: Optional[str] = None
+
+class TimesheetStatusForUser(BaseModel):
+    pay_period_name: str
+    status: TimesheetStatusEnum
+    reviewer_notes: Optional[str] = None
+    submission_timestamp: datetime
 
 class StationMetadata(SQLModel, table=True):  # type: ignore
     __tablename__ = "station_metadata"
@@ -602,3 +611,60 @@ class StationMetadataCreateResponse(StationMetadataRead):
     if the resource was newly created or just updated.
     """
     is_created: bool
+
+# --- Announcement Models ---
+from typing import List, Optional
+from datetime import datetime, timezone
+from sqlmodel import SQLModel, Field, Relationship
+
+class Announcement(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    content: str
+    created_by_username: str
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    is_active: bool = Field(default=True)
+    acknowledgements: List["AnnouncementAcknowledgement"] = Relationship(back_populates="announcement")
+
+class AnnouncementAcknowledgement(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    announcement_id: int = Field(foreign_key="announcement.id")
+    user_id: int = Field(foreign_key="users.id")
+    acknowledged_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    announcement: "Announcement" = Relationship(back_populates="acknowledgements")
+
+class AnnouncementCreate(SQLModel):
+    content: str
+
+class AnnouncementRead(SQLModel):
+    id: int
+    content: str
+    created_by_username: str
+    created_at_utc: datetime
+    is_active: bool
+
+class AnnouncementReadForUser(AnnouncementRead):
+    is_acknowledged_by_user: bool = False
+
+class AcknowledgedByInfo(SQLModel):
+    username: str
+    acknowledged_at_utc: datetime
+
+class AnnouncementReadWithAcks(AnnouncementRead):
+    acknowledged_by: List[AcknowledgedByInfo] = []
+
+# --- Home Page Panel Models ---
+from sqlmodel import SQLModel
+from datetime import datetime
+from pydantic import BaseModel
+
+class UpcomingShift(SQLModel):
+    mission_id: str
+    start_time_utc: datetime
+    end_time_utc: datetime
+
+class MyTimesheetStatus(SQLModel):
+    current_period_status: str
+    hours_this_period: float
+
+class MissionGoalToggle(BaseModel):
+    is_completed: bool

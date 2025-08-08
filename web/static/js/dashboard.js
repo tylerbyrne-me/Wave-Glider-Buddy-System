@@ -1,3 +1,6 @@
+import { checkAuth } from '/static/js/auth.js';
+import { fetchWithAuth } from '/static/js/api.js';
+
 document.addEventListener('DOMContentLoaded', async function() { // Make async
     console.log("Dashboard.js: DOMContentLoaded event fired."); // DEBUG: Start of handler
     // --- Authentication Check ---
@@ -603,7 +606,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                         grid: { color: chartGridColor }
                     },
                     yTemp: { type: 'linear', position: 'left', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
-                    yWind: { type: 'linear', position: 'right', title: { display: true, text: 'Wind (kt)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false, color: chartGridColor } }
+                    yWind: { type: 'linear', position: 'right', title: { display: true, text: 'Wind (kt)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { drawOnChartArea: false, color: chartGridColor } }
                 },
                 plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
             }

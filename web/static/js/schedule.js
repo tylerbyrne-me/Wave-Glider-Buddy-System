@@ -1,3 +1,6 @@
+import { getUserProfile, checkAuth } from "/static/js/auth.js";
+import { fetchWithAuth } from "/static/js/api.js";
+
 document.addEventListener('DOMContentLoaded', async function () {
     // This function was moved from schedule.html to make this script more self-contained.
     const LRI_PILOT_USERNAME = "LRI_PILOT"; // Must match the username in auth_utils.py

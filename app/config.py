@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Store as JSON string in .env, parse here
     active_realtime_missions: list[str] = [
         "m209",
+        "m211"
     ]
     # Example: List of mission IDs considered active
     # In a real scenario, this list might be managed dynamically or via

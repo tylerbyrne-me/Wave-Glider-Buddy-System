@@ -19,6 +19,7 @@ async def load_report(
     base_url: str = None,
     client: httpx.AsyncClient = None,
 ):
+    """Loads a report as a DataFrame from local or remote. Returns None on error."""
     reports = {
         "power": "Amps Power Summary Report.csv",  # Existing
         "solar": "Amps Solar Input Port Report.csv",  # New solar panel report
@@ -53,7 +54,7 @@ async def load_report(
             logger.info(
                 f"File not found at local path: {file_path}. Error: {e}"
             )
-            raise  # Re-raise the exception so the caller (app.py) can handle it
+            return None
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
         # If an external client is provided, use it directly without an
@@ -62,20 +63,28 @@ async def load_report(
         if client:
             # Assuming the client passed in might have its own
             # transport/retry config
-            response = await client.get(url, timeout=DEFAULT_TIMEOUT)
-            response.raise_for_status()
-            return pd.read_csv(io.StringIO(response.text))
+            try:
+                response = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                response.raise_for_status()
+                return pd.read_csv(io.StringIO(response.text))
+            except httpx.RequestError as e:
+                logger.error(f"HTTP request failed for {url}: {e}")
+                return None
         else:
             # This case should ideally not be hit if app.py always provides a
             # client for remote calls.
             # However, as a fallback or for direct CLI usage: # noqa
-            transport = httpx.HTTPTransport(retries=RETRY_COUNT)
-            async with httpx.AsyncClient(
-                timeout=DEFAULT_TIMEOUT, transport=transport
-            ) as current_client:  # Fallback to create a client
-                response = await current_client.get(url)
-                response.raise_for_status()
-                return pd.read_csv(io.StringIO(response.text))
+            try:
+                transport = httpx.HTTPTransport(retries=RETRY_COUNT)
+                async with httpx.AsyncClient(
+                    timeout=DEFAULT_TIMEOUT, transport=transport
+                ) as current_client:  # Fallback to create a client
+                    response = await current_client.get(url)
+                    response.raise_for_status()
+                    return pd.read_csv(io.StringIO(response.text))
+            except httpx.RequestError as e:
+                logger.error(f"HTTP request failed for {url}: {e}")
+                return None
     else:
         raise ValueError(
             "Either base_path or base_url must be provided to load_report."

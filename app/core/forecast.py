@@ -67,13 +67,8 @@ async def _fetch_forecast_data(
         return None
 
 
-async def get_general_meteo_forecast(
-    lat: float, lon: float
-) -> Optional[Dict[str, Any]]:
-    """
-    Fetches general weather forecast data (temperature, weathercode,
-    precipitation, wind).
-    """
+async def get_general_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    """Fetches general weather forecast data. Returns None on error."""
     final_data: Optional[Dict[str, Any]] = None
     base_api_params = {"latitude": lat, "longitude": lon, "timezone": "GMT"}
 
@@ -109,9 +104,7 @@ async def get_general_meteo_forecast(
 
 
 async def get_marine_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
-    """
-    Fetches marine-specific forecast data (waves, currents).
-    """
+    """Fetches marine-specific forecast data. Returns None on error."""
     final_data: Optional[Dict[str, Any]] = None
     base_api_params = {"latitude": lat, "longitude": lon, "timezone": "GMT"}
 

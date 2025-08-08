@@ -42,6 +42,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def decode_access_token(token: str) -> Optional[TokenData]:
+    """Decodes a JWT access token and returns TokenData, or None if invalid."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: Optional[str] = payload.get("sub")
@@ -49,5 +50,7 @@ def decode_access_token(token: str) -> Optional[TokenData]:
         if username is None or role is None:
             return None
         return TokenData(username=username, role=role)
-    except JWTError:
+    except JWTError as e:
+        # Log the error for debugging
+        print(f"JWT decode error: {e}")
         return None

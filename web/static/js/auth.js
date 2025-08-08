@@ -1,3 +1,5 @@
+import { apiRequest, showToast } from '/static/js/api.js';
+
 document.addEventListener('DOMContentLoaded', async function () { // Made async for getUserProfile
     // --- Theme Switcher Logic ---
     // This is placed at the top to run immediately and prevent a flash of unstyled content (FOUC).
@@ -65,13 +67,17 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             const username = loginForm.username.value;
             const password = loginForm.password.value;
 
-            const formData = new FormData();
+            // Use URLSearchParams to send form data as required by OAuth2PasswordRequestForm
+            const formData = new URLSearchParams();
             formData.append('username', username);
             formData.append('password', password);
 
             try {
                 const response = await fetch('/token', {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
                     body: formData,
                 });
 
@@ -137,16 +143,9 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             };
 
             try {
-                const response = await fetchWithAuth('/register', { // Use fetchWithAuth
+                const response = await apiRequest('/register', 'POST', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        // fetchWithAuth will add the Authorization header
-                    },
-                    body: JSON.stringify(userData),
-                });
-
-                const responseData = await response.json();
+                }); // Use fetchWithAuth
 
                 if (response.ok) {
                     if (registerMessageDiv) {
@@ -242,42 +241,34 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         const pageMissionId = document.body.dataset.missionId; // Available on index.html, mission_form.html etc.
 
         try {
-            const response = await fetchWithAuth('/api/available_missions');
-            if (response.ok) {
-                const missions = await response.json();
-                missionSelectorDropdownMenu.innerHTML = ''; // Clear existing options
-
-                if (missions.length === 0) {
-                    const option = document.createElement('option');
-                    option.value = "";
-                    option.textContent = "No missions";
-                    missionSelectorBannerAuth.appendChild(option);
-                    missionSelectorBannerAuth.disabled = true;
-                    // Also disable the dropdown toggle if no missions
-                    document.getElementById('missionDashboardDropdown').classList.add('disabled');
-                } else {
-                    missions.forEach(m_id => {
-                        const listItem = document.createElement('li');
-                        const link = document.createElement('a');
-                        link.classList.add('dropdown-item');
-                        link.href = `/?mission=${m_id}`; // Link to dashboard with selected mission
-                        link.textContent = m_id;
-                        if (pageMissionId && m_id === pageMissionId) {
-                            link.classList.add('active'); // Highlight active mission
-                        }
-                        listItem.appendChild(link);
-                        missionSelectorDropdownMenu.appendChild(listItem);
-                    });
-                }
+            const missions = await apiRequest('/api/available_missions', 'GET');
+            missionSelectorDropdownMenu.innerHTML = '';
+            if (missions.length === 0) {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No missions";
+                missionSelectorDropdownMenu.appendChild(option);
+                missionSelectorDropdownMenu.disabled = true;
+                // Also disable the dropdown toggle if no missions
+                document.getElementById('missionDashboardDropdown').classList.add('disabled');
             } else {
-                console.error('Failed to fetch available missions for banner in auth.js. Status:', response.status);
-                missionSelectorBannerAuth.innerHTML = '<option value="">Error</option>';
-                missionSelectorBannerAuth.disabled = true;
+                missions.forEach(m_id => {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.classList.add('dropdown-item');
+                    link.href = `/?mission=${m_id}`; // Link to dashboard with selected mission
+                    link.textContent = m_id;
+                    if (pageMissionId && m_id === pageMissionId) {
+                        link.classList.add('active'); // Highlight active mission
+                    }
+                    listItem.appendChild(link);
+                    missionSelectorDropdownMenu.appendChild(listItem);
+                });
             }
         } catch (error) {
             console.error('Error fetching missions for banner in auth.js:', error);
-            missionSelectorBannerAuth.innerHTML = '<option value="">Error</option>';
-            missionSelectorBannerAuth.disabled = true;
+            missionSelectorDropdownMenu.innerHTML = '<option value="">Error</option>';
+            missionSelectorDropdownMenu.disabled = true;
         }
 
         // Update "Submit New PIC Handoff" link when mission changes (for non-dashboard pages)
@@ -317,21 +308,22 @@ function getAuthToken() {
     return localStorage.getItem('accessToken');
 }
 
-function checkAuth() {
-    const token = getAuthToken();
-    // If no token and not on login page, redirect to login
-    if (!token && window.location.pathname !== '/login.html') {
-        // Store the current path to redirect back after login, if desired
-        // localStorage.setItem('redirectAfterLogin', window.location.pathname + window.location.search);
-        window.location.href = '/login.html';
+async function checkAuth() {
+    try {
+        // Try to fetch user profile (will use cookie if present)
+        const user = await apiRequest('/api/users/me', 'GET');
+        if (window.location.pathname === '/login.html') {
+            window.location.href = '/home.html';
+            return true;
+        }
+        return true;
+    } catch (error) {
+        // Not authenticated, redirect to login
+        if (window.location.pathname !== '/login.html') {
+            window.location.href = '/login.html';
+        }
         return false;
     }
-    // If on login page and token exists, redirect to home page
-    if (token && window.location.pathname === '/login.html') {
-        window.location.href = '/home.html';
-        return true; // Or false, as we are redirecting away
-    }
-    return !!token; // Returns true if token exists, false otherwise
 }
 
 async function logout() {
@@ -348,19 +340,6 @@ async function logout() {
 }
 
 
-async function fetchWithAuth(url, options = {}) {
-    const token = getAuthToken();
-    options.headers = { ...options.headers }; // Ensure headers object exists
-    if (token) {
-        options.headers['Authorization'] = `Bearer ${token}`;
-    } else if (!options.allowAnonymous) { // allowAnonymous can be a custom flag for public endpoints
-        console.warn(`fetchWithAuth: No token for ${url}, and not an anonymous request. Server will likely reject if auth is needed.`);
-        // Consider throwing an error or redirecting if a token is strictly required for the call
-        // For now, let it proceed; the server will handle unauthorized access.
-    }
-    return fetch(url, options);
-}
-
 async function getUserProfile() {
     const token = getAuthToken();
     if (!token) {
@@ -368,19 +347,13 @@ async function getUserProfile() {
         return null;
     }
     try {
-        const response = await fetchWithAuth('/api/users/me'); // Standard endpoint for current user info
-        if (!response.ok) {
-            if (response.status === 401) { // Unauthorized or token expired
-                console.warn('getUserProfile: Unauthorized. Token might be invalid or expired. Logging out.');
-                logout(); // Force logout if token is bad
-            } else {
-                console.error('Error fetching user profile:', response.status, await response.text());
-            }
-            return null;
-        }
-        return await response.json();
+        const user = await apiRequest('/api/users/me', 'GET'); // apiRequest returns parsed JSON or throws
+        return user;
     } catch (error) {
+        // If error is due to 401, apiRequest already redirects and removes token
         console.error('Network or other error fetching user profile:', error);
         return null;
     }
 }
+
+export { checkAuth, logout, getUserProfile };

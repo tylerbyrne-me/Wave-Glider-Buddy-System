@@ -1,3 +1,6 @@
+import { checkAuth, getUserProfile } from '/static/js/auth.js';
+import { fetchWithAuth } from '/static/js/api.js';
+
 document.addEventListener('DOMContentLoaded', async function () { 
     const stationStatusTableBody = document.getElementById('stationStatusTableBody');
     const searchInput = document.getElementById('searchInput');

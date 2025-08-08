@@ -91,5 +91,5 @@
 {% block body_extra_js %}
   <!-- Include the Showdown library for Markdown rendering -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-  <script src="{{ url_for('static', path='js/admin_announcements.js') }}"></script>
+  <script type="module" src="{{ url_for('static', path='js/admin_announcements.js') }}"></script>
 {% endblock %}

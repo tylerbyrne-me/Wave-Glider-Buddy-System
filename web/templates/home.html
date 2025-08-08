@@ -18,6 +18,8 @@
             </div>
 
             <!-- Tabbed Interface for Mission Briefings -->
+            <!-- DEBUG: active_missions = {{ active_missions }} -->
+            <!-- DEBUG: active_mission_data keys = {{ active_mission_data.keys() if active_mission_data else 'None' }} -->
             {% if active_missions %}
                 <!-- Nav tabs -->
                 <ul class="nav nav-tabs mt-4" id="missionBriefingTabs" role="tablist">
@@ -216,6 +218,6 @@
 
 {% block body_extra_js %}
   <!-- Include the Showdown library for Markdown rendering in announcements -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-  <script src="{{ url_for('static', path='js/home.js') }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+    <script src="{{ url_for('static', path='js/home.js') }}" type="module"></script>
 {% endblock %}

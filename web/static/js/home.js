@@ -1,3 +1,6 @@
+import { getUserProfile, checkAuth } from "/static/js/auth.js";
+import { fetchWithAuth, showToast, apiRequest } from "/static/js/api.js";
+
 document.addEventListener('DOMContentLoaded', function() {
     // --- MODAL AND FORM ELEMENTS ---
     const goalModalElement = document.getElementById('goalModal');
@@ -14,61 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const USER_ID = container ? parseInt(container.dataset.userId, 10) : null;
 
     // --- UTILITY FUNCTIONS ---
-    const showToast = (message, type = 'success') => {
-        const toastContainer = document.getElementById('toast-container');
-        if (!toastContainer) return;
-        const toastId = `toast-${Date.now()}`;
-        const toastHTML = `
-            <div id="${toastId}" class="toast align-items-center text-white bg-${type === 'success' ? 'success' : 'danger'} border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="d-flex">
-                    <div class="toast-body">${message}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            </div>
-        `;
-        toastContainer.insertAdjacentHTML('beforeend', toastHTML);
-        const toastEl = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastEl, { delay: 5000 });
-        toast.show();
-        toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
-    };
-
-    const apiRequest = async (url, method, body = null) => {
-        const token = localStorage.getItem('accessToken');
-        const headers = {
-            'Content-Type': 'application/json',
-        };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const options = {
-            method: method,
-            headers: headers,
-        };
-        if (body) {
-            options.body = JSON.stringify(body);
-        }
-        try {
-            const response = await fetch(url, options);
-            if (response.status === 401) {
-                // Not authenticated, clear token and redirect to login
-                localStorage.removeItem('accessToken');
-                window.location.href = '/login.html?session_expired=true';
-                throw new Error('Not authenticated. Redirecting to login.'); // Stop further execution
-            }
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'An unknown error occurred.' }));
-                const errorMessage = errorData.detail || `HTTP error! status: ${response.status}`;
-                throw new Error(errorMessage);
-            }
-            return response.status === 204 ? null : await response.json();
-        } catch (error) {
-            console.error(`API request failed: ${method} ${url}`, error);
-            showToast(error.message, 'danger');
-            throw error;
-        }
-    };
     // Simple HTML escape function to prevent XSS
     const escapeHTML = (str) => {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -419,7 +367,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const notesList = missionSection.querySelector('.mission-notes-list');
         const newNoteItem = createNoteListItem(note);
 
-
         const placeholder = notesList.querySelector('.no-mission-notes-placeholder');
         if (placeholder) {
             placeholder.remove();
@@ -504,7 +451,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     };
-
 
     initializePage();
 });

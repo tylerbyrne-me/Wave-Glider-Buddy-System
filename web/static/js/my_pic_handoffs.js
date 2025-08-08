@@ -1,3 +1,6 @@
+import { checkAuth } from "/static/js/auth.js";
+import { fetchWithAuth } from "/static/js/api.js";
+
 document.addEventListener('DOMContentLoaded', function () {
     if (!checkAuth()) { // from auth.js
         return;
