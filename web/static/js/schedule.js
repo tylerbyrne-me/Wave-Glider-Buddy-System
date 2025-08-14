@@ -65,6 +65,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     const submitClearRangeBtn = document.getElementById('submitClearRangeBtn');
     const clearRangeErrorDiv = document.getElementById('clearRangeError');
 
+    // LRI Blocks Toggle
+    const hideLriBlocksToggle = document.getElementById('hideLriBlocksToggle');
+
     let mainCalendar; // Only one calendar instance now
 
 
@@ -76,8 +79,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             left: 'prev,next today', // Navigation buttons
             center: 'title', // Month/Week/Day title
             right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' // View buttons
-        },        allDaySlot: true, // Enable the all-day slot to display unavailability
-        dayMaxEvents: 3, // Show 3 events max before displaying a "+more" link
+        },
+        allDaySlot: true, // Enable the all-day slot to display unavailability
+        dayMaxEvents: 5, // Increased from 3 to show more events before "+more" link
         slotDuration: '03:00:00', // Set the duration of each time slot to 3 hours
         slotLabelInterval: '03:00', // Display a label for each 3-hour slot
         slotLabelFormat: {
@@ -85,13 +89,112 @@ document.addEventListener('DOMContentLoaded', async function () {
             minute: '2-digit',
             meridiem: 'short'
         }, // Format the slot labels to show the start time of the 3-hour block
-        eventMinHeight: 20, // Ensure events have a minimum height even without text
+        eventMinHeight: 25, // Increased from 20 for better visibility
         height: 'auto', // Let the content define the height to avoid rendering bugs with vh units
         slotMinTime: "02:00:00", // Start the grid at 02:00 local time to align with shift blocks
         slotMaxTime: "26:00:00", // End the grid at 02:00 local time the next day (24 hours later)
         selectable: false, // Disable drag-to-select, we will use dateClick
         selectMirror: false,
         nowIndicator: true,
+        expandRows: true, // Better row expansion for month view
+        dayMaxEventRows: true, // Show all events, don't limit to dayMaxEvents
+
+        // Event ordering: prioritize regular shifts over LRI blocks
+        eventOrder: function(eventA, eventB) {
+            // LRI blocks should appear last (lower priority)
+            if (eventA.extendedProps.type === 'lri_block' && eventB.extendedProps.type !== 'lri_block') {
+                return 1; // eventA (LRI block) goes after eventB
+            }
+            if (eventB.extendedProps.type === 'lri_block' && eventA.extendedProps.type !== 'lri_block') {
+                return -1; // eventB (LRI block) goes after eventA
+            }
+            // For same type events, maintain original order
+            return 0;
+        },
+
+        // Enhanced event rendering for better consecutive shift display
+        eventDidMount: function(info) {
+            const event = info.event;
+            const eventType = event.extendedProps.type;
+            let tooltipText = '';
+            
+            // MANUAL COLOR FIX: Ensure merged events have proper colors
+            if (event.id && event.id.startsWith('merged-')) {
+                const userColor = event.extendedProps.user_color || event.extendedProps.backColor || '#DDDDDD';
+                console.log(`Setting color for merged event ${event.id}:`, userColor);
+                
+                // Manually set the background color
+                info.el.style.backgroundColor = userColor;
+                info.el.style.borderColor = userColor;
+                
+                // Ensure text is readable
+                if (userColor === '#DDDDDD' || userColor === '#FFFFFF') {
+                    info.el.style.color = '#333';
+                } else {
+                    info.el.style.color = '#FFFFFF';
+                }
+            }
+            
+            // Add consecutive shift information to tooltip
+            if (eventType === 'shift' && event.extendedProps.consecutiveShifts > 0) {
+                const originalTitle = event.extendedProps.originalTitle;
+                const totalLength = event.extendedProps.totalSequenceLength;
+                const isFirst = event.extendedProps.isFirstInSequence;
+                const isLast = event.extendedProps.isLastInSequence;
+                
+                let sequenceInfo = '';
+                if (totalLength > 2) {
+                    if (isFirst) {
+                        sequenceInfo = `\nStart of ${totalLength} consecutive shifts`;
+                    } else if (isLast) {
+                        sequenceInfo = `\nEnd of ${totalLength} consecutive shifts`;
+                    } else {
+                        sequenceInfo = `\nPart of ${totalLength} consecutive shifts`;
+                    }
+                } else {
+                    sequenceInfo = '\nPart of 2 consecutive shifts';
+                }
+                
+                tooltipText = `Pilot: ${originalTitle}${sequenceInfo}\n${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                
+                // Add visual class for consecutive shifts
+                info.el.classList.add('fc-event-consecutive');
+            } else if (eventType === "lri_block" || eventType === "holiday" || eventType === "unavailability") {
+                tooltipText = event.title; // Title already contains the descriptive text
+            } else if (eventType === "shift") {
+                // For shifts, combine pilot name and time range
+                const originalTitle = event.extendedProps.originalTitle;
+                tooltipText = `Pilot: ${originalTitle}\n${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+            }
+
+            // Enhanced tooltip for merged events
+            if (event.id && event.id.startsWith('merged-')) {
+                const totalLength = event.extendedProps.totalSequenceLength;
+                const startTime = event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const endTime = event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const startDate = event.start.toLocaleDateString();
+                const endDate = event.end.toLocaleDateString();
+                
+                if (eventType === 'lri_block') {
+                    if (startDate === endDate) {
+                        tooltipText = `LRI Block\n${totalLength} consecutive shifts\n${startTime} - ${endTime} on ${startDate}`;
+                    } else {
+                        tooltipText = `LRI Block\n${totalLength} consecutive shifts\n${startTime} on ${startDate} to ${endTime} on ${endDate}`;
+                    }
+                } else {
+                    const originalTitle = event.extendedProps.originalTitle;
+                    if (startDate === endDate) {
+                        tooltipText = `Pilot: ${originalTitle}\n${totalLength} consecutive shifts\n${startTime} - ${endTime} on ${startDate}`;
+                    } else {
+                        tooltipText = `Pilot: ${originalTitle}\n${totalLength} consecutive shifts\n${startTime} on ${startDate} to ${endTime} on ${endDate}`;
+                    }
+                }
+            }
+
+            if (tooltipText) {
+                info.el.title = tooltipText;
+            }
+        },
 
         // Fetch events from our backend
         // This will be set later by mainCalendar.setOption('events', ...)
@@ -243,23 +346,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             updateDateRangeDisplay(dateInfo.start, dateInfo.end);
         },
 
-        // Add tooltips to events
-        eventDidMount: function(info) {
-            const eventType = info.event.extendedProps.type;
-            let tooltipText = '';
-            
-            if (eventType === "lri_block" || eventType === "holiday" || eventType === "unavailability") {
-                tooltipText = info.event.title; // Title already contains the descriptive text
-            } else if (eventType === "shift") {
-                // For shifts, combine pilot name and time range
-                const originalTitle = info.event.extendedProps.originalTitle;
-                tooltipText = `Pilot: ${originalTitle}\n${info.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${info.event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
-            }
 
-            if (tooltipText) {
-                info.el.title = tooltipText;
-            }
-        }
     });
 
     // Define the event fetching function once, to be reused by all calendars
@@ -281,6 +368,101 @@ document.addEventListener('DOMContentLoaded', async function () {
 
             const allEvents = [];
             events.forEach(event => {
+                // For month view, truncate shifts that span across midnight to only show on their start day.
+                if (mainCalendar.view.type === 'dayGridMonth' && (event.type === 'shift' || event.type === 'lri_block')) {
+                    const eventStart = new Date(event.start);
+                    const eventEnd = new Date(event.end);
+
+                    // Check if the end date is on a different day than the start date (in UTC).
+                    // This handles shifts that cross the midnight boundary.
+                    if (eventStart.getUTCDate() !== eventEnd.getUTCDate() ||
+                        eventStart.getUTCMonth() !== eventEnd.getUTCMonth() ||
+                        eventStart.getUTCFullYear() !== eventEnd.getUTCFullYear()) {
+
+                        // Create a new end time at the end of the start day.
+                        // FullCalendar's end time is exclusive, so setting it to the end of the day
+                        // ensures it's contained within that single day block in month view.
+                        const newEnd = new Date(eventStart);
+                        newEnd.setUTCHours(23, 59, 59, 999);
+                        event.end = newEnd.toISOString(); // Modify the event object for this rendering pass
+                    }
+                }
+
+                // Skip LRI blocks if the toggle is checked (hide LRI blocks in month view)
+                if (hideLriBlocksToggle && hideLriBlocksToggle.checked && event.type === 'lri_block') {
+                    return; // Skip this event
+                }
+                
+                // Debug: Log color information for troubleshooting
+                if (event.id && event.id.startsWith('merged-')) {
+                    console.log(`Merged event ${event.id}:`, {
+                        type: event.type,
+                        backColor: event.backColor,
+                        user_color: event.user_color,
+                        text: event.text,
+                        finalBackgroundColor: event.backColor || event.user_color || '#DDDDDD',
+                        backgroundColor: event.backgroundColor,
+                        borderColor: event.borderColor
+                    });
+                }
+                
+                // Enhanced event merging for consecutive shifts
+                let eventDisplay = 'block'; // Default display
+                let consecutiveShiftCount = 0;
+                let isFirstInSequence = true;
+                let isLastInSequence = true;
+                let totalSequenceLength = 1;
+                
+                // Get consecutive shift information from backend
+                if (event.consecutive_shifts !== undefined) {
+                    consecutiveShiftCount = event.consecutive_shifts;
+                    isFirstInSequence = event.is_first_in_sequence !== undefined ? event.is_first_in_sequence : true;
+                    isLastInSequence = event.is_last_in_sequence !== undefined ? event.is_last_in_sequence : true;
+                    totalSequenceLength = event.total_sequence_length !== undefined ? event.total_sequence_length : 1;
+                }
+                
+                // For shifts, try to create more descriptive titles for consecutive shifts
+                if (event.type === 'shift') {
+                    // Check if this is part of a consecutive shift sequence
+                    const consecutiveShifts = events.filter(e => 
+                        e.type === 'shift' && 
+                        e.user_id === event.user_id && 
+                        e.start === event.end && // This shift starts when previous ends
+                        e.resource_id !== event.resource_id // Different time slots
+                    );
+                    
+                    if (consecutiveShifts.length > 0) {
+                        // This is part of a consecutive sequence
+                        eventDisplay = 'block';
+                        consecutiveShiftCount = consecutiveShifts.length;
+                    }
+                }
+                
+                // Build CSS classes for consecutive shift styling
+                let additionalClasses = [];
+                if (consecutiveShiftCount > 0) {
+                    additionalClasses.push('fc-event-consecutive');
+                    if (isFirstInSequence) {
+                        additionalClasses.push('fc-event-first-in-sequence');
+                    }
+                    if (isLastInSequence) {
+                        additionalClasses.push('fc-event-last-in-sequence');
+                    }
+                    if (totalSequenceLength > 3) {
+                        additionalClasses.push('fc-event-long-sequence');
+                    }
+                }
+                
+                // Check if this is a merged event (backend-created merged event)
+                if (event.id && event.id.startsWith('merged-')) {
+                    additionalClasses.push('fc-event-merged');
+                }
+                
+                // Check if this is a long sequence (4+ shifts)
+                if (totalSequenceLength >= 4) {
+                    additionalClasses.push('fc-event-long-sequence');
+                }
+                
                 allEvents.push({
                     id: event.id,
                     title: event.type === 'shift' ? '' : event.text, // Set empty title for shifts
@@ -288,25 +470,40 @@ document.addEventListener('DOMContentLoaded', async function () {
                     end: event.end,     // Already datetime from backend
                     allDay: event.allDay, // Pass allDay property for unavailability events
                     resourceId: event.resource,
-                    backgroundColor: event.backColor,
-                    borderColor: event.backColor,
+                    // Simplified color handling - use the most reliable approach
+                    backgroundColor: event.backColor || event.user_color || '#DDDDDD',
+                    borderColor: event.backColor || event.user_color || '#DDDDDD',
                     editable: event.editable,
                     startEditable: event.startEditable,
                     durationEditable: event.durationEditable,
                     resourceEditable: event.resourceEditable,
                     overlap: event.overlap,
                     groupId: event.groupId, // Pass groupId for event merging
-                    display: event.display,
+                    display: eventDisplay, // Use enhanced display logic
                     // Add classNames for unavailability events based on role
-                    classNames: event.type === "lri_block"
-                        ? [`fc-event-lri-block`]
-                        : event.type === "unavailability" 
-                        ? [`fc-event-unavailability-${event.user_role}`] 
-                        : ['fc-event-shift'], // Add a class for shift events
+                    classNames: [
+                        event.type === "lri_block" ? 'fc-event-lri-block' :
+                        event.type === "unavailability" ? `fc-event-unavailability-${event.user_role}` :
+                        'fc-event-shift',
+                        ...additionalClasses
+                    ],
+                    // Add data attributes for debugging and styling
+                    data: {
+                        userRole: event.user_role,
+                        eventType: event.type,
+                        isMerged: event.id && event.id.startsWith('merged-'),
+                        userColor: event.backColor || event.user_color || '#DDDDDD'
+                    },
                     extendedProps: { // Store original data for popups
                         type: event.type,
                         originalTitle: event.text,
-                        user_role: event.user_role
+                        user_role: event.user_role,
+                        consecutiveShifts: consecutiveShiftCount,
+                        isFirstInSequence: isFirstInSequence,
+                        isLastInSequence: isLastInSequence,
+                        totalSequenceLength: totalSequenceLength,
+                        user_color: event.user_color, // Store user color for debugging
+                        backColor: event.backColor // Store backColor for debugging
                     }                });
             });
             successCallback(allEvents);
@@ -319,6 +516,14 @@ document.addEventListener('DOMContentLoaded', async function () {
     // Update mainCalendar to use the new fetchAllScheduleEvents function
     mainCalendar.setOption('events', fetchAllScheduleEvents);
     mainCalendar.render();
+
+    // Add event listener for LRI blocks toggle
+    if (hideLriBlocksToggle) {
+        hideLriBlocksToggle.addEventListener('change', function() {
+            // Refetch events to apply the new filter
+            mainCalendar.refetchEvents();
+        });
+    }
 
     /**
      * Determines the correct 3-hour shift slot for a given clicked time.

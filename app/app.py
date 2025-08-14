@@ -59,6 +59,8 @@ from .routers import announcements as announcements_router
 from .routers import missions as missions_router
 from .routers import payroll as payroll_router
 from .routers import home as home_router
+from .routers import reporting as reporting_router
+from .routers import admin as admin_router
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -143,6 +145,8 @@ app.include_router(announcements_router.router)
 app.include_router(missions_router.router)
 app.include_router(payroll_router.router)
 app.include_router(home_router.router)
+app.include_router(reporting_router.router)
+app.include_router(admin_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
@@ -539,6 +543,23 @@ async def refresh_active_mission_cache():
     )
 
 
+# --- Automated Weekly Report Generation Task ---
+async def run_weekly_reports_job():
+    """Scheduled job to generate a standard weekly report for all active missions."""
+    logger.info("AUTOMATED: Kicking off weekly report generation for all active missions.")
+    with SQLModelSession(sqlite_engine) as session:
+        active_missions = settings.active_realtime_missions
+        if not active_missions:
+            logger.info("AUTOMATED: No active missions configured. Skipping weekly report generation.")
+            return
+
+        for mission_id in active_missions:
+            # The helper function is async and handles its own exceptions/logging
+            await reporting.create_and_save_weekly_report(mission_id, session)
+
+    logger.info("AUTOMATED: Weekly report generation job finished.")
+
+
 # --- FastAPI Lifecycle Events for Scheduler ---
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
@@ -553,6 +574,15 @@ async def startup_event():
         "interval",
         minutes=settings.background_cache_refresh_interval_minutes,
         id="active_mission_refresh_job",
+    )
+    scheduler.add_job(
+        run_weekly_reports_job,
+        'cron',
+        day_of_week='thu',
+        hour=12,
+        minute=0,
+        timezone='UTC',
+        id='weekly_report_job'
     )
     scheduler.start()
     logger.info("APScheduler started for background cache refresh.")

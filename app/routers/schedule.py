@@ -47,6 +47,54 @@ def _get_canadian_holidays(start_date: date, end_date: date) -> List[tuple]:
         ])
     return [ (h_date, h_name) for h_date, h_name in holidays if start_date <= h_date <= end_date ]
 
+# --- Helper: Detect Consecutive Shifts ---
+def _detect_consecutive_shifts(assignments: List[models.ShiftAssignment]) -> dict:
+    """
+    Detect consecutive shifts for the same user and create enhanced grouping information.
+    Returns a dict mapping assignment_id to consecutive shift metadata.
+    """
+    consecutive_info = {}
+    
+    # Group assignments by user
+    user_assignments = {}
+    for assignment in assignments:
+        if assignment.user_id not in user_assignments:
+            user_assignments[assignment.user_id] = []
+        user_assignments[assignment.user_id].append(assignment)
+    
+    # For each user, check for consecutive shifts
+    for user_id, user_shifts in user_assignments.items():
+        # Sort by start time
+        user_shifts.sort(key=lambda x: x.start_time_utc)
+        
+        for i, shift in enumerate(user_shifts):
+            consecutive_count = 0
+            is_first_in_sequence = True
+            is_last_in_sequence = True
+            
+            # Check if this shift is consecutive with the previous one
+            if i > 0:
+                prev_shift = user_shifts[i-1]
+                if prev_shift.end_time_utc == shift.start_time_utc:
+                    consecutive_count += 1
+                    is_first_in_sequence = False
+            
+            # Check if this shift is consecutive with the next one
+            if i < len(user_shifts) - 1:
+                next_shift = user_shifts[i+1]
+                if shift.end_time_utc == next_shift.start_time_utc:
+                    consecutive_count += 1
+                    is_last_in_sequence = False
+            
+            consecutive_info[shift.id] = {
+                'consecutive_count': consecutive_count,
+                'is_first_in_sequence': is_first_in_sequence,
+                'is_last_in_sequence': is_last_in_sequence,
+                'total_sequence_length': consecutive_count + 1
+            }
+    
+    return consecutive_info
+
 # --- Schedule Endpoints ---
 
 @router.get("/schedule.html", response_class=HTMLResponse)
@@ -98,56 +146,166 @@ async def get_schedule_events_api(
             models.UserUnavailability.end_time_utc > start_date
         )
     db_unavailabilities = session.exec(unavailability_statement).all()
+    
+    # Detect consecutive shifts for enhanced grouping
+    consecutive_shift_info = _detect_consecutive_shifts(db_assignments)
+    
     response_events = []
     lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    
+    # Group assignments by user and create merged events
+    user_assignments = {}
     for assignment in db_assignments:
-        user = session.get(models.UserInDB, assignment.user_id)
-        username_display = user.username if user else "Unknown User"
-        user_color = user.color if user and user.color else "#DDDDDD"
-        is_editable = (current_user.id == user.id) if user else False
-        event_group_id = None
-        event_type = "shift"
-        display_type = "auto"
-        all_day = False
-        event_text = username_display
-        event_back_color = user_color
-        if lri_pilot_user and assignment.user_id == lri_pilot_user.id:
-            event_type = "lri_block"
-            event_text = "LRI Block"
-            event_back_color = lri_pilot_user.color
-            display_type = "block"
-            all_day = False
-            is_editable = current_user.role == models.UserRoleEnum.admin
-            event_group_id = str(lri_pilot_user.id)
-        else:
-            if current_user.role == models.UserRoleEnum.admin:
-                is_editable = True
-            if user:
-                event_group_id = str(user.id)
-        event_overlap = False
-        if event_type in ["shift", "lri_block"]:
-            event_overlap = True
-        response_events.append(
-            models.ScheduleEvent(
-                id=str(assignment.id),
-                text=event_text,
-                start=assignment.start_time_utc,
-                end=assignment.end_time_utc,
-                resource=assignment.resource_id,
-                backColor=event_back_color,
-                type=event_type,
-                editable=is_editable,
-                startEditable=False,
-                durationEditable=False,
-                resourceEditable=False,
-                overlap=event_overlap,
-                groupId=event_group_id,
-                display=display_type,
-                allDay=all_day,
-                user_role=user.role if user else None,
-                user_color=user_color
-            )
-        )
+        if assignment.user_id not in user_assignments:
+            user_assignments[assignment.user_id] = []
+        user_assignments[assignment.user_id].append(assignment)
+    
+    # Process each user's assignments to create merged events
+    for user_id, user_shifts in user_assignments.items():
+        # Sort by start time
+        user_shifts.sort(key=lambda x: x.start_time_utc)
+        
+        # Group consecutive shifts by day (daily cutoff for collation)
+        daily_merged_events = {}
+        
+        for shift in user_shifts:
+            # Get the day this shift starts (for daily grouping)
+            shift_start_day = shift.start_time_utc.date()
+            
+            if shift_start_day not in daily_merged_events:
+                daily_merged_events[shift_start_day] = []
+            daily_merged_events[shift_start_day].append(shift)
+        
+        # Process each day's shifts separately
+        for day_date, day_shifts in daily_merged_events.items():
+            # Sort day shifts by start time
+            day_shifts.sort(key=lambda x: x.start_time_utc)
+            
+            # Group consecutive shifts within the day
+            merged_events = []
+            current_sequence = []
+            
+            for shift in day_shifts:
+                if not current_sequence:
+                    current_sequence = [shift]
+                elif shift.start_time_utc == current_sequence[-1].end_time_utc:
+                    # Consecutive shift - add to current sequence
+                    current_sequence.append(shift)
+                else:
+                    # Non-consecutive - process current sequence and start new one
+                    if current_sequence:
+                        merged_events.append(current_sequence)
+                    current_sequence = [shift]
+            
+            # Don't forget the last sequence
+            if current_sequence:
+                merged_events.append(current_sequence)
+            
+            # Create events for each merged sequence within the day
+            for sequence in merged_events:
+                if len(sequence) == 1:
+                    # Single shift - create normal event
+                    assignment = sequence[0]
+                    user = session.get(models.UserInDB, assignment.user_id)
+                    username_display = user.username if user else "Unknown User"
+                    user_color = user.color if user and user.color else "#DDDDDD"
+                    is_editable = (current_user.id == user.id) if user else False
+                    event_type = "shift"
+                    display_type = "auto"
+                    all_day = False
+                    event_text = username_display
+                    event_back_color = user_color
+                    event_group_id = str(user.id) if user else None
+                    
+                    if lri_pilot_user and assignment.user_id == lri_pilot_user.id:
+                        event_type = "lri_block"
+                        event_text = "LRI Block"
+                        event_back_color = lri_pilot_user.color
+                        display_type = "block"
+                        event_group_id = str(lri_pilot_user.id)
+                        is_editable = current_user.role == models.UserRoleEnum.admin
+                    
+                    response_events.append(
+                        models.ScheduleEvent(
+                            id=f"shift-{assignment.id}",
+                            text=event_text,
+                            start=assignment.start_time_utc,
+                            end=assignment.end_time_utc,
+                            resource=assignment.resource_id,
+                            backColor=event_back_color,
+                            type=event_type,
+                            editable=is_editable,
+                            startEditable=False,
+                            durationEditable=False,
+                            resourceEditable=False,
+                            overlap=True,
+                            groupId=event_group_id,
+                            display=display_type,
+                            allDay=all_day,
+                            user_role=user.role if user else None,
+                            user_color=user_color,
+                            consecutive_shifts=0,
+                            is_first_in_sequence=True,
+                            is_last_in_sequence=True,
+                            total_sequence_length=1
+                        )
+                    )
+                else:
+                    # Multiple consecutive shifts within the day - create merged event
+                    first_shift = sequence[0]
+                    last_shift = sequence[-1]
+                    user = session.get(models.UserInDB, first_shift.user_id)
+                    username_display = user.username if user else "Unknown User"
+                    user_color = user.color if user and user.color else "#DDDDDD"
+                    is_editable = (current_user.id == user.id) if user else False
+                    display_type = "block"  # Use block display for merged events
+                    all_day = False
+                    
+                    # Create descriptive text with start/end times (not total hours)
+                    start_time_str = first_shift.start_time_utc.strftime("%H:%M")
+                    end_time_str = last_shift.end_time_utc.strftime("%H:%M")
+                    
+                    if lri_pilot_user and first_shift.user_id == lri_pilot_user.id:
+                        event_type = "lri_block"
+                        event_text = f"LRI Block: {start_time_str} - {end_time_str}"
+                        event_back_color = lri_pilot_user.color
+                        event_group_id = str(lri_pilot_user.id)
+                        is_editable = current_user.role == models.UserRoleEnum.admin
+                    else:
+                        # For regular pilots and admins, preserve their event type and color
+                        event_type = "shift"  # Keep as shift type for proper styling
+                        event_text = f"{username_display}: {start_time_str} - {end_time_str}"
+                        event_back_color = user_color  # Use the user's assigned color
+                        event_group_id = str(user.id) if user else None
+                        
+                        # Debug logging for color assignment
+                        logger.info(f"Creating merged event for user {username_display}: type={event_type}, color={event_back_color}, user_color={user_color}")
+                    
+                    response_events.append(
+                        models.ScheduleEvent(
+                            id=f"merged-{day_date.strftime('%Y%m%d')}-{first_shift.id}-{last_shift.id}",
+                            text=event_text,
+                            start=first_shift.start_time_utc,
+                            end=last_shift.end_time_utc,
+                            resource=f"merged-{day_date.strftime('%Y%m%d')}-{first_shift.resource_id}",
+                            backColor=event_back_color,
+                            type=event_type,
+                            editable=is_editable,
+                            startEditable=False,
+                            durationEditable=False,
+                            resourceEditable=False,
+                            overlap=True,
+                            groupId=event_group_id,
+                            display=display_type,
+                            allDay=all_day,
+                            user_role=user.role if user else None,
+                            user_color=user_color,
+                            consecutive_shifts=len(sequence) - 1,
+                            is_first_in_sequence=True,
+                            is_last_in_sequence=True,
+                            total_sequence_length=len(sequence)
+                        )
+                    )
     holidays = _get_canadian_holidays(start_date.date(), end_date.date())
     for holiday_date, holiday_name in holidays:
         response_events.append(
@@ -285,7 +443,7 @@ async def create_lri_blocks_api(
         is_holiday = current_date in holidays_for_year
         hours_to_block = []
         if is_weekday and not is_holiday:
-            hours_to_block = [2, 5, 8, 11]
+            hours_to_block = [23, 2, 5, 8]
         elif not is_weekday or is_holiday:
             hours_to_block = valid_start_hours_utc
         for hour_utc in hours_to_block:

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduler Status - Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="mb-0">Scheduler Status</h1>
+        <button id="refreshJobsBtn" class="btn btn-primary">
+            <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+    </div>
+    <p>This page shows the status of automated background jobs running on the server.</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Job ID</th>
+                    <th>Name</th>
+                    <th>Function</th>
+                    <th>Trigger Type</th>
+                    <th>Trigger Details</th>
+                    <th>Next Run Time (UTC)</th>
+                </tr>
+            </thead>
+            <tbody id="jobsTableBody">
+                <!-- Jobs will be loaded here by JavaScript -->
+                <tr>
+                    <td colspan="7" class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+<script src="{{ url_for('static', path='js/admin/scheduler_status.js') }}" type="module"></script>
+{% endblock %}

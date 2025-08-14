@@ -58,6 +58,68 @@
         <!-- Toasts will be appended here -->
     </div>
 
+    <!-- Report Generation Modal -->
+    <div class="modal fade" id="reportModal" tabindex="-1" aria-labelledby="reportModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reportModalLabel">Generate Report for Mission</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="reportForm">
+                        <input type="hidden" id="reportMissionId">
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Start Date (Optional)</label>
+                            <input type="date" class="form-control" id="startDate">
+                        </div>
+                        <div class="mb-3">
+                            <label for="endDate" class="form-label">End Date (Optional)</label>
+                            <input type="date" class="form-control" id="endDate">
+                        </div>
+                        <div class="mb-3">
+                            <h6>Plots to Include:</h6>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="telemetry" id="includeTelemetry" checked>
+                                <label class="form-check-label" for="includeTelemetry">Telemetry Track</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="power" id="includePower" checked>
+                                <label class="form-check-label" for="includePower">Power Summary</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="ctd" id="includeCtd" checked>
+                                <label class="form-check-label" for="includeCtd">CTD Summary</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="weather" id="includeWeather" checked>
+                                <label class="form-check-label" for="includeWeather">Weather Summary</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="waves" id="includeWave" checked>
+                                <label class="form-check-label" for="includeWave">Wave Summary</label>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="saveToOverview" checked>
+                            <label class="form-check-label" for="saveToOverview">Save as official mission report</label>
+                            <small class="form-text text-muted d-block">Uncheck to generate a one-off report without updating the mission's main report link.</small>
+                        </div>
+                        <div class="mb-3" id="customFilenameGroup" style="display: none;">
+                            <label for="customFilename" class="form-label">Custom Report Name (Optional)</label>
+                            <input type="text" class="form-control" id="customFilename" placeholder="e.g., incident_report_2024-07-26">
+                            <small class="form-text text-muted d-block">A name for your one-off report. The date and .pdf extension will be added automatically.</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="generateReportBtn">Generate Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

@@ -390,3 +390,333 @@ footer .text-muted {
     margin-bottom: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   }
 }
+
+/* Schedule Page Specific Styles */
+.schedule-calendar-container {
+    /* Enhanced container for better calendar sizing */
+    min-height: 80vh; /* Use viewport height for better space utilization */
+    padding: 0 1rem; /* Add horizontal padding for better spacing */
+}
+
+.schedule-calendar-container #calendar {
+    /* Ensure calendar takes full available width */
+    width: 100%;
+    height: 100%;
+    min-height: 75vh; /* Minimum height to prevent cramped appearance */
+}
+
+/* Enhanced FullCalendar styling for better space utilization */
+.fc .fc-toolbar {
+    /* Improve toolbar spacing and layout */
+    margin-bottom: 1.5rem;
+    padding: 0.5rem 0;
+}
+
+.fc .fc-toolbar-title {
+    /* Larger, more prominent title */
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.fc .fc-button {
+    /* Better button sizing and spacing */
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+/* Improve month view cell sizing */
+.fc-daygrid-day-frame {
+    min-height: 12em; /* Increased from 10em for better content display of merged events */
+    padding: 0.25rem;
+}
+
+.fc-daygrid-day-number {
+    /* Better day number positioning */
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+/* Enhanced event display in month view */
+.fc-daygrid-event {
+    /* Better event sizing and spacing */
+    margin: 1px 0;
+    padding: 2px 4px;
+    font-size: 0.85rem;
+    line-height: 1.2;
+}
+
+/* Improve week/day view slot sizing */
+.fc-timegrid-slot {
+    /* Better time slot sizing */
+    min-height: 3.5em;
+}
+
+.fc-timegrid-slot-lane {
+    /* Consistent slot heights */
+    height: 3.5em !important;
+}
+
+/* Better responsive design for schedule page */
+@media (max-width: 1200px) {
+    .schedule-calendar-container {
+        padding: 0 0.5rem;
+    }
+    
+    .fc .fc-toolbar {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .fc .fc-toolbar-chunk {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    .schedule-calendar-container {
+        padding: 0 0.25rem;
+        min-height: 70vh;
+    }
+    
+    .fc-daygrid-day-frame {
+        min-height: 8em; /* Slightly smaller on mobile */
+    }
+    
+    .fc .fc-toolbar-title {
+        font-size: 1.25rem;
+    }
+}
+
+/* Enhanced download controls styling */
+.schedule-download-controls {
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Better form control spacing in schedule modals */
+.schedule-modal .form-control,
+.schedule-modal .form-select {
+    margin-bottom: 1rem;
+}
+
+.schedule-modal .modal-body {
+    padding: 1.5rem;
+}
+
+/* Enhanced schedule controls layout */
+.schedule-controls-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.schedule-controls-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.schedule-controls-right {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* Better spacing for schedule page elements */
+.schedule-page-header {
+    margin-bottom: 2rem;
+}
+
+.schedule-page-header h1 {
+    margin-bottom: 0.5rem;
+    font-size: 2.5rem;
+    font-weight: 700;
+}
+
+.schedule-page-header p {
+    font-size: 1.1rem;
+    margin-bottom: 0;
+}
+
+/* Enhanced calendar event tooltips */
+.fc-event-tooltip {
+    background: var(--bs-dark);
+    color: var(--bs-light);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem;
+    font-size: 0.9rem;
+    max-width: 300px;
+    z-index: 9999;
+}
+
+/* Enhanced consecutive shifts styling */
+.fc-event-shift {
+    /* Base styling for shift events */
+    border-radius: 4px;
+    transition: all 0.2s ease-in-out;
+}
+
+/* Consecutive shifts styling - remove borders between adjacent shifts */
+.fc-event-shift + .fc-event-shift {
+    /* Remove left border when shift follows another shift */
+    border-left: none;
+    margin-left: -1px; /* Overlap borders slightly */
+}
+
+/* Special styling for LRI blocks that span multiple shifts */
+.fc-event-lri-block {
+    /* Enhanced LRI block styling */
+    border-radius: 6px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* Consecutive LRI blocks - seamless appearance */
+.fc-event-lri-block + .fc-event-lri-block {
+    border-left: none;
+    margin-left: -2px;
+    border-radius: 0 6px 6px 0; /* Round only right corners */
+}
+
+.fc-event-lri-block:first-of-type {
+    border-radius: 6px 0 0 6px; /* Round only left corners for first in sequence */
+}
+
+/* Week/Day view specific consecutive shift styling */
+.fc-timegrid-event.fc-event-shift + .fc-timegrid-event.fc-event-shift {
+    /* Remove borders between consecutive time grid events */
+    border-left: none;
+    margin-left: -1px;
+}
+
+/* Month view consecutive shift optimization */
+.fc-daygrid-event.fc-event-shift {
+    /* Better month view event appearance */
+    border-radius: 3px;
+    margin: 1px 0;
+}
+
+/* Consecutive shifts in month view */
+.fc-daygrid-event.fc-event-shift + .fc-daygrid-event.fc-event-shift {
+    /* Optimize spacing for consecutive month view events */
+    margin-top: 0;
+    border-top: none;
+}
+
+/* Enhanced event grouping for better visual flow */
+.fc-event-group {
+    /* Better grouping of related events */
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Better event overlap handling */
+.fc-event-overlap {
+    /* Improved styling for overlapping events */
+    opacity: 0.9;
+    border-left: 3px solid var(--bs-primary);
+}
+
+/* Enhanced styling for merged events (consecutive shifts) */
+.fc-event-merged {
+    /* Special styling for merged consecutive shift events */
+    font-weight: 600;
+    border-width: 2px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* LRI Block merged events - keep LRI styling */
+.fc-event-lri-block.fc-event-merged {
+    background: linear-gradient(135deg, #ADD8E6 0%, #87CEEB 100%) !important;
+    color: #333 !important;
+    border: 2px solid #4682B4;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* Regular pilot merged events - preserve user colors but enhance styling */
+.fc-event-shift.fc-event-merged {
+    /* Don't override background color - let FullCalendar use the user's assigned color */
+    /* Only enhance the styling without changing the color */
+    font-weight: 600;
+    border-width: 2px;
+    /* Remove the !important background override to preserve user colors */
+}
+
+/* CRITICAL: Ensure merged events keep their colors */
+.fc-event-shift.fc-event-merged {
+    /* Let FullCalendar handle all colors - don't override anything */
+    /* Only add non-color styling */
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Month view specific merged event styling (appearance, not colors) */
+.fc-daygrid-event.fc-event-merged {
+    /* Better month view appearance for merged events */
+    min-height: 2.5em;
+    padding: 4px 6px;
+    border-radius: 6px;
+    font-size: 0.85rem; /* Slightly smaller to fit time information */
+    line-height: 1.2;
+    margin: 2px 0; /* Better spacing between merged events */
+    white-space: nowrap; /* Prevent time text from wrapping */
+    overflow: hidden;
+    text-overflow: ellipsis; /* Show ... if text is too long */
+}
+
+/* Week/Day view merged event styling (appearance, not colors) */
+.fc-timegrid-event.fc-event-merged {
+    /* Better time grid appearance for merged events */
+    min-height: 3em;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Enhanced styling for merged events with time information */
+.fc-event-merged .fc-event-title {
+    /* Ensure time information is readable */
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+/* Enhanced navigation for schedule views */
+.fc-prev-button,
+.fc-next-button {
+    /* Better navigation button styling */
+    background-color: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: white;
+}
+
+.fc-prev-button:hover,
+.fc-next-button:hover {
+    background-color: var(--bs-primary-dark);
+    border-color: var(--bs-primary-dark);
+}
+
+.fc-today-button {
+    /* Better today button styling */
+    background-color: var(--bs-secondary);
+    border-color: var(--bs-secondary);
+    color: white;
+}
+
+.fc-today-button:hover {
+    background-color: var(--bs-secondary-dark);
+    border-color: var(--bs-secondary-dark);
+}

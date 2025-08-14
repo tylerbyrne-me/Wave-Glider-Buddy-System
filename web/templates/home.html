@@ -129,6 +129,22 @@
                                     </div>
                                 </div> <!-- /.row -->
                             </div> <!-- /.card-body -->
+                            <div class="card-footer text-end">
+                                {# This button is only rendered for admins and opens the report modal #}
+                                {% if current_user.role.value == 'admin' %}
+                                    <button class="btn btn-sm btn-outline-secondary generate-report-modal-btn" data-mission-id="{{ mission_id }}">
+                                        <i class="fas fa-file-pdf"></i> Generate Report
+                                    </button>
+                                {% endif %}
+                            
+                                {# This link is shown if a report URL already exists, and will be made visible by JS when a new one is generated #}
+                                <a href="{{ mission_info.overview.weekly_report_url if mission_info.overview and mission_info.overview.weekly_report_url else '#' }}" 
+                                   class="btn btn-sm btn-outline-info view-report-link" 
+                                   style="display: {{ 'inline-block' if mission_info.overview and mission_info.overview.weekly_report_url else 'none' }};" 
+                                   target="_blank" data-mission-id="{{ mission_id }}">
+                                    <i class="fas fa-eye"></i> View Report
+                                </a>
+                            </div>
                         </div> <!-- /.card -->
                     </div> <!-- /.tab-pane -->
                     {% endfor %}

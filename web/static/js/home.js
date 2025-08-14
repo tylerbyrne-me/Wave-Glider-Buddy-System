@@ -10,6 +10,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const goalIdInput = document.getElementById('goalIdInput');
     const goalDescriptionInput = document.getElementById('goalDescriptionInput');
     const saveGoalBtn = document.getElementById('saveGoalBtn');
+    const reportModalElement = document.getElementById('reportModal');
+    const reportModal = reportModalElement ? new bootstrap.Modal(reportModalElement) : null;
+    const reportModalLabel = document.getElementById('reportModalLabel');
+    const reportMissionIdInput = document.getElementById('reportMissionId');
+    const generateReportBtn = document.getElementById('generateReportBtn');
+    const saveToOverviewSwitch = document.getElementById('saveToOverview');
+    const customFilenameGroup = document.getElementById('customFilenameGroup');
+    const customFilenameInput = document.getElementById('customFilename');
 
     // --- USER CONTEXT ---
     const container = document.querySelector('.container[data-user-role]');
@@ -396,6 +404,96 @@ document.addEventListener('DOMContentLoaded', function() {
         return li;
     };
 
+    // --- REPORT GENERATION LOGIC ---
+
+    const handleOpenReportModal = (button) => {
+        const context = getMissionContext(button);
+        if (!context || !reportModal) return;
+
+        reportModalLabel.textContent = `Generate Report for Mission ${context.missionId}`;
+        reportMissionIdInput.value = context.missionId;
+
+        // Reset form fields to default state
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+        document.getElementById('includeTelemetry').checked = true;
+        document.getElementById('includePower').checked = true;
+        document.getElementById('includeCtd').checked = true;
+        document.getElementById('includeWeather').checked = true;
+        document.getElementById('includeWave').checked = true;
+        document.getElementById('saveToOverview').checked = true;
+        // Ensure the custom filename field is hidden and cleared on open
+        customFilenameGroup.style.display = 'none';
+        customFilenameInput.value = '';
+
+        reportModal.show();
+    };
+
+    const handleGenerateReport = async () => {
+        const missionId = reportMissionIdInput.value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        const saveToOverview = document.getElementById('saveToOverview').checked;
+        const customFilename = document.getElementById('customFilename').value.trim();
+
+        const plotsToInclude = Array.from(document.querySelectorAll('#reportForm input[type="checkbox"]:checked'))
+                                    .map(checkbox => checkbox.value);
+
+        if (!missionId) {
+            showToast('Mission ID is missing.', 'danger');
+            return;
+        }
+
+        const options = {
+            start_date: startDate || null,
+            end_date: endDate || null,
+            plots_to_include: plotsToInclude,
+            save_to_overview: saveToOverview,
+            custom_filename: customFilename || null
+        };
+
+        generateReportBtn.disabled = true;
+        generateReportBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
+
+        try {
+            const result = await apiRequest(`/api/reporting/missions/${missionId}/generate-weekly-report`, 'POST', options);
+            showToast('Report generated successfully!', 'success');
+            reportModal.hide();
+
+            if (saveToOverview) {
+                const missionSection = document.querySelector(`.mission-info-section[data-mission-id="${missionId}"]`);
+                if (missionSection && result.weekly_report_url) {
+                    const viewReportLink = missionSection.querySelector(`.view-report-link`);
+                    if (viewReportLink) {
+                        viewReportLink.href = result.weekly_report_url;
+                        viewReportLink.style.display = 'inline-block';
+                    }
+                }
+            } else {
+                // If not saving to overview, open the report in a new tab for immediate viewing/download
+                window.open(result.weekly_report_url, '_blank');
+            }
+
+        } finally {
+            generateReportBtn.disabled = false;
+            generateReportBtn.innerHTML = 'Generate Report';
+        }
+    };
+
+    // --- EVENT LISTENER FOR REPORT MODAL SWITCH ---
+    if (saveToOverviewSwitch) {
+        saveToOverviewSwitch.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                // If saving to overview, hide and clear the custom name field
+                customFilenameGroup.style.display = 'none';
+                customFilenameInput.value = '';
+            } else {
+                // If not saving, show the custom name field
+                customFilenameGroup.style.display = 'block';
+            }
+        });
+    }
+
     // --- GLOBAL EVENT LISTENER (EVENT DELEGATION) ---
     document.body.addEventListener('click', (e) => {
         const target = e.target;
@@ -422,6 +520,15 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (target.closest('.delete-note-btn')) {
             e.preventDefault();
             handleDeleteNote(target.closest('.delete-note-btn'));
+        }
+
+        // Report Generation buttons
+        else if (target.closest('.generate-report-modal-btn')) {
+            e.preventDefault();
+            handleOpenReportModal(target.closest('.generate-report-modal-btn'));
+        } else if (target.closest('#generateReportBtn')) {
+            e.preventDefault();
+            handleGenerateReport();
         }
     });
 

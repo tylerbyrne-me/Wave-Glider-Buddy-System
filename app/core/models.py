@@ -343,6 +343,12 @@ class ScheduleEvent(SQLModel):
     display: str = "auto"  # 'auto' for shifts, 'background' for unavailability
     groupId: Optional[str] = None # For grouping events visually (e.g., consecutive LRI blocks)
     allDay: bool = False # Add allDay property
+    
+    # Enhanced consecutive shift support
+    consecutive_shifts: Optional[int] = 0  # Number of consecutive shifts
+    is_first_in_sequence: Optional[bool] = True  # Is this the first shift in a sequence
+    is_last_in_sequence: Optional[bool] = True   # Is this the last shift in a sequence
+    total_sequence_length: Optional[int] = 1     # Total length of the shift sequence
 
 
 # New Pydantic model for creating schedule events from the client
@@ -557,6 +563,7 @@ class TimesheetRead(BaseModel):
 class MissionOverview(SQLModel, table=True):
     __tablename__ = "mission_overview"
     mission_id: str = SQLModelField(primary_key=True, description="The mission identifier, e.g., 'm203'.")
+    weekly_report_url: Optional[str] = SQLModelField(default=None, description="URL to the latest generated weekly report PDF.")
     document_url: Optional[str] = SQLModelField(default=None, description="URL to the formal mission plan document (.doc, .pdf).")
     comments: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="High-level comments about the mission.")
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
@@ -588,6 +595,7 @@ class MissionNote(SQLModel, table=True):
 class MissionOverviewUpdate(BaseModel):
     document_url: Optional[str] = None
     comments: Optional[str] = None
+    weekly_report_url: Optional[str] = None
 
 class MissionGoalCreate(BaseModel):
     description: str
@@ -603,6 +611,14 @@ class MissionInfoResponse(BaseModel):
     overview: Optional[MissionOverview] = None
     goals: List[MissionGoal] = []
     notes: List[MissionNote] = []
+
+class ReportGenerationOptions(BaseModel):
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    plots_to_include: List[str] = Field(default_factory=lambda: ["telemetry", "power"])
+    save_to_overview: bool = Field(default=True, description="If true, saves the generated report URL to the mission overview.")
+    custom_filename: Optional[str] = Field(default=None, max_length=100, description="A custom name for the report file, used when not saving to overview.")
+
 
 class StationMetadataCreateResponse(StationMetadataRead):
     """
@@ -668,3 +684,19 @@ class MyTimesheetStatus(SQLModel):
 
 class MissionGoalToggle(BaseModel):
     is_completed: bool
+
+class JobStatusEnum(str, Enum):
+    OK = "ok"
+    OVERDUE = "overdue"
+
+class JobTriggerInfo(BaseModel):
+    type: str
+    details: str
+
+class ScheduledJob(BaseModel):
+    id: str
+    name: str
+    func_ref: str
+    trigger: JobTriggerInfo
+    next_run_time: Optional[datetime] = None
+    status: JobStatusEnum = Field(description="The current health status of the job.")
