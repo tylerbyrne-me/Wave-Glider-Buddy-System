@@ -303,7 +303,7 @@ def plot_telemetry_for_report(ax, df: pd.DataFrame):
     ax.scatter(df['longitude'], df['latitude'], c=df['speedOverGround'], cmap=cmap, norm=norm, s=20, edgecolor='k', linewidth=0.2, transform=ccrs.PlateCarree())
     _annotate_track_start_end(ax, df)
     ax.set_title(f"Telemetry Track\n{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC")
-
+    
 def plot_power_for_report(ax1, df: pd.DataFrame):
     """Plots the detailed power summary on the given axes for a PDF report."""
     # The 'gliderTimeStamp' column is expected from the power data source.
@@ -339,6 +339,76 @@ def plot_power_for_report(ax1, df: pd.DataFrame):
     ax2.legend(lines + lines2, labels + labels2, loc='upper left')
     
     ax1.set_title("Power Subsystem Summary")
+    
+def plot_summary_page(fig, telemetry_mission, telemetry_report, power_report, ctd_report, weather_report, wave_report):
+    """
+    Creates a dedicated summary page with key statistics from all data sources.
+    """
+    fig.clf() # Clear the figure in case it's being reused
+    
+    # Helper to format a single stat block
+    def format_block(title, stats, unit):
+        lines = [f"{title}:"]
+        if "avg" in stats: lines.append(f"  • Avg: {stats['avg']:.2f} {unit}")
+        if "min" in stats: lines.append(f"  • Min: {stats['min']:.2f} {unit}")
+        if "max" in stats: lines.append(f"  • Max: {stats['max']:.2f} {unit}")
+        return "\n".join(lines)
+
+    # --- Column 1: Telemetry and Power ---
+    y_pos = 0.9
+    
+    # Telemetry Summary
+    telemetry_text = (
+        f"Telemetry Summary\n"
+        f"--------------------------\n"
+        f"Report Period:\n"
+        f"  • Distance Traveled: {telemetry_report.get('total_distance_km', 0.0):.2f} km\n"
+        f"  • Average Speed: {telemetry_report.get('avg_speed_knots', 0.0):.2f} knots\n\n"
+        f"Total Mission:\n"
+        f"  • Distance Traveled: {telemetry_mission.get('total_distance_km', 0.0):.2f} km"
+    )
+    fig.text(0.05, y_pos, telemetry_text, va='top', ha='left', fontsize=10, family='monospace')
+    
+    # Power Summary
+    y_pos -= 0.3
+    panel_lines = [f"  • {name}: {avg_w:.2f} W" for name, avg_w in power_report.get("avg_solar_panel_W", {}).items()]
+    panel_text = "\n".join(panel_lines)
+    power_text = (
+        f"Power Summary (Averages)\n"
+        f"--------------------------\n"
+        f"  • Total Input: {power_report.get('avg_total_input_W', 0.0):.2f} W\n"
+        f"  • Total Output: {power_report.get('avg_total_output_W', 0.0):.2f} W\n"
+        f"  • Solar Panel Input:\n{panel_text}"
+    )
+    fig.text(0.05, y_pos, power_text, va='top', ha='left', fontsize=10, family='monospace')
+
+    # --- Column 2: Oceanographic and Environmental ---
+    y_pos = 0.9
+    
+    # CTD Summary
+    ctd_lines = ["Oceanographic (CTD)", "--------------------------"]
+    if ctd_report.get("WaterTemperature"): ctd_lines.append(format_block("Water Temp", ctd_report["WaterTemperature"], "°C"))
+    if ctd_report.get("Salinity"): ctd_lines.append(format_block("Salinity", ctd_report["Salinity"], "PSU"))
+    if ctd_report.get("Conductivity"): ctd_lines.append(format_block("Conductivity", ctd_report["Conductivity"], "S/m"))
+    fig.text(0.5, y_pos, "\n".join(ctd_lines), va='top', ha='left', fontsize=10, family='monospace')
+    
+    # Weather Summary
+    y_pos -= 0.3
+    weather_lines = ["Meteorological (Weather)", "--------------------------"]
+    if weather_report.get("AirTemperature"): weather_lines.append(format_block("Air Temp", weather_report["AirTemperature"], "°C"))
+    if weather_report.get("WindSpeed"): weather_lines.append(format_block("Wind Speed", weather_report["WindSpeed"], "kt"))
+    if weather_report.get("WindGust"): weather_lines.append(f"  • Max Gust: {weather_report['WindGust']['max']:.2f} kt")
+    if weather_report.get("BarometricPressure"): weather_lines.append(format_block("Pressure", weather_report["BarometricPressure"], "mbar"))
+    fig.text(0.5, y_pos, "\n".join(weather_lines), va='top', ha='left', fontsize=10, family='monospace')
+    
+    # Wave Summary
+    y_pos -= 0.3
+    wave_lines = ["Sea State (Waves)", "--------------------------"]
+    if wave_report.get("SignificantWaveHeight"): wave_lines.append(format_block("Sig. Wave Height", wave_report["SignificantWaveHeight"], "m"))
+    if wave_report.get("WavePeriod"): wave_lines.append(format_block("Peak Period", wave_report["WavePeriod"], "s"))
+    fig.text(0.5, y_pos, "\n".join(wave_lines), va='top', ha='left', fontsize=10, family='monospace')
+
+    fig.suptitle("Mission Summary Statistics", fontsize=16)
 
 def plot_ctd_for_report(fig, df: pd.DataFrame):
     """

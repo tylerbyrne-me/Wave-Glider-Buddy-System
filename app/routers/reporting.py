@@ -55,30 +55,34 @@ async def generate_mission_report(
             load_data_source("ctd", mission_id, current_user=current_user),
             load_data_source("weather", mission_id, current_user=current_user),
             load_data_source("waves", mission_id, current_user=current_user),
+            load_data_source("solar", mission_id, current_user=current_user),
             return_exceptions=True,
         )
-        telemetry_res, power_res, ctd_res, weather_res, wave_res = results
+        telemetry_res, power_res, ctd_res, weather_res, wave_res, solar_res = results
 
         telemetry_df = telemetry_res[0] if not isinstance(telemetry_res, Exception) else pd.DataFrame()
         power_df = power_res[0] if not isinstance(power_res, Exception) else pd.DataFrame()
         ctd_df = ctd_res[0] if not isinstance(ctd_res, Exception) else pd.DataFrame()
         weather_df = weather_res[0] if not isinstance(weather_res, Exception) else pd.DataFrame()
         wave_df = wave_res[0] if not isinstance(wave_res, Exception) else pd.DataFrame()
+        solar_df = solar_res[0] if not isinstance(solar_res, Exception) else pd.DataFrame()
 
         if isinstance(telemetry_res, Exception): logger.error(f"Error loading telemetry data for report: {telemetry_res}")
         if isinstance(power_res, Exception): logger.error(f"Error loading power data for report: {power_res}")
         if isinstance(ctd_res, Exception): logger.error(f"Error loading ctd data for report: {ctd_res}")
         if isinstance(weather_res, Exception): logger.error(f"Error loading weather data for report: {weather_res}")
         if isinstance(wave_res, Exception): logger.error(f"Error loading wave data for report: {wave_res}")
+        if isinstance(solar_res, Exception): logger.error(f"Error loading solar data for report: {solar_res}")
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
 
-    report_url = generate_weekly_report(
+    report_url = await generate_weekly_report(
         mission_id=mission_id,
         telemetry_df=telemetry_df,
         power_df=power_df,
+        solar_df=solar_df,
         ctd_df=ctd_df,
         weather_df=weather_df,
         wave_df=wave_df,

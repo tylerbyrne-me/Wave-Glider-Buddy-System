@@ -436,7 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const saveToOverview = document.getElementById('saveToOverview').checked;
         const customFilename = document.getElementById('customFilename').value.trim();
 
-        const plotsToInclude = Array.from(document.querySelectorAll('#reportForm input[type="checkbox"]:checked'))
+        const plotsToInclude = Array.from(document.querySelectorAll('#plot-selection-group input[type="checkbox"]:checked'))
                                     .map(checkbox => checkbox.value);
 
         if (!missionId) {
