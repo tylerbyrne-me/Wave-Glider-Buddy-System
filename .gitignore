@@ -63,3 +63,8 @@ secrets/
 *.pem
 *.key
 *.token
+
+# geo-data
+*.shp 
+*.dbf 
+*.shx 
