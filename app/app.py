@@ -48,7 +48,7 @@ from .auth_utils import (get_current_active_user, get_current_admin_user,
                          get_optional_current_user)
 from .config import settings
 from .core import models  # type: ignore
-from .core import (forecast, loaders, processors, summaries, utils) # type: ignore
+from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context) # type: ignore
 from .core.security import create_access_token, verify_password
 from .db import SQLModelSession, get_db_session, sqlite_engine
 from .forms.form_definitions import get_static_form_schema # Import the new function
@@ -150,6 +150,10 @@ app.include_router(admin_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
+
+# --- Import template context helper ---
+from .core.template_context import get_template_context
+
 # ---
 
 from cachetools import LRUCache
@@ -832,11 +836,11 @@ async def root(request: Request, current_user: models.User = Depends(get_current
 
     # Process the loaded data for summaries and mini-trends
     context = await _process_loaded_data_for_home_view(results, report_types_order, hours, mission)
-    context.update({
-        "request": request,
-        "mission": mission,
-        "current_user": current_user,
-    })
+    context.update(get_template_context(
+        request=request,
+        mission=mission,
+        current_user=current_user,
+    ))
 
     return templates.TemplateResponse("index.html", context)
 
@@ -1273,12 +1277,12 @@ async def get_mission_form_page(
     )
     try:
         template_name = "mission_form.html"
-        context = {
-            "request": request,
-            "mission_id": mission_id,
-            "form_type": form_type,
-            "current_user": actual_current_user,  # Pass to template
-        }
+        context = get_template_context(
+            request=request,
+            mission_id=mission_id,
+            form_type=form_type,
+            current_user=actual_current_user,  # Pass to template
+        )
 
         response = templates.TemplateResponse(template_name, context)
         logger.info(f"Successfully prepared TemplateResponse for {template_name}.")
@@ -1316,10 +1320,11 @@ async def get_view_station_status_page(
     )
     return templates.TemplateResponse(
         "view_station_status.html",
-        {
-            "request": request,
-            "current_user": current_user, # Removed show_mission_selector
-        },    )
+        get_template_context(
+            request=request,
+            current_user=current_user, # Removed show_mission_selector
+        )
+    )
 
 
 # --- HTML Route for Admin User Management ---
@@ -1343,10 +1348,10 @@ async def get_admin_user_management_page(
     )
     return templates.TemplateResponse(
         "admin_user_management.html",
-        {
-            "request": request,
-            "current_user": current_user, # Removed show_mission_selector
-        },
+        get_template_context(
+            request=request,
+            current_user=current_user, # Removed show_mission_selector
+        )
     )
 
 from fastapi.exception_handlers import http_exception_handler as original_http_exception_handler

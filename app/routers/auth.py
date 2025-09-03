@@ -11,6 +11,7 @@ from ..core import models
 from ..core.security import create_access_token, verify_password
 from ..db import get_db_session
 from app.core.templates import templates
+from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Authentication"])
 
@@ -195,8 +196,8 @@ async def admin_change_user_password(
 async def login_page(request: Request, current_user: models.User = Depends(get_optional_current_user)):
     if current_user:
         return RedirectResponse(url="/home.html")
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", get_template_context(request=request))
 
 @router.get("/register.html", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+    return templates.TemplateResponse("register.html", get_template_context(request=request))

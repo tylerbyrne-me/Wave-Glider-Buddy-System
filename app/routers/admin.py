@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 from ..auth_utils import get_current_admin_user, get_optional_current_user
 from ..core import models
 from ..core.templates import templates
+from ..core.template_context import get_template_context
 
 logger = logging.getLogger(__name__)
 
@@ -67,4 +68,4 @@ async def get_scheduler_jobs():
 @router.get("/scheduler_status.html", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(get_optional_current_user)])
 async def get_scheduler_status_page(request: Request, current_user: models.User = Depends(get_optional_current_user)):
     """Serves the HTML page for viewing scheduler status."""
-    return templates.TemplateResponse("admin/scheduler_status.html", {"request": request, "current_user": current_user})
+    return templates.TemplateResponse("admin/scheduler_status.html", get_template_context(request=request, current_user=current_user))

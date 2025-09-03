@@ -14,20 +14,103 @@
     padding-bottom: 0.7rem;
 }
 
+/* Fix responsive banner behavior */
+.navbar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1030;
+    min-height: var(--banner-height);
+}
+
+/* Prevent navbar collapse on smaller screens */
+.navbar-collapse {
+    flex-basis: auto !important;
+    flex-grow: 0 !important;
+}
+
+/* Ensure navbar items stay in banner area */
+.navbar-nav {
+    flex-direction: row !important;
+    align-items: center;
+}
+
+/* Stack banner rows vertically on very small screens */
+@media (max-width: 576px) {
+    .navbar-top-row,
+    .navbar-bottom-row {
+        flex-direction: column;
+        height: auto;
+        min-height: 25px;
+    }
+    
+    .navbar-top-row .d-flex {
+        justify-content: center;
+        margin-bottom: 0.5rem;
+    }
+    
+    .navbar-bottom-row .navbar-nav {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .navbar-bottom-row .nav-item {
+        margin: 0.25rem;
+    }
+}
+
 /* Increase font size for major banner elements by ~10% */
 .navbar .navbar-brand,
+.navbar .nav-link {
+    color: var(--navbar-link-color);
+    font-size: 1.05em; /* A subtle increase */
+}
+/* Apply Raleway font to navbar and items */
+.navbar,
+.navbar .navbar-brand,
+.navbar .nav-link,
+.navbar .dropdown-item,
+.navbar-title {
+  font-family: "Raleway", Helvetica, Arial, Lucida, sans-serif;
+}
+
+/* Logo styling in navbar */
+.navbar-logo {
+  height: 40px; /* Match banner row height proportionally */
+  width: auto; /* Maintain aspect ratio */
+  filter: brightness(0) invert(1); /* Make logo white to match navbar text */
+}
+
+/* Fix dropdown visibility in light/dark themes */
+.navbar .dropdown-menu {
+  background-color: var(--dropdown-bg);
+  border: 1px solid var(--card-border);
+}
+
+.navbar .dropdown-item {
+  color: var(--dropdown-text);
+}
+
+.navbar .dropdown-item:hover,
+.navbar .dropdown-item:focus {
+  background-color: var(--dropdown-hover-bg);
+  color: var(--dropdown-text);
+}
+/* Fine-tune navbar font weights */
+.navbar-title {
+  font-weight: 600; /* Semi-bold for title */
+}
 .navbar .nav-link,
 .navbar .dropdown-item {
-    color: var(--navbar-link-color);
-
-    font-size: 1.05em; /* A subtle increase */
+  font-weight: 500; /* Medium for links */
 }
 /* Adjust the new UTC clock and refresh countdown text size */
 .navbar #utcClockBanner,
 .navbar #refreshCountdown {
     color: var(--navbar-link-color);
 
-    font-size: 0.9em;
+    font-size: 1.05em;
     white-space: nowrap; /* Prevent the clock from wrapping on smaller screens */
 }
 
@@ -42,8 +125,19 @@ body {
   /* You can set a global font family here if you want to override Bootstrap's default */
   background-color: var(--bs-body-bg);
   color: var(--bs-body-color);
-  font-family: 'Roboto', sans-serif; /* Example: Using Roboto */
+  font-family: 'Raleway', sans-serif;
 }
+/* Apply Inter Tight to header titles across the site */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Inter Tight", Helvetica, Arial, Lucida, sans-serif;
+}
+/* Heading-specific weights to match brand tone */
+h1 { font-weight: 700; }
+h2 { font-weight: 600; }
+h3 { font-weight: 600; }
+h4 { font-weight: 500; }
+h5 { font-weight: 500; }
+h6 { font-weight: 500; }
 
 .card {
   /* Add a subtle border that works with the dark theme */
@@ -76,7 +170,6 @@ body {
 
 /* Refined chart container to ensure spinner is centered */
 .chart-container {
-  /* min-height: 201px; /* Scaled: 300px * 0.67 = 201px */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -89,6 +182,15 @@ body {
   transform: translate(-50%, -50%); /* Precise centering */
 }
 
+footer {
+  background-color: var(--footer-bg);
+  color: var(--footer-text);
+  margin: 0 !important; /* Remove all margins to eliminate gaps */
+  padding: 1rem 0; /* Add internal padding instead */
+  width: 100%; /* Ensure full width coverage */
+}
+footer a { color: var(--footer-text); }
+footer .text-muted { color: var(--footer-text) !important; }
 footer .text-muted {
   font-size: 0.875em; /* Make footer text slightly smaller */
   text-align: center; /* Center footer text if desired */
@@ -133,7 +235,6 @@ footer .text-muted {
 }
 
 #left-nav-panel {
-  /* background-color: #2c3e50; */ /* Slightly different background for distinction */
   padding: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   height: calc(100vh - 168px); /* Scaled: 250px * 0.67 = 167.5px, rounded */
   overflow-y: auto;
@@ -150,6 +251,8 @@ footer .text-muted {
   padding: 7px; /* Scaled: 10px * 0.67 = 6.7px, rounded */
   cursor: pointer;
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  display: flex;
+  flex-direction: column; /* Stack main content and footer vertically */
 }
 
 .summary-card:hover {
@@ -173,14 +276,10 @@ footer .text-muted {
   color: var(--active-card-text) !important;
 }
 .summary-card.active-card .summary-card-footer {
-  color: var(--active-card-text) !important;
-  opacity: 0.85;}
-
-/* New styles for summary card internal layout */
-.summary-card {
-  display: flex;
-  flex-direction: column; /* Stack main content and footer vertically */
+  opacity: 0.85;
 }
+
+
 
 .summary-card-main-content {
   display: flex;
@@ -215,8 +314,6 @@ footer .text-muted {
 .mini-chart-container {
   height: 47px; /* Scaled: 70px * 0.67 = 46.9px, rounded */
   width: 80%;  /* Chart takes about 35% of the main content width - adjust as needed */
-  /* margin-bottom: 5px; /* This might not be needed if align-items: center is working well */
-  /* background-color: rgba(0,0,0,0.1); */ /* Optional: slight bg for chart area */
 }
 
 .mini-chart-placeholder {
@@ -229,7 +326,6 @@ footer .text-muted {
   align-items: flex-start; /* Align list to the start */
   padding: 2px 4px; /* Minimal padding */
   overflow: hidden; /* Hide overflow for the placeholder itself */
-  /* background-color: rgba(255,255,255,0.05); /* Optional: for debugging area */
 }
 
 .mini-chart-container canvas {
@@ -292,11 +388,7 @@ footer .text-muted {
   margin-top: 1.5rem !important; /* Ensure a bit more space above the chart */
 }
 
-/* Power Task Manager Summary Styles */
-.power-task-manager-summary {
-  /* border: 1px solid #444; */ /* Optional: for visual separation */
-  /* padding: 10px; */ /* Scaled: 15px * 0.67 = 10px */
-}
+/* Power Task Manager Summary Styles - reserved for future styling */
 
 /* New style for the bordered/shaded summary box inside detail views */
 .detail-summary-box {
@@ -362,13 +454,6 @@ footer .text-muted {
   line-height: 1;        /* Prevents extra vertical space due to large font size */
   color: var(--secondary-color);       /* Arrow color */
 }
-
-/* .wave-propagation-label {
-  font-size: 0.9rem;     /* Label size, similar to .power-summary-header. (0.9 * 16px * 0.67 = ~9.6px) 
-  color: #adb5bd;       /* Muted color for the label 
-  display: block;        /* Ensures it takes its own line if needed 
-  margin-top: -0.3rem;   /* Fine-tune vertical position relative to the arrow 
-} */
 
 .sm-badge {
     font-size: 1.0em; /* Adjust as needed */
@@ -645,17 +730,10 @@ footer .text-muted {
 
 /* Regular pilot merged events - preserve user colors but enhance styling */
 .fc-event-shift.fc-event-merged {
-    /* Don't override background color - let FullCalendar use the user's assigned color */
-    /* Only enhance the styling without changing the color */
-    font-weight: 600;
-    border-width: 2px;
-    /* Remove the !important background override to preserve user colors */
-}
-
-/* CRITICAL: Ensure merged events keep their colors */
-.fc-event-shift.fc-event-merged {
     /* Let FullCalendar handle all colors - don't override anything */
     /* Only add non-color styling */
+    font-weight: 600;
+    border-width: 2px;
     border-radius: 4px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }

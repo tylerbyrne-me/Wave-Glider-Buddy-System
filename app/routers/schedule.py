@@ -14,6 +14,7 @@ import ics
 import csv
 import logging
 from app.core.templates import templates
+from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Schedule"])
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ async def read_schedule_page(
     # Use request.app.state.templates to access Jinja2Templates instance
     return templates.TemplateResponse(
         "schedule.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/api/schedule/events", response_model=List[models.ScheduleEvent])

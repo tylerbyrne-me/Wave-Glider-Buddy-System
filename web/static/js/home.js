@@ -38,7 +38,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const converter = new showdown.Converter();
             if (announcements.length > 0) {
                 panel.innerHTML = announcements.map(a => `
-                    <div class="alert alert-info" role="alert">
+                    <div class="alert alert-info" role="alert" 
+                         data-user-role="${USER_ROLE}" 
+                         data-user-id="${USER_ID}">
                         <h5 class="alert-heading">Announcement</h5>
                         ${converter.makeHtml(a.content)}
                         <hr>
@@ -268,6 +270,46 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- DYNAMIC DOM MANIPULATION HELPERS ---
 
+    /**
+     * Fetches the vehicle name from the mission's power summary and adds it to the mission card's title.
+     * @param {HTMLElement} missionSection - The .mission-info-section element.
+     * @param {string} missionId - The ID of the mission (e.g., 'm209').
+     */
+    const addVehicleNameToMissionHeader = async (missionSection, missionId) => {
+        const missionTitleElement = missionSection.querySelector('.card-title');
+        if (!missionTitleElement) {
+            console.warn(`No .card-title element found for mission ${missionId}`);
+            return;
+        }
+
+        // Create a placeholder for the vehicle name to show immediate feedback
+        const vehicleNameSpan = document.createElement('span');
+        vehicleNameSpan.className = 'text-muted fw-normal ms-2';
+        vehicleNameSpan.style.fontSize = '0.8em'; // Make it slightly smaller than the title
+        vehicleNameSpan.textContent = '(Loading vehicle...)';
+        missionTitleElement.appendChild(vehicleNameSpan);
+
+        try {
+            // The public data folder should be accessible directly.
+            const response = await fetch(`/data/${missionId}/power_summary.csv`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const csvText = await response.text();
+            
+            // Simple CSV parser to get the vehicleName from the first data row.
+            const rows = csvText.split('\n');
+            const headers = (rows[0] || '').split(',').map(h => h.trim());
+            const values = (rows[1] || '').split(',').map(v => v.trim());
+            const vehicleNameIndex = headers.indexOf('vehicleName');
+
+            vehicleNameSpan.textContent = (vehicleNameIndex !== -1 && values[vehicleNameIndex]) ? `(${values[vehicleNameIndex]})` : '(Vehicle unknown)';
+        } catch (error) {
+            console.error(`Failed to load vehicle name for mission ${missionId}:`, error);
+            vehicleNameSpan.textContent = '(Info unavailable)';
+        }
+    };
+
     const updateGoalPlaceholder = (missionSection) => {
         const goalsList = missionSection.querySelector('.mission-goals-list');
         const placeholder = goalsList.querySelector('.no-mission-goals-placeholder');
@@ -421,6 +463,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('includeCtd').checked = true;
         document.getElementById('includeWeather').checked = true;
         document.getElementById('includeWave').checked = true;
+        document.getElementById('includeErrors').checked = true;
         document.getElementById('saveToOverview').checked = true;
         // Ensure the custom filename field is hidden and cleared on open
         customFilenameGroup.style.display = 'none';
@@ -459,7 +502,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await apiRequest(`/api/reporting/missions/${missionId}/generate-weekly-report`, 'POST', options);
             showToast('Report generated successfully!', 'success');
             reportModal.hide();
-
+            
+            // Always open the report in a new tab for immediate feedback.
+            window.open(result.weekly_report_url, '_blank');
+            
             if (saveToOverview) {
                 const missionSection = document.querySelector(`.mission-info-section[data-mission-id="${missionId}"]`);
                 if (missionSection && result.weekly_report_url) {
@@ -469,11 +515,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         viewReportLink.style.display = 'inline-block';
                     }
                 }
-            } else {
-                // If not saving to overview, open the report in a new tab for immediate viewing/download
-                window.open(result.weekly_report_url, '_blank');
             }
-
         } finally {
             generateReportBtn.disabled = false;
             generateReportBtn.innerHTML = 'Generate Report';
@@ -546,6 +588,14 @@ document.addEventListener('DOMContentLoaded', function() {
         loadAnnouncements();
         loadUpcomingShifts();
         loadTimesheetStatus();
+
+        // Add vehicle names to each mission card
+        document.querySelectorAll('.mission-info-section').forEach(missionSection => {
+            const missionId = missionSection.dataset.missionId;
+            if (missionId) {
+                addVehicleNameToMissionHeader(missionSection, missionId);
+            }
+        });
 
         // If a specific tab is targeted in the URL, show it
         const urlParams = new URLSearchParams(window.location.search);

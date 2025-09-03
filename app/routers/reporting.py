@@ -56,9 +56,10 @@ async def generate_mission_report(
             load_data_source("weather", mission_id, current_user=current_user),
             load_data_source("waves", mission_id, current_user=current_user),
             load_data_source("solar", mission_id, current_user=current_user),
+            load_data_source("errors", mission_id, current_user=current_user),
             return_exceptions=True,
         )
-        telemetry_res, power_res, ctd_res, weather_res, wave_res, solar_res = results
+        telemetry_res, power_res, ctd_res, weather_res, wave_res, solar_res, error_res = results
 
         telemetry_df = telemetry_res[0] if not isinstance(telemetry_res, Exception) else pd.DataFrame()
         power_df = power_res[0] if not isinstance(power_res, Exception) else pd.DataFrame()
@@ -66,6 +67,7 @@ async def generate_mission_report(
         weather_df = weather_res[0] if not isinstance(weather_res, Exception) else pd.DataFrame()
         wave_df = wave_res[0] if not isinstance(wave_res, Exception) else pd.DataFrame()
         solar_df = solar_res[0] if not isinstance(solar_res, Exception) else pd.DataFrame()
+        error_df = error_res[0] if not isinstance(error_res, Exception) else pd.DataFrame()
 
         if isinstance(telemetry_res, Exception): logger.error(f"Error loading telemetry data for report: {telemetry_res}")
         if isinstance(power_res, Exception): logger.error(f"Error loading power data for report: {power_res}")
@@ -73,10 +75,16 @@ async def generate_mission_report(
         if isinstance(weather_res, Exception): logger.error(f"Error loading weather data for report: {weather_res}")
         if isinstance(wave_res, Exception): logger.error(f"Error loading wave data for report: {wave_res}")
         if isinstance(solar_res, Exception): logger.error(f"Error loading solar data for report: {solar_res}")
+        if isinstance(error_res, Exception): logger.error(f"Error loading error data for report: {error_res}")
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
+
+    # Fetch mission goals to include in the report
+    goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
+    mission_goals = session.exec(goals_statement).all()
+    logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
 
     report_url = await generate_weekly_report(
         mission_id=mission_id,
@@ -86,6 +94,8 @@ async def generate_mission_report(
         ctd_df=ctd_df,
         weather_df=weather_df,
         wave_df=wave_df,
+        error_df=error_df,
+        mission_goals=mission_goals,
         start_date=options.start_date,
         end_date=options.end_date,
         plots_to_include=options.plots_to_include,

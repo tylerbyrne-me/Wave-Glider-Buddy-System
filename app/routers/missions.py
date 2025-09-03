@@ -11,6 +11,7 @@ import shutil
 import logging
 from app.core.templates import templates
 from app.config import settings
+from ..core.template_context import get_template_context
 
 
 router = APIRouter(tags=["Missions"])
@@ -30,7 +31,7 @@ async def get_admin_mission_overviews_page(
     )
     return templates.TemplateResponse(
         "admin_mission_overviews.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 # --- Helper ---

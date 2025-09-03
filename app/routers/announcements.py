@@ -19,6 +19,7 @@ from ..core.models import (
 )
 from .. import auth_utils
 from app.core.templates import templates
+from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Announcements"])
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ async def get_admin_announcements_page(
     )
     return templates.TemplateResponse(
         "admin_announcements.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 # --- API Endpoints ---

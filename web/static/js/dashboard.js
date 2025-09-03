@@ -311,7 +311,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } },
+                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } },
                         title: { display: true, text: 'Time', color: chartTextColor },
                         ticks: {
                             color: chartTextColor,
@@ -393,7 +393,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } },
+                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } },
                         title: { display: true, text: 'Time', color: chartTextColor },
                         ticks: {
                             color: chartTextColor,
@@ -516,7 +516,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
                     yTemp: { type: 'linear', position: 'left', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
                     yCond: { type: 'linear', position: 'right', title: { display: true, text: 'Conductivity (S/m)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false } },
                     yDO: { type: 'linear', position: 'left', display: false, grid: { drawOnChartArea: false } } // Hidden Y-axis for DO
@@ -595,7 +595,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } },
+                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } },
                         title: { display: true, text: 'Time', color: chartTextColor },
                         ticks: {
                             color: chartTextColor,
@@ -934,7 +934,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } },
+                        time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } },
                         title: { display: true, text: 'Time', color: chartTextColor },
                         ticks: {
                             color: chartTextColor,
@@ -1102,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
                     yCounts: { type: 'linear', position: 'left', title: { display: true, text: 'Detection Count (DC)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDelta: { type: 'linear', position: 'right', title: { display: true, text: 'Ping Count Delta (ΔPC/hr)', color: chartTextColor }, ticks: { color: chartTextColor /* beginAtZero: false might be better for deltas */ }, grid: { drawOnChartArea: false } }
                 },
@@ -1169,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yHeight: { type: 'linear', position: 'left', title: { display: true, text: 'Wave Height (m)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDirection: { type: 'linear', position: 'right', title: { display: true, text: 'Wave Direction (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1345,7 +1345,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yPrimary: { type: 'linear', position: 'left', title: { display: true, text: 'Fluorescence Units', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
                     yTemp: { type: 'linear', position: 'right', title: { display: true, text: 'Temperature (°C)', color: chartTextColor }, ticks: { color: chartTextColor }, grid: { drawOnChartArea: false } }
                 },
@@ -1432,7 +1432,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true, autoSkipPadding: 20 }, grid: { color: chartGridColor } },
                     yIndividualPanels: { // Y-axis for individual panel powers
                         type: 'linear',
                         position: 'left',
@@ -1515,7 +1515,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Speed (knots)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yHeading: { type: 'linear', position: 'right', title: { display: true, text: 'Heading (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1586,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Speed (knots)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDirection: { type: 'linear', position: 'right', title: { display: true, text: 'Direction (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: 0, max: 360 }, grid: { drawOnChartArea: false } }
                 },
@@ -1661,7 +1661,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Ocean Current (kn)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDiff: { type: 'linear', position: 'right', title: { display: true, text: 'Heading Diff (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: -180, max: 180 }, grid: { drawOnChartArea: false } }
                 },
@@ -1724,7 +1724,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'HH:mm' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, yyyy HH:mm', displayFormats: { hour: 'MMM d HH:mm', day: 'MMM d' } }, title: { display: true, text: 'Time', color: chartTextColor }, ticks: { color: chartTextColor, maxRotation: 0, autoSkip: true }, grid: { color: chartGridColor } },
                     yDetections: { type: 'linear', position: 'left', title: { display: true, text: 'Detection Counts', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } }
                 },
                 plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }

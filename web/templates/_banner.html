@@ -4,7 +4,8 @@
       <!-- Top Row -->
       <div class="navbar-top-row d-flex align-items-center" style="height: var(--banner-top-row-height);"> {# Removed justify-content-between #}
         <div class="d-flex align-items-center" style="padding-left: var(--banner-padding-x);"> {# Left aligned title #}
-          <a class="navbar-brand" href="/home.html" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
+          <a class="navbar-brand d-flex align-items-center" href="/home.html" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
+            <img src="/static/images/wgbs_logo.svg" alt="Wave Glider Buddy System Logo" class="navbar-logo me-2">
             <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
           </a>
         </div>
@@ -46,12 +47,17 @@
               <li><a class="dropdown-item" href="/">Loading Missions...</a></li>
             </ul>
           </li>
+          {% if features.schedule %}
           <li class="nav-item me-3"> {# Added me-3 for spacing #}
             <a class="nav-link" href="/schedule.html">Schedule</a>
           </li>
+          {% endif %}
+          {% if features.station_offloads %}
           <li class="nav-item me-3"> {# Added me-3 for spacing #}
             <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
           </li>
+          {% endif %}
+          {% if features.payroll %}
           <li class="nav-item dropdown me-3" id="payrollDropdown" style="display: none;">
             <a class="nav-link dropdown-toggle" href="#" id="payrollDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Payroll
@@ -61,6 +67,8 @@
               <li><a class="dropdown-item" href="/payroll/my_timesheets.html">My Timesheets</a></li>
             </ul>
           </li>
+          {% endif %}
+          {% if features.pic_management %}
           <li class="nav-item dropdown me-3" id="picManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="picManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               PIC Management
@@ -71,6 +79,8 @@
               <li><a class="dropdown-item" href="/view_pic_handoffs.html">Recent PIC Handoffs (24h)</a></li>
             </ul>
           </li>
+          {% endif %}
+          {% if features.admin_management %}
           <li class="nav-item dropdown me-3" id="adminManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="adminManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Admin Management
@@ -85,6 +95,7 @@
               <li><a class="dropdown-item" href="/api/admin/scheduler_status.html">Scheduler Status</a></li>
             </ul>
           </li>
+          {% endif %}
           <!-- Auto-refresh toggle, only visible on dashboard page -->
           {% if is_current_mission_realtime %}
           <li class="nav-item ms-auto me-3"> {# ms-auto pushes this to the right #}
@@ -99,3 +110,42 @@
     </div>
   </div>
 </nav>
+<script>
+  (function() {
+    document.addEventListener('DOMContentLoaded', function() {
+      var rootEl = document.documentElement;
+      var switchEl = document.getElementById('themeSwitch');
+
+      if (!rootEl || !switchEl) { return; }
+
+      // Determine initial theme: localStorage -> existing data-theme -> system preference -> 'light'
+      var stored = localStorage.getItem('theme');
+      var current = rootEl.getAttribute('data-theme');
+      var systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var initial = stored || current || (systemPrefersDark ? 'dark' : 'light');
+
+      // Apply and sync toggle state
+      rootEl.setAttribute('data-theme', initial);
+      switchEl.checked = initial === 'dark';
+
+      // Persist on toggle
+      switchEl.addEventListener('change', function() {
+        var nextTheme = switchEl.checked ? 'dark' : 'light';
+        rootEl.setAttribute('data-theme', nextTheme);
+        try { localStorage.setItem('theme', nextTheme); } catch (e) {}
+      });
+
+      // Optional: react to system theme changes if user hasn't explicitly chosen
+      if (!stored && window.matchMedia) {
+        try {
+          var mq = window.matchMedia('(prefers-color-scheme: dark)');
+          mq.addEventListener('change', function(ev) {
+            var autoTheme = ev.matches ? 'dark' : 'light';
+            rootEl.setAttribute('data-theme', autoTheme);
+            switchEl.checked = autoTheme === 'dark';
+          });
+        } catch (e) {}
+      }
+    });
+  })();
+</script>

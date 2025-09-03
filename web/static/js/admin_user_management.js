@@ -29,6 +29,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const confirmNewPasswordInput = document.getElementById('confirmNewPassword');
     const saveNewPasswordBtn = document.getElementById('saveNewPasswordBtn');
     const changePasswordErrorDiv = document.getElementById('changePasswordError');
+
+    const addNewUserModal = new bootstrap.Modal(document.getElementById('addNewUserModal'));
+    const addNewUserForm = document.getElementById('addNewUserForm');
+    const newUsernameInput = document.getElementById('newUsername');
+    const newFullNameInput = document.getElementById('newFullName');
+    const newEmailInput = document.getElementById('newEmail');
+    const newRoleSelect = document.getElementById('newRole');
+    const newUserPasswordInput = document.getElementById('newUserPassword');
+    const newUserConfirmPasswordInput = document.getElementById('newUserConfirmPassword');
+    const saveNewUserBtn = document.getElementById('saveNewUserBtn');
+    const addNewUserErrorDiv = document.getElementById('addNewUserError');
+    const addNewUserBtn = document.getElementById('addNewUserBtn');
     
     const currentAdminUsername = document.body.dataset.username;
     const closeUserManagementPageBtn = document.getElementById('closeUserManagementPageBtn');
@@ -231,6 +243,81 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error("Error changing password:", error);
         }
     });
+
+    function openAddNewUserModal() {
+        addNewUserErrorDiv.style.display = 'none';
+        addNewUserForm.reset();
+        addNewUserModal.show();
+    }
+
+    saveNewUserBtn.addEventListener('click', async () => {
+        addNewUserErrorDiv.style.display = 'none';
+        
+        const username = newUsernameInput.value.trim();
+        const fullName = newFullNameInput.value.trim();
+        const email = newEmailInput.value.trim();
+        const role = newRoleSelect.value;
+        const password = newUserPasswordInput.value;
+        const confirmPassword = newUserConfirmPasswordInput.value;
+
+        // Validation
+        if (!username) {
+            addNewUserErrorDiv.textContent = 'Username is required.';
+            addNewUserErrorDiv.style.display = 'block';
+            return;
+        }
+        if (!password) {
+            addNewUserErrorDiv.textContent = 'Password is required.';
+            addNewUserErrorDiv.style.display = 'block';
+            return;
+        }
+        if (password !== confirmPassword) {
+            addNewUserErrorDiv.textContent = 'Passwords do not match.';
+            addNewUserErrorDiv.style.display = 'block';
+            return;
+        }
+        if (password.length < 6) {
+            addNewUserErrorDiv.textContent = 'Password must be at least 6 characters long.';
+            addNewUserErrorDiv.style.display = 'block';
+            return;
+        }
+
+        const payload = {
+            username: username,
+            full_name: fullName || null,
+            email: email || null,
+            role: role,
+            password: password
+        };
+
+        try {
+            const response = await fetchWithAuth('/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (response.ok) {
+                addNewUserModal.hide();
+                fetchAndDisplayUsers(); // Refresh the list
+            } else {
+                const errorData = await response.json();
+                addNewUserErrorDiv.textContent = errorData.detail || 'Failed to create user.';
+                addNewUserErrorDiv.style.display = 'block';
+            }
+        } catch (error) {
+            addNewUserErrorDiv.textContent = 'Network error or unexpected issue.';
+            addNewUserErrorDiv.style.display = 'block';
+            console.error("Error creating new user:", error);
+        }
+    });
+
+    // Event listener for the "Add New User" button
+    if (addNewUserBtn) {
+        addNewUserBtn.addEventListener('click', function() {
+            openAddNewUserModal();
+        });
+    }
 
     // Event listener for the "Close Page" button
     if (closeUserManagementPageBtn) { // Keep close button as requested

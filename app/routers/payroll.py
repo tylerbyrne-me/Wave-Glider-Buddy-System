@@ -16,6 +16,7 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 import calendar
 from app.core.templates import templates
 from .. import auth_utils
+from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Payroll"])
 logger = logging.getLogger(__name__)
@@ -649,7 +650,7 @@ async def get_payroll_submit_page(
 ):
     return templates.TemplateResponse(
         "payroll_submit.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/payroll/my_timesheets.html", response_class=HTMLResponse)
@@ -659,7 +660,7 @@ async def get_my_timesheets_page(
 ):
     return templates.TemplateResponse(
         "my_timesheets.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/admin/pay_periods.html", response_class=HTMLResponse)
@@ -669,7 +670,7 @@ async def get_admin_pay_periods_page(
 ):
     return templates.TemplateResponse(
         "admin_pay_periods.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/admin/timesheets.html", response_class=HTMLResponse)
@@ -679,7 +680,7 @@ async def get_admin_view_timesheets_page(
 ):
     return templates.TemplateResponse(
         "admin_view_timesheets.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/admin/reports.html", response_class=HTMLResponse)
@@ -689,5 +690,5 @@ async def get_admin_reports_page(
 ):
     return templates.TemplateResponse(
         "admin_reports.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     ) 

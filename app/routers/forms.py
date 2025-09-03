@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from ..forms.form_definitions import get_static_form_schema
 from app.core.templates import templates
+from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Forms"])
 logger = logging.getLogger(__name__)
@@ -182,7 +183,7 @@ async def get_view_forms_page(
     )
     return templates.TemplateResponse(
         "view_forms.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/my_pic_handoffs.html", response_class=HTMLResponse)
@@ -193,7 +194,7 @@ async def get_my_pic_handoffs_page(
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /my_pic_handoffs.html.")
     return templates.TemplateResponse(
         "my_pic_handoffs.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     )
 
 @router.get("/view_pic_handoffs.html", response_class=HTMLResponse)
@@ -204,5 +205,5 @@ async def get_view_pic_handoffs_page(
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /view_pic_handoffs.html.")
     return templates.TemplateResponse(
         "view_pic_handoffs.html",
-        {"request": request, "current_user": current_user},
+        get_template_context(request=request, current_user=current_user),
     ) 

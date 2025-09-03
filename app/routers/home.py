@@ -6,6 +6,7 @@ from ..auth_utils import get_current_active_user, get_optional_current_user
 from ..db import get_db_session, SQLModelSession
 from app.core.templates import templates
 from app.config import settings
+from ..core.template_context import get_template_context
 from sqlmodel import select
 import logging
 
@@ -45,12 +46,12 @@ async def get_home_page(
             notes=notes
         )
     
-    template_context = {
-        "request": request, 
-        "current_user": current_user,
-        "active_missions": active_missions,
-        "active_mission_data": active_mission_data
-    }
+    template_context = get_template_context(
+        request=request, 
+        current_user=current_user,
+        active_missions=active_missions,
+        active_mission_data=active_mission_data
+    )
     logger.info(f"Template context - active_missions: {active_missions}, active_mission_data keys: {list(active_mission_data.keys())}")
     logger.info(f"Active missions type: {type(active_missions)}, length: {len(active_missions) if active_missions else 0}")
     

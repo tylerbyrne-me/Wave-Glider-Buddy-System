@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional
 
+import textwrap
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -10,10 +12,14 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 import numpy as np # type: ignore
+import logging
 
+from . import models
 from .processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
 from .processors import preprocess_telemetry_df # Explicitly import for report plot
+
+logger = logging.getLogger(__name__)
 
 def ensure_plots_dir():
     plots_dir = Path("waveglider_plots_temp")
@@ -81,7 +87,7 @@ def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
         plt.close()
         return plot_path
     except Exception as e:
-        print(f"Error generating power plot: {e}")
+        logger.error(f"Error generating power plot: {e}", exc_info=True)
         return None
 
 
@@ -110,44 +116,47 @@ def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
             axs[0].plot(
                 hourly_data.index,
                 hourly_data["WaterTemperature"],
-                "r-", # type: ignore
-                label="Water Temperature (°C)", # type: ignore
+                "r-",
+                label="Water Temperature (°C)",
             )
             axs[0].set_ylabel("Temperature (°C)")
             axs[0].grid(True, alpha=0.3)
             axs[0].legend(loc="upper left")
-        if "Salinity" in hourly_data.columns:
-            axs[1].plot(
-                hourly_data.index, hourly_data["Salinity"], "b-", label="Salinity (PSU)"
-            ) # type: ignore
-            axs[1].set_ylabel("Salinity (PSU)")
-            axs[1].grid(True, alpha=0.3)
-            axs[1].legend(loc="upper left")
+        # Plot Conductivity on the second subplot, as Salinity is derived from it.
         if "Conductivity" in hourly_data.columns:
-            axs[2].plot(
+            axs[1].plot(
                 hourly_data.index,
                 hourly_data["Conductivity"],
-                "orange", # type: ignore
-                label="Conductivity (S/m)", # type: ignore
+                "orange",
+                label="Conductivity (S/m)",
             )
+        # Twin axis for Dissolved Oxygen on the Conductivity plot (axs[1])
         if "DissolvedOxygen" in hourly_data.columns:
-            ax2_twin = axs[2].twinx()
-            ax2_twin.plot(
+            ax1_twin = axs[1].twinx()
+            ax1_twin.plot(
                 hourly_data.index, hourly_data["DissolvedOxygen"], "g--", label="O₂ (Hz)"
             )
-            ax2_twin.set_ylabel("O₂ (Hz)", color="green")
-            ax2_twin.tick_params(axis="y", labelcolor="green")
-        axs[2].set_ylabel("Conductivity (S/m)")
+            ax1_twin.set_ylabel("O₂ (Hz)", color="green")
+            ax1_twin.tick_params(axis="y", labelcolor="green")
+        axs[1].set_ylabel("Conductivity (S/m)")
+        axs[1].grid(True, alpha=0.3)
+        axs[1].legend(loc="upper left")
+        # Plot Salinity on the third subplot
+        if "Salinity" in hourly_data.columns:
+            axs[2].plot(
+                hourly_data.index, hourly_data["Salinity"], "b-", label="Salinity (PSU)"
+            )
+            axs[2].set_ylabel("Salinity (PSU)")
+            axs[2].grid(True, alpha=0.3)
+            axs[2].legend(loc="upper left")
         axs[2].set_xlabel("Time")
-        axs[2].grid(True, alpha=0.3)
-        axs[2].legend(loc="upper left") # type: ignore
         plt.suptitle(f"CTD Data Trends - Last {hours_back} Hours")
         plt.tight_layout()
         plt.savefig(plot_path)
         plt.close()
         return plot_path
     except Exception as e:
-        print(f"Error generating CTD plot: {e}")
+        logger.error(f"Error generating CTD plot: {e}", exc_info=True)
         return None
 
 
@@ -174,20 +183,20 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
         plt.figure(figsize=(10, 6))
         if "AirTemperature" in hourly.columns:
             plt.plot(
-                hourly.index, # type: ignore
-                hourly["AirTemperature"], # type: ignore
+                hourly.index,
+                hourly["AirTemperature"],
                 label="Air Temp (°C)",
                 color="blue",
             )
         if "WindSpeed" in hourly.columns:
             plt.plot(
-                hourly.index, hourly["WindSpeed"], label="Wind Speed (kt)", color="green" # type: ignore
+                hourly.index, hourly["WindSpeed"], label="Wind Speed (kt)", color="green"
             )
         if "WindGust" in hourly.columns:
             plt.plot(
-                hourly.index, hourly["WindGust"], label="Wind Gust (kt)", color="red" # type: ignore
+                hourly.index, hourly["WindGust"], label="Wind Gust (kt)", color="red"
             )
-        plt.title(f"Weather Trends - Mission {mission_id}") # type: ignore
+        plt.title(f"Weather Trends - Mission {mission_id}")
         plt.xlabel("Time")
         plt.ylabel("Value")
         plt.grid(True, alpha=0.3)
@@ -197,7 +206,7 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
         plt.close()
         return plot_path
     except Exception as e:
-        print(f"Error generating weather plot: {e}")
+        logger.error(f"Error generating weather plot: {e}", exc_info=True)
         return None
 
 
@@ -226,21 +235,21 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
             plt.plot(
                 hourly.index,
                 hourly["SignificantWaveHeight"],
-                label="Wave Height (m)", # type: ignore
+                label="Wave Height (m)",
                 color="blue",
             )
         if "WavePeriod" in hourly.columns:
             plt.plot(
-                hourly.index, hourly["WavePeriod"], label="Wave Period (s)", color="orange" # type: ignore
+                hourly.index, hourly["WavePeriod"], label="Wave Period (s)", color="orange"
             )
         if "MeanWaveDirection" in hourly.columns:
             plt.plot(
                 hourly.index,
                 hourly["MeanWaveDirection"],
-                label="Wave Dir (°)", # type: ignore
+                label="Wave Dir (°)",
                 color="green",
             )
-        plt.title(f"Wave Conditions - Mission {mission_id}") # type: ignore
+        plt.title(f"Wave Conditions - Mission {mission_id}")
         plt.xlabel("Time")
         plt.ylabel("Value")
         plt.grid(True, alpha=0.3)
@@ -250,7 +259,7 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
         plt.close()
         return plot_path
     except Exception as e:
-        print(f"Error generating wave plot: {e}")
+        logger.error(f"Error generating wave plot: {e}", exc_info=True)
         return None
 
 
@@ -297,10 +306,19 @@ def plot_telemetry_for_report(ax, df: pd.DataFrame):
     extent = [df['longitude'].min() - 0.1, df['longitude'].max() + 0.1, df['latitude'].min() - 0.1, df['latitude'].max() + 0.1]
     _setup_report_map(ax, extent)
 
+    # Use a more intuitive "cool-to-hot" colormap like 'plasma' for speed.
+    # It's perceptually uniform and good for colorblind viewers.
     norm = mcolors.Normalize(vmin=0, vmax=4)
-    cmap = cm.get_cmap('viridis')
+    cmap = cm.get_cmap('plasma')
 
-    ax.scatter(df['longitude'], df['latitude'], c=df['speedOverGround'], cmap=cmap, norm=norm, s=20, edgecolor='k', linewidth=0.2, transform=ccrs.PlateCarree())
+    scatter = ax.scatter(df['longitude'], df['latitude'], c=df['speedOverGround'], cmap=cmap, norm=norm, s=20, edgecolor='k', linewidth=0.2, transform=ccrs.PlateCarree())
+    
+    # Add a colorbar to show the speed scale.
+    # We get the figure from the axes and add the colorbar to it.
+    fig = ax.get_figure()
+    cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', shrink=0.8, pad=0.08)
+    cbar.set_label('Speed Over Ground (knots)')
+
     _annotate_track_start_end(ax, df)
     ax.set_title(f"Telemetry Track\n{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC")
     
@@ -340,7 +358,17 @@ def plot_power_for_report(ax1, df: pd.DataFrame):
     
     ax1.set_title("Power Subsystem Summary")
     
-def plot_summary_page(fig, telemetry_mission, telemetry_report, power_report, ctd_report, weather_report, wave_report):
+def plot_summary_page(
+    fig,
+    telemetry_mission,
+    telemetry_report,
+    power_report,
+    ctd_report,
+    weather_report,
+    wave_report,
+    error_report,
+    mission_goals: Optional[List[models.MissionGoal]] = None,
+):
     """
     Creates a dedicated summary page with key statistics from all data sources.
     """
@@ -382,6 +410,17 @@ def plot_summary_page(fig, telemetry_mission, telemetry_report, power_report, ct
     )
     fig.text(0.05, y_pos, power_text, va='top', ha='left', fontsize=10, family='monospace')
 
+    # Mission Goals
+    y_pos -= 0.35 # Adjust vertical position for the new section
+    if mission_goals:
+        goal_lines = ["Mission Goals", "--------------------------"]
+        for goal in mission_goals:
+            status = "✓" if goal.is_completed else "☐"
+            goal_lines.append(f" {status} {goal.description}")
+        
+        goals_text = "\n".join(goal_lines)
+        fig.text(0.05, y_pos, goals_text, va='top', ha='left', fontsize=10, family='monospace', wrap=True)
+
     # --- Column 2: Oceanographic and Environmental ---
     y_pos = 0.9
     
@@ -393,20 +432,32 @@ def plot_summary_page(fig, telemetry_mission, telemetry_report, power_report, ct
     fig.text(0.5, y_pos, "\n".join(ctd_lines), va='top', ha='left', fontsize=10, family='monospace')
     
     # Weather Summary
-    y_pos -= 0.3
+    y_pos -= 0.25
     weather_lines = ["Meteorological (Weather)", "--------------------------"]
     if weather_report.get("AirTemperature"): weather_lines.append(format_block("Air Temp", weather_report["AirTemperature"], "°C"))
     if weather_report.get("WindSpeed"): weather_lines.append(format_block("Wind Speed", weather_report["WindSpeed"], "kt"))
     if weather_report.get("WindGust"): weather_lines.append(f"  • Max Gust: {weather_report['WindGust']['max']:.2f} kt")
     if weather_report.get("BarometricPressure"): weather_lines.append(format_block("Pressure", weather_report["BarometricPressure"], "mbar"))
     fig.text(0.5, y_pos, "\n".join(weather_lines), va='top', ha='left', fontsize=10, family='monospace')
-    
+
     # Wave Summary
-    y_pos -= 0.3
+    y_pos -= 0.25
     wave_lines = ["Sea State (Waves)", "--------------------------"]
     if wave_report.get("SignificantWaveHeight"): wave_lines.append(format_block("Sig. Wave Height", wave_report["SignificantWaveHeight"], "m"))
     if wave_report.get("WavePeriod"): wave_lines.append(format_block("Peak Period", wave_report["WavePeriod"], "s"))
     fig.text(0.5, y_pos, "\n".join(wave_lines), va='top', ha='left', fontsize=10, family='monospace')
+
+    # Error Summary
+    y_pos -= 0.2
+    severity_lines = [f"  • {sev}: {count}" for sev, count in error_report.get("by_severity", {}).items()]
+    severity_text = "\n".join(severity_lines) if severity_lines else "  • No errors with severity."
+    error_text = (
+        f"Vehicle Errors\n"
+        f"--------------------------\n"
+        f"  • Total Errors: {error_report.get('total_errors', 0)}\n"
+        f"{severity_text}"
+    )
+    fig.text(0.5, y_pos, error_text, va='top', ha='left', fontsize=10, family='monospace')
 
     fig.suptitle("Mission Summary Statistics", fontsize=16)
 
@@ -429,21 +480,79 @@ def plot_ctd_for_report(fig, df: pd.DataFrame):
         axs[0].grid(True, alpha=0.3)
         axs[0].legend(loc="upper left")
 
-    # Plot Salinity
-    if "Salinity" in df.columns:
-        axs[1].plot(df["Timestamp"], df["Salinity"], "b-", label="Salinity (PSU)")
-        axs[1].set_ylabel("Salinity (PSU)")
+    # Plot Conductivity (swapped with Salinity for logical order)
+    if "Conductivity" in df.columns:
+        axs[1].plot(df["Timestamp"], df["Conductivity"], "orange", label="Conductivity (S/m)")
+        axs[1].set_ylabel("Conductivity (S/m)")
         axs[1].grid(True, alpha=0.3)
         axs[1].legend(loc="upper left")
 
-    # Plot Conductivity
-    if "Conductivity" in df.columns:
-        axs[2].plot(df["Timestamp"], df["Conductivity"], "orange", label="Conductivity (S/m)")
-        axs[2].set_ylabel("Conductivity (S/m)")
+    # Plot Salinity
+    if "Salinity" in df.columns:
+        axs[2].plot(df["Timestamp"], df["Salinity"], "b-", label="Salinity (PSU)")
+        axs[2].set_ylabel("Salinity (PSU)")
         axs[2].grid(True, alpha=0.3)
         axs[2].legend(loc="upper left")
 
     axs[2].set_xlabel("Time (UTC)")
+
+def plot_errors_for_report(fig, df: pd.DataFrame):
+    """
+    Creates a page with a bulleted list of recent vehicle errors for the report.
+    This approach uses a dedicated axes and manual text wrapping to ensure the text
+    respects both left and right margins, and correctly breaks long, unbroken strings.
+    """
+    if df.empty:
+        fig.text(0.5, 0.5, "No vehicle errors reported in the selected range.", ha='center', va='center')
+        return
+ 
+    fig.clf()
+    fig.suptitle("Vehicle Error Report", fontsize=16)
+ 
+    # Prepare data, limiting to a number of entries that should fit on one page.
+    df_display = df.copy().tail(15)
+ 
+    # Define margins for our text area in figure coordinates
+    left_margin = 0.05
+    right_margin = 0.05
+    top_margin = 0.90
+    bottom_margin = 0.1
+
+    # Create an axes that respects these margins to act as our text box
+    text_ax = fig.add_axes([left_margin, bottom_margin, 1 - left_margin - right_margin, top_margin - bottom_margin])
+    text_ax.set_axis_off()
+ 
+    # Use a monospace font for better alignment and spacing
+    # We handle wrapping manually, so `wrap=True` is removed.
+    text_props = {'va': 'top', 'ha': 'left', 'fontsize': 9, 'family': 'monospace'}
+ 
+    # Estimate character width for wrapping. This is an approximation and may need tuning.
+    wrap_width = 100
+
+    entries = []
+    for index, row in df_display.iterrows():
+        vehicle = row.get('vehicleName', 'N/A')
+        message = str(row.get('error_Message', 'No message.'))
+
+        # Sanitize the message to prevent PDF readers from auto-linking email-like strings.
+        # A zero-width space is inserted after the '@' symbol to break the pattern.
+        message = message.replace('@', '@\u200B')
+
+        entry_text = f"• {vehicle}: {message}"
+
+        # Wrap the text, breaking long words if necessary to fit within the width.
+        wrapped_lines = textwrap.wrap(
+            entry_text,
+            width=wrap_width,
+            break_long_words=True,
+            break_on_hyphens=False,
+        )
+        entries.append("\n".join(wrapped_lines))
+
+    full_text = "\n\n".join(entries)
+
+    # Render the pre-wrapped text block. It will start at the top-left of the axes (0, 1.0).
+    text_ax.text(0, 1.0, full_text, **text_props)
 
 def plot_weather_for_report(fig, df: pd.DataFrame):
     """

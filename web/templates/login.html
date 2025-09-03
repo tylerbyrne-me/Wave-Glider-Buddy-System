@@ -20,7 +20,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: calc(100vh - 70px); /* Full height minus navbar */
+            min-height: calc(100vh - var(--banner-height)); /* Full height minus banner */
         }
         .login-card {
             /* Add a semi-transparent background to the card for readability */
@@ -31,11 +31,25 @@
 {% endblock %}
 
 {% block navbar %}
-    {# Override the default banner with a simpler one for the login page #}
-    <nav class="navbar navbar-dark bg-dark fixed-top">
+    {# Use the same banner structure as the rest of the app, but simplified for login #}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top" style="height: var(--banner-height);">
       <div class="container-fluid">
-        <span class="navbar-brand mb-0 h1">Wave Glider Buddy System</span>
-      </div> 
+        <div class="d-flex flex-column w-100">
+          <!-- Top Row - Just the brand/logo -->
+          <div class="navbar-top-row d-flex align-items-center justify-content-center" style="height: var(--banner-top-row-height);">
+            <div class="d-flex align-items-center">
+              <a class="navbar-brand d-flex align-items-center" href="/home.html" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
+                <img src="/static/images/wgbs_logo.svg" alt="Wave Glider Buddy System Logo" class="navbar-logo me-2">
+                <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
+              </a>
+            </div>
+          </div>
+          <!-- Bottom Row - Empty for login page -->
+          <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
+            <!-- Empty bottom row to maintain banner height consistency -->
+          </div>
+        </div>
+      </div>
     </nav>
 {% endblock %}
 {% block content %}

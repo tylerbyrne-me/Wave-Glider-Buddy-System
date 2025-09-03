@@ -58,12 +58,17 @@ class Settings(BaseSettings):
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
 
+    # Feature Toggles - JSON string in .env, parsed here
+    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true}'
+    
     # Parsed values (not loaded directly from env)
     remote_mission_folder_map: dict[str, str] = {}
+    feature_toggles: dict[str, bool] = {}
 
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization hook to parse JSON strings."""
         self.remote_mission_folder_map = json.loads(self.remote_mission_folder_map_json)
+        self.feature_toggles = json.loads(self.feature_toggles_json)
 
     class Config:
         env_file = ".env"
