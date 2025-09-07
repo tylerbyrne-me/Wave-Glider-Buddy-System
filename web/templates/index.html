@@ -66,6 +66,7 @@
     <!-- Left Navigation Panel (Summary Cards) -->
     <div class="col-md-3" id="left-nav-panel">
       <!-- Navigation Summary Card -->
+      {% if "navigation" in enabled_sensor_cards %}
       <div class="summary-card active-card" data-category="navigation" data-mini-trend='{{ navigation_info.mini_trend | tojson | safe if navigation_info and "mini_trend" in navigation_info and navigation_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -85,8 +86,10 @@
           {{ navigation_info.time_ago_str if navigation_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- Power Summary Card -->
+      {% if "power" in enabled_sensor_cards %}
       <div class="summary-card" data-category="power" data-mini-trend='{{ power_info.mini_trend | tojson | safe if power_info and "mini_trend" in power_info and power_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -106,8 +109,10 @@
           {{ power_info.time_ago_str if power_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- CTD Summary Card -->
+      {% if "ctd" in enabled_sensor_cards %}
       <div class="summary-card" data-category="ctd" data-mini-trend='{{ ctd_info.mini_trend | tojson | safe if ctd_info and "mini_trend" in ctd_info and ctd_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -127,8 +132,10 @@
           {{ ctd_info.time_ago_str if ctd_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- Weather Summary Card -->
+      {% if "weather" in enabled_sensor_cards %}
       <div class="summary-card" data-category="weather" data-mini-trend='{{ weather_info.mini_trend | tojson | safe if weather_info and "mini_trend" in weather_info and weather_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -148,8 +155,10 @@
           {{ weather_info.time_ago_str if weather_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- Waves Summary Card -->
+      {% if "waves" in enabled_sensor_cards %}
       <div class="summary-card" data-category="waves" data-mini-trend='{{ wave_info.mini_trend | tojson | safe if wave_info and "mini_trend" in wave_info and wave_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -172,8 +181,10 @@
           {{ wave_info.time_ago_str if wave_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- VR2C Summary Card -->
+      {% if "vr2c" in enabled_sensor_cards %}
       <div class="summary-card" data-category="vr2c" data-mini-trend='{{ vr2c_info.mini_trend | tojson | safe if vr2c_info and "mini_trend" in vr2c_info and vr2c_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -193,8 +204,10 @@
           {{ vr2c_info.time_ago_str if vr2c_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- Fluorometer Summary Card -->
+      {% if "fluorometer" in enabled_sensor_cards %}
       <div class="summary-card" data-category="fluorometer" data-mini-trend='{{ fluorometer_info.mini_trend | tojson | safe if fluorometer_info and "mini_trend" in fluorometer_info and fluorometer_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -203,9 +216,9 @@
           <div class="summary-card-text-content">
             <h5>Fluorometer</h5>
             <div class="mini-summary">
-              {% if fluorometer_info and fluorometer_info['values'] is not none %}
-                C1: {{ "%.1f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else 'N/A' }}<br>
-                Temp: {{ "%.1f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else 'N/A' }} °C
+              {% if fluorometer_info and fluorometer_info['values'] is not none and fluorometer_info['values'] %}
+                C1: {{ "%.1f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values'].get('C1_Avg') is not none else 'N/A' }}<br>
+                Temp: {{ "%.1f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values'].get('Temperature_Fluor') is not none else 'N/A' }} °C
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -214,8 +227,10 @@
           {{ fluorometer_info.time_ago_str if fluorometer_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- WG-VM4 Summary Card -->
+      {% if "wg_vm4" in enabled_sensor_cards %}
       <div class="summary-card" data-category="wg_vm4" data-mini-trend='{{ wg_vm4_info.mini_trend | tojson | safe if wg_vm4_info and "mini_trend" in wg_vm4_info and wg_vm4_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
@@ -235,8 +250,10 @@
           {{ wg_vm4_info.time_ago_str if wg_vm4_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- AIS Summary Card -->
+      {% if "ais" in enabled_sensor_cards %}
       <div class="summary-card" data-category="ais">
         <div class="summary-card-main-content">
           <div class="mini-chart-placeholder"> <!-- Populated with list instead of chart -->
@@ -271,8 +288,10 @@
           {{ ais_update_info.time_ago_str if ais_update_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
       <!-- Errors Summary Card -->
+      {% if "errors" in enabled_sensor_cards %}
       <div class="summary-card" data-category="errors">
         <div class="summary-card-main-content">
           <div class="mini-chart-placeholder"> <!-- Error list will go here -->
@@ -304,6 +323,7 @@
           {{ errors_update_info.time_ago_str if errors_update_info else 'N/A' }}
         </div>
       </div>
+      {% endif %}
 
     </div> <!-- End Left Navigation Panel -->
 
@@ -389,7 +409,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="telemetry">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="navigation">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="navigation" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="navigation" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -517,7 +538,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="power">Power Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="power">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="power" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="power" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -639,7 +661,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="ctd">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="ctd">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="ctd" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="ctd" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -743,7 +766,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="weather">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="weather">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="weather" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="weather" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -870,7 +894,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="waves">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="waves">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="waves" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="waves" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -1019,7 +1044,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="vr2c">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="vr2c">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="vr2c" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="vr2c" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -1092,7 +1118,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="fluorometer">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="fluorometer">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="fluorometer" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="fluorometer" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>
@@ -1103,16 +1130,16 @@
             <div class="detail-summary-box mb-3">
               <ul class="list-unstyled">
                 <li>
-                  C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values']['C1_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values'].get('C1_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values']['C2_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values'].get('C2_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values']['C3_Avg'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values'].get('C3_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values']['Temperature_Fluor'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values'].get('Temperature_Fluor') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
               </ul>
             </div>
@@ -1168,7 +1195,8 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item download-csv-btn" href="#" data-report-type="wg_vm4">Data as CSV</a></li>
-                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="wg_vm4">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="wg_vm4" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item save-charts-btn" href="#" data-report-type="wg_vm4" data-high-res="true">Charts as PNG (High-Res)</a></li>
                 </ul>
               </div>
             </div>

@@ -66,13 +66,13 @@
     color: var(--navbar-link-color);
     font-size: 1.05em; /* A subtle increase */
 }
-/* Apply Raleway font to navbar and items */
+/* Apply Inter Tight font to navbar and items */
 .navbar,
 .navbar .navbar-brand,
 .navbar .nav-link,
 .navbar .dropdown-item,
 .navbar-title {
-  font-family: "Raleway", Helvetica, Arial, Lucida, sans-serif;
+  font-family: "Inter Tight", Helvetica, Arial, Lucida, sans-serif;
 }
 
 /* Logo styling in navbar */
@@ -125,8 +125,13 @@ body {
   /* You can set a global font family here if you want to override Bootstrap's default */
   background-color: var(--bs-body-bg);
   color: var(--bs-body-color);
-  font-family: 'Raleway', sans-serif;
+  font-family: 'Inter Tight', sans-serif;
 }
+/* Apply Inter Tight to all elements across the site */
+* {
+  font-family: "Inter Tight", Helvetica, Arial, Lucida, sans-serif;
+}
+
 /* Apply Inter Tight to header titles across the site */
 h1, h2, h3, h4, h5, h6 {
   font-family: "Inter Tight", Helvetica, Arial, Lucida, sans-serif;

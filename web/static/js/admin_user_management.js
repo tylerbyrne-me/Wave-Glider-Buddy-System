@@ -97,6 +97,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.insertCell().textContent = user.full_name || 'N/A';
                     row.insertCell().textContent = user.email || 'N/A';
                     row.insertCell().textContent = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+                    
+                    // Color cell with visual indicator
+                    const colorCell = row.insertCell();
+                    if (user.color) {
+                        colorCell.innerHTML = `
+                            <div class="d-flex align-items-center">
+                                <div class="user-color-indicator me-2" 
+                                     style="width: 20px; height: 20px; background-color: ${user.color}; border: 1px solid #ccc; border-radius: 3px;" 
+                                     title="User color: ${user.color}"></div>
+                                <small class="text-muted">${user.color}</small>
+                            </div>
+                        `;
+                    } else {
+                        colorCell.innerHTML = '<span class="text-muted">No color</span>';
+                    }
+                    
                     row.insertCell().innerHTML = user.disabled ? '<span class="badge bg-danger sm-badge">Disabled</span>' : '<span class="badge bg-success sm-badge">Active</span>';
 
                     const actionsCell = row.insertCell();
@@ -118,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } catch (error) {
             console.error('Error fetching or displaying users:', error.message); // Log the error message
-            usersTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
+            usersTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
             userManagementTableContainer.style.display = 'block';
             noUsersMessage.style.display = 'none';
         } finally {
@@ -143,7 +159,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const users = Array.from(usersTableBody.rows).map(row => ({
                 username: row.cells[0].textContent,
                 role: row.cells[3].textContent.toLowerCase(),
-                disabled: row.cells[4].textContent === 'Disabled'
+                disabled: row.cells[5].textContent === 'Disabled'
             }));
             const activeAdmins = users.filter(u => u.role === 'admin' && !u.disabled);
             if (activeAdmins.length <= 1) {

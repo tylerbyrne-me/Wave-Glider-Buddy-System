@@ -1,9 +1,10 @@
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session as SQLModelSession
+from pydantic import BaseModel, Field
 
 from .. import auth_utils  # Import auth_utils module
 from ..auth_utils import get_current_admin_user, get_current_active_user, get_optional_current_user
@@ -201,3 +202,107 @@ async def login_page(request: Request, current_user: models.User = Depends(get_o
 @router.get("/register.html", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse("register.html", get_template_context(request=request))
+
+@router.get("/user_settings.html", response_class=HTMLResponse)
+async def user_settings_page(
+    request: Request, 
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """User settings page for updating personal information and password."""
+    return templates.TemplateResponse("user_settings.html", get_template_context(request=request, current_user=current_user))
+
+
+# User Self-Service API Endpoints
+class UserSelfUpdate(BaseModel):
+    """Model for users to update their own information."""
+    full_name: Optional[str] = None
+    email: Optional[str] = Field(None, description="New email for the user. Must be unique if changed.")
+
+
+class UserPasswordChange(BaseModel):
+    """Model for users to change their own password."""
+    current_password: str = Field(description="Current password for verification.")
+    new_password: str = Field(description="New password for the user.")
+
+
+@router.put("/api/users/me", response_model=models.User)
+async def update_current_user(
+    user_update: UserSelfUpdate,
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+):
+    """Update current user's personal information (full name, email)."""
+    auth_utils.logger.info(
+        f"User '{current_user.username}' updating their own information: {user_update.model_dump(exclude_unset=True)}"
+    )
+    
+    # Convert UserSelfUpdate to UserUpdateForAdmin for the existing function
+    admin_update = models.UserUpdateForAdmin(
+        full_name=user_update.full_name,
+        email=user_update.email
+    )
+    
+    updated_user_in_db = auth_utils.update_user_details_in_db(
+        session, current_user.username, admin_update
+    )
+    
+    if not updated_user_in_db:
+        auth_utils.logger.error(
+            f"Failed to update user '{current_user.username}' - user not found in database."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Failed to update user information"
+        )
+    
+    # Convert UserInDB to User for the response
+    return models.User.model_validate(updated_user_in_db.model_dump())
+
+
+@router.put("/api/users/me/password")
+async def change_current_user_password(
+    password_change: UserPasswordChange,
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+):
+    """Change current user's password."""
+    auth_utils.logger.info(
+        f"User '{current_user.username}' attempting to change their password."
+    )
+    
+    # Get the user from database to verify current password
+    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    if not user_in_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="User not found"
+        )
+    
+    # Verify current password
+    if not verify_password(password_change.current_password, user_in_db.hashed_password):
+        auth_utils.logger.warning(
+            f"User '{current_user.username}' provided incorrect current password."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Update password
+    success = auth_utils.update_user_password_in_db(
+        session, current_user.username, password_change.new_password
+    )
+    
+    if not success:
+        auth_utils.logger.error(
+            f"Failed to update password for user '{current_user.username}'."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password"
+        )
+    
+    auth_utils.logger.info(
+        f"User '{current_user.username}' successfully changed their password."
+    )
+    return {"message": "Password updated successfully"}

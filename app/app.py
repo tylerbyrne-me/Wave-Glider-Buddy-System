@@ -506,41 +506,78 @@ async def refresh_active_mission_cache():
     # Add wave_frequency_spectrum and wave_energy_spectrum to be refreshed by
     # the background task
     # so the /api/wave_spectrum endpoint can use fresh source data for processing.
-    realtime_report_types = [
-        "power",
-        "ctd",
-        "weather",
-        "waves",
-        "telemetry",
-        "ais",
-        "errors",
-        "vr2c",
-        "fluorometer",
-        "wg_vm4",
-        "wave_frequency_spectrum",
-        "wave_energy_spectrum",
-    ]
-
-    for mission_id in active_missions:
-        logger.info(
-            f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}"
-        )
-        for report_type in realtime_report_types:
-            try:
-                # We force refresh and specify 'remote' as source_preference
-                # because we are targeting 'output_realtime_missions'
-                await load_data_source(
-                    report_type,
-                    mission_id,
-                    source_preference="remote",  # Ensure it tries remote (specifically output_realtime_missions first)
-                    force_refresh=True, # Background task doesn't have a specific user context for this refresh
-                    current_user=None,
-                )
-            except Exception as e:
-                logger.error(
-                    f"BACKGROUND TASK: Error refreshing cache for {report_type} "
-                    f"on mission {mission_id}: {e}"
-                )
+    # Get database session for checking sensor card configurations
+    from .db import SQLModelSession, sqlite_engine
+    with SQLModelSession(sqlite_engine) as session:
+        for mission_id in active_missions:
+            logger.info(
+                f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}"
+            )
+            
+            # Get enabled sensor cards for this mission
+            mission_overview = session.get(models.MissionOverview, mission_id)
+            enabled_sensor_cards = []
+            if mission_overview and mission_overview.enabled_sensor_cards:
+                try:
+                    enabled_sensor_cards = json.loads(mission_overview.enabled_sensor_cards)
+                except json.JSONDecodeError:
+                    # Default to all sensors if parsing fails
+                    enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
+            else:
+                # Default to all sensors if no configuration exists
+                enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
+            
+            # Map sensor card categories to their corresponding data report types
+            sensor_to_report_mapping = {
+                "navigation": "telemetry",  # Navigation card uses telemetry data
+                "power": "power",
+                "ctd": "ctd", 
+                "weather": "weather",
+                "waves": "waves",
+                "vr2c": "vr2c",
+                "fluorometer": "fluorometer",
+                "wg_vm4": "wg_vm4",
+                "ais": "ais",
+                "errors": "errors"
+            }
+            
+            # Determine which report types to refresh based on enabled sensor cards
+            report_types_to_refresh = []
+            for sensor_card in enabled_sensor_cards:
+                if sensor_card in sensor_to_report_mapping:
+                    report_types_to_refresh.append(sensor_to_report_mapping[sensor_card])
+                    # Add solar data if power is enabled
+                    if sensor_card == "power" and "solar" not in report_types_to_refresh:
+                        report_types_to_refresh.append("solar")
+            
+            # Always include wave spectrum data if waves is enabled (used for wave analysis)
+            if "waves" in enabled_sensor_cards:
+                if "wave_frequency_spectrum" not in report_types_to_refresh:
+                    report_types_to_refresh.append("wave_frequency_spectrum")
+                if "wave_energy_spectrum" not in report_types_to_refresh:
+                    report_types_to_refresh.append("wave_energy_spectrum")
+            
+            logger.info(
+                f"BACKGROUND TASK: Refreshing {len(report_types_to_refresh)} data types for mission {mission_id}: {report_types_to_refresh}"
+            )
+            
+            for report_type in report_types_to_refresh:
+                try:
+                    # We force refresh and specify 'remote' as source_preference
+                    # because we are targeting 'output_realtime_missions'
+                    await load_data_source(
+                        report_type,
+                        mission_id,
+                        source_preference="remote",  # Ensure it tries remote (specifically output_realtime_missions first)
+                        force_refresh=True, # Background task doesn't have a specific user context for this refresh
+                        current_user=None,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"BACKGROUND TASK: Error refreshing cache for {report_type} "
+                        f"on mission {mission_id}: {e}"
+                    )
+    
     logger.info(
         "BACKGROUND TASK: Proactive cache refresh for active real-time "
         "missions completed."
@@ -738,37 +775,61 @@ async def _process_loaded_data_for_home_view(
         if found_primary_path_for_display:
             break
 
-    # Calculate summaries
-    # Ensure that even if a df is None, the summary function is called to get the default shell
-    power_info = summaries.get_power_status(data_frames.get("power"), data_frames.get("solar"))
-    power_info["mini_trend"] = summaries.get_power_mini_trend(data_frames.get("power"))
+    # Calculate summaries only for data that was actually loaded
+    # Initialize all sensor info with default empty values
+    power_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    ctd_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    weather_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    wave_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    vr2c_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    fluorometer_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    wg_vm4_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    navigation_info = {"values": {}, "time_ago_str": "N/A", "latest_timestamp_str": "N/A", "mini_trend": []}
+    ais_summary_data = []
+    ais_update_info = {"time_ago_str": "N/A", "latest_timestamp_str": "N/A"}
+    recent_errors_list = []
+    errors_update_info = {"time_ago_str": "N/A", "latest_timestamp_str": "N/A"}
 
-    ctd_info = summaries.get_ctd_status(data_frames.get("ctd"))
-    ctd_info["mini_trend"] = summaries.get_ctd_mini_trend(data_frames.get("ctd"))
+    # Only process data for sensors that were actually loaded
+    if "power" in data_frames and data_frames["power"] is not None:
+        power_info = summaries.get_power_status(data_frames.get("power"), data_frames.get("solar"))
+        power_info["mini_trend"] = summaries.get_power_mini_trend(data_frames.get("power"))
 
-    weather_info = summaries.get_weather_status(data_frames.get("weather"))
-    weather_info["mini_trend"] = summaries.get_weather_mini_trend(data_frames.get("weather"))
+    if "ctd" in data_frames and data_frames["ctd"] is not None:
+        ctd_info = summaries.get_ctd_status(data_frames.get("ctd"))
+        ctd_info["mini_trend"] = summaries.get_ctd_mini_trend(data_frames.get("ctd"))
 
-    wave_info = summaries.get_wave_status(data_frames.get("waves"))
-    wave_info["mini_trend"] = summaries.get_wave_mini_trend(data_frames.get("waves"))
+    if "weather" in data_frames and data_frames["weather"] is not None:
+        weather_info = summaries.get_weather_status(data_frames.get("weather"))
+        weather_info["mini_trend"] = summaries.get_weather_mini_trend(data_frames.get("weather"))
 
-    vr2c_info = summaries.get_vr2c_status(data_frames.get("vr2c"))
-    vr2c_info["mini_trend"] = summaries.get_vr2c_mini_trend(data_frames.get("vr2c"))
+    if "waves" in data_frames and data_frames["waves"] is not None:
+        wave_info = summaries.get_wave_status(data_frames.get("waves"))
+        wave_info["mini_trend"] = summaries.get_wave_mini_trend(data_frames.get("waves"))
 
-    fluorometer_info = summaries.get_fluorometer_status(data_frames.get("fluorometer"))
-    fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(data_frames.get("fluorometer"))
+    if "vr2c" in data_frames and data_frames["vr2c"] is not None:
+        vr2c_info = summaries.get_vr2c_status(data_frames.get("vr2c"))
+        vr2c_info["mini_trend"] = summaries.get_vr2c_mini_trend(data_frames.get("vr2c"))
 
-    wg_vm4_info = summaries.get_wg_vm4_status(data_frames.get("wg_vm4"))
-    wg_vm4_info["mini_trend"] = summaries.get_wg_vm4_mini_trend(data_frames.get("wg_vm4"))
+    if "fluorometer" in data_frames and data_frames["fluorometer"] is not None:
+        fluorometer_info = summaries.get_fluorometer_status(data_frames.get("fluorometer"))
+        fluorometer_info["mini_trend"] = summaries.get_fluorometer_mini_trend(data_frames.get("fluorometer"))
 
-    navigation_info = summaries.get_navigation_status(data_frames.get("telemetry"))
-    navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(data_frames.get("telemetry"))
+    if "wg_vm4" in data_frames and data_frames["wg_vm4"] is not None:
+        wg_vm4_info = summaries.get_wg_vm4_status(data_frames.get("wg_vm4"))
+        wg_vm4_info["mini_trend"] = summaries.get_wg_vm4_mini_trend(data_frames.get("wg_vm4"))
 
-    ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
-    ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
+    if "telemetry" in data_frames and data_frames["telemetry"] is not None:
+        navigation_info = summaries.get_navigation_status(data_frames.get("telemetry"))
+        navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(data_frames.get("telemetry"))
 
-    recent_errors_list = summaries.get_recent_errors(data_frames.get("errors"), max_age_hours=hours)[:20]
-    errors_update_info = utils.get_df_latest_update_info(data_frames.get("errors"), timestamp_col="Timestamp")
+    if "ais" in data_frames and data_frames["ais"] is not None:
+        ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
+        ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
+
+    if "errors" in data_frames and data_frames["errors"] is not None:
+        recent_errors_list = summaries.get_recent_errors(data_frames.get("errors"), max_age_hours=hours)[:20]
+        errors_update_info = utils.get_df_latest_update_info(data_frames.get("errors"), timestamp_col="Timestamp")
 
     return {
         "display_source_path": display_source_path,
@@ -817,30 +878,71 @@ async def _process_loaded_data_for_home_view(
 
 
 @app.get("/", include_in_schema=False)
-async def root(request: Request, current_user: models.User = Depends(get_current_active_user)):
+async def root(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/home.html")
 
-    # Define the report types to load for the dashboard
-    report_types_order = [
-        "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "telemetry", "ais", "errors", "solar"
-    ]
+    # Load mission overview data for sensor card configuration
+    mission_overview = session.get(models.MissionOverview, mission)
+    enabled_sensor_cards = []
+    if mission_overview and mission_overview.enabled_sensor_cards:
+        try:
+            enabled_sensor_cards = json.loads(mission_overview.enabled_sensor_cards)
+            logger.info(f"DASHBOARD: Loaded sensor card config for mission {mission}: {enabled_sensor_cards}")
+        except json.JSONDecodeError:
+            # Default to all sensors if parsing fails
+            enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
+            logger.warning(f"DASHBOARD: Failed to parse sensor card config for mission {mission}, using defaults")
+    else:
+        # Default to all sensors if no configuration exists
+        enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
+        logger.info(f"DASHBOARD: No sensor card config for mission {mission}, using defaults: {enabled_sensor_cards}")
+
+    # Define the report types to load for the dashboard based on enabled sensor cards
+    # Map sensor card categories to their corresponding data report types
+    sensor_to_report_mapping = {
+        "navigation": "telemetry",  # Navigation card uses telemetry data
+        "power": "power",
+        "ctd": "ctd", 
+        "weather": "weather",
+        "waves": "waves",
+        "vr2c": "vr2c",
+        "fluorometer": "fluorometer",
+        "wg_vm4": "wg_vm4",
+        "ais": "ais",
+        "errors": "errors"
+    }
+    
+    # Always include solar data if power is enabled (solar is used in power charts)
+    report_types_to_load = []
+    for sensor_card in enabled_sensor_cards:
+        if sensor_card in sensor_to_report_mapping:
+            report_types_to_load.append(sensor_to_report_mapping[sensor_card])
+            # Add solar data if power is enabled
+            if sensor_card == "power" and "solar" not in report_types_to_load:
+                report_types_to_load.append("solar")
+    
+    logger.info(f"DASHBOARD: Loading data for mission {mission} with report types: {report_types_to_load}")
+    
     hours = 24  # Default time window for summaries/mini-trends
 
-    # Load all data sources in parallel
+    # Load only the data sources for enabled sensor cards
     results = await asyncio.gather(
-        *[load_data_source(rt, mission, current_user=current_user) for rt in report_types_order],
+        *[load_data_source(rt, mission, current_user=current_user) for rt in report_types_to_load],
         return_exceptions=True
     )
 
     # Process the loaded data for summaries and mini-trends
-    context = await _process_loaded_data_for_home_view(results, report_types_order, hours, mission)
+    context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission)
     context.update(get_template_context(
         request=request,
         mission=mission,
         current_user=current_user,
     ))
+    
+    # Add sensor card configuration to context
+    context["enabled_sensor_cards"] = enabled_sensor_cards
 
     return templates.TemplateResponse("index.html", context)
 

@@ -96,11 +96,13 @@ async def create_or_update_mission_overview(
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"User '{current_user.username}' updating overview for mission '{mission_id}'.")
+    logger.info(f"API: Received sensor card config: {overview_in.enabled_sensor_cards}")
     db_overview = session.get(models.MissionOverview, mission_id)
     if not db_overview:
         db_overview = models.MissionOverview(mission_id=mission_id, **overview_in.model_dump(exclude_unset=True))
     else:
         update_data = overview_in.model_dump(exclude_unset=True)
+        logger.info(f"API: Updating mission overview with data: {update_data}")
         for key, value in update_data.items():
             setattr(db_overview, key, value)
         db_overview.updated_at_utc = datetime.now(timezone.utc)

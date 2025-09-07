@@ -566,6 +566,7 @@ class MissionOverview(SQLModel, table=True):
     weekly_report_url: Optional[str] = SQLModelField(default=None, description="URL to the latest generated weekly report PDF.")
     document_url: Optional[str] = SQLModelField(default=None, description="URL to the formal mission plan document (.doc, .pdf).")
     comments: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="High-level comments about the mission.")
+    enabled_sensor_cards: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="JSON string of enabled sensor cards for this mission.")
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     updated_at_utc: datetime = SQLModelField(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -596,6 +597,7 @@ class MissionOverviewUpdate(BaseModel):
     document_url: Optional[str] = None
     comments: Optional[str] = None
     weekly_report_url: Optional[str] = None
+    enabled_sensor_cards: Optional[str] = None
 
 class MissionGoalCreate(BaseModel):
     description: str

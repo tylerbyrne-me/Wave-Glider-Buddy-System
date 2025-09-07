@@ -27,7 +27,7 @@ def ensure_plots_dir():
     return plots_dir
 
 
-def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
+def generate_power_plot(power_df, mission_id, hours_back=72):
     """Generates and saves a power trend plot. Returns the plot path or None if data is missing or an error occurs."""
     try:
         power_df = preprocess_power_df(power_df)
@@ -44,7 +44,7 @@ def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
         numeric_cols = data_to_resample.select_dtypes(include=[np.number])
         hourly_power = numeric_cols.resample("1h").mean()
 
-        plots_dir = ensure_plots_dir() if output_dir is None else Path(output_dir)
+        plots_dir = ensure_plots_dir()
         plot_path = plots_dir / f"power_trend_{mission_id}.png"
 
         plt.figure(figsize=(10, 6))
@@ -83,7 +83,7 @@ def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, bbox_inches='tight')
         plt.close()
         return plot_path
     except Exception as e:
@@ -91,7 +91,7 @@ def generate_power_plot(power_df, mission_id, hours_back=72, output_dir=None):
         return None
 
 
-def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
+def generate_ctd_plot(ctd_df, mission_id, hours_back=24):
     """Generates and saves a CTD data trend plot. Returns the plot path or None if data is missing or an error occurs."""
     try:
         ctd_df = preprocess_ctd_df(ctd_df)
@@ -108,7 +108,7 @@ def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
         numeric_cols = data_to_resample.select_dtypes(include=[np.number])
         hourly_data = numeric_cols.resample("1h").mean()
 
-        plots_dir = ensure_plots_dir() if output_dir is None else Path(output_dir)
+        plots_dir = ensure_plots_dir()
         plot_path = plots_dir / f"ctd_trend_{mission_id}.png"
 
         fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
@@ -152,7 +152,7 @@ def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
         axs[2].set_xlabel("Time")
         plt.suptitle(f"CTD Data Trends - Last {hours_back} Hours")
         plt.tight_layout()
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, bbox_inches='tight')
         plt.close()
         return plot_path
     except Exception as e:
@@ -160,7 +160,7 @@ def generate_ctd_plot(ctd_df, mission_id, hours_back=24, output_dir=None):
         return None
 
 
-def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None):
+def generate_weather_plot(weather_df, mission_id, hours_back=72):
     """Generates and saves a weather trend plot. Returns the plot path or None if data is missing or an error occurs."""
     try:
         weather_df = preprocess_weather_df(weather_df)
@@ -177,7 +177,7 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
         numeric_cols = data_to_resample.select_dtypes(include=[np.number])
         hourly = numeric_cols.resample("1h").mean()
 
-        plots_dir = ensure_plots_dir() if output_dir is None else Path(output_dir)
+        plots_dir = ensure_plots_dir()
         plot_path = plots_dir / f"weather_trend_{mission_id}.png"
 
         plt.figure(figsize=(10, 6))
@@ -202,7 +202,7 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, bbox_inches='tight')
         plt.close()
         return plot_path
     except Exception as e:
@@ -210,7 +210,7 @@ def generate_weather_plot(weather_df, mission_id, hours_back=72, output_dir=None
         return None
 
 
-def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
+def generate_wave_plot(wave_df, mission_id, hours_back=72):
     """Generates and saves a wave condition trend plot. Returns the plot path or None if data is missing or an error occurs."""
     try:
         wave_df = preprocess_wave_df(wave_df)
@@ -227,7 +227,7 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
         numeric_cols = data_to_resample.select_dtypes(include=[np.number])
         hourly = numeric_cols.resample("1h").mean()
 
-        plots_dir = ensure_plots_dir() if output_dir is None else Path(output_dir)
+        plots_dir = ensure_plots_dir()
         plot_path = plots_dir / f"wave_trend_{mission_id}.png"
 
         plt.figure(figsize=(10, 6))
@@ -255,7 +255,7 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72, output_dir=None):
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, bbox_inches='tight')
         plt.close()
         return plot_path
     except Exception as e:

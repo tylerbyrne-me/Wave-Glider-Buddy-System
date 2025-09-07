@@ -27,8 +27,61 @@ document.addEventListener('DOMContentLoaded', function() {
         const commentsTextarea = document.getElementById('comments');
         const saveStatusDiv = document.getElementById('saveStatus');
         const saveBtn = document.getElementById('saveOverviewBtn');
+        const selectAllSensorsBtn = document.getElementById('selectAllSensors');
+        const deselectAllSensorsBtn = document.getElementById('deselectAllSensors');
 
         let selectedMissionId = null;
+
+        // Sensor card management functions
+        function getEnabledSensorCards() {
+            const checkboxes = document.querySelectorAll('.sensor-card-checkbox:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        function setEnabledSensorCards(enabledCards) {
+            // First, uncheck all checkboxes
+            document.querySelectorAll('.sensor-card-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            
+            // Then check the enabled ones
+            if (enabledCards && Array.isArray(enabledCards)) {
+                enabledCards.forEach(cardType => {
+                    const checkbox = document.querySelector(`input[value="${cardType}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                    }
+                });
+            }
+        }
+
+        function loadSensorCardConfiguration(missionInfo) {
+            if (missionInfo.overview && missionInfo.overview.enabled_sensor_cards) {
+                try {
+                    const enabledCards = JSON.parse(missionInfo.overview.enabled_sensor_cards);
+                    setEnabledSensorCards(enabledCards);
+                } catch (error) {
+                    console.error('Error parsing enabled sensor cards:', error);
+                    setEnabledSensorCards(['navigation', 'power', 'ctd', 'weather', 'waves', 'vr2c', 'fluorometer', 'wg_vm4', 'ais', 'errors']);
+                }
+            } else {
+                setEnabledSensorCards(['navigation', 'power', 'ctd', 'weather', 'waves', 'vr2c', 'fluorometer', 'wg_vm4', 'ais', 'errors']);
+            }
+        }
+
+        // Event listeners for sensor card buttons
+        selectAllSensorsBtn.addEventListener('click', function() {
+            document.querySelectorAll('.sensor-card-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+        });
+
+        deselectAllSensorsBtn.addEventListener('click', function() {
+            document.querySelectorAll('.sensor-card-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+        });
+
 
         async function loadMissions() {
             missionSpinner.style.display = 'inline-block';
@@ -60,7 +113,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             missionSpinner.style.display = 'inline-block';
             saveStatusDiv.innerHTML = '';
-            overviewForm.reset();
 
             try {
                 const response = await fetchWithAuth(`/api/missions/${selectedMissionId}/info`);
@@ -69,7 +121,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 editingMissionTitle.textContent = `Editing Overview for: ${selectedMissionId}`;
                 
-                // Reset form state
+                // Reset form state (only once)
                 overviewForm.reset();
                 currentPlanContainer.style.display = 'none';
                 documentUrlInput.value = '';
@@ -83,6 +135,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         documentUrlInput.value = missionInfo.overview.document_url; // Store current URL
                     }
                 }
+                
+                // Load sensor card configuration AFTER form reset
+                // Use setTimeout to ensure DOM is fully updated
+                setTimeout(() => {
+                    loadSensorCardConfiguration(missionInfo);
+                }, 10);
+                
                 overviewFormContainer.style.display = 'block';
 
             } catch (error) {
@@ -139,10 +198,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
-            // Step 2: Save the overview with the (potentially new) URL and comments
+            // Step 2: Save the overview with the (potentially new) URL, comments, and sensor cards
+            const enabledSensorCards = getEnabledSensorCards();
+            
             const payload = {
                 document_url: fileUrl || null, // Use the final URL, or null if removed
-                comments: commentsTextarea.value.trim() || null
+                comments: commentsTextarea.value.trim() || null,
+                enabled_sensor_cards: enabledSensorCards.length > 0 ? JSON.stringify(enabledSensorCards) : null
             };
 
             try {

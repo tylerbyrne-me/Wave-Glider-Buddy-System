@@ -54,6 +54,83 @@
                         <label for="comments" class="form-label">High-Level Comments</label>
                         <textarea class="form-control" id="comments" rows="6" placeholder="Enter high-level mission comments here..."></textarea>
                     </div>
+                    
+                    <!-- Sensor Cards Configuration -->
+                    <div class="mb-4">
+                        <label class="form-label">Enabled Sensor Cards</label>
+                        <div class="form-text mb-3">Select which sensor cards should be displayed on the dashboard for this mission.</div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="navigation" id="sensor-navigation">
+                                    <label class="form-check-label" for="sensor-navigation">
+                                        Navigation
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="power" id="sensor-power">
+                                    <label class="form-check-label" for="sensor-power">
+                                        Power
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="ctd" id="sensor-ctd">
+                                    <label class="form-check-label" for="sensor-ctd">
+                                        CTD
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="weather" id="sensor-weather">
+                                    <label class="form-check-label" for="sensor-weather">
+                                        Weather
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="waves" id="sensor-waves">
+                                    <label class="form-check-label" for="sensor-waves">
+                                        Waves
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="vr2c" id="sensor-vr2c">
+                                    <label class="form-check-label" for="sensor-vr2c">
+                                        VR2C
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="fluorometer" id="sensor-fluorometer">
+                                    <label class="form-check-label" for="sensor-fluorometer">
+                                        Fluorometer
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="wg_vm4" id="sensor-wg_vm4">
+                                    <label class="form-check-label" for="sensor-wg_vm4">
+                                        WG-VM4
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="ais" id="sensor-ais">
+                                    <label class="form-check-label" for="sensor-ais">
+                                        AIS
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input sensor-card-checkbox" type="checkbox" value="errors" id="sensor-errors">
+                                    <label class="form-check-label" for="sensor-errors">
+                                        Errors
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllSensors">Select All</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllSensors">Deselect All</button>
+                        </div>
+                    </div>
+                    
                     <button type="submit" class="btn btn-primary" id="saveOverviewBtn">Save Overview</button>
                 </form>
                 <div id="saveStatus" class="mt-3"></div>

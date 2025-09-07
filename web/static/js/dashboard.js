@@ -2043,7 +2043,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             button.addEventListener('click', function(e) {
                 e.preventDefault();
                 const category = this.dataset.reportType; // This is the category like 'navigation'
-                saveChartsAsPng(category);
+                const highRes = this.dataset.highRes === 'true';
+                saveChartsAsPng(category, highRes);
             });
         });
     }
@@ -2070,7 +2071,70 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         window.location.href = apiUrl;
     }
 
-    function saveChartsAsPng(category) {
+    // Function to enhance Chart.js for high-resolution rendering
+    function enhanceChartForHighRes(chartInstance) {
+        if (!chartInstance) return;
+        
+        // Store original options for restoration
+        const originalOptions = JSON.parse(JSON.stringify(chartInstance.options));
+        
+        // Enhance font sizes for high-resolution
+        const fontMultiplier = 1.5; // Moderate font size increase 
+        
+        // Update scales
+        Object.keys(chartInstance.options.scales).forEach(scaleKey => {
+            const scale = chartInstance.options.scales[scaleKey];
+            if (scale.title) {
+                scale.title.font = { size: (scale.title.font?.size || 14) * fontMultiplier };
+            }
+            if (scale.ticks) {
+                scale.ticks.font = { size: (scale.ticks.font?.size || 12) * fontMultiplier };
+            }
+        });
+        
+        // Update legend
+        if (chartInstance.options.plugins.legend) {
+            chartInstance.options.plugins.legend.labels.font = { 
+                size: (chartInstance.options.plugins.legend.labels.font?.size || 12) * fontMultiplier 
+            };
+        }
+        
+        // Update tooltip
+        if (chartInstance.options.plugins.tooltip) {
+            chartInstance.options.plugins.tooltip.titleFont = { 
+                size: (chartInstance.options.plugins.tooltip.titleFont?.size || 12) * fontMultiplier 
+            };
+            chartInstance.options.plugins.tooltip.bodyFont = { 
+                size: (chartInstance.options.plugins.tooltip.bodyFont?.size || 12) * fontMultiplier 
+            };
+        }
+        
+        // Update datasets for thicker lines
+        chartInstance.data.datasets.forEach(dataset => {
+            if (dataset.borderWidth) {
+                dataset.borderWidth = dataset.borderWidth * 2; // Thicker lines
+            }
+            if (dataset.pointRadius !== undefined) {
+                dataset.pointRadius = dataset.pointRadius * 2; // Larger points
+            }
+        });
+        
+        // Force update
+        chartInstance.update('none');
+        
+        return originalOptions;
+    }
+    
+    // Function to restore Chart.js to original state
+    function restoreChartFromHighRes(chartInstance, originalOptions) {
+        if (!chartInstance || !originalOptions) return;
+        
+        // Restore options
+        chartInstance.options = originalOptions;
+        chartInstance.update('none');
+    }
+
+    function saveChartsAsPng(category, highResolution = false) {
         const detailView = document.getElementById(`detail-${category}`);
         if (!detailView) {
             console.error(`Detail view for category ${category} not found.`);
@@ -2086,24 +2150,62 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
 
         const chartInstanceMap = { 'powerChart': powerChartInstance, 'solarPanelChart': solarPanelChartInstance, 'ctdChart': ctdChartInstance, 'ctdProfileChart': ctdProfileChartInstance, 'weatherSensorChart': weatherSensorChartInstance, 'waveChart': waveChartInstance, 'waveHeightDirectionChart': waveHeightDirectionChartInstance, 'waveSpectrumChart': waveSpectrumChartInstance, 'vr2cChart': vr2cChartInstance, 'fluorometerChart': fluorometerChartInstance, 'wgVm4Chart': wgVm4ChartInstance, 'telemetryChart': telemetryChartInstance, 'telemetryCurrentChart': navigationCurrentChartInstance, 'telemetryHeadingDiffChart': navigationHeadingDiffChartInstance };
 
+        // Store original chart states for restoration
+        const originalStates = {};
+
         canvases.forEach(canvas => {
             const chartId = canvas.id;
             const chartInstance = chartInstanceMap[chartId];
 
             if (chartInstance) {
+                // Enhance chart for high-resolution if needed
+                if (highResolution) {
+                    originalStates[chartId] = enhanceChartForHighRes(chartInstance);
+                }
+                
                 const newCanvas = document.createElement('canvas');
-                newCanvas.width = chartInstance.canvas.width;
-                newCanvas.height = chartInstance.canvas.height;
-                const newCtx = newCanvas.getContext('2d');
-                const bodyStyles = getComputedStyle(document.body);
-                const bgColor = bodyStyles.getPropertyValue('--bs-body-bg').trim();
-                newCtx.fillStyle = bgColor;
-                newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
-                newCtx.drawImage(chartInstance.canvas, 0, 0);
+                
+                if (highResolution) {
+                    // Enhanced high-resolution scaling: 4x for dramatic quality improvement
+                    const scaleFactor = 4;
+                    newCanvas.width = chartInstance.canvas.width * scaleFactor;
+                    newCanvas.height = chartInstance.canvas.height * scaleFactor;
+                    const newCtx = newCanvas.getContext('2d');
+                    
+                    // Enhanced image smoothing for better quality
+                    newCtx.imageSmoothingEnabled = true;
+                    newCtx.imageSmoothingQuality = 'high';
+                    
+                    // Set background color
+                    const bodyStyles = getComputedStyle(document.body);
+                    const bgColor = bodyStyles.getPropertyValue('--bs-body-bg').trim();
+                    newCtx.fillStyle = bgColor;
+                    newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+                    
+                    // Scale and draw the chart with enhanced quality
+                    newCtx.scale(scaleFactor, scaleFactor);
+                    newCtx.drawImage(chartInstance.canvas, 0, 0);
+                    
+                    // Additional quality enhancements
+                    newCtx.textRenderingOptimization = 'optimizeQuality';
+                    newCtx.textBaseline = 'alphabetic';
+                } else {
+                    // Standard resolution
+                    newCanvas.width = chartInstance.canvas.width;
+                    newCanvas.height = chartInstance.canvas.height;
+                    const newCtx = newCanvas.getContext('2d');
+                    const bodyStyles = getComputedStyle(document.body);
+                    const bgColor = bodyStyles.getPropertyValue('--bs-body-bg').trim();
+                    newCtx.fillStyle = bgColor;
+                    newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+                    newCtx.drawImage(chartInstance.canvas, 0, 0);
+                }
+                
                 const image = newCanvas.toDataURL('image/png');
                 const link = document.createElement('a');
                 link.href = image;
-                link.download = `${mission}_${chartId}.png`;
+                const suffix = highResolution ? '_high_res' : '';
+                link.download = `${mission}_${chartId}${suffix}.png`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -2111,6 +2213,17 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 console.warn(`No chart instance found for canvas with ID: ${chartId}`);
             }
         });
+        
+        // Restore all charts to original state after high-res export
+        if (highResolution) {
+            canvases.forEach(canvas => {
+                const chartId = canvas.id;
+                const chartInstance = chartInstanceMap[chartId];
+                if (chartInstance && originalStates[chartId]) {
+                    restoreChartFromHighRes(chartInstance, originalStates[chartId]);
+                }
+            });
+        }
     }
 
     // Observer to watch for theme changes on the <html> element

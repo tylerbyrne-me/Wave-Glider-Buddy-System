@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}User Settings - Wave Glider Buddy{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="mb-0">
+                        <i class="fas fa-user-cog me-2"></i>User Settings
+                    </h3>
+                    <p class="text-muted mb-0">Manage your account information and security settings</p>
+                </div>
+                <div class="card-body">
+                    <!-- Success/Error Messages -->
+                    <div id="alertContainer"></div>
+
+                    <!-- User Information Section -->
+                    <div class="mb-5">
+                        <h4 class="mb-3">
+                            <i class="fas fa-user me-2"></i>Personal Information
+                        </h4>
+                        <form id="userInfoForm">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="username" value="{{ current_user.username }}" readonly>
+                                    <div class="form-text">Username cannot be changed</div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="role" class="form-label">Role</label>
+                                    <input type="text" class="form-control" id="role" value="{{ current_user.role.value.title() }}" readonly>
+                                    <div class="form-text">Role is managed by administrators</div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="fullName" class="form-label">Full Name</label>
+                                    <input type="text" class="form-control" id="fullName" value="{{ current_user.full_name or '' }}" placeholder="Enter your full name">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="email" class="form-label">Email Address</label>
+                                    <input type="email" class="form-control" id="email" value="{{ current_user.email or '' }}" placeholder="Enter your email address">
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-end">
+                                <button type="submit" class="btn btn-primary" id="updateInfoBtn">
+                                    <i class="fas fa-save me-2"></i>Update Information
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <hr>
+
+                    <!-- Password Change Section -->
+                    <div class="mb-4">
+                        <h4 class="mb-3">
+                            <i class="fas fa-lock me-2"></i>Change Password
+                        </h4>
+                        <form id="passwordChangeForm">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="currentPassword" class="form-label">Current Password</label>
+                                    <input type="password" class="form-control" id="currentPassword" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="newPassword" class="form-label">New Password</label>
+                                    <input type="password" class="form-control" id="newPassword" required minlength="6">
+                                    <div class="form-text">Minimum 6 characters</div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="confirmPassword" class="form-label">Confirm New Password</label>
+                                    <input type="password" class="form-control" id="confirmPassword" required>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-end">
+                                <button type="submit" class="btn btn-warning" id="changePasswordBtn">
+                                    <i class="fas fa-key me-2"></i>Change Password
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <hr>
+
+                    <!-- Account Status Section -->
+                    <div class="mb-4">
+                        <h4 class="mb-3">
+                            <i class="fas fa-info-circle me-2"></i>Account Status
+                        </h4>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">Account Status:</span>
+                                    {% if current_user.disabled %}
+                                        <span class="badge bg-danger">Disabled</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">User ID:</span>
+                                    <code>{{ current_user.id }}</code>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">Schedule Color:</span>
+                                    {% if current_user.color %}
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-color-indicator me-2" 
+                                                 style="width: 24px; height: 24px; background-color: {{ current_user.color }}; border: 1px solid #ccc; border-radius: 4px;" 
+                                                 title="Your color in the schedule: {{ current_user.color }}"></div>
+                                            <code>{{ current_user.color }}</code>
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted">No color assigned</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% if current_user.disabled %}
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Your account is currently disabled. Please contact an administrator for assistance.
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <a href="/home.html" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Home
+                        </a>
+                        <div>
+                            <button type="button" class="btn btn-outline-info" id="refreshUserDataBtn">
+                                <i class="fas fa-sync-alt me-2"></i>Refresh Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block head_extra_css %}
+<style>
+    .user-color-indicator {
+        display: inline-block;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        transition: transform 0.2s ease;
+    }
+    .user-color-indicator:hover {
+        transform: scale(1.1);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+</style>
+{% endblock %}
+
+{% block body_extra_js %}
+<script src="{{ url_for('static', path='js/user_settings.js') }}" type="module"></script>
+{% endblock %}

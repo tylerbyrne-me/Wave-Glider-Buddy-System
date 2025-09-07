@@ -356,4 +356,4 @@ async function getUserProfile() {
     }
 }
 
-export { checkAuth, logout, getUserProfile };
+export { checkAuth, logout, getUserProfile, getAuthToken };
