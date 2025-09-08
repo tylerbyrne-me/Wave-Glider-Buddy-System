@@ -82,6 +82,165 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     let autoRefreshEnabled = true; // Default to true, will be updated by checkbox/localStorage
     let countdownTimer = null;
 
+    // Date range functionality is now handled per-report-type by checking input values directly
+
+    // Date range utility functions
+    function initializeDateRangeInputs() {
+        const dateRangeInputs = document.querySelectorAll('.date-range-input');
+        dateRangeInputs.forEach(input => {
+            // Don't set default values - let users choose their own dates
+            // Only add event listeners
+            input.addEventListener('change', handleDateRangeChange);
+            input.addEventListener('input', handleDateRangeChange); // Also listen to input events for real-time updates
+            
+            // Check if this input already has a value and trigger the change handler
+            if (input.value) {
+                handleDateRangeChange({ target: input });
+            }
+        });
+    }
+
+    function initializeClearButtons() {
+        const clearButtons = document.querySelectorAll('[id^="clear-date-"]');
+        clearButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const reportType = this.id.replace('clear-date-', '');
+                clearDateRange(reportType);
+            });
+        });
+    }
+
+    function initializeAllDateRangeStates() {
+        // Get all unique report types from date range inputs
+        const reportTypes = new Set();
+        document.querySelectorAll('.date-range-input').forEach(input => {
+            if (input.dataset.reportType) {
+                reportTypes.add(input.dataset.reportType);
+            }
+        });
+        
+        // Initialize state for each report type
+        reportTypes.forEach(reportType => {
+            const startInput = document.getElementById(`start-date-${reportType}`);
+            const endInput = document.getElementById(`end-date-${reportType}`);
+            const clearButton = document.getElementById(`clear-date-${reportType}`);
+            
+            if (startInput && endInput) {
+                const startValue = startInput.value;
+                const endValue = endInput.value;
+                
+                // Show/hide clear button based on existing values
+                if (clearButton) {
+                    if (startValue || endValue) {
+                        clearButton.style.display = 'inline-block';
+                    } else {
+                        clearButton.style.display = 'none';
+                    }
+                }
+                
+                // Set hours input state based on date range
+                const hoursInput = document.getElementById(`hours-back-${reportType}`);
+                if (hoursInput) {
+                    if (startValue && endValue) {
+                        hoursInput.disabled = true;
+                        hoursInput.style.opacity = '0.5';
+                    } else {
+                        hoursInput.disabled = false;
+                        hoursInput.style.opacity = '1';
+                    }
+                }
+            }
+        });
+    }
+
+    function handleDateRangeChange(event) {
+        const input = event.target;
+        const reportType = input.dataset.reportType;
+        
+        // Get both start and end inputs for this report type
+        const startInput = document.getElementById(`start-date-${reportType}`);
+        const endInput = document.getElementById(`end-date-${reportType}`);
+        const clearButton = document.getElementById(`clear-date-${reportType}`);
+        
+        if (startInput && endInput) {
+            const startValue = startInput.value;
+            const endValue = endInput.value;
+            
+            // Show/hide clear button based on whether any date is set
+            if (clearButton) {
+                if (startValue || endValue) {
+                    clearButton.style.display = 'inline-block';
+                } else {
+                    clearButton.style.display = 'none';
+                }
+            }
+            
+            // Check if both dates are provided
+            if (startValue && endValue) {
+                const startDate = new Date(startValue);
+                const endDate = new Date(endValue);
+                
+                // Validate date range
+                if (startDate >= endDate) {
+                    displayGlobalError('Start date must be before end date.');
+                    return;
+                }
+                
+                // Disable hours back input when date range is active
+                const hoursInput = document.getElementById(`hours-back-${reportType}`);
+                if (hoursInput) {
+                    hoursInput.disabled = true;
+                    hoursInput.style.opacity = '0.5';
+                }
+            } else {
+                // If either date is cleared, re-enable hours back input
+                const hoursInput = document.getElementById(`hours-back-${reportType}`);
+                if (hoursInput) {
+                    hoursInput.disabled = false;
+                    hoursInput.style.opacity = '1';
+                }
+            }
+            
+            // Always reload chart data when date inputs change
+            const loader = getSensorLoader(reportType);
+            if (loader) {
+                loader();
+            }
+        }
+    }
+
+    function clearDateRange(reportType) {
+        const startInput = document.getElementById(`start-date-${reportType}`);
+        const endInput = document.getElementById(`end-date-${reportType}`);
+        const clearButton = document.getElementById(`clear-date-${reportType}`);
+        
+        if (startInput) {
+            startInput.value = '';
+        }
+        if (endInput) {
+            endInput.value = '';
+        }
+        
+        // Hide the clear button
+        if (clearButton) {
+            clearButton.style.display = 'none';
+        }
+        
+        // Re-enable hours back input
+        const hoursInput = document.getElementById(`hours-back-${reportType}`);
+        if (hoursInput) {
+            hoursInput.disabled = false;
+            hoursInput.style.opacity = '1';
+        }
+        
+        // Reload chart data
+        const loader = getSensorLoader(reportType);
+        if (loader) {
+            loader();
+        }
+    }
+
+
     function startCountdownTimer() {
         const countdownElement = document.getElementById('refreshCountdown');
         const countdownContainer = document.getElementById('refreshCountdownContainer');
@@ -210,7 +369,35 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         const granularity = granularitySelect ? granularitySelect.value : 15; // Default to 15 min if no select found
 
         try {
-            let apiUrl = `/api/data/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
+            // Check if date range is enabled for this report type
+            const startInput = document.getElementById(`start-date-${reportType}`);
+            const endInput = document.getElementById(`end-date-${reportType}`);
+            const isDateRangeActive = startInput && endInput && startInput.value && endInput.value;
+            
+            let apiUrl;
+            if (isDateRangeActive) {
+                // Use date range mode - don't include hours_back parameter
+                apiUrl = `/api/data/${reportType}/${mission}?granularity_minutes=${granularity}`;
+                
+                // Add date range parameters
+                const startDate = new Date(startInput.value);
+                const endDate = new Date(endInput.value);
+                const startISO = startDate.toISOString();
+                const endISO = endDate.toISOString();
+                apiUrl += `&start_date=${encodeURIComponent(startISO)}&end_date=${encodeURIComponent(endISO)}`;
+                
+                // Debug logging
+                console.log(`Date range mode for ${reportType}:`);
+                console.log(`  Input values: ${startInput.value} to ${endInput.value}`);
+                console.log(`  Parsed dates: ${startDate} to ${endDate}`);
+                console.log(`  ISO strings: ${startISO} to ${endISO}`);
+                console.log(`  API URL: ${apiUrl}`);
+            } else {
+                // Use hours back mode
+                apiUrl = `/api/data/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
+                console.log(`Hours back mode for ${reportType}: ${hours} hours`);
+            }
+            
             apiUrl += `&source=${currentSource}`;
             if (currentSource === 'local' && currentLocalPath) {
                 apiUrl += `&local_path=${encodeURIComponent(currentLocalPath)}`;
@@ -218,6 +405,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 apiUrl += `&refresh=true`;
             }
+            
             // const response = await fetch(apiUrl); // Old way
             const response = await fetchWithAuth(apiUrl); // Use fetchWithAuth
 
@@ -634,6 +822,16 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
             }
+            
+            // Add date range parameters if date range is enabled for weather
+            const startInput = document.getElementById('start-date-weather');
+            const endInput = document.getElementById('end-date-weather');
+            if (startInput && endInput && startInput.value && endInput.value) {
+                const startDate = new Date(startInput.value);
+                const endDate = new Date(endInput.value);
+                forecastParams.append('start_date', startDate.toISOString());
+                forecastParams.append('end_date', endDate.toISOString());
+            }
             // const response = await fetch(`${forecastApiUrl}?${forecastParams.toString()}`); // Old way
             const response = await fetchWithAuth(`${forecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
 
@@ -842,6 +1040,16 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             }
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
+            }
+            
+            // Add date range parameters if date range is enabled for waves
+            const startInput = document.getElementById('start-date-waves');
+            const endInput = document.getElementById('end-date-waves');
+            if (startInput && endInput && startInput.value && endInput.value) {
+                const startDate = new Date(startInput.value);
+                const endDate = new Date(endInput.value);
+                forecastParams.append('start_date', startDate.toISOString());
+                forecastParams.append('end_date', endDate.toISOString());
             }
             // const response = await fetch(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Old way
             const response = await fetchWithAuth(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
@@ -1213,6 +1421,16 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             }
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 spectrumParams.append('refresh', 'true');
+            }
+            
+            // Add date range parameters if date range is enabled for waves
+            const startInput = document.getElementById('start-date-waves');
+            const endInput = document.getElementById('end-date-waves');
+            if (startInput && endInput && startInput.value && endInput.value) {
+                const startDate = new Date(startInput.value);
+                const endDate = new Date(endInput.value);
+                spectrumParams.append('start_date', startDate.toISOString());
+                spectrumParams.append('end_date', endDate.toISOString());
             }
             // Note: We are NOT passing a specific timestamp here, relying on the backend to get the latest
             // unless a specific timestamp selection UI is added later.
@@ -1975,7 +2193,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     }
 
     function initializeInteractiveControls() {
-        document.querySelectorAll('.hours-back-input, .granularity-select').forEach(input => {
+        document.querySelectorAll('.hours-back-input, .granularity-select, .date-range-input').forEach(input => {
             input.addEventListener('change', (event) => {
                 const reportType = event.target.dataset.reportType;
                 const loader = getSensorLoader(reportType);
@@ -2065,6 +2283,17 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         apiUrl += `&source=${source}`;
         if (source === 'local' && localPath) {
             apiUrl += `&local_path=${encodeURIComponent(localPath)}`;
+        }
+        
+        // Add date range parameters if date range is enabled
+        const startInput = document.getElementById(`start-date-${reportType}`);
+        const endInput = document.getElementById(`end-date-${reportType}`);
+        if (startInput && endInput && startInput.value && endInput.value) {
+            const startDate = new Date(startInput.value);
+            const endDate = new Date(endInput.value);
+            const startISO = startDate.toISOString();
+            const endISO = endDate.toISOString();
+            apiUrl += `&start_date=${encodeURIComponent(startISO)}&end_date=${encodeURIComponent(endISO)}`;
         }
 
         // Trigger download by navigating to the URL
@@ -2246,6 +2475,29 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     handleLeftPanelClicks();
     initializeInteractiveControls();
     initializeDownloadButtons();
+    initializeDateRangeInputs();
+    initializeClearButtons();
+    
+    // Ensure all date range inputs are properly initialized
+    initializeAllDateRangeStates();
+    
+    // Add a global function to force refresh date range states (for debugging)
+    window.refreshDateRangeStates = initializeAllDateRangeStates;
+    
+    // Add a global function to clear all date ranges (for debugging)
+    window.clearAllDateRanges = function() {
+        const reportTypes = new Set();
+        document.querySelectorAll('.date-range-input').forEach(input => {
+            if (input.dataset.reportType) {
+                reportTypes.add(input.dataset.reportType);
+            }
+        });
+        
+        console.log('Clearing all date ranges for report types:', Array.from(reportTypes));
+        reportTypes.forEach(reportType => {
+            clearDateRange(reportType);
+        });
+    };
 
     // Initial data load for the default active view (Navigation)
     // This ensures the main chart for the default view loads without needing a click.

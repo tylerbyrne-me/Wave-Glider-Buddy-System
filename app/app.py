@@ -375,6 +375,56 @@ async def _load_from_remote_sources(
         return None, last_accessed_remote_path_if_empty
     return None, actual_source_path
 
+def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    """
+    Apply date filtering to a DataFrame based on the report type and timestamp column.
+    Returns the filtered DataFrame.
+    """
+    # Map report types to their timestamp column names
+    timestamp_columns = {
+        "telemetry": "lastLocationFix",
+        "power": "gliderTimeStamp", 
+        "solar": "gliderTimeStamp",
+        "ctd": "gliderTimeStamp",
+        "weather": "gliderTimeStamp",
+        "waves": "gliderTimeStamp",
+        "vr2c": "gliderTimeStamp",
+        "fluorometer": "gliderTimeStamp",
+        "wg_vm4": "gliderTimeStamp",
+        "ais": "gliderTimeStamp",
+        "errors": "gliderTimeStamp",
+    }
+    
+    timestamp_col = timestamp_columns.get(report_type)
+    if not timestamp_col or timestamp_col not in df.columns:
+        logger.warning(f"No timestamp column found for {report_type}, skipping date filtering")
+        return df
+    
+    try:
+        # Convert timestamp column to datetime if it's not already
+        if not pd.api.types.is_datetime64_any_dtype(df[timestamp_col]):
+            df[timestamp_col] = pd.to_datetime(df[timestamp_col], format='ISO8601', utc=True)
+        
+        # Ensure timezone awareness
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=timezone.utc)
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        
+        # Apply date filtering
+        mask = (df[timestamp_col] >= start_date) & (df[timestamp_col] <= end_date)
+        filtered_df = df[mask].copy()
+        
+        logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                   f"({start_date.isoformat()} to {end_date.isoformat()})")
+        
+        return filtered_df
+        
+    except Exception as e:
+        logger.error(f"Error applying date filtering to {report_type}: {e}")
+        return df
+
+
 async def load_data_source(
     report_type: str,
     mission_id: str,
@@ -384,6 +434,8 @@ async def load_data_source(
     current_user: Optional[
         models.User  # Changed from UserInDB to match what get_optional_current_user returns
     ] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
 ):
 
     df: Optional[pd.DataFrame] = None
@@ -473,6 +525,9 @@ async def load_data_source(
         logger.error(
             f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected."
         )
+
+    # Note: Date filtering is now handled in the API endpoint after preprocessing
+    # to ensure we filter on the correct timestamp column after data transformation
 
     if df is not None and not df.empty:
         logger.debug(
@@ -964,6 +1019,8 @@ async def get_report_data_for_plotting(
             custom_local_path=params.local_path,
             force_refresh=params.refresh,
             current_user=current_user,
+            start_date=params.start_date,
+            end_date=params.end_date,
         )
 
         if df is None or df.empty:
@@ -1027,14 +1084,44 @@ async def get_report_data_for_plotting(
             )
             return JSONResponse(content=[])
 
-        # Calculate the cutoff time based on the most recent data point
-        cutoff_time = max_timestamp - timedelta(hours=params.hours_back)
-        recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
-        if recent_data.empty:  # hours_back was used in cutoff_time, not directly here
-            logger.info(
-                f"No data for {report_type.value}, mission {mission_id} within "
-                f"{params.hours_back} hours of its latest data point ({max_timestamp})."
-            )
+        # Apply time-based filtering based on whether date range or hours_back is used
+        if params.start_date is not None and params.end_date is not None:
+            # Use date range filtering - data was already filtered in load_data_source
+            # but we need to ensure it's using the correct timestamp column after preprocessing
+            if "Timestamp" in processed_df.columns:
+                # Ensure timezone awareness for comparison
+                start_date_utc = params.start_date.replace(tzinfo=timezone.utc) if params.start_date.tzinfo is None else params.start_date
+                end_date_utc = params.end_date.replace(tzinfo=timezone.utc) if params.end_date.tzinfo is None else params.end_date
+                
+                # Debug logging
+                logger.info(f"Date range filtering for {report_type.value}:")
+                logger.info(f"  Input dates: {params.start_date} to {params.end_date}")
+                logger.info(f"  UTC dates: {start_date_utc} to {end_date_utc}")
+                logger.info(f"  Data timestamp range: {processed_df['Timestamp'].min()} to {processed_df['Timestamp'].max()}")
+                
+                # Apply date range filtering on the processed data
+                mask = (processed_df["Timestamp"] >= start_date_utc) & (processed_df["Timestamp"] <= end_date_utc)
+                recent_data = processed_df[mask]
+                
+                logger.info(f"Applied date range filtering to processed {report_type.value}: "
+                           f"{len(processed_df)} -> {len(recent_data)} records "
+                           f"({start_date_utc.isoformat()} to {end_date_utc.isoformat()})")
+            else:
+                # Fallback to using all processed data if no Timestamp column
+                recent_data = processed_df
+        else:
+            # Use hours_back filtering (original behavior)
+            cutoff_time = max_timestamp - timedelta(hours=params.hours_back)
+            recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
+            if recent_data.empty:
+                logger.info(
+                    f"No data for {report_type.value}, mission {mission_id} within "
+                    f"{params.hours_back} hours of its latest data point ({max_timestamp})."
+                )
+                return JSONResponse(content=[])
+
+        if recent_data.empty:
+            logger.info(f"No data remaining after filtering for {report_type.value}, mission {mission_id}")
             return JSONResponse(content=[])
 
         # Resample data based on user-defined granularity

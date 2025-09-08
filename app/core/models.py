@@ -41,6 +41,8 @@ class ReportDataParams(BaseModel):
     source: Optional[SourceEnum] = Field(None, description="Preferred data source: 'local' or 'remote'. Defaults to remote then local.")
     local_path: Optional[str] = Field(None, description="Custom base path for local data, overrides default settings path.")
     refresh: bool = Field(False, description="Force refresh data from source, bypassing cache.")
+    start_date: Optional[datetime] = Field(None, description="Start date and time for data filtering (ISO 8601 format). If provided, overrides hours_back.")
+    end_date: Optional[datetime] = Field(None, description="End date and time for data filtering (ISO 8601 format). If provided, overrides hours_back.")
 
     @field_validator("local_path")
     def local_path_rules(cls, v, values):
@@ -56,6 +58,22 @@ class ReportDataParams(BaseModel):
             raise ValueError(
                 "local_path cannot be empty if provided and source is 'local'"
             )
+        return v
+
+    @field_validator("end_date")
+    def validate_date_range(cls, v, values):
+        # If start_date is provided, end_date must also be provided
+        start_date = values.data.get("start_date")
+        if start_date is not None and v is None:
+            raise ValueError("end_date must be provided when start_date is specified")
+        if v is not None and start_date is None:
+            raise ValueError("start_date must be provided when end_date is specified")
+        
+        # If both dates are provided, start_date must be before end_date
+        if start_date is not None and v is not None:
+            if start_date >= v:
+                raise ValueError("start_date must be before end_date")
+        
         return v
 
 

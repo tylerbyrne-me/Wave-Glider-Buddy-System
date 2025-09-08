@@ -387,6 +387,18 @@
           <div class="card-header d-flex justify-content-between align-items-center">
             <h2 class="mb-0">{{ mission }} - Navigation</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-telemetry" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-telemetry" data-report-type="telemetry">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-telemetry" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-telemetry" data-report-type="telemetry">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-telemetry" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-telemetry" title="Set the time window for the chart data in hours.">Hours</label>
@@ -516,6 +528,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - Power</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-power" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-power" data-report-type="power">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-power" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-power" data-report-type="power">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-power" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-power" title="Set the time window for the chart data in hours.">Hours</label>
@@ -639,6 +663,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - CTD</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-ctd" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-ctd" data-report-type="ctd">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-ctd" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-ctd" data-report-type="ctd">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-ctd" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-ctd" title="Set the time window for the chart data in hours.">Hours</label>
@@ -744,6 +780,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - Weather Sensor</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-weather" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-weather" data-report-type="weather">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-weather" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-weather" data-report-type="weather">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-weather" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-weather" title="Set the time window for the chart data in hours.">Hours</label>
@@ -872,6 +920,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - Wave</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-waves" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-waves" data-report-type="waves">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-waves" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-waves" data-report-type="waves">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-waves" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-waves" title="Set the time window for the chart data in hours.">Hours</label>
@@ -1022,6 +1082,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - VR2C-MRx Acoustic Receiver</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-vr2c" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-vr2c" data-report-type="vr2c">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-vr2c" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-vr2c" data-report-type="vr2c">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-vr2c" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-vr2c" title="Set the time window for the chart data in hours.">Hours</label>
@@ -1096,6 +1168,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - C3 Fluorometer</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-fluorometer" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-fluorometer" data-report-type="fluorometer">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-fluorometer" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-fluorometer" data-report-type="fluorometer">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-fluorometer" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-fluorometer" title="Set the time window for the chart data in hours.">Hours</label>
@@ -1173,6 +1257,18 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <h2 class="mb-0">{{ mission }} - WG-VM4 Sensor</h2>
             <div class="d-flex align-items-center">
+              <!-- Date range controls -->
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="start-date-wg_vm4" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-wg_vm4" data-report-type="wg_vm4">
+              </div>
+              <div class="input-group input-group-sm me-2" style="width: 200px;">
+                <label class="input-group-text" for="end-date-wg_vm4" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-wg_vm4" data-report-type="wg_vm4">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm me-2" id="clear-date-wg_vm4" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
               <!-- Hours back control -->
               <div class="input-group input-group-sm me-2" style="width: 150px;">
                 <label class="input-group-text" for="hours-back-wg_vm4" title="Set the time window for the chart data in hours.">Hours</label>
