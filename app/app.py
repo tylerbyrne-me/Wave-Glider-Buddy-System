@@ -49,6 +49,7 @@ from .auth_utils import (get_current_active_user, get_current_admin_user,
 from .config import settings
 from .core import models  # type: ignore
 from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context) # type: ignore
+from . import reporting
 from .core.security import create_access_token, verify_password
 from .db import SQLModelSession, get_db_session, sqlite_engine
 from .forms.form_definitions import get_static_form_schema # Import the new function
@@ -61,6 +62,7 @@ from .routers import payroll as payroll_router
 from .routers import home as home_router
 from .routers import reporting as reporting_router
 from .routers import admin as admin_router
+from .routers import error_analysis as error_analysis_router
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -147,6 +149,7 @@ app.include_router(payroll_router.router)
 app.include_router(home_router.router)
 app.include_router(reporting_router.router)
 app.include_router(admin_router.router)
+app.include_router(error_analysis_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
@@ -882,9 +885,88 @@ async def _process_loaded_data_for_home_view(
         ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
         ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
 
+    # Initialize error variables
+    recent_errors_list = []
+    all_errors_list = []
+    errors_update_info = None
+    error_analysis = {}
+    
     if "errors" in data_frames and data_frames["errors"] is not None:
+        logger.info(f"Processing error data: {len(data_frames['errors'])} rows")
+        # Get recent errors for text display (24 hours)
         recent_errors_list = summaries.get_recent_errors(data_frames.get("errors"), max_age_hours=hours)[:20]
         errors_update_info = utils.get_df_latest_update_info(data_frames.get("errors"), timestamp_col="Timestamp")
+        
+        # Enhanced error analysis - use ALL mission errors for graphical analysis
+        from .services.error_classification_service import analyze_error_messages, classify_error_message
+        from .services.error_analysis_service import ErrorAnalysisService
+        
+        # Process ALL errors for mission-wide analysis (not just recent 24hrs)
+        all_errors_df = data_frames.get("errors")
+        if all_errors_df is not None and not all_errors_df.empty:
+            # Get all error messages from the entire mission
+            all_error_messages = []
+            for _, row in all_errors_df.iterrows():
+                # Try both column names in case the processor didn't rename it
+                error_msg = row.get('ErrorMessage', '') or row.get('error_Message', '')
+                if error_msg and str(error_msg).strip():
+                    all_error_messages.append(str(error_msg).strip())
+            
+            # Analyze all mission errors for graphical display
+            error_analysis = analyze_error_messages(all_error_messages) if all_error_messages else {}
+            
+            # Process all errors for the collapsible tab (with classification)
+            all_errors_list = []
+            for _, row in all_errors_df.iterrows():
+                # Convert timestamp to datetime if it's a string
+                timestamp = row.get('Timestamp') or row.get('timeStamp')
+                if isinstance(timestamp, str):
+                    try:
+                        from datetime import datetime
+                        timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        timestamp = None
+                
+                error_dict = {
+                    'Timestamp': timestamp,
+                    'VehicleName': row.get('VehicleName') or row.get('vehicleName'),
+                    'ErrorMessage': row.get('ErrorMessage') or row.get('error_Message'),
+                    'SelfCorrected': row.get('SelfCorrected') or row.get('selfCorrected')
+                }
+                
+                # Classify the error
+                if error_dict['ErrorMessage']:
+                    category, confidence, description = classify_error_message(error_dict['ErrorMessage'])
+                    error_dict['category'] = category.value
+                    error_dict['confidence'] = confidence
+                    error_dict['category_description'] = description
+                else:
+                    error_dict['category'] = 'unknown'
+                    error_dict['confidence'] = 0.0
+                    error_dict['category_description'] = 'Unknown error type'
+                
+                all_errors_list.append(error_dict)
+            
+            # Sort by timestamp (most recent first)
+            from datetime import datetime
+            all_errors_list.sort(key=lambda x: x['Timestamp'] if x['Timestamp'] else datetime.min, reverse=True)
+            
+        else:
+            error_analysis = {}
+    
+    # Add classification to recent errors (for text display) - always process this
+    from .services.error_classification_service import classify_error_message
+    for error in recent_errors_list:
+        if error.get('ErrorMessage'):
+            category, confidence, description = classify_error_message(error['ErrorMessage'])
+            error['category'] = category.value
+            error['confidence'] = confidence
+            error['category_description'] = description
+        else:
+            # Ensure all error objects have the required attributes
+            error['category'] = 'unknown'
+            error['confidence'] = 0.0
+            error['category_description'] = 'Unknown error type'
 
     return {
         "display_source_path": display_source_path,
@@ -899,9 +981,11 @@ async def _process_loaded_data_for_home_view(
         "ais_summary_data": ais_summary_data,
         "ais_update_info": ais_update_info,
         "recent_errors_list": recent_errors_list,
+        "all_errors_list": all_errors_list,
         "errors_update_info": errors_update_info,
+        "error_analysis": error_analysis,
         "has_ais_data": bool(ais_summary_data),
-        "has_errors_data": bool(recent_errors_list),
+        "has_errors_data": bool(recent_errors_list) or bool(error_analysis.get('total_errors', 0) > 0),
     }
 
 
@@ -941,18 +1025,55 @@ async def root(request: Request, current_user: models.User = Depends(get_current
     # Load mission overview data for sensor card configuration
     mission_overview = session.get(models.MissionOverview, mission)
     enabled_sensor_cards = []
-    if mission_overview and mission_overview.enabled_sensor_cards:
-        try:
-            enabled_sensor_cards = json.loads(mission_overview.enabled_sensor_cards)
-            logger.info(f"DASHBOARD: Loaded sensor card config for mission {mission}: {enabled_sensor_cards}")
-        except json.JSONDecodeError:
-            # Default to all sensors if parsing fails
-            enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
-            logger.warning(f"DASHBOARD: Failed to parse sensor card config for mission {mission}, using defaults")
+    
+    if mission_overview:
+        logger.info(f"DASHBOARD: Found mission overview for {mission}")
+        if mission_overview.enabled_sensor_cards:
+            try:
+                enabled_sensor_cards = json.loads(mission_overview.enabled_sensor_cards)
+                logger.info(f"DASHBOARD: Loaded sensor card config for mission {mission}: {enabled_sensor_cards}")
+            except json.JSONDecodeError as e:
+                # Default to all sensors if parsing fails
+                enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
+                logger.warning(f"DASHBOARD: Failed to parse sensor card config for mission {mission}: {e}. Using defaults: {enabled_sensor_cards}")
+        else:
+            # Mission overview exists but no sensor card config - update it with minimal sensors
+            logger.warning(f"DASHBOARD: Mission overview exists for {mission} but no sensor card config found. Updating with minimal sensor config.")
+            
+            # Update the existing mission overview with minimal sensor configuration
+            default_enabled_sensors = ["navigation", "power", "ctd", "weather", "waves", "ais", "errors"]
+            mission_overview.enabled_sensor_cards = json.dumps(default_enabled_sensors)
+            
+            try:
+                session.add(mission_overview)
+                session.commit()
+                enabled_sensor_cards = default_enabled_sensors
+                logger.info(f"DASHBOARD: Updated mission overview for {mission} with sensors: {enabled_sensor_cards}")
+            except Exception as e:
+                logger.error(f"DASHBOARD: Failed to update mission overview for {mission}: {e}")
+                # Fallback to minimal sensors even if database update fails
+                enabled_sensor_cards = default_enabled_sensors
     else:
-        # Default to all sensors if no configuration exists
-        enabled_sensor_cards = ["navigation", "power", "ctd", "weather", "waves", "vr2c", "fluorometer", "wg_vm4", "ais", "errors"]
-        logger.info(f"DASHBOARD: No sensor card config for mission {mission}, using defaults: {enabled_sensor_cards}")
+        # No mission overview exists - create a default one with minimal sensors
+        logger.warning(f"DASHBOARD: No mission overview found for mission {mission}. Creating default with minimal sensor config.")
+        
+        # Create a default mission overview with only essential sensors enabled
+        default_enabled_sensors = ["navigation", "power", "ctd", "weather", "waves", "ais", "errors"]
+        default_mission_overview = models.MissionOverview(
+            mission_id=mission,
+            enabled_sensor_cards=json.dumps(default_enabled_sensors),
+            comments=f"Auto-created default mission overview for {mission} with minimal sensor configuration."
+        )
+        
+        try:
+            session.add(default_mission_overview)
+            session.commit()
+            enabled_sensor_cards = default_enabled_sensors
+            logger.info(f"DASHBOARD: Created default mission overview for {mission} with sensors: {enabled_sensor_cards}")
+        except Exception as e:
+            logger.error(f"DASHBOARD: Failed to create default mission overview for {mission}: {e}")
+            # Fallback to minimal sensors even if database creation fails
+            enabled_sensor_cards = default_enabled_sensors
 
     # Define the report types to load for the dashboard based on enabled sensor cards
     # Map sensor card categories to their corresponding data report types

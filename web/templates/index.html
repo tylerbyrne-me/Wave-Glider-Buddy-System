@@ -10,6 +10,7 @@
 
 {% block body_data_attributes %}
   data-mission-id="{{ mission }}" {# data-is-realtime is now passed directly to _banner.html #}
+  data-enabled-sensors="{{ enabled_sensor_cards | join(',') }}"
 {% endblock %}
 
 {% block content %}
@@ -302,19 +303,23 @@
                 {% for err in recent_errors_list[:2] %} {# Display up to the two most recent errors #}
                   <li>
                     <small class="text-muted">{{ err.Timestamp.strftime('%m-%d %H:%M') if err.Timestamp else "N/A" }}:</small>
-                    {{ err.ErrorMessage[:25] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 25 %}...{% endif %}
+                    <span class="error-category-badge badge bg-{{ 'primary' if err.category == 'navigation' else 'warning' if err.category == 'communication' else 'danger' if err.category == 'system_operations' else 'info' if err.category == 'environmental' else 'secondary' }} me-1">{{ err.category.title() if err.category else 'Unknown' }}</span>
+                    {{ err.ErrorMessage[:20] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 20 %}...{% endif %}
                   </li>
                 {% endfor %}
               </ul>
             {% endif %}
           </div>
           <div class="summary-card-text-content">   <!-- Removed full-width -->
-            <h5>Errors {% if has_errors_data %}<span class="text-danger ms-1 position-absolute top-0 end-0 mt-1 me-1">❗</span>{% endif %}</h5>
+            <h5>Errors</h5>
             <div class="mini-summary">
               {% if recent_errors_list %}
                 {{ recent_errors_list | length }} recent
               {% else %}
                 0 recent
+              {% endif %}
+              {% if has_errors_data %}
+                <span class="text-danger ms-1">❗</span>
               {% endif %}
             </div>
           </div>
@@ -359,18 +364,167 @@
       <div class="category-detail-view card mb-4" id="detail-errors" style="display: none;">
         <div class="card">
           <div class="card-header">
-            <h2 class="mb-0">{{ mission }} - Errors</h2>
+            <h2 class="mb-0">{{ mission }} - Error Analysis</h2>
           </div>
           <div class="card-body">
-            <ul class="list-unstyled scrollable-list-card">
+            <!-- Error Analysis Summary -->
+            <div class="row mb-4">
+              <div class="col-md-6">
+                <h5>Error Categories <small class="text-muted">(All Mission)</small></h5>
+                {% if error_analysis and error_analysis.categories %}
+                <div class="row">
+                  {% for category, data in error_analysis.categories.items() %}
+                  <div class="col-6 mb-2">
+                    <div class="card border-{{ 'primary' if category == 'navigation' else 'warning' if category == 'communication' else 'danger' if category == 'system_operations' else 'info' if category == 'environmental' else 'secondary' }}">
+                      <div class="card-body p-2">
+                        <h6 class="card-title mb-1">{{ category.title() }}</h6>
+                        <p class="card-text mb-1">
+                          <strong>{{ data.count }}</strong> errors
+                          <br><small class="text-muted">Confidence: {{ (data.confidence_avg * 100) | round(1) }}%</small>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-muted text-center" style="padding: 50px;">
+                  <i class="fas fa-chart-bar fa-3x mb-3"></i>
+                  <p>No error data available for analysis</p>
+                </div>
+                {% endif %}
+              </div>
+              <div class="col-md-6">
+                <h5>Error Distribution <small class="text-muted">(All Mission)</small></h5>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="errorCategoryChart"></canvas>
+                </div>
+                <div id="noErrorDataMessage" class="text-muted text-center" style="display: none; padding: 50px;">
+                  <i class="fas fa-chart-pie fa-3x mb-3"></i>
+                  <p>No error data available for chart</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Error List with Classification -->
+            <h5>Recent Errors <small class="text-muted">(Last 24 Hours)</small></h5>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Vehicle</th>
+                    <th>Category</th>
+                    <th>Message</th>
+                    <th>Self-Corrected</th>
+                    <th>Confidence</th>
+                  </tr>
+                </thead>
+                <tbody>
               {% if recent_errors_list %}
                 {% for err in recent_errors_list %}
-                  <li>{{ err.Timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if err.Timestamp else "N/A" }} — {{ err.VehicleName or "N/A" }} — {{ err.ErrorMessage[:60] if err.ErrorMessage else "N/A" }}... (SelfCorrected: {{ err.SelfCorrected }})</li>
+                    <tr>
+                      <td>{{ err.Timestamp.strftime('%m-%d %H:%M') if err.Timestamp else "N/A" }}</td>
+                      <td>{{ err.VehicleName or "N/A" }}</td>
+                      <td>
+                        <span class="badge bg-{{ 'primary' if err.category == 'navigation' else 'warning' if err.category == 'communication' else 'danger' if err.category == 'system_operations' else 'info' if err.category == 'environmental' else 'secondary' }}">
+                          {{ err.category.title() if err.category else 'Unknown' }}
+                        </span>
+                      </td>
+                      <td>
+                        <span title="{{ err.ErrorMessage if err.ErrorMessage else 'N/A' }}">
+                          {{ err.ErrorMessage[:50] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 50 %}...{% endif %}
+                        </span>
+                      </td>
+                      <td>
+                        {% if err.SelfCorrected %}
+                          <span class="text-success">✓ Yes</span>
+                        {% else %}
+                          <span class="text-danger">✗ No</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        <span class="badge bg-{{ 'success' if err.confidence > 0.8 else 'warning' if err.confidence > 0.5 else 'danger' }}">
+                          {{ (err.confidence * 100) | round(1) }}%
+                        </span>
+                      </td>
+                    </tr>
                 {% endfor %}
               {% else %}
-                <li>No recent errors.</li>
+                    <tr>
+                      <td colspan="6" class="text-center text-muted">No recent errors.</td>
+                    </tr>
               {% endif %}
-            </ul>
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- All Errors Collapsible Section -->
+            <div class="mt-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>All Mission Errors</h5>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#allErrorsCollapse" aria-expanded="false" aria-controls="allErrorsCollapse">
+                  <i class="fas fa-chevron-down" id="allErrorsChevron"></i> Toggle All Errors
+                </button>
+              </div>
+              <div class="collapse" id="allErrorsCollapse">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                  <table class="table table-sm table-hover">
+                    <thead class="sticky-top bg-light">
+                      <tr>
+                        <th>Time</th>
+                        <th>Vehicle</th>
+                        <th>Category</th>
+                        <th>Message</th>
+                        <th>Self-Corrected</th>
+                        <th>Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% if all_errors_list %}
+                        {% for err in all_errors_list %}
+                        <tr>
+                          <td>{{ err.Timestamp.strftime('%m-%d %H:%M') if err.Timestamp else "N/A" }}</td>
+                          <td>{{ err.VehicleName or "N/A" }}</td>
+                          <td>
+                            <span class="badge bg-{{ 'primary' if err.category == 'navigation' else 'warning' if err.category == 'communication' else 'danger' if err.category == 'system_operations' else 'info' if err.category == 'environmental' else 'secondary' }}">
+                              {{ err.category.title() if err.category else 'Unknown' }}
+                            </span>
+                          </td>
+                          <td>
+                            <span title="{{ err.ErrorMessage if err.ErrorMessage else 'N/A' }}">
+                              {{ err.ErrorMessage[:50] if err.ErrorMessage else "N/A" }}{% if err.ErrorMessage and err.ErrorMessage|length > 50 %}...{% endif %}
+                            </span>
+                          </td>
+                          <td>
+                            {% if err.SelfCorrected %}
+                              <span class="text-success">✓ Yes</span>
+                            {% else %}
+                              <span class="text-danger">✗ No</span>
+                            {% endif %}
+                          </td>
+                          <td>
+                            <span class="badge bg-{{ 'success' if err.confidence > 0.8 else 'warning' if err.confidence > 0.5 else 'danger' }}">
+                              {{ (err.confidence * 100) | round(1) }}%
+                            </span>
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr>
+                          <td colspan="6" class="text-center text-muted">No error data available.</td>
+                        </tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
+                {% if all_errors_list %}
+                <div class="mt-2 text-muted small">
+                  <i class="fas fa-info-circle"></i> Showing {{ all_errors_list | length }} total errors from mission
+                </div>
+                {% endif %}
+              </div>
+            </div>
           </div>
           <div class="card-footer text-muted small">
             {% if errors_update_info and errors_update_info.latest_timestamp_str != "N/A" %}
@@ -1387,4 +1541,27 @@
 {% block body_extra_js %}
   <script type="module" src="/static/js/dashboard.js"></script>
   <script src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
+  <script>
+    // Pass error analysis data to JavaScript
+    window.errorAnalysisData = {{ error_analysis | tojson if error_analysis else '{}' }};
+    
+    // Handle chevron rotation for All Errors collapsible
+    document.addEventListener('DOMContentLoaded', function() {
+      const allErrorsButton = document.querySelector('[data-bs-target="#allErrorsCollapse"]');
+      const allErrorsChevron = document.getElementById('allErrorsChevron');
+      
+      if (allErrorsButton && allErrorsChevron) {
+        allErrorsButton.addEventListener('click', function() {
+          const isExpanded = this.getAttribute('aria-expanded') === 'true';
+          if (isExpanded) {
+            allErrorsChevron.classList.remove('fa-chevron-up');
+            allErrorsChevron.classList.add('fa-chevron-down');
+          } else {
+            allErrorsChevron.classList.remove('fa-chevron-down');
+            allErrorsChevron.classList.add('fa-chevron-up');
+          }
+        });
+      }
+    });
+  </script>
 {% endblock %}

@@ -14,6 +14,16 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isRealtimeMission = document.body.dataset.isRealtime === 'true';
     const urlParams = new URLSearchParams(window.location.search);
+    
+    // Get enabled sensors from backend configuration
+    const enabledSensorsStr = document.body.dataset.enabledSensors || '';
+    const enabledSensors = enabledSensorsStr ? enabledSensorsStr.split(',') : [];
+    console.log("Dashboard.js: Enabled sensors from backend:", enabledSensors);
+    
+    // Helper function to check if a sensor is enabled
+    function isSensorEnabled(sensorName) {
+        return enabledSensors.length === 0 || enabledSensors.includes(sensorName);
+    }
 
     let powerChartInstance = null;
     let ctdChartInstance = null;
@@ -599,37 +609,43 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
-    // Fetch and render the CTD chart on page load
-    fetchChartData('ctd', missionId).then(data => {
-        renderCtdChart(data); // Existing chart for Temp & Salinity
-        renderCtdProfileChart(data); // New chart for Temp, Conductivity, DO
-    });
-    // Fetch and render the Weather Sensor chart on page load
-    fetchChartData('weather', missionId).then(data => {
-        renderWeatherSensorChart(data);
-    });
+    // Fetch and render the CTD chart on page load (only if enabled)
+    if (isSensorEnabled('ctd')) {
+        fetchChartData('ctd', missionId).then(data => {
+            renderCtdChart(data); // Existing chart for Temp & Salinity
+            renderCtdProfileChart(data); // New chart for Temp, Conductivity, DO
+        });
+    }
+    // Fetch and render the Weather Sensor chart on page load (only if enabled)
+    if (isSensorEnabled('weather')) {
+        fetchChartData('weather', missionId).then(data => {
+            renderWeatherSensorChart(data);
+        });
+    }
 
-    // Fetch Power and Solar data concurrently, then render their charts
-    Promise.all([
-        fetchChartData('power', missionId),
-        fetchChartData('solar', missionId)
-    ]).then(([powerData, solarData]) => {
-        renderPowerChart(powerData); // Renders power chart (now without total solar)
-        renderSolarPanelChart(solarData, powerData); // Pass both solar (individual) and power (for total solar) data
-    }).catch(error => {
-        // If Navigation is the default active view, this initial fetch might need adjustment
-        // For now, assuming Power or another non-Telemetry chart is default.
-        // If Navigation is default, its data should be fetched here too.
+    // Fetch Power and Solar data concurrently, then render their charts (only if power is enabled)
+    if (isSensorEnabled('power')) {
+        Promise.all([
+            fetchChartData('power', missionId),
+            fetchChartData('solar', missionId)
+        ]).then(([powerData, solarData]) => {
+            renderPowerChart(powerData); // Renders power chart (now without total solar)
+            renderSolarPanelChart(solarData, powerData); // Pass both solar (individual) and power (for total solar) data
+        }).catch(error => {
+            console.error("Error loading power/solar data:", error);
+            renderPowerChart(null);
+            renderSolarPanelChart(null, null);
+        });
+    }
+    
+    // If Navigation is the default active view, fetch telemetry data (only if enabled)
+    if (isSensorEnabled('navigation')) {
         fetchChartData('telemetry', missionId).then(data => {
             renderNavigationChart(data);
             renderNavigationCurrentChart(data);
             renderNavigationHeadingDiffChart(data);
         });
-        console.error("Error fetching initial power or solar data for combined rendering:", error);
-        // Fallback: render charts with null to show "no data" messages
-        renderPowerChart(null);
-        renderSolarPanelChart(null, null);
-    });
+    }
     
     /**
      * Renders the CTD Profile Chart using Chart.js.
@@ -1241,12 +1257,13 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         }
     }
 
-    // Fetch and render the Wave chart on page load
-    fetchChartData('waves', missionId).then(data => {
-        renderWaveChart(data); // Renders Hs vs Tp chart (time-series)
-        renderWaveHeightDirectionChart(data); // Call the reinstated function
-        // Wave spectrum is loaded on demand when its detail card is clicked
-    }); // This call was missing in the previous diff
+    // Fetch and render the Wave chart on page load (only if enabled)
+    if (isSensorEnabled('waves')) {
+        fetchChartData('waves', missionId).then(data => {
+            renderWaveChart(data); // Renders Hs vs Tp chart (time-series)
+            renderWaveHeightDirectionChart(data); // Call the reinstated function
+        }); // Wave spectrum is loaded on demand when its detail card is clicked
+    }
     
     /**
      * Renders the VR2C Chart using Chart.js.
@@ -1386,20 +1403,26 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         });
     }
 
-    // Fetch and render the VR2C chart on page load
-    fetchChartData('vr2c', missionId).then(data => {
-        renderVr2cChart(data);
-    });
+    // Fetch and render the VR2C chart on page load (only if enabled)
+    if (isSensorEnabled('vr2c')) {
+        fetchChartData('vr2c', missionId).then(data => {
+            renderVr2cChart(data);
+        });
+    }
 
-    // Fetch and render the Fluorometer chart on page load
-    fetchChartData('fluorometer', missionId).then(data => {
-        renderFluorometerChart(data);
-    }); // Removed the stray closing brace from the next line
+    // Fetch and render the Fluorometer chart on page load (only if enabled)
+    if (isSensorEnabled('fluorometer')) {
+        fetchChartData('fluorometer', missionId).then(data => {
+            renderFluorometerChart(data);
+        });
+    }
 
-    // Fetch and render the WG-VM4 chart on page load (if it's the default view or for pre-loading)
-    fetchChartData('wg_vm4', missionId).then(data => {
-        renderWgVm4Chart(data);
-    });
+    // Fetch and render the WG-VM4 chart on page load (only if enabled)
+    if (isSensorEnabled('wg_vm4')) {
+        fetchChartData('wg_vm4', missionId).then(data => {
+            renderWgVm4Chart(data);
+        });
+    }
 
     /**
      * Fetches and renders the latest wave spectrum data.
@@ -1962,6 +1985,120 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     // Reminder: Revisit threshold highlighting values
     // console.log("Reminder: Revisit and fine-tune threshold highlighting values in index.html for summaries.");
 
+    // --- Error Category Chart Rendering ---
+    function renderErrorCategoryChart() {
+        const canvas = document.getElementById('errorCategoryChart');
+        if (!canvas) {
+            console.log('Error category chart canvas not found');
+            return;
+        }
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Get error analysis data from the template
+        const errorAnalysis = window.errorAnalysisData || {};
+        const categories = errorAnalysis.categories || {};
+        
+        if (Object.keys(categories).length === 0) {
+            // Hide the chart container and show no data message
+            const container = canvas.closest('.chart-container');
+            const noDataMessage = document.getElementById('noErrorDataMessage');
+            if (container) {
+                container.style.display = 'none';
+            }
+            if (noDataMessage) {
+                noDataMessage.style.display = 'block';
+            }
+            return;
+        }
+        
+        // Show the chart container and hide no data message
+        const container = canvas.closest('.chart-container');
+        const noDataMessage = document.getElementById('noErrorDataMessage');
+        if (container) {
+            container.style.display = 'block';
+        }
+        if (noDataMessage) {
+            noDataMessage.style.display = 'none';
+        }
+        
+        // Prepare chart data
+        const labels = Object.keys(categories).map(cat => cat.charAt(0).toUpperCase() + cat.slice(1));
+        const data = Object.values(categories).map(cat => cat.count);
+        
+        // Color mapping to match Bootstrap card colors
+        const colorMap = {
+            'navigation': '#0d6efd',      // Primary blue
+            'communication': '#ffc107',    // Warning yellow
+            'system_operations': '#dc3545', // Danger red
+            'environmental': '#0dcaf0',    // Info teal
+            'unknown': '#6c757d'          // Secondary gray
+        };
+        
+        const colors = Object.keys(categories).map(cat => colorMap[cat] || '#6c757d');
+        
+        // Destroy existing chart if it exists
+        if (window.errorCategoryChartInstance) {
+            window.errorCategoryChartInstance.destroy();
+        }
+        
+        window.errorCategoryChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                aspectRatio: 1,
+                layout: {
+                    padding: {
+                        top: 10,
+                        bottom: 10,
+                        left: 10,
+                        right: 10
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: {
+                                size: 11
+                            },
+                            boxWidth: 12
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const category = context.label.toLowerCase();
+                                const categoryData = categories[category];
+                                const total = data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return `${context.label}: ${context.parsed} errors (${percentage}%)`;
+                            }
+                        }
+                    }
+                },
+                onResize: function(chart, size) {
+                    // Ensure chart doesn't exceed container bounds
+                    if (size.height > 300) {
+                        chart.resize(300, 300);
+                    }
+                }
+            }
+        });
+    }
+
     // --- NEW: Mini Chart Rendering ---
     function renderMiniChart(canvasId, trendData, chartColor = miniChartLineColor) {
         // console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
@@ -2167,27 +2304,30 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             reportType = 'telemetry';
         }
         const loaders = {
-            'power': () => Promise.all([fetchChartData('power', missionId), fetchChartData('solar', missionId)]).then(([powerData, solarData]) => {
+            'power': () => isSensorEnabled('power') ? Promise.all([fetchChartData('power', missionId), fetchChartData('solar', missionId)]).then(([powerData, solarData]) => {
                 renderPowerChart(powerData);
                 renderSolarPanelChart(solarData, powerData);
-            }).catch(error => { console.error("Error loading power/solar data:", error); renderPowerChart(null); renderSolarPanelChart(null, null); }), // Add catch for initial load
-            'ctd': () => fetchChartData('ctd', missionId).then(data => {
+            }).catch(error => { console.error("Error loading power/solar data:", error); renderPowerChart(null); renderSolarPanelChart(null, null); }) : Promise.resolve(),
+            'ctd': () => isSensorEnabled('ctd') ? fetchChartData('ctd', missionId).then(data => {
                 renderCtdChart(data);
                 renderCtdProfileChart(data);
-            }),
-            'weather': () => fetchChartData('weather', missionId).then(data => renderWeatherSensorChart(data)),
-            'waves': () => fetchChartData('waves', missionId).then(data => {
+            }) : Promise.resolve(),
+            'weather': () => isSensorEnabled('weather') ? fetchChartData('weather', missionId).then(data => renderWeatherSensorChart(data)) : Promise.resolve(),
+            'waves': () => isSensorEnabled('waves') ? fetchChartData('waves', missionId).then(data => {
                 renderWaveChart(data);
                 renderWaveHeightDirectionChart(data);
-            }),
-            'vr2c': () => fetchChartData('vr2c', missionId).then(data => renderVr2cChart(data)),
-            'fluorometer': () => fetchChartData('fluorometer', missionId).then(data => renderFluorometerChart(data)),
-            'wg_vm4': () => fetchChartData('wg_vm4', missionId).then(data => renderWgVm4Chart(data)),
-            'telemetry': () => fetchChartData('telemetry', missionId).then(data => { // This key is used by controls and mapped from 'navigation'
+            }) : Promise.resolve(),
+            'vr2c': () => isSensorEnabled('vr2c') ? fetchChartData('vr2c', missionId).then(data => renderVr2cChart(data)) : Promise.resolve(),
+            'fluorometer': () => isSensorEnabled('fluorometer') ? fetchChartData('fluorometer', missionId).then(data => renderFluorometerChart(data)) : Promise.resolve(),
+            'wg_vm4': () => isSensorEnabled('wg_vm4') ? fetchChartData('wg_vm4', missionId).then(data => renderWgVm4Chart(data)) : Promise.resolve(),
+            'telemetry': () => isSensorEnabled('navigation') ? fetchChartData('telemetry', missionId).then(data => { // This key is used by controls and mapped from 'navigation'
                 renderTelemetryChart(data); // Updated function name
                 renderNavigationCurrentChart(data);
                 renderNavigationHeadingDiffChart(data);
-            }).catch(error => { console.error("Error loading telemetry data:", error); renderTelemetryChart(null); renderNavigationCurrentChart(null); renderNavigationHeadingDiffChart(null); }) // Add catch for telemetry
+            }).catch(error => { console.error("Error loading telemetry data:", error); renderTelemetryChart(null); renderNavigationCurrentChart(null); renderNavigationHeadingDiffChart(null); }) : Promise.resolve(), // Add catch for telemetry
+            'errors': () => isSensorEnabled('errors') ? Promise.resolve().then(() => {
+                renderErrorCategoryChart();
+            }) : Promise.resolve()
         };
         return loaders[reportType];
     }

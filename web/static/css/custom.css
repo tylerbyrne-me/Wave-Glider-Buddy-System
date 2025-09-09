@@ -1,5 +1,19 @@
 /* Custom styling for the Wave Glider Buddy System */
 
+/* Error chart container styling */
+.chart-container {
+    position: relative;
+    height: 300px;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.chart-container canvas {
+    max-width: 100% !important;
+    max-height: 100% !important;
+}
+
 /* Apply highlight to the table cells (td) within the marked row (tr) */
 .table > tbody > tr.pic-handoff-highlight > td {
   background-color: var(--highlight-bg) !important;
