@@ -2415,15 +2415,8 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         const hours = hoursInput ? hoursInput.value : 72;
         const granularity = granularitySelect ? granularitySelect.value : 15;
 
-        const source = new URLSearchParams(window.location.search).get('source') || 'remote';
-        const localPath = new URLSearchParams(window.location.search).get('local_path') || '';
-
-        // Note: This endpoint needs to be created in app.py
-        let apiUrl = `/api/download_csv/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
-        apiUrl += `&source=${source}`;
-        if (source === 'local' && localPath) {
-            apiUrl += `&local_path=${encodeURIComponent(localPath)}`;
-        }
+        // Use the new unified CSV download endpoint
+        let apiUrl = `/api/sensor_csv/${reportType}?mission=${mission}&hours_back=${hours}&granularity_minutes=${granularity}`;
         
         // Add date range parameters if date range is enabled
         const startInput = document.getElementById(`start-date-${reportType}`);

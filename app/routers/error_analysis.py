@@ -3,10 +3,12 @@ API endpoints for error analysis and tracking
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlmodel import Session
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+import io
+import csv
 
 from ..db import get_db_session
 from ..auth_utils import get_current_active_user, get_current_admin_user
@@ -21,10 +23,14 @@ from ..services.error_plotting_service import (
 import io
 import base64
 import matplotlib
+import asyncio
+from ..core import loaders
+from ..config import settings
 import matplotlib.pyplot as plt
 matplotlib.use('Agg')  # Use non-interactive backend
 
 router = APIRouter(prefix="/api/errors", tags=["error-analysis"])
+
 
 @router.get("/classify")
 async def classify_error(
@@ -351,3 +357,143 @@ async def get_error_dashboard_page(
     </body>
     </html>
     """
+
+
+@router.get("/csv/recent")
+async def download_recent_errors_csv(
+    mission: str = Query(..., description="Mission name"),
+    hours: int = Query(24, description="Number of hours to look back"),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Download recent errors (last 24 hours) as CSV"""
+    try:
+        # Use the same data loading logic as the main dashboard
+        from ..app import load_data_source
+        from ..core.summaries import get_recent_errors
+        from ..services.error_classification_service import classify_error_message
+        
+        # Load error data using the same method as the dashboard
+        errors_df, _ = await load_data_source("errors", mission_id=mission, current_user=current_user)
+        if errors_df is None or errors_df.empty:
+            raise HTTPException(status_code=404, detail="No error data found for this mission")
+        
+        # Get recent errors using the same logic as the dashboard
+        recent_errors = get_recent_errors(errors_df, max_age_hours=hours)
+        
+        # Create CSV
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+        
+        # Write header
+        csv_writer.writerow([
+            "Timestamp", "Vehicle Name", "Category", "Error Message", 
+            "Self Corrected", "Confidence", "Category Description"
+        ])
+        
+        # Write data rows using the same data as the dashboard
+        for error in recent_errors:
+            # Classify the error using the same logic as the dashboard
+            if error.get('ErrorMessage'):
+                category, confidence, description = classify_error_message(error['ErrorMessage'])
+                category_name = category.value
+                confidence_pct = confidence
+                category_desc = description
+            else:
+                category_name = 'unknown'
+                confidence_pct = 0.0
+                category_desc = 'Unknown error type'
+            
+            csv_writer.writerow([
+                error.get('Timestamp', '').strftime('%Y-%m-%d %H:%M:%S') if error.get('Timestamp') else '',
+                error.get('VehicleName', ''),
+                category_name,
+                error.get('ErrorMessage', ''),
+                'Yes' if error.get('SelfCorrected') else 'No',
+                f"{confidence_pct:.1%}",
+                category_desc
+            ])
+        
+        output.seek(0)
+        content = output.getvalue()
+        filename = f"recent_errors_{mission}_{hours}h_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating CSV: {str(e)}")
+
+
+@router.get("/csv/all")
+async def download_all_errors_csv(
+    mission: str = Query(..., description="Mission name"),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Download all mission errors as CSV"""
+    try:
+        # Use the same data loading logic as the main dashboard
+        from ..app import load_data_source
+        from ..services.error_classification_service import classify_error_message
+        
+        # Load error data using the same method as the dashboard
+        all_errors_df, _ = await load_data_source("errors", mission_id=mission, current_user=current_user)
+        if all_errors_df is None or all_errors_df.empty:
+            raise HTTPException(status_code=404, detail="No error data found for this mission")
+        
+        # Create CSV
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+        
+        # Write header
+        csv_writer.writerow([
+            "Timestamp", "Vehicle Name", "Category", "Error Message", 
+            "Self Corrected", "Confidence", "Category Description"
+        ])
+        
+        # Process all errors using the same logic as the dashboard
+        for _, row in all_errors_df.iterrows():
+            # Convert timestamp to datetime if it's a string (same logic as dashboard)
+            timestamp = row.get('Timestamp') or row.get('timeStamp')
+            if isinstance(timestamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    timestamp = None
+            
+            # Classify the error using the same logic as the dashboard
+            error_message = row.get('ErrorMessage') or row.get('error_Message')
+            if error_message:
+                category, confidence, description = classify_error_message(error_message)
+                category_name = category.value
+                confidence_pct = confidence
+                category_desc = description
+            else:
+                category_name = 'unknown'
+                confidence_pct = 0.0
+                category_desc = 'Unknown error type'
+            
+            csv_writer.writerow([
+                timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                row.get('VehicleName') or row.get('vehicleName', ''),
+                category_name,
+                error_message or '',
+                'Yes' if row.get('SelfCorrected') or row.get('selfCorrected') else 'No',
+                f"{confidence_pct:.1%}",
+                category_desc
+            ])
+        
+        output.seek(0)
+        content = output.getvalue()
+        filename = f"all_errors_{mission}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating CSV: {str(e)}")

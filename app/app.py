@@ -63,6 +63,7 @@ from .routers import home as home_router
 from .routers import reporting as reporting_router
 from .routers import admin as admin_router
 from .routers import error_analysis as error_analysis_router
+from .routers import sensor_csv as sensor_csv_router
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -150,6 +151,7 @@ app.include_router(home_router.router)
 app.include_router(reporting_router.router)
 app.include_router(admin_router.router)
 app.include_router(error_analysis_router.router)
+app.include_router(sensor_csv_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")

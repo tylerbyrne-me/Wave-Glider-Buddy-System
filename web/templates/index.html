@@ -363,8 +363,20 @@
       <!-- Errors Detail View (Initially Hidden) -->
       <div class="category-detail-view card mb-4" id="detail-errors" style="display: none;">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header d-flex justify-content-between align-items-center">
             <h2 class="mb-0">{{ mission }} - Error Analysis</h2>
+            <div class="d-flex align-items-center">
+              <!-- Download Dropdown -->
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download CSV
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="/api/errors/csv/recent?mission={{ mission }}&hours=24" target="_blank">Recent Errors (24h)</a></li>
+                  <li><a class="dropdown-item" href="/api/errors/csv/all?mission={{ mission }}" target="_blank">All Mission Errors</a></li>
+                </ul>
+              </div>
+            </div>
           </div>
           <div class="card-body">
             <!-- Error Analysis Summary -->
