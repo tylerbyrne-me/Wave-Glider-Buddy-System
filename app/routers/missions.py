@@ -62,22 +62,85 @@ async def upload_mission_plan_file(
     ]
     if file.content_type not in allowed_content_types:
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, DOC, and DOCX are allowed.")
+    
     file_extension = Path(file.filename).suffix
     safe_filename = f"{mission_id}_plan{file_extension}"
-    mission_plans_dir = Path(__file__).resolve().parent.parent / "web" / "static" / "mission_plans"
+    # Fix path calculation - go up two levels from app/routers/ to project root, then to web/static/mission_plans
+    mission_plans_dir = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_plans"
     
     # Create the directory if it doesn't exist
     mission_plans_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Mission plans directory: {mission_plans_dir}")
     
     file_path = mission_plans_dir / safe_filename
+    logger.info(f"Attempting to save file to: {file_path}")
+    
     try:
+        # Read the file content first
+        content = await file.read()
+        logger.info(f"Read {len(content)} bytes from uploaded file")
+        
+        # Write the content to file
         with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(content)
+        
+        # Verify the file was actually written
+        if not file_path.exists():
+            raise Exception("File was not created on disk")
+        
+        file_size = file_path.stat().st_size
+        if file_size != len(content):
+            raise Exception(f"File size mismatch: expected {len(content)} bytes, got {file_size} bytes")
+        
+        logger.info(f"Mission plan for '{mission_id}' successfully saved to '{file_path}' ({file_size} bytes)")
+        
+    except Exception as e:
+        logger.error(f"Failed to save mission plan file: {e}")
+        # Clean up partial file if it exists
+        if file_path.exists():
+            file_path.unlink()
+            logger.info(f"Removed partial file: {file_path}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     finally:
-        file.file.close()
+        # Ensure file is closed
+        await file.close()
+    
     file_url = f"/static/mission_plans/{safe_filename}"
-    logger.info(f"Mission plan for '{mission_id}' saved to '{file_path}'. URL: {file_url}")
+    logger.info(f"Mission plan for '{mission_id}' saved successfully. URL: {file_url}")
     return {"file_url": file_url}
+
+@router.get("/api/missions/{mission_id}/overview/upload_status", response_model=dict)
+async def check_mission_plan_upload_status(
+    mission_id: str,
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """Check if a mission plan file exists and get its details."""
+    # Fix path calculation - go up two levels from app/routers/ to project root, then to web/static/mission_plans
+    mission_plans_dir = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_plans"
+    
+    # Check for common file extensions
+    extensions = ['.pdf', '.doc', '.docx']
+    found_files = []
+    
+    for ext in extensions:
+        file_path = mission_plans_dir / f"{mission_id}_plan{ext}"
+        if file_path.exists():
+            stat = file_path.stat()
+            found_files.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+                "extension": ext
+            })
+    
+    return {
+        "mission_id": mission_id,
+        "directory": str(mission_plans_dir),
+        "directory_exists": mission_plans_dir.exists(),
+        "files_found": found_files,
+        "total_files": len(found_files)
+    }
 
 @router.get("/api/missions/{mission_id}/info", response_model=models.MissionInfoResponse)
 async def get_mission_info_api(
