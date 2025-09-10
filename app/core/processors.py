@@ -344,6 +344,20 @@ def preprocess_ais_df(df):
         "mmsi": "MMSI",
         "speedOverGround": "SpeedOverGround",
         "courseOverGround": "CourseOverGround",
+        "aisClass": "AISClass",
+        "shipCargoType": "ShipCargoType",
+        "heading": "Heading",
+        "navigationStatus": "NavigationStatus",
+        "callSign": "CallSign",
+        "destination": "Destination",
+        "eta": "ETA",
+        "length": "Length",
+        "breadth": "Breadth",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "imoNumber": "IMONumber",
+        "dimension": "Dimension",
+        "rateOfTurn": "RateOfTurn",
     }
     df_processed = df_processed.rename(columns=rename_map)
 
@@ -360,17 +374,23 @@ def preprocess_ais_df(df):
         )  # Use nullable integer type
 
     expected_final_cols = [timestamp_col] + list(rename_map.values())
+    numeric_cols = ["SpeedOverGround", "CourseOverGround", "Heading", "NavigationStatus", 
+                   "Length", "Breadth", "Latitude", "Longitude", "IMONumber", "Dimension", "RateOfTurn"]
+    
     for target_col in expected_final_cols:
         if target_col not in df_processed.columns:
             if target_col == "MMSI":
                 df_processed[target_col] = pd.Series(dtype="Int64")
+            elif target_col == "ShipCargoType":
+                df_processed[target_col] = pd.Series(dtype="Int64")
             else:
                 df_processed[target_col] = np.nan
-        elif target_col in ["SpeedOverGround", "CourseOverGround"]:
+        elif target_col in numeric_cols:
             df_processed[target_col] = pd.to_numeric(
                 df_processed[target_col], errors="coerce"
             )
-        # ShipName is string, MMSI is Int64, LastSeenTimestamp is datetime
+        # ShipName, AISClass, CallSign, Destination, ETA are strings
+        # MMSI, ShipCargoType are Int64, LastSeenTimestamp is datetime
     return df_processed
 
 

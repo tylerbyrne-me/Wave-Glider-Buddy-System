@@ -257,15 +257,20 @@
       {% if "ais" in enabled_sensor_cards %}
       <div class="summary-card" data-category="ais">
         <div class="summary-card-main-content">
-          <div class="mini-chart-placeholder"> <!-- Populated with list instead of chart -->
+          <div class="mini-chart-placeholder"> <!-- Error list will go here -->
             {% if not ais_summary_data %}
               <span class="no-errors-message">No recent contacts.</span>
             {% else %}
-              <ul class="error-message-list"> {# Re-using error list style for consistency #}
+              <ul class="error-message-list">
                 {% for v in ais_summary_data[:2] %} {# Display up to the two most recent contacts #}
                   <li>
                     <small class="text-muted">{{ v.LastSeenTimestamp.strftime('%m-%d %H:%M') if v.LastSeenTimestamp else "N/A" }}:</small>
-                    {{ v.ShipName[:25] if v.ShipName else "Unknown" }}{% if v.ShipName and v.ShipName|length > 25 %}...{% endif %}
+                    <span class="badge bg-{{ v.CategoryColor }} me-1" style="font-size: 0.7em;">{{ v.Group }}</span>
+                    <span class="badge bg-{{ v.AISClassColor }} me-1" style="font-size: 0.7em;">{{ v.AISClassDisplay }}</span>
+                    {% if v.IsHazardous %}
+                      <span class="badge bg-danger me-1" style="font-size: 0.7em;">⚠️</span>
+                    {% endif %}
+                    {{ v.ShipName[:20] if v.ShipName else "Unknown" }}{% if v.ShipName and v.ShipName|length > 20 %}...{% endif %}
                   </li>
                 {% endfor %}
               </ul>
@@ -277,7 +282,7 @@
               {% if ais_summary_data %}
                 {{ ais_summary_data | length }} recent
               {% else %}
-                No recent
+                0 recent
               {% endif %}
               {% if has_ais_data %}
                 <span class="text-danger ms-1">❗</span>
@@ -336,19 +341,229 @@
     <div class="col-md-9" id="main-display-area">
       <div class="category-detail-view card mb-4" id="detail-ais" style="display: none;">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header d-flex justify-content-between align-items-center">
             <h2 class="mb-0">{{ mission }} - AIS Contacts</h2>
+            <div class="d-flex align-items-center">
+              <!-- Download Dropdown -->
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download CSV
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="/api/ais/csv/recent?mission={{ mission }}&hours=24" target="_blank">Recent Contacts (24h)</a></li>
+                  <li><a class="dropdown-item" href="/api/ais/csv/all?mission={{ mission }}" target="_blank">All Mission Contacts</a></li>
+                </ul>
+              </div>
+            </div>
           </div>
           <div class="card-body">
-            <ul class="list-unstyled scrollable-list-card">
-              {% if ais_summary_data %} {# Updated variable name #}
-                {% for v in ais_summary_data %} {# Updated variable name #}
-                  <li>{{ v.ShipName or "Unknown Ship" }} (MMSI: {{ v.MMSI or "N/A" }}) — Last Seen: {{ v.LastSeenTimestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if v.LastSeenTimestamp else "N/A" }}</li>
-                {% endfor %}
-              {% else %}
-                <li>No recent AIS contacts.</li>
-              {% endif %}
-            </ul>
+            <!-- AIS Summary Statistics -->
+            {% if ais_summary_stats %}
+            <div class="row mb-4">
+              <div class="col-md-6">
+                <h5>Vessel Summary <small class="text-muted">(Last 24 Hours)</small></h5>
+                <div class="row">
+                  <div class="col-6 mb-2">
+                    <div class="card border-primary">
+                      <div class="card-body p-2">
+                        <h6 class="card-title mb-1">Total Vessels</h6>
+                        <p class="card-text mb-1">
+                          <strong>{{ ais_summary_stats.total_vessels }}</strong> contacts
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-6 mb-2">
+                    <div class="card border-info">
+                      <div class="card-body p-2">
+                        <h6 class="card-title mb-1">AIS Classes</h6>
+                        <p class="card-text mb-1">
+                          <strong>{{ ais_summary_stats.class_a_count }}</strong> Class A<br>
+                          <strong>{{ ais_summary_stats.class_b_count }}</strong> Class B
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {% if ais_summary_stats.hazardous_count > 0 %}
+                  <div class="col-6 mb-2">
+                    <div class="card border-danger">
+                      <div class="card-body p-2">
+                        <h6 class="card-title mb-1">Hazardous</h6>
+                        <p class="card-text mb-1">
+                          <strong>{{ ais_summary_stats.hazardous_count }}</strong> vessels
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6">
+                <h5>Vessel Types <small class="text-muted">(Last 24 Hours)</small></h5>
+                {% if ais_summary_stats.group_breakdown %}
+                <div class="d-flex flex-wrap gap-1">
+                  {% for group, count in ais_summary_stats.group_breakdown.items() %}
+                    <span class="badge bg-{{ 'primary' if group == 'Commercial' else 'success' if group == 'Fishing' else 'info' if group == 'Special' else 'secondary' if group == 'Recreational' else 'warning' if group == 'Military' else 'danger' if group == 'High Speed' else 'dark' if group == 'WIG' else 'light' if group == 'Operations' else 'outline-secondary' if group == 'Local' else 'secondary' }}">{{ group }}: {{ count }}</span>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-muted text-center" style="padding: 20px;">
+                  <i class="fas fa-ship fa-2x mb-2"></i>
+                  <p>No vessel type data available</p>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+            
+            <!-- AIS Contacts List -->
+            <h5>Recent AIS Targets <small class="text-muted">(24hr)</small></h5>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Vessel</th>
+                    <th>MMSI</th>
+                    <th>Type</th>
+                    <th>AIS Class</th>
+                    <th>Speed</th>
+                    <th>Course</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% if ais_summary_data %}
+                    {% for v in ais_summary_data %}
+                    <tr>
+                      <td>{{ v.LastSeenTimestamp.strftime('%m-%d %H:%M') if v.LastSeenTimestamp else "N/A" }}</td>
+                      <td>
+                        <strong>{{ v.ShipName or "Unknown" }}</strong>
+                        {% if v.IsHazardous %}
+                          <span class="badge bg-danger ms-1" style="font-size: 0.6em;">⚠️</span>
+                        {% endif %}
+                      </td>
+                      <td>{{ v.MMSI or "N/A" }}</td>
+                      <td>
+                        <span class="badge bg-{{ v.CategoryColor }}">{{ v.Group }}</span>
+                      </td>
+                      <td>
+                        <span class="badge bg-{{ v.AISClassColor }}">{{ v.AISClassDisplay }}</span>
+                      </td>
+                      <td>
+                        {% if v.get('SpeedOverGround') is not none %}
+                          {{ "%.1f kn"|format(v.get('SpeedOverGround')) }}
+                        {% else %}
+                          N/A
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if v.get('CourseOverGround') is not none %}
+                          {{ "%.0f°"|format(v.get('CourseOverGround')) }}
+                        {% else %}
+                          N/A
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if v.get('NavigationStatus') is not none %}
+                          <span class="badge bg-secondary">{{ v.get('NavigationStatus') }}</span>
+                        {% else %}
+                          N/A
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr>
+                      <td colspan="8" class="text-center text-muted">No recent AIS contacts.</td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- All AIS Targets Collapsible Section -->
+            <div class="mt-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>All AIS Targets</h5>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#allAisCollapse" aria-expanded="false" aria-controls="allAisCollapse">
+                  <i class="fas fa-chevron-down" id="allAisChevron"></i> Toggle All AIS Targets
+                </button>
+              </div>
+              <div class="collapse" id="allAisCollapse">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                  <table class="table table-sm table-hover">
+                    <thead class="sticky-top bg-light">
+                      <tr>
+                        <th>Time</th>
+                        <th>Vessel</th>
+                        <th>MMSI</th>
+                        <th>Type</th>
+                        <th>AIS Class</th>
+                        <th>Speed</th>
+                        <th>Course</th>
+                        <th>Status</th>
+                        <th>Hazardous</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% if all_ais_list %}
+                        {% for v in all_ais_list %}
+                        <tr>
+                          <td>{{ v.LastSeenTimestamp.strftime('%m-%d %H:%M') if v.LastSeenTimestamp else "N/A" }}</td>
+                          <td>
+                            <strong>{{ v.ShipName or "Unknown" }}</strong>
+                            {% if v.IsHazardous %}
+                              <span class="badge bg-danger ms-1" style="font-size: 0.6em;">⚠️</span>
+                            {% endif %}
+                          </td>
+                          <td>{{ v.MMSI or "N/A" }}</td>
+                          <td>
+                            <span class="badge bg-{{ v.CategoryColor }}">{{ v.Group }}</span>
+                          </td>
+                          <td>
+                            <span class="badge bg-{{ v.AISClassColor }}">{{ v.AISClassDisplay }}</span>
+                          </td>
+                          <td>
+                            {% if v.get('SpeedOverGround') is not none %}
+                              {{ "%.1f kn"|format(v.get('SpeedOverGround')) }}
+                            {% else %}
+                              N/A
+                            {% endif %}
+                          </td>
+                          <td>
+                            {% if v.get('CourseOverGround') is not none %}
+                              {{ "%.0f°"|format(v.get('CourseOverGround')) }}
+                            {% else %}
+                              N/A
+                            {% endif %}
+                          </td>
+                          <td>
+                            {% if v.get('NavigationStatus') is not none %}
+                              <span class="badge bg-secondary">{{ v.get('NavigationStatus') }}</span>
+                            {% else %}
+                              N/A
+                            {% endif %}
+                          </td>
+                          <td>
+                            {% if v.IsHazardous %}
+                              <span class="badge bg-danger">⚠️ Yes</span>
+                            {% else %}
+                              <span class="text-muted">No</span>
+                            {% endif %}
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr>
+                          <td colspan="9" class="text-center text-muted">No AIS data available.</td>
+                        </tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="card-footer text-muted small">
             {% if ais_update_info and ais_update_info.latest_timestamp_str != "N/A" %}
@@ -652,8 +867,8 @@
               <p>Loading data...</p>
               {% endif %}
             </div>
-            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Navigation Trends</h5>
+            <h5 class="mt-3">Navigation Trends</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%">
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
@@ -661,8 +876,8 @@
             </div>
             <!-- New Ocean Current Chart -->
             <hr class="my-4">
-            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Ocean Current & SOG</h5>
+            <h5 class="mt-3">Ocean Current & SOG</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%">
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
@@ -670,8 +885,8 @@
             </div>
             <!-- New Heading Difference Chart -->
             <hr class="my-4">
-            <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-              <h5>Sub Heading Difference & Ocean Current</h5>
+            <h5 class="mt-3">Sub Heading Difference & Ocean Current</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%">
               <div class="chart-spinner spinner-border text-light" role="status">
                 <span class="visually-hidden">Loading...</span>
               </div>
@@ -795,8 +1010,8 @@
             <p>Loading data...</p> {# Or a more general loading state #}
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-            <h5>Power Trends</h5>
+          <h5 class="mt-3">Power Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -804,8 +1019,8 @@
           </div>
           <!-- New Solar Panel Chart -->
           <hr class="my-4">
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%">
-            <h5>Individual Solar Panel Power</h5>
+          <h5 class="mt-3">Individual Solar Panel Power</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -913,8 +1128,8 @@
             <p>Loading data...</p> {# Or a more general loading state #}
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>CTD Trends</h5>
+          <h5 class="mt-3">CTD Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -922,8 +1137,8 @@
           </div>
           <!-- New CTD Profile Chart -->
           <hr class="my-4">
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>CTD Profile Aux</h5>
+          <h5 class="mt-3">CTD Profile Aux</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1042,8 +1257,8 @@
             <p>Loading data...</p> {# Or a more general loading state #}
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Weather Sensor Trends</h5>
+          <h5 class="mt-3">Weather Sensor Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1184,8 +1399,8 @@
             <p>Loading data...</p>
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Wave Trends</h5>
+          <h5 class="mt-3">Wave Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1193,8 +1408,8 @@
           </div>
           <!-- New Wave Chart: Height vs Direction -->
           <hr class="my-4">
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Wave Height & Direction</h5>
+          <h5 class="mt-3">Wave Height & Direction</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1203,8 +1418,8 @@
 
           <!-- New Wave Spectrum Chart -->
           <hr class="my-4">
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Latest Wave Energy Spectrum (E(f))</h5>
+          <h5 class="mt-3">Latest Wave Energy Spectrum (E(f))</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1310,8 +1525,8 @@
             <p>Loading data...</p>
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>VR2C Trends</h5>
+          <h5 class="mt-3">VR2C Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1399,8 +1614,8 @@
             <p>Loading data...</p>
             {% endif %}
           </div>
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>Fluorometer Trends</h5>
+          <h5 class="mt-3">Fluorometer Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1526,8 +1741,8 @@
           </form>
           <div id="offloadSubmissionStatus" class="mt-3"></div>
 
-          <div class="mt-3 chart-container" style="position: relative; height: 300px; width: 100%;">
-            <h5>WG-VM4 Trends</h5>
+          <h5 class="mt-3">WG-VM4 Trends</h5>
+          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
             <div class="chart-spinner spinner-border text-light" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -1571,6 +1786,23 @@
           } else {
             allErrorsChevron.classList.remove('fa-chevron-down');
             allErrorsChevron.classList.add('fa-chevron-up');
+          }
+        });
+      }
+      
+      // Handle chevron rotation for All AIS Targets collapsible
+      const allAisButton = document.querySelector('[data-bs-target="#allAisCollapse"]');
+      const allAisChevron = document.getElementById('allAisChevron');
+      
+      if (allAisButton && allAisChevron) {
+        allAisButton.addEventListener('click', function() {
+          const isExpanded = this.getAttribute('aria-expanded') === 'true';
+          if (isExpanded) {
+            allAisChevron.classList.remove('fa-chevron-up');
+            allAisChevron.classList.add('fa-chevron-down');
+          } else {
+            allAisChevron.classList.remove('fa-chevron-down');
+            allAisChevron.classList.add('fa-chevron-up');
           }
         });
       }

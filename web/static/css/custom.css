@@ -3,10 +3,16 @@
 /* Error chart container styling */
 .chart-container {
     position: relative;
-    height: 300px;
+    height: 300px !important;
     width: 100%;
     max-width: 100%;
     overflow: hidden;
+}
+
+/* Center chart titles */
+h5.mt-3 {
+    text-align: center;
+    margin-bottom: 1rem !important;
 }
 
 .chart-container canvas {
@@ -391,7 +397,7 @@ footer .text-muted {
 #main-display-area {
   padding: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
   overflow-y: auto; /* If content in right panel might also overflow */
-  height: calc(100vh - 168px); /* Scaled: 250px * 0.67 = 167.5px, rounded */
+  height: calc(100vh - 200px); /* Increased to account for navbar and provide more space */
 }
 
 /* Ensure category detail views fill the card height if their content is short */
@@ -401,8 +407,8 @@ footer .text-muted {
 
 /* Adjust chart container height in the main display area if needed */
 #main-display-area .chart-container {
-  height: 402px; /* Scaled: 600px * 0.67 = 402px */
-  min-height: 268px; /* Scaled: 400px * 0.67 = 268px */
+  height: 300px !important; /* Match the inline style in HTML */
+  min-height: 300px !important; /* Ensure minimum height */
   /* The canvas itself will be managed by Chart.js to fill this container */
   margin-top: 1.5rem !important; /* Ensure a bit more space above the chart */
 }

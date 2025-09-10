@@ -623,8 +623,21 @@ def get_ais_summary(ais_df, max_age_hours=24):
         .first()
         .reset_index()
     )
+    
+    # Import vessel categories here to avoid circular imports
+    from .vessel_categories import get_vessel_category, is_hazardous_vessel, get_ais_class_info
+    
     vessels = []
     for _, row in latest_by_mmsi.iterrows():
+        # Get vessel category information
+        ship_cargo_type = row.get("ShipCargoType")
+        category, group, color = get_vessel_category(ship_cargo_type)
+        is_hazardous = is_hazardous_vessel(ship_cargo_type)
+        
+        # Get AIS class information
+        ais_class = row.get("AISClass")
+        ais_class_display, ais_class_color = get_ais_class_info(ais_class)
+        
         vessel = {
             "ShipName": row.get("ShipName", "Unknown"),
             "MMSI": (
@@ -635,9 +648,65 @@ def get_ais_summary(ais_df, max_age_hours=24):
             "LastSeenTimestamp": row[
                 "LastSeenTimestamp"
             ],  # This is already a datetime object
+            # Enhanced fields
+            "AISClass": ais_class,
+            "AISClassDisplay": ais_class_display,
+            "AISClassColor": ais_class_color,
+            "ShipCargoType": ship_cargo_type,
+            "Category": category,
+            "Group": group,
+            "CategoryColor": color,
+            "IsHazardous": is_hazardous,
+            "Heading": row.get("Heading"),
+            "NavigationStatus": row.get("NavigationStatus"),
+            "CallSign": row.get("CallSign"),
+            "Destination": row.get("Destination"),
+            "ETA": row.get("ETA"),
+            "Length": row.get("Length"),
+            "Breadth": row.get("Breadth"),
+            "Latitude": row.get("Latitude"),
+            "Longitude": row.get("Longitude"),
+            "IMONumber": row.get("IMONumber"),
+            "Dimension": row.get("Dimension"),
+            "RateOfTurn": row.get("RateOfTurn"),
         }
         vessels.append(vessel)
     return sorted(vessels, key=lambda v: v["LastSeenTimestamp"], reverse=True)
+
+
+def get_ais_summary_stats(ais_df, max_age_hours=24):
+    """
+    Get AIS summary statistics for dashboard display.
+    
+    Args:
+        ais_df: AIS DataFrame
+        max_age_hours: Maximum age of data to include
+        
+    Returns:
+        Dictionary with summary statistics
+    """
+    vessels = get_ais_summary(ais_df, max_age_hours)
+    
+    if not vessels:
+        return {
+            "total_vessels": 0,
+            "class_a_count": 0,
+            "class_b_count": 0,
+            "hazardous_count": 0,
+            "category_breakdown": {},
+            "group_breakdown": {},
+            "recent_activity": []
+        }
+    
+    # Import vessel categories here to avoid circular imports
+    from .vessel_categories import get_vessel_summary_stats
+    
+    stats = get_vessel_summary_stats(vessels)
+    
+    # Add recent activity (last 3 vessels)
+    stats["recent_activity"] = vessels[:3]
+    
+    return stats
 
 
 def get_recent_errors(error_df, max_age_hours=24):

@@ -132,7 +132,6 @@ LOCAL_FORMS_DB_FILE = DATA_STORE_DIR / "submitted_forms.json"
 app.include_router(
     station_metadata_router.router, prefix="/api", tags=["Station Metadata"]
 )
-# print("DEBUG_PRINT: app.py - station_metadata_router included with prefix /api") # Can be removed
 
 app.mount(
     "/static",
@@ -885,7 +884,68 @@ async def _process_loaded_data_for_home_view(
 
     if "ais" in data_frames and data_frames["ais"] is not None:
         ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
+        ais_summary_stats = summaries.get_ais_summary_stats(data_frames.get("ais"), max_age_hours=hours)
         ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
+        
+        # Process all AIS data for the collapsible tab
+        from .core.processors import preprocess_ais_df
+        all_ais_df = preprocess_ais_df(data_frames.get("ais"))
+        if not all_ais_df.empty:
+            # Get the latest record for each MMSI
+            latest_by_mmsi = (
+                all_ais_df.dropna(subset=["MMSI"])
+                .sort_values("LastSeenTimestamp", ascending=False)
+                .groupby("MMSI")
+                .first()
+                .reset_index()
+            )
+            
+            # Import vessel categories here to avoid circular imports
+            from .core.vessel_categories import get_vessel_category, is_hazardous_vessel, get_ais_class_info
+            
+            all_ais_list = []
+            for _, row in latest_by_mmsi.iterrows():
+                # Get vessel category information
+                ship_cargo_type = row.get("ShipCargoType")
+                category, group, color = get_vessel_category(ship_cargo_type)
+                is_hazardous = is_hazardous_vessel(ship_cargo_type)
+                
+                # Get AIS class information
+                ais_class = row.get("AISClass")
+                ais_class_display, ais_class_color = get_ais_class_info(ais_class)
+                
+                vessel = {
+                    "ShipName": row.get("ShipName", "Unknown"),
+                    "MMSI": int(row["MMSI"]) if pd.notna(row["MMSI"]) else None,
+                    "SpeedOverGround": row.get("SpeedOverGround"),
+                    "CourseOverGround": row.get("CourseOverGround"),
+                    "LastSeenTimestamp": row["LastSeenTimestamp"],
+                    # Enhanced fields
+                    "AISClass": ais_class,
+                    "AISClassDisplay": ais_class_display,
+                    "AISClassColor": ais_class_color,
+                    "ShipCargoType": ship_cargo_type,
+                    "Category": category,
+                    "Group": group,
+                    "CategoryColor": color,
+                    "IsHazardous": is_hazardous,
+                    "Heading": row.get("Heading"),
+                    "NavigationStatus": row.get("NavigationStatus"),
+                    "CallSign": row.get("CallSign"),
+                    "Destination": row.get("Destination"),
+                    "ETA": row.get("ETA"),
+                    "Length": row.get("Length"),
+                    "Breadth": row.get("Breadth"),
+                    "Latitude": row.get("Latitude"),
+                    "Longitude": row.get("Longitude"),
+                    "IMONumber": row.get("IMONumber"),
+                    "Dimension": row.get("Dimension"),
+                    "RateOfTurn": row.get("RateOfTurn"),
+                }
+                all_ais_list.append(vessel)
+            
+            # Sort by timestamp (most recent first)
+            all_ais_list.sort(key=lambda x: x['LastSeenTimestamp'] if x['LastSeenTimestamp'] else datetime.min, reverse=True)
 
     # Initialize error variables
     recent_errors_list = []
@@ -981,7 +1041,9 @@ async def _process_loaded_data_for_home_view(
         "wg_vm4_info": wg_vm4_info,
         "navigation_info": navigation_info,
         "ais_summary_data": ais_summary_data,
+        "ais_summary_stats": ais_summary_stats if 'ais_summary_stats' in locals() else None,
         "ais_update_info": ais_update_info,
+        "all_ais_list": all_ais_list,
         "recent_errors_list": recent_errors_list,
         "all_errors_list": all_errors_list,
         "errors_update_info": errors_update_info,
@@ -1568,6 +1630,150 @@ async def get_wave_spectrum_data(
         if pd.notna(f) and pd.notna(e)
     ]
     return JSONResponse(content=spectrum_data)
+
+
+# --- AIS CSV Download Endpoints ---
+@app.get("/api/ais/csv/recent")
+async def download_recent_ais_csv(
+    mission: str = Query(..., description="Mission name"),
+    hours: int = Query(24, description="Number of hours to look back"),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Download recent AIS contacts (last 24 hours) as CSV"""
+    try:
+        import io
+        import csv
+        from fastapi.responses import StreamingResponse
+        from datetime import datetime
+        
+        # Load AIS data using the same method as the dashboard
+        ais_df, _ = await load_data_source("ais", mission_id=mission, current_user=current_user)
+        if ais_df is None or ais_df.empty:
+            raise HTTPException(status_code=404, detail="No AIS data found for this mission")
+        
+        # Get recent AIS data using the same logic as the dashboard
+        from .core.summaries import get_ais_summary
+        recent_vessels = get_ais_summary(ais_df, max_age_hours=hours)
+        
+        # Create CSV
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+        
+        # Write header
+        csv_writer.writerow([
+            "Last Seen", "Vessel Name", "MMSI", "AIS Class", "Vessel Type", "Group", 
+            "Speed (kn)", "Course (°)", "Heading (°)", "Navigation Status", 
+            "Call Sign", "Destination", "ETA", "Length (m)", "Breadth (m)", 
+            "Latitude", "Longitude", "IMO Number", "Hazardous Cargo"
+        ])
+        
+        # Write data rows
+        for vessel in recent_vessels:
+            csv_writer.writerow([
+                vessel.get('LastSeenTimestamp', '').strftime('%Y-%m-%d %H:%M:%S') if vessel.get('LastSeenTimestamp') else '',
+                vessel.get('ShipName', ''),
+                vessel.get('MMSI', ''),
+                vessel.get('AISClassDisplay', ''),
+                vessel.get('Category', ''),
+                vessel.get('Group', ''),
+                f"{vessel.get('SpeedOverGround', 0):.1f}" if vessel.get('SpeedOverGround') is not None else '',
+                f"{vessel.get('CourseOverGround', 0):.0f}" if vessel.get('CourseOverGround') is not None else '',
+                f"{vessel.get('Heading', 0):.0f}" if vessel.get('Heading') is not None else '',
+                vessel.get('NavigationStatus', ''),
+                vessel.get('CallSign', ''),
+                vessel.get('Destination', ''),
+                vessel.get('ETA', ''),
+                f"{vessel.get('Length', 0):.0f}" if vessel.get('Length') is not None else '',
+                f"{vessel.get('Breadth', 0):.0f}" if vessel.get('Breadth') is not None else '',
+                f"{vessel.get('Latitude', 0):.6f}" if vessel.get('Latitude') is not None else '',
+                f"{vessel.get('Longitude', 0):.6f}" if vessel.get('Longitude') is not None else '',
+                vessel.get('IMONumber', ''),
+                'Yes' if vessel.get('IsHazardous') else 'No'
+            ])
+        
+        output.seek(0)
+        content = output.getvalue()
+        filename = f"recent_ais_contacts_{mission}_{hours}h_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating AIS CSV: {str(e)}")
+
+
+@app.get("/api/ais/csv/all")
+async def download_all_ais_csv(
+    mission: str = Query(..., description="Mission name"),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Download all mission AIS contacts as CSV"""
+    try:
+        import io
+        import csv
+        from fastapi.responses import StreamingResponse
+        from datetime import datetime
+        
+        # Load AIS data using the same method as the dashboard
+        ais_df, _ = await load_data_source("ais", mission_id=mission, current_user=current_user)
+        if ais_df is None or ais_df.empty:
+            raise HTTPException(status_code=404, detail="No AIS data found for this mission")
+        
+        # Process all AIS data using the same logic as the dashboard
+        from .core.summaries import get_ais_summary
+        all_vessels = get_ais_summary(ais_df, max_age_hours=8760)  # 1 year to get all data
+        
+        # Create CSV
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+        
+        # Write header
+        csv_writer.writerow([
+            "Last Seen", "Vessel Name", "MMSI", "AIS Class", "Vessel Type", "Group", 
+            "Speed (kn)", "Course (°)", "Heading (°)", "Navigation Status", 
+            "Call Sign", "Destination", "ETA", "Length (m)", "Breadth (m)", 
+            "Latitude", "Longitude", "IMO Number", "Hazardous Cargo"
+        ])
+        
+        # Write data rows
+        for vessel in all_vessels:
+            csv_writer.writerow([
+                vessel.get('LastSeenTimestamp', '').strftime('%Y-%m-%d %H:%M:%S') if vessel.get('LastSeenTimestamp') else '',
+                vessel.get('ShipName', ''),
+                vessel.get('MMSI', ''),
+                vessel.get('AISClassDisplay', ''),
+                vessel.get('Category', ''),
+                vessel.get('Group', ''),
+                f"{vessel.get('SpeedOverGround', 0):.1f}" if vessel.get('SpeedOverGround') is not None else '',
+                f"{vessel.get('CourseOverGround', 0):.0f}" if vessel.get('CourseOverGround') is not None else '',
+                f"{vessel.get('Heading', 0):.0f}" if vessel.get('Heading') is not None else '',
+                vessel.get('NavigationStatus', ''),
+                vessel.get('CallSign', ''),
+                vessel.get('Destination', ''),
+                vessel.get('ETA', ''),
+                f"{vessel.get('Length', 0):.0f}" if vessel.get('Length') is not None else '',
+                f"{vessel.get('Breadth', 0):.0f}" if vessel.get('Breadth') is not None else '',
+                f"{vessel.get('Latitude', 0):.6f}" if vessel.get('Latitude') is not None else '',
+                f"{vessel.get('Longitude', 0):.6f}" if vessel.get('Longitude') is not None else '',
+                vessel.get('IMONumber', ''),
+                'Yes' if vessel.get('IsHazardous') else 'No'
+            ])
+        
+        output.seek(0)
+        content = output.getvalue()
+        filename = f"all_ais_contacts_{mission}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating AIS CSV: {str(e)}")
 
 
 # --- HTML Route for Forms ---
