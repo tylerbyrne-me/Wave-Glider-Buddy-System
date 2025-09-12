@@ -272,7 +272,8 @@ def get_vessel_summary_stats(vessels: list) -> Dict[str, any]:
     
     for vessel in vessels:
         # Count AIS classes
-        ais_class = vessel.get("AISClass", "").upper().strip()
+        ais_class_raw = vessel.get("AISClass")
+        ais_class = ais_class_raw.upper().strip() if ais_class_raw else ""
         if ais_class == "A":
             stats["class_a_count"] += 1
         elif ais_class == "B":

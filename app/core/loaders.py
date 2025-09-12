@@ -33,7 +33,8 @@ async def load_report(
         "fluorometer": "Fluorometer Samples 2.csv",  # New C3 Fluorometer
         "wave_frequency_spectrum": "GPS Waves Frequency Spectrum.csv",  # New
         "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv",  # New
-        "wg_vm4": "Vemco VM4 Daily Local Health.csv",  # New WG-VM4 sensor
+        "wg_vm4": "Vemco VM4 Daily Local Health.csv",  #  WG-VM4 sensor daily detection counts
+        "wg_vm4_info": "Vemco VM4 Information.csv",  # WG-VM4 sensor info
     }
 
     if report_type not in reports:
