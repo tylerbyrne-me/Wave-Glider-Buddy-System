@@ -26,6 +26,7 @@ class ReportTypeEnum(str, Enum):
     fluorometer = "fluorometer"
     solar = "solar"
     wg_vm4 = "wg_vm4"  # New WG-VM4 sensor
+    wg_vm4_info = "wg_vm4_info"  # WG-VM4 info data for automatic offload logging
 
 
 class SourceEnum(str, Enum):
@@ -197,6 +198,8 @@ class StationMetadataCore(
     waypoint_number: Optional[str] = Field(None, description="Associated waypoint number or identifier.")
     last_offload_by_glider: Optional[str] = Field(None, description="Identifier of the glider that last performed an offload (e.g., mission ID).")
     station_settings: Optional[str] = Field(None, description="Configuration settings for the station (e.g., '300bps, 0db').")
+    deployment_latitude: Optional[float] = Field(None, ge=-90, le=90, description="Latitude of the station deployment location in decimal degrees.")
+    deployment_longitude: Optional[float] = Field(None, ge=-180, le=180, description="Longitude of the station deployment location in decimal degrees.")
     notes: Optional[str] = Field(None, description="General notes or comments about the station.")
     display_status_override: Optional[str] = (
         Field(None, description="Manual override for the station's display status (e.g., 'SKIPPED', 'MAINTENANCE').")
@@ -228,6 +231,8 @@ class StationMetadataUpdate(SQLModel):  # For partial updates of core station in
     waypoint_number: Optional[str] = None
     last_offload_by_glider: Optional[str] = None
     station_settings: Optional[str] = None
+    deployment_latitude: Optional[float] = None
+    deployment_longitude: Optional[float] = None
     notes: Optional[str] = None
     display_status_override: Optional[str] = None
     # last_offload_timestamp_utc and was_last_offload_successful are
@@ -519,6 +524,8 @@ class StationMetadata(SQLModel, table=True):  # type: ignore
     waypoint_number: Optional[str] = SQLModelField(default=None, description="Associated waypoint number or identifier.")
     last_offload_by_glider: Optional[str] = SQLModelField(default=None, description="Identifier of the glider that last performed an offload.")
     station_settings: Optional[str] = SQLModelField(default=None, description="Configuration settings for the station.")
+    deployment_latitude: Optional[float] = SQLModelField(default=None, description="Latitude of the station deployment location in decimal degrees.")
+    deployment_longitude: Optional[float] = SQLModelField(default=None, description="Longitude of the station deployment location in decimal degrees.")
     notes: Optional[str] = SQLModelField(default=None, description="General notes or comments about the station.")
 
     last_offload_timestamp_utc: Optional[datetime] = SQLModelField(

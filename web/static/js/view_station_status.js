@@ -370,6 +370,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('formModemAddress').value = stationData.modem_address !== null ? stationData.modem_address : '';
             document.getElementById('formBottomDepth').value = stationData.bottom_depth_m !== null ? stationData.bottom_depth_m : '';
             document.getElementById('formWaypointNumber').value = stationData.waypoint_number || '';
+            document.getElementById('formDeploymentLatitude').value = stationData.deployment_latitude !== null ? stationData.deployment_latitude : '';
+            document.getElementById('formDeploymentLongitude').value = stationData.deployment_longitude !== null ? stationData.deployment_longitude : '';
             document.getElementById('formLastOffloadByGlider').value = stationData.last_offload_by_glider || '';
             document.getElementById('formStationSettings').value = stationData.station_settings || '';
             document.getElementById('formStationNotes').value = stationData.notes || '';
@@ -420,6 +422,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             clearValidationFeedback(formNewStationId, formNewStationIdFeedback);
             clearValidationFeedback(formModemAddress, formModemAddressFeedback);
             clearValidationFeedback(formBottomDepth, formBottomDepthFeedback);
+            clearValidationFeedback(document.getElementById('formDeploymentLatitude'), document.getElementById('formDeploymentLatitudeFeedback'));
+            clearValidationFeedback(document.getElementById('formDeploymentLongitude'), document.getElementById('formDeploymentLongitudeFeedback'));
 
             if (loadingSpinner) loadingSpinner.style.display = 'block';
 
@@ -449,6 +453,22 @@ document.addEventListener('DOMContentLoaded', async function () {
                 document.getElementById('formBottomDepth').focus();
                 return;
             }
+
+            const latitudeValue = document.getElementById('formDeploymentLatitude').value.trim();
+            if (latitudeValue !== '' && (isNaN(parseFloat(latitudeValue)) || parseFloat(latitudeValue) < -90 || parseFloat(latitudeValue) > 90)) {
+                showValidationFeedback(document.getElementById('formDeploymentLatitude'), document.getElementById('formDeploymentLatitudeFeedback'), 'Latitude must be a valid number between -90 and 90.');
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+                document.getElementById('formDeploymentLatitude').focus();
+                return;
+            }
+
+            const longitudeValue = document.getElementById('formDeploymentLongitude').value.trim();
+            if (longitudeValue !== '' && (isNaN(parseFloat(longitudeValue)) || parseFloat(longitudeValue) < -180 || parseFloat(longitudeValue) > 180)) {
+                showValidationFeedback(document.getElementById('formDeploymentLongitude'), document.getElementById('formDeploymentLongitudeFeedback'), 'Longitude must be a valid number between -180 and 180.');
+                if (loadingSpinner) loadingSpinner.style.display = 'none';
+                document.getElementById('formDeploymentLongitude').focus();
+                return;
+            }
             // --- End Validation ---
 
             const payload = {
@@ -457,6 +477,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 modem_address: modemAddressValue ? parseInt(modemAddressValue, 10) : null,
                 bottom_depth_m: bottomDepthValue ? parseFloat(bottomDepthValue) : null,
                 waypoint_number: document.getElementById('formWaypointNumber').value.trim() || null,
+                deployment_latitude: latitudeValue ? parseFloat(latitudeValue) : null,
+                deployment_longitude: longitudeValue ? parseFloat(longitudeValue) : null,
                 last_offload_by_glider: document.getElementById('formLastOffloadByGlider').value.trim() || null,
                 station_settings: document.getElementById('formStationSettings').value.trim() || null,
                 notes: document.getElementById('formStationNotes').value.trim() || null,

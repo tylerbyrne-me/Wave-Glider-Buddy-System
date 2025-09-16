@@ -589,7 +589,6 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_processed
 
-
 def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocesses the WG-VM4 data.
@@ -604,3 +603,44 @@ def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
     numeric_cols = ["Channel0DetectionCount", "Channel1DetectionCount"]
 
     return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
+
+
+def preprocess_wg_vm4_info_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocesses the WG-VM4 info data for payload parsing.
+    
+    Args:
+        df: Raw DataFrame from WG-VM4 info CSV
+        
+    Returns:
+        Processed DataFrame ready for payload parsing
+    """
+    if df.empty:
+        return df
+    
+    # Standardize column names
+    rename_map = {
+        "timeStamp": "timeStamp",
+        "latitude": "latitude", 
+        "longitude": "longitude",
+        "payload Data": "payload_data"  # Remove space for easier access
+    }
+    
+    df_processed = df.rename(columns=rename_map)
+    
+    # Ensure timestamp is datetime
+    if 'timeStamp' in df_processed.columns:
+        df_processed['timeStamp'] = pd.to_datetime(df_processed['timeStamp'])
+    
+    # Ensure numeric columns are properly typed
+    numeric_cols = ['latitude', 'longitude']
+    for col in numeric_cols:
+        if col in df_processed.columns:
+            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+    
+    # Ensure payload data is string
+    if 'payload_data' in df_processed.columns:
+        df_processed['payload_data'] = df_processed['payload_data'].astype(str)
+    
+    return df_processed
+

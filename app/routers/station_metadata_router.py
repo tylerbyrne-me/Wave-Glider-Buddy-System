@@ -493,6 +493,8 @@ async def get_station_offload_status_overview(
                 "modem_address": station.modem_address,
                 "station_settings": station.station_settings
                 or "---",  # Add station settings
+                "deployment_latitude": station.deployment_latitude,
+                "deployment_longitude": station.deployment_longitude,
                 # "last_offload_by_glider": station.last_offload_by_glider,
                 # No longer directly in table
                 "last_offload_timestamp_str": last_offload_timestamp_str,

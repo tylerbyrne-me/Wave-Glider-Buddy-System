@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     background_cache_refresh_interval_minutes: int = 60
     # Default if not in .env
     log_file_path: Path = Path(
-        "app.log"
+        "C:/Users/ty225269/Documents/Python Playground/Wave Glider Buddy System/logs/app.log"
     )
 
     week_starts_sunday: bool = True 

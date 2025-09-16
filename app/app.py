@@ -9,7 +9,45 @@ from pathlib import Path
 # --- Configure Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)-5.5s [%(name)s] %(message)s')
 
-from typing import Annotated, Dict, List, Optional, Tuple 
+# Configure dedicated loggers for different data types
+def setup_dedicated_loggers():
+    """Set up dedicated loggers for user activity, cache stats, and mission usage"""
+    
+    # User Activity Logger
+    user_activity_logger = logging.getLogger('user_activity')
+    user_activity_handler = logging.FileHandler('logs/user_activity.log')
+    user_activity_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    user_activity_logger.addHandler(user_activity_handler)
+    user_activity_logger.setLevel(logging.INFO)
+    user_activity_logger.propagate = False
+    
+    # Cache Statistics Logger
+    cache_stats_logger = logging.getLogger('cache_stats')
+    cache_stats_handler = logging.FileHandler('logs/cache_statistics.log')
+    cache_stats_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    cache_stats_logger.addHandler(cache_stats_handler)
+    cache_stats_logger.setLevel(logging.INFO)
+    cache_stats_logger.propagate = False
+    
+    # Mission Usage Logger
+    mission_usage_logger = logging.getLogger('mission_usage')
+    mission_usage_handler = logging.FileHandler('logs/mission_usage.log')
+    mission_usage_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    mission_usage_logger.addHandler(mission_usage_handler)
+    mission_usage_logger.setLevel(logging.INFO)
+    mission_usage_logger.propagate = False
+    
+    return user_activity_logger, cache_stats_logger, mission_usage_logger
+
+# Create logs directory if it doesn't exist
+import os
+os.makedirs('logs', exist_ok=True)
+
+# Initialize dedicated loggers
+user_activity_logger, cache_stats_logger, mission_usage_logger = setup_dedicated_loggers()
+
+from typing import Annotated, Dict, List, Optional, Tuple, Any
+from collections import defaultdict 
 
 import httpx  # For async client in load_data_source
 import numpy as np  # For numeric operations if needed
@@ -162,21 +200,408 @@ from .core.template_context import get_template_context
 
 from cachetools import LRUCache
 
-# In-memory cache: key -> (data, actual_source_path_str, cache_timestamp).
-# 'data' is typically pd.DataFrame, but for 'processed_wave_spectrum'
-# it's List[Dict].
-# The type hint for data_cache needs to be more generic or use Union.
-# Using LRUCache: key -> (data, actual_source_path_str, cache_timestamp).
-data_cache: LRUCache[Tuple, Tuple[pd.DataFrame, str, datetime]] = LRUCache(maxsize=256) # e.g., cache up to 256 items
+# Enhanced cache structure: key -> (data, actual_source_path_str, cache_timestamp, last_data_timestamp)
+# 'data' is typically pd.DataFrame, but for 'processed_wave_spectrum' it's List[Dict]
+# last_data_timestamp: The most recent timestamp in the cached data
+data_cache: LRUCache[Tuple, Tuple[pd.DataFrame, str, datetime, Optional[datetime]]] = LRUCache(maxsize=512) # Increased size for time-aware caching
 
-# CACHE_EXPIRY_MINUTES is now used by the background task interval and for
-# individual cache item expiry
-# if it's a real-time source and the background task hasn't run yet.
+# Data type specific cache strategies - NO EXPIRY for incremental data
+CACHE_STRATEGIES = {
+    "power": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "solar": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "ctd": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "weather": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "waves": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "ais": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "errors": {"expiry_minutes": None, "incremental": False, "overlap_hours": 0},  # Static data - no expiry needed
+    "vr2c": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "fluorometer": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "wg_vm4": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "wg_vm4_info": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "telemetry": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "wave_frequency_spectrum": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+    "wave_energy_spectrum": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
+}
+
+# Legacy CACHE_EXPIRY_MINUTES for backward compatibility
 CACHE_EXPIRY_MINUTES = settings.background_cache_refresh_interval_minutes
+
+# User activity tracking
+user_activity: Dict[str, datetime] = {}  # user_id -> last_activity_timestamp
+user_sessions: Dict[str, Dict[str, Any]] = {}  # user_id -> session_info
+
+# Cache statistics tracking
+cache_stats = {
+    "hits": 0,
+    "misses": 0,
+    "refreshes": 0,
+    "total_requests": 0,
+    "data_volume_mb": 0.0,
+    "last_reset": datetime.now(timezone.utc),
+    "by_report_type": defaultdict(lambda: {"hits": 0, "misses": 0, "refreshes": 0, "data_volume_mb": 0.0}),
+    "by_mission": defaultdict(lambda: {"hits": 0, "misses": 0, "refreshes": 0, "data_volume_mb": 0.0}),
+}
 
 # In-memory store for submitted forms. This will be populated from a local JSON file on startup.
 # Key: (mission_id, form_type, submission_timestamp_iso) -> MissionFormDataResponse
 mission_forms_db: Dict[Tuple[str, str, str], models.MissionFormDataResponse] = {}
+
+
+# --- Enhanced Caching Utilities ---
+
+def create_time_aware_cache_key(
+    report_type: str, 
+    mission_id: str, 
+    start_date: Optional[datetime], 
+    end_date: Optional[datetime],
+    hours_back: Optional[int],
+    source_preference: Optional[str] = None,
+    custom_local_path: Optional[str] = None
+) -> Tuple:
+    """
+    Create cache key that includes time range parameters for better cache hit rates.
+    
+    Args:
+        report_type: Type of report (e.g., 'power', 'ctd')
+        mission_id: Mission identifier
+        start_date: Start date for time range
+        end_date: End date for time range  
+        hours_back: Hours back from now
+        source_preference: 'local' or 'remote'
+        custom_local_path: Custom local path if specified
+        
+    Returns:
+        Tuple suitable for use as cache key
+    """
+    # Normalize time range to a consistent format
+    if start_date and end_date:
+        # Round to nearest hour for better cache hit rates
+        start_hour = start_date.replace(minute=0, second=0, microsecond=0)
+        end_hour = end_date.replace(minute=0, second=0, microsecond=0)
+        time_key = (start_hour.isoformat(), end_hour.isoformat())
+    elif hours_back:
+        # Round to nearest hour
+        time_key = f"hours_{hours_back}"
+    else:
+        time_key = "full_dataset"
+    
+    return (report_type, mission_id, time_key, source_preference, custom_local_path)
+
+
+def is_static_data_source(source_path: str, report_type: str, mission_id: str) -> bool:
+    """
+    Determine if data source is static (won't change) and should never expire.
+    
+    Args:
+        source_path: Path to the data source
+        report_type: Type of report
+        mission_id: Mission identifier
+        
+    Returns:
+        True if data source is static and should never expire
+    """
+    # Local files are typically static
+    if "Local:" in source_path:
+        return True
+    
+    # Historical missions are static (but we're focusing on active missions for now)
+    # if mission_id not in settings.active_realtime_missions:
+    #     return True
+    
+    # Some report types are inherently static
+    static_types = ["errors", "ais"]  # Historical data that doesn't change
+    return report_type in static_types
+
+
+def get_cache_strategy(report_type: str) -> Dict[str, Any]:
+    """
+    Get cache strategy for a specific report type.
+    
+    Args:
+        report_type: Type of report
+        
+    Returns:
+        Dictionary with cache strategy parameters
+    """
+    return CACHE_STRATEGIES.get(report_type, {
+        "expiry_minutes": None,  # No expiry for incremental data
+        "incremental": True, 
+        "overlap_hours": 1
+    })
+
+
+async def initialize_startup_cache():
+    """
+    Initialize cache with all active mission data on startup.
+    This ensures all data is available immediately without user-triggered loading.
+    """
+    logger.info("STARTUP: Initializing comprehensive data cache...")
+    
+    # Get all active missions
+    active_missions = settings.active_realtime_missions
+    logger.info(f"STARTUP: Caching data for {len(active_missions)} active missions: {active_missions}")
+    
+    # Get all incremental report types
+    incremental_types = [report_type for report_type, strategy in CACHE_STRATEGIES.items() 
+                        if strategy.get("incremental", False)]
+    
+    logger.info(f"STARTUP: Caching {len(incremental_types)} incremental data types: {incremental_types}")
+    
+    # Cache data for each mission and report type
+    total_cached = 0
+    for mission_id in active_missions:
+        logger.info(f"STARTUP: Caching data for mission {mission_id}")
+        
+        for report_type in incremental_types:
+            try:
+                # Load data for the last 24 hours to get a good baseline
+                cache_key = create_time_aware_cache_key(
+                    report_type, mission_id, None, None, 24, "remote", None
+                )
+                
+                # Check if already cached
+                if cache_key in data_cache:
+                    logger.debug(f"STARTUP: {report_type} for {mission_id} already cached")
+                    continue
+                
+                # Load data with overlap
+                df, source_path = await load_data_with_overlap(
+                    report_type, mission_id, 
+                    start_date=None, end_date=None, hours_back=24,
+                    overlap_hours=CACHE_STRATEGIES[report_type]["overlap_hours"],
+                    source_preference="remote", custom_local_path=None, current_user=None
+                )
+                
+                if not df.empty:
+                    # Store in cache with proper datetime conversion
+                    last_timestamp = None
+                    if hasattr(df.index, 'max') and not df.empty:
+                        max_ts = df.index.max()
+                        if hasattr(max_ts, 'to_pydatetime'):
+                            last_timestamp = max_ts.to_pydatetime()
+                        elif isinstance(max_ts, (int, float)):
+                            last_timestamp = datetime.fromtimestamp(max_ts, tz=timezone.utc)
+                        else:
+                            last_timestamp = pd.to_datetime(max_ts, utc=True)
+                    
+                    data_cache[cache_key] = (
+                        df, source_path, datetime.now(timezone.utc), 
+                        last_timestamp
+                    )
+                    total_cached += 1
+                    logger.debug(f"STARTUP: Cached {report_type} for {mission_id} ({len(df)} records)")
+                else:
+                    logger.warning(f"STARTUP: No data found for {report_type} on {mission_id}")
+                    
+            except Exception as e:
+                logger.error(f"STARTUP: Error caching {report_type} for {mission_id}: {e}")
+                continue
+    
+    logger.info(f"STARTUP: Cache initialization complete. Cached {total_cached} data sources.")
+    return total_cached
+
+def update_user_activity(user_id: str, activity_type: str = "data_request") -> None:
+    """Update user activity timestamp and session info"""
+    now = datetime.now(timezone.utc)
+    user_activity[user_id] = now
+    
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {
+            "first_seen": now,
+            "last_activity": now,
+            "activity_count": 0,
+            "data_requests": 0,
+            "missions_accessed": set(),
+            "report_types_accessed": set()
+        }
+        # Log new user session
+        user_activity_logger.info(f"NEW_SESSION: user_id={user_id}, first_seen={now.isoformat()}")
+    
+    user_sessions[user_id]["last_activity"] = now
+    user_sessions[user_id]["activity_count"] += 1
+    
+    if activity_type == "data_request":
+        user_sessions[user_id]["data_requests"] += 1
+    
+    # Log user activity
+    user_activity_logger.info(f"ACTIVITY: user_id={user_id}, activity_type={activity_type}, "
+                             f"activity_count={user_sessions[user_id]['activity_count']}, "
+                             f"data_requests={user_sessions[user_id]['data_requests']}")
+
+def get_active_users(minutes_threshold: int = 30) -> List[str]:
+    """Get list of users who have been active within the threshold"""
+    now = datetime.now(timezone.utc)
+    threshold_time = now - timedelta(minutes=minutes_threshold)
+    
+    active_users = []
+    for user_id, last_activity in user_activity.items():
+        if last_activity >= threshold_time:
+            active_users.append(user_id)
+    
+    return active_users
+
+def update_cache_stats(
+    report_type: str, 
+    mission_id: str, 
+    cache_hit: bool, 
+    data_size_mb: float = 0.0,
+    is_refresh: bool = False
+) -> None:
+    """Update cache statistics"""
+    cache_stats["total_requests"] += 1
+    
+    if cache_hit:
+        cache_stats["hits"] += 1
+        cache_stats["by_report_type"][report_type]["hits"] += 1
+        cache_stats["by_mission"][mission_id]["hits"] += 1
+    else:
+        cache_stats["misses"] += 1
+        cache_stats["by_report_type"][report_type]["misses"] += 1
+        cache_stats["by_mission"][mission_id]["misses"] += 1
+    
+    if is_refresh:
+        cache_stats["refreshes"] += 1
+        cache_stats["by_report_type"][report_type]["refreshes"] += 1
+        cache_stats["by_mission"][mission_id]["refreshes"] += 1
+    
+    if data_size_mb > 0:
+        cache_stats["data_volume_mb"] += data_size_mb
+        cache_stats["by_report_type"][report_type]["data_volume_mb"] += data_size_mb
+        cache_stats["by_mission"][mission_id]["data_volume_mb"] += data_size_mb
+    
+    # Log cache statistics
+    hit_rate = (cache_stats["hits"] / cache_stats["total_requests"] * 100) if cache_stats["total_requests"] > 0 else 0
+    cache_stats_logger.info(f"CACHE_STATS: report_type={report_type}, mission_id={mission_id}, "
+                           f"cache_hit={cache_hit}, data_size_mb={data_size_mb:.2f}, "
+                           f"is_refresh={is_refresh}, overall_hit_rate={hit_rate:.2f}%")
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get current cache statistics"""
+    total_requests = cache_stats["total_requests"]
+    hit_rate = (cache_stats["hits"] / total_requests * 100) if total_requests > 0 else 0
+    miss_rate = (cache_stats["misses"] / total_requests * 100) if total_requests > 0 else 0
+    
+    return {
+        "overall": {
+            "hits": cache_stats["hits"],
+            "misses": cache_stats["misses"],
+            "refreshes": cache_stats["refreshes"],
+            "total_requests": total_requests,
+            "hit_rate_percent": round(hit_rate, 2),
+            "miss_rate_percent": round(miss_rate, 2),
+            "data_volume_mb": round(cache_stats["data_volume_mb"], 2),
+            "last_reset": cache_stats["last_reset"].isoformat(),
+            "cache_size": len(data_cache),
+            "cache_max_size": data_cache.maxsize
+        },
+        "by_report_type": dict(cache_stats["by_report_type"]),
+        "by_mission": dict(cache_stats["by_mission"]),
+        "active_users": {
+            "count": len(get_active_users()),
+            "users": get_active_users(),
+            "sessions": {k: v for k, v in user_sessions.items() if k in get_active_users()}
+        }
+    }
+
+def generate_usage_summary_report() -> Dict[str, Any]:
+    """Generate a summary report from the dedicated log files"""
+    try:
+        import os
+        from collections import defaultdict, Counter
+        
+        summary = {
+            "user_activity": {"total_sessions": 0, "total_activities": 0, "unique_users": set()},
+            "mission_usage": {"total_requests": 0, "missions_accessed": set(), "report_types_accessed": set()},
+            "cache_performance": {"total_requests": 0, "hits": 0, "misses": 0, "hit_rate": 0.0},
+            "log_files": {"user_activity": False, "cache_statistics": False, "mission_usage": False}
+        }
+        
+        # Check if log files exist and get basic stats
+        log_files = {
+            "user_activity": "logs/user_activity.log",
+            "cache_statistics": "logs/cache_statistics.log", 
+            "mission_usage": "logs/mission_usage.log"
+        }
+        
+        for log_type, log_path in log_files.items():
+            if os.path.exists(log_path):
+                summary["log_files"][log_type] = True
+                with open(log_path, 'r') as f:
+                    lines = f.readlines()
+                    summary[f"{log_type}_count"] = len(lines)
+        
+        # Get current in-memory stats
+        current_stats = get_cache_stats()
+        summary["current_cache_stats"] = current_stats
+        
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error generating usage summary report: {e}")
+        return {"error": str(e)}
+
+
+def trim_data_to_range(
+    df: pd.DataFrame, 
+    start_date: Optional[datetime], 
+    end_date: Optional[datetime], 
+    hours_back: Optional[int]
+) -> pd.DataFrame:
+    """
+    Trim the cached data to the exact requested range.
+    
+    Args:
+        df: DataFrame to trim
+        start_date: Start date for trimming
+        end_date: End date for trimming
+        hours_back: Hours back from now for trimming
+        
+    Returns:
+        Trimmed DataFrame
+    """
+    if df.empty or "Timestamp" not in df.columns:
+        return df
+    
+    if start_date and end_date:
+        return df[(df["Timestamp"] >= start_date) & (df["Timestamp"] <= end_date)]
+    elif hours_back:
+        cutoff = datetime.now() - timedelta(hours=hours_back)
+        return df[df["Timestamp"] >= cutoff]
+    
+    return df
+
+
+def merge_data_with_overlap(
+    new_df: pd.DataFrame, 
+    existing_df: pd.DataFrame, 
+    last_known_timestamp: datetime
+) -> pd.DataFrame:
+    """
+    Merge new data with existing data, handling overlap to prevent gaps.
+    
+    Args:
+        new_df: Newly loaded data
+        existing_df: Previously cached data
+        last_known_timestamp: Last known timestamp from existing data
+        
+    Returns:
+        Merged DataFrame with duplicates removed
+    """
+    if existing_df.empty:
+        return new_df
+    
+    if new_df.empty:
+        return existing_df
+    
+    # Combine dataframes
+    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+    
+    # Remove duplicates based on timestamp, keeping the most recent
+    if "Timestamp" in combined_df.columns:
+        combined_df = combined_df.drop_duplicates(subset=["Timestamp"], keep="last")
+        combined_df = combined_df.sort_values("Timestamp").reset_index(drop=True)
+    
+    return combined_df
 
 
 
@@ -340,7 +765,7 @@ async def _load_from_remote_sources(
     if user_role == models.UserRoleEnum.admin:
         remote_base_urls_to_try.extend([
             f"{base_remote_url}/output_realtime_missions",
-            f"{base_remote_url}/output_past_missions",
+            # f"{base_remote_url}/output_past_missions",  # Commented out - focusing on active missions only
         ])
     elif user_role == models.UserRoleEnum.pilot:
         if mission_id in settings.active_realtime_missions:
@@ -384,7 +809,7 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
     Apply date filtering to a DataFrame based on the report type and timestamp column.
     Returns the filtered DataFrame.
     """
-    # Map report types to their timestamp column names
+    # Map report types to their raw timestamp column names (before preprocessing)
     timestamp_columns = {
         "telemetry": "lastLocationFix",
         "power": "gliderTimeStamp", 
@@ -395,19 +820,42 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         "vr2c": "gliderTimeStamp",
         "fluorometer": "gliderTimeStamp",
         "wg_vm4": "gliderTimeStamp",
-        "ais": "gliderTimeStamp",
+        "ais": "lastSeenTimestamp",  # Fixed: AIS uses lastSeenTimestamp
         "errors": "gliderTimeStamp",
+        "wave_frequency_spectrum": "timeStamp",  # Wave spectrum uses timeStamp
+        "wave_energy_spectrum": "timeStamp",    # Wave spectrum uses timeStamp
     }
     
+    # First try the specific timestamp column for this report type
     timestamp_col = timestamp_columns.get(report_type)
+    
+    # If the specific column doesn't exist, try to find any timestamp-like column
     if not timestamp_col or timestamp_col not in df.columns:
-        logger.warning(f"No timestamp column found for {report_type}, skipping date filtering")
+        for col in df.columns:
+            lower_col = col.lower()
+            if "time" in lower_col or col in [
+                "timeStamp",
+                "gliderTimeStamp", 
+                "lastLocationFix",
+                "lastSeenTimestamp",
+            ]:
+                timestamp_col = col
+                break
+    
+    if not timestamp_col or timestamp_col not in df.columns:
+        logger.warning(f"No timestamp column found for {report_type}, skipping date filtering. Available columns: {df.columns.tolist()}")
         return df
     
     try:
         # Convert timestamp column to datetime if it's not already
         if not pd.api.types.is_datetime64_any_dtype(df[timestamp_col]):
-            df[timestamp_col] = pd.to_datetime(df[timestamp_col], format='ISO8601', utc=True)
+            # Try multiple formats to handle different timestamp formats
+            df[timestamp_col] = pd.to_datetime(df[timestamp_col], errors='coerce', utc=True)
+            
+            # Check if conversion was successful
+            if df[timestamp_col].isna().all():
+                logger.warning(f"Failed to convert timestamp column '{timestamp_col}' for {report_type}. Skipping date filtering.")
+                return df
         
         # Ensure timezone awareness
         if start_date.tzinfo is None:
@@ -425,7 +873,7 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         return filtered_df
         
     except Exception as e:
-        logger.error(f"Error applying date filtering to {report_type}: {e}")
+        logger.warning(f"Error applying date filtering to {report_type}: {e}. Proceeding without time filtering.")
         return df
 
 
@@ -435,116 +883,272 @@ async def load_data_source(
     source_preference: Optional[str] = None,  # 'local' or 'remote'
     custom_local_path: Optional[str] = None,
     force_refresh: bool = False,  # New parameter to bypass cache
-    current_user: Optional[
-        models.User  # Changed from UserInDB to match what get_optional_current_user returns
-    ] = None,
+    current_user: Optional[models.User] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    hours_back: Optional[int] = None,
 ):
-
-    df: Optional[pd.DataFrame] = None
-    actual_source_path = "Data not loaded"  # Initialize with a default
-
-    cache_key = (
-        report_type,
-        mission_id,
-        source_preference,
-        custom_local_path,
-    )  # Swapped order for consistency
-
+    """
+    Enhanced load_data_source with time-aware caching and overlap-based gap prevention.
+    
+    Args:
+        report_type: Type of report to load
+        mission_id: Mission identifier
+        source_preference: 'local' or 'remote'
+        custom_local_path: Custom local path if specified
+        force_refresh: Bypass cache and force refresh
+        current_user: Current user for access control
+        start_date: Start date for time range
+        end_date: End date for time range
+        hours_back: Hours back from now
+        
+    Returns:
+        Tuple of (DataFrame, source_path)
+    """
+    
+    # Create time-aware cache key
+    cache_key = create_time_aware_cache_key(
+        report_type, mission_id, start_date, end_date, hours_back, 
+        source_preference, custom_local_path
+    )
+    
+    # Get cache strategy for this report type
+    cache_strategy = get_cache_strategy(report_type)
+    
+    # Update user activity tracking
+    if current_user:
+        update_user_activity(str(current_user.id), "data_request")
+        if hasattr(current_user, 'username'):
+            user_sessions[str(current_user.id)]["missions_accessed"].add(mission_id)
+            user_sessions[str(current_user.id)]["report_types_accessed"].add(report_type)
+            
+            # Log mission usage
+            mission_usage_logger.info(f"MISSION_USAGE: user_id={current_user.id}, "
+                                     f"username={current_user.username}, mission_id={mission_id}, "
+                                     f"report_type={report_type}, timestamp={datetime.now(timezone.utc).isoformat()}")
+    
+    # Check cache first (unless force refresh)
     if not force_refresh and cache_key in data_cache:
-        cached_df, cached_source_path, cache_timestamp = data_cache[cache_key]
-
-        # Determine if the cached data is from a real-time remote source
-        is_realtime_remote_source = (
-            "Remote:" in cached_source_path
-            and "output_realtime_missions" in cached_source_path
-        )
-
-        if is_realtime_remote_source:
-            # For real-time remote sources, check expiry
-            if datetime.now() - cache_timestamp < timedelta(
-                minutes=CACHE_EXPIRY_MINUTES
-            ):
-                logger.debug(
-                    f"CACHE HIT (valid - real-time): Returning {report_type} "
-                    f"for {mission_id} from cache. "
-                    f"Original source: {cached_source_path}"
-                )
-                return cached_df, cached_source_path
-            else:
-                logger.debug(
-                    f"Cache hit (expired - real-time) for {report_type} "
-                    f"({mission_id}). Will refresh."
-                )
-        else:
-            # For past remote missions and all local files, treat cache as
-            # always valid (static for app lifecycle)
+        cached_df, cached_source_path, cache_timestamp, last_data_timestamp = data_cache[cache_key]
+        
+        # Determine if this is a static data source
+        is_static = is_static_data_source(cached_source_path, report_type, mission_id)
+        
+        if is_static:
+            # Static data never expires - always return from cache
             logger.debug(
-                f"Cache hit (valid - static/local) for {report_type} "
-                f"({mission_id}). Returning cached data from {cached_source_path}."
+                f"CACHE HIT (static): Returning {report_type} for {mission_id} "
+                f"from cache. Source: {cached_source_path}"
             )
-            return cached_df, cached_source_path
-    elif force_refresh:
-        logger.info(
-            f"Force refresh requested for {report_type} ({mission_id}). Bypassing cache."
+            # Update cache statistics
+            data_size_mb = len(cached_df) * cached_df.memory_usage(deep=True).sum() / (1024 * 1024) if not cached_df.empty else 0
+            update_cache_stats(report_type, mission_id, cache_hit=True, data_size_mb=data_size_mb)
+            # Trim to requested range and return
+            return trim_data_to_range(cached_df, start_date, end_date, hours_back), cached_source_path
+        else:
+            # Dynamic data - always try incremental loading first if we have existing data
+            if cache_strategy["incremental"] and last_data_timestamp:
+                logger.debug(
+                    f"CACHE HIT (incremental): {report_type} for {mission_id} "
+                    f"has existing data. Checking for updates since {last_data_timestamp}."
+                )
+                # Try incremental loading with overlap
+                return await load_incremental_data_with_overlap(
+                    report_type, mission_id, last_data_timestamp, 
+                    cache_strategy["overlap_hours"], source_preference, 
+                    custom_local_path, current_user
+                )
+            else:
+                # No existing data or not incremental - return cached data
+                logger.debug(
+                    f"CACHE HIT (no-incremental): Returning {report_type} for {mission_id} "
+                    f"from cache. Source: {cached_source_path}"
+                )
+                # Update cache statistics
+                data_size_mb = len(cached_df) * cached_df.memory_usage(deep=True).sum() / (1024 * 1024) if not cached_df.empty else 0
+                update_cache_stats(report_type, mission_id, cache_hit=True, data_size_mb=data_size_mb)
+                # Trim to requested range and return
+                return trim_data_to_range(cached_df, start_date, end_date, hours_back), cached_source_path
+    
+    # Load data with overlap to prevent gaps
+    df, actual_source_path = await load_data_with_overlap(
+        report_type, mission_id, start_date, end_date, hours_back,
+        cache_strategy["overlap_hours"], source_preference, 
+        custom_local_path, current_user
+    )
+    
+    # Store in cache with enhanced structure
+    if df is not None and not df.empty:
+        last_data_timestamp = None
+        if "Timestamp" in df.columns and not df.empty:
+            last_data_timestamp = df["Timestamp"].max()
+        
+        logger.debug(
+            f"CACHE STORE: Storing {report_type} for {mission_id} "
+            f"(from {actual_source_path}) into cache with overlap."
         )
+        # Ensure last_data_timestamp is a proper datetime object
+        if last_data_timestamp is not None:
+            if hasattr(last_data_timestamp, 'to_pydatetime'):
+                last_data_timestamp = last_data_timestamp.to_pydatetime()
+            elif isinstance(last_data_timestamp, (int, float)):
+                last_data_timestamp = datetime.fromtimestamp(last_data_timestamp, tz=timezone.utc)
+            elif not isinstance(last_data_timestamp, datetime):
+                last_data_timestamp = pd.to_datetime(last_data_timestamp, utc=True)
+        
+        data_cache[cache_key] = (
+            df, actual_source_path, datetime.now(timezone.utc), last_data_timestamp
+        )
+        
+        # Update cache statistics for miss and store
+        data_size_mb = len(df) * df.memory_usage(deep=True).sum() / (1024 * 1024) if not df.empty else 0
+        update_cache_stats(report_type, mission_id, cache_hit=False, data_size_mb=data_size_mb, is_refresh=True)
+    else:
+        # Update cache statistics for miss (no data)
+        update_cache_stats(report_type, mission_id, cache_hit=False, is_refresh=True)
+    
+    # Return trimmed data for the exact requested range
+    return trim_data_to_range(df if df is not None else pd.DataFrame(), start_date, end_date, hours_back), actual_source_path
 
+
+async def load_data_with_overlap(
+    report_type: str,
+    mission_id: str,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    hours_back: Optional[int] = None,
+    overlap_hours: int = 1,
+    source_preference: Optional[str] = None,
+    custom_local_path: Optional[str] = None,
+    current_user: Optional[models.User] = None
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Load data with overlap to prevent gaps.
+    
+    Args:
+        report_type: Type of report to load
+        mission_id: Mission identifier
+        start_date: Start date for time range
+        end_date: End date for time range
+        hours_back: Hours back from now
+        overlap_hours: Hours of overlap to add
+        source_preference: 'local' or 'remote'
+        custom_local_path: Custom local path if specified
+        current_user: Current user for access control
+        
+    Returns:
+        Tuple of (DataFrame, source_path)
+    """
+    
+    # Calculate the actual range to fetch (with overlap)
+    if start_date and end_date:
+        # Extend range by overlap_hours
+        actual_start = start_date - timedelta(hours=overlap_hours)
+        actual_end = end_date + timedelta(hours=overlap_hours)
+    elif hours_back:
+        # Extend hours_back by overlap
+        actual_hours = hours_back + overlap_hours
+        actual_start = datetime.now() - timedelta(hours=actual_hours)
+        actual_end = datetime.now()
+    else:
+        # Full dataset - no overlap needed
+        actual_start = None
+        actual_end = None
+    
+    # Load data using existing logic but with extended range
+    df: Optional[pd.DataFrame] = None
+    actual_source_path = "Data not loaded"
+    
     load_attempted = False
     if source_preference == "local":  # Local-only preference
         load_attempted = True
         df, actual_source_path = await _load_from_local_sources(report_type, mission_id, custom_local_path)
-
-    # Remote-first or default behavior (remote then local fallback)
     elif source_preference == "remote" or source_preference is None:
         load_attempted = True
         df, actual_source_path = await _load_from_remote_sources(report_type, mission_id, current_user)
-        if df is None: # If remote failed, try local as fallback
+        if df is None:  # If remote failed, try local as fallback
             logger.warning(f"Remote preference/attempt failed for {report_type} ({mission_id}). Falling back to default local.")
-            # Pass None for custom_local_path to ensure only default is tried as fallback
             df_fallback, path_fallback = await _load_from_local_sources(report_type, mission_id, None)
             if df_fallback is not None:
                 df, actual_source_path = df_fallback, path_fallback
-            # If actual_source_path from remote attempt was informative (e.g. "Access Restricted" or "File Not Found"), keep it.
-            # Otherwise, if local fallback also failed, path_fallback will be more specific.
-            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path or "Remote: File Not Found" in actual_source_path :
-                 if path_fallback and "Data not loaded" not in path_fallback : actual_source_path = path_fallback
-
-    # Additional check for pilots trying to access local data for non-active missions
-    if (
-        current_user
-        and current_user.role == models.UserRoleEnum.pilot
-        and mission_id not in settings.active_realtime_missions
-    ):
-        if "Local" in actual_source_path:  # If data was loaded from local
-            logger.warning(
-                f"Pilot '{current_user.username}' loaded local data for "
-                f"non-active mission '{mission_id}'. This might be unintended."
-            )
-            # To strictly deny:
-            # return None, (f"Access denied to local data for non-active "
-            #               f"mission '{mission_id}' (Pilot)")
-
-    if not load_attempted:  # Should not happen with current logic, but as a safeguard
-        logger.error(
-            f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected."
-        )
-
-    # Note: Date filtering is now handled in the API endpoint after preprocessing
-    # to ensure we filter on the correct timestamp column after data transformation
-
-    if df is not None and not df.empty:
-        logger.debug(
-            f"CACHE STORE: Storing {report_type} for {mission_id} (from {actual_source_path}) into cache."
-        )
-        data_cache[cache_key] = (
-            df,
-            actual_source_path,
-            datetime.now(),
-        )  # Store with current timestamp
-
-    # Ensure df is returned even if it's None, along with actual_source_path
+            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path or "Remote: File Not Found" in actual_source_path:
+                if path_fallback and "Data not loaded" not in path_fallback:
+                    actual_source_path = path_fallback
+    
+    if not load_attempted:
+        logger.error(f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected.")
+    
+    # Apply time filtering to the extended range using raw timestamp column names
+    if df is not None and not df.empty and actual_start and actual_end:
+        df = _apply_date_filtering(df, report_type, actual_start, actual_end)
+    
     return df if df is not None else pd.DataFrame(), actual_source_path
+
+
+async def load_incremental_data_with_overlap(
+    report_type: str,
+    mission_id: str,
+    last_known_timestamp: datetime,
+    overlap_hours: int = 1,
+    source_preference: Optional[str] = None,
+    custom_local_path: Optional[str] = None,
+    current_user: Optional[models.User] = None
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Load only new data since last_known_timestamp, but with overlap to prevent gaps.
+    
+    Args:
+        report_type: Type of report to load
+        mission_id: Mission identifier
+        last_known_timestamp: Last known timestamp from existing data
+        overlap_hours: Hours of overlap to add
+        source_preference: 'local' or 'remote'
+        custom_local_path: Custom local path if specified
+        current_user: Current user for access control
+        
+    Returns:
+        Tuple of (DataFrame, source_path)
+    """
+    
+    # Start from overlap_hours before last known timestamp
+    # Ensure last_known_timestamp is a datetime object
+    if isinstance(last_known_timestamp, (int, float)):
+        # Convert from timestamp to datetime
+        last_known_timestamp = datetime.fromtimestamp(last_known_timestamp, tz=timezone.utc)
+    elif hasattr(last_known_timestamp, 'to_pydatetime'):
+        # Convert pandas timestamp to datetime
+        last_known_timestamp = last_known_timestamp.to_pydatetime()
+    elif not isinstance(last_known_timestamp, datetime):
+        # Try to parse as datetime
+        last_known_timestamp = pd.to_datetime(last_known_timestamp, utc=True)
+    
+    start_time = last_known_timestamp - timedelta(hours=overlap_hours)
+    end_time = datetime.now(timezone.utc)
+    
+    # Load the extended range
+    new_df, source_path = await load_data_with_overlap(
+        report_type, mission_id, 
+        start_date=start_time, 
+        end_date=end_time,
+        overlap_hours=0,  # Already applied above
+        source_preference=source_preference,
+        custom_local_path=custom_local_path,
+        current_user=current_user
+    )
+    
+    # Get existing cached data to merge with
+    cache_key = create_time_aware_cache_key(
+        report_type, mission_id, None, None, None, source_preference, custom_local_path
+    )
+    
+    if cache_key in data_cache:
+        existing_df, _, _, _ = data_cache[cache_key]
+        # Merge with overlap handling
+        merged_df = merge_data_with_overlap(new_df, existing_df, last_known_timestamp)
+        return merged_df, source_path
+    else:
+        # No existing data to merge with
+        return new_df, source_path
 
 
 # ---
@@ -554,24 +1158,43 @@ scheduler = AsyncIOScheduler()  # Uncomment APScheduler
 
 
 async def refresh_active_mission_cache():
+    """
+    Smart background cache refresh that only refreshes stale data for active users.
+    Uses data-type specific cache strategies and incremental loading.
+    """
     logger.info(
-        "BACKGROUND TASK: Starting proactive cache refresh for active "
-        "real-time missions."
+        "BACKGROUND TASK: Starting smart cache refresh for active real-time missions."
     )
-    active_missions = settings.active_realtime_missions
-    # Define report types typically found in real-time missions
-    # These are the *source* files to refresh. The combined spectrum is
-    # processed on demand.
-    # Add wave_frequency_spectrum and wave_energy_spectrum to be refreshed by
-    # the background task
-    # so the /api/wave_spectrum endpoint can use fresh source data for processing.
+    
+    # Get active users (last 30 minutes)
+    active_users = get_active_users(minutes_threshold=30)
+    if not active_users:
+        logger.info("BACKGROUND TASK: No active users found. Skipping cache refresh.")
+        mission_usage_logger.info("BACKGROUND_REFRESH: No active users found. Skipping cache refresh.")
+        return
+    
+    logger.info(f"BACKGROUND TASK: Found {len(active_users)} active users: {active_users}")
+    mission_usage_logger.info(f"BACKGROUND_REFRESH: Found {len(active_users)} active users: {active_users}")
+    
+    # Get missions accessed by active users
+    active_missions = set()
+    for user_id in active_users:
+        if user_id in user_sessions:
+            active_missions.update(user_sessions[user_id]["missions_accessed"])
+    
+    # Fallback to configured active missions if no user activity
+    if not active_missions:
+        active_missions = settings.active_realtime_missions
+        logger.info("BACKGROUND TASK: No user activity data. Using configured active missions.")
+    else:
+        active_missions = list(active_missions)
+        logger.info(f"BACKGROUND TASK: Refreshing data for missions accessed by active users: {active_missions}")
+    
     # Get database session for checking sensor card configurations
     from .db import SQLModelSession, sqlite_engine
     with SQLModelSession(sqlite_engine) as session:
         for mission_id in active_missions:
-            logger.info(
-                f"BACKGROUND TASK: Refreshing cache for active mission: {mission_id}"
-            )
+            logger.info(f"BACKGROUND TASK: Checking cache for active mission: {mission_id}")
             
             # Get enabled sensor cards for this mission
             mission_overview = session.get(models.MissionOverview, mission_id)
@@ -588,7 +1211,7 @@ async def refresh_active_mission_cache():
             
             # Map sensor card categories to their corresponding data report types
             sensor_to_report_mapping = {
-                "navigation": "telemetry",  # Navigation card uses telemetry data
+                "navigation": "telemetry",
                 "power": "power",
                 "ctd": "ctd", 
                 "weather": "weather",
@@ -600,47 +1223,134 @@ async def refresh_active_mission_cache():
                 "errors": "errors"
             }
             
-            # Determine which report types to refresh based on enabled sensor cards
-            report_types_to_refresh = []
+            # Determine which report types to check based on enabled sensor cards
+            report_types_to_check = []
             for sensor_card in enabled_sensor_cards:
                 if sensor_card in sensor_to_report_mapping:
-                    report_types_to_refresh.append(sensor_to_report_mapping[sensor_card])
+                    report_types_to_check.append(sensor_to_report_mapping[sensor_card])
                     # Add solar data if power is enabled
-                    if sensor_card == "power" and "solar" not in report_types_to_refresh:
-                        report_types_to_refresh.append("solar")
+                    if sensor_card == "power" and "solar" not in report_types_to_check:
+                        report_types_to_check.append("solar")
             
-            # Always include wave spectrum data if waves is enabled (used for wave analysis)
+            # Always include wave spectrum data if waves is enabled
             if "waves" in enabled_sensor_cards:
-                if "wave_frequency_spectrum" not in report_types_to_refresh:
-                    report_types_to_refresh.append("wave_frequency_spectrum")
-                if "wave_energy_spectrum" not in report_types_to_refresh:
-                    report_types_to_refresh.append("wave_energy_spectrum")
+                if "wave_frequency_spectrum" not in report_types_to_check:
+                    report_types_to_check.append("wave_frequency_spectrum")
+                if "wave_energy_spectrum" not in report_types_to_check:
+                    report_types_to_check.append("wave_energy_spectrum")
             
-            logger.info(
-                f"BACKGROUND TASK: Refreshing {len(report_types_to_refresh)} data types for mission {mission_id}: {report_types_to_refresh}"
-            )
-            
-            for report_type in report_types_to_refresh:
+            # Check each report type and only refresh if stale
+            refreshed_count = 0
+            for report_type in report_types_to_check:
                 try:
-                    # We force refresh and specify 'remote' as source_preference
-                    # because we are targeting 'output_realtime_missions'
-                    await load_data_source(
-                        report_type,
-                        mission_id,
-                        source_preference="remote",  # Ensure it tries remote (specifically output_realtime_missions first)
-                        force_refresh=True, # Background task doesn't have a specific user context for this refresh
-                        current_user=None,
+                    # Check if data needs refreshing
+                    cache_key = create_time_aware_cache_key(
+                        report_type, mission_id, None, None, None, "remote", None
                     )
+                    
+                    needs_refresh = False
+                    if cache_key not in data_cache:
+                        # No cached data - needs initial load
+                        needs_refresh = True
+                        logger.debug(f"BACKGROUND TASK: No cached data for {report_type} ({mission_id}) - will load")
+                    else:
+                        # Check if cached data is stale
+                        cached_df, cached_source_path, cache_timestamp, last_data_timestamp = data_cache[cache_key]
+                        cache_strategy = get_cache_strategy(report_type)
+                        
+                        # Skip static data sources
+                        if is_static_data_source(cached_source_path, report_type, mission_id):
+                            logger.debug(f"BACKGROUND TASK: Skipping static data source {report_type} ({mission_id})")
+                            continue
+                        
+                        # Check if data is stale based on cache strategy
+                        expiry_minutes = cache_strategy["expiry_minutes"]
+                        if datetime.now() - cache_timestamp > timedelta(minutes=expiry_minutes):
+                            needs_refresh = True
+                            logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
+                    
+                    if needs_refresh:
+                        # Use smart loading - will try incremental first if possible
+                        await load_data_source(
+                            report_type,
+                            mission_id,
+                            source_preference="remote",
+                            force_refresh=False,  # Let the smart caching decide
+                            current_user=None,
+                        )
+                        refreshed_count += 1
+                        logger.debug(f"BACKGROUND TASK: Refreshed {report_type} for {mission_id}")
+                        mission_usage_logger.info(f"BACKGROUND_REFRESH: Refreshed {report_type} for {mission_id}")
+                    else:
+                        logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is still fresh")
+                        
                 except Exception as e:
                     logger.error(
-                        f"BACKGROUND TASK: Error refreshing cache for {report_type} "
+                        f"BACKGROUND TASK: Error checking/refreshing cache for {report_type} "
                         f"on mission {mission_id}: {e}"
                     )
     
     logger.info(
-        "BACKGROUND TASK: Proactive cache refresh for active real-time "
-        "missions completed."
-    )
+                f"BACKGROUND TASK: Refreshed {refreshed_count}/{len(report_types_to_check)} "
+                f"data types for mission {mission_id}"
+            )
+    
+    logger.info("BACKGROUND TASK: Smart cache refresh completed.")
+
+
+async def smart_background_refresh():
+    """
+    Enhanced background refresh that only refreshes data that's actually stale
+    and likely to be viewed by users.
+    """
+    logger.info("BACKGROUND TASK: Starting smart background refresh.")
+    
+    # Get active missions
+    active_missions = settings.active_realtime_missions
+    
+    for mission_id in active_missions:
+        logger.info(f"BACKGROUND TASK: Smart refresh for mission {mission_id}")
+        
+        # Check each data type and only refresh if needed
+        for report_type, strategy in CACHE_STRATEGIES.items():
+            # Skip if this is not a real-time data type
+            if not strategy["incremental"]:
+                continue
+                
+            try:
+                # Check if we have recent data for this report type
+                cache_key = create_time_aware_cache_key(
+                    report_type, mission_id, None, None, 24, "remote", None  # Last 24 hours
+                )
+                
+                needs_refresh = False
+                if cache_key not in data_cache:
+                    needs_refresh = True
+                else:
+                    cached_df, cached_source_path, cache_timestamp, last_data_timestamp = data_cache[cache_key]
+                    
+                    # Skip static data
+                    if is_static_data_source(cached_source_path, report_type, mission_id):
+                        continue
+                    
+                    # Check if data is stale
+                    if datetime.now() - cache_timestamp > timedelta(minutes=strategy["expiry_minutes"]):
+                        needs_refresh = True
+                
+                if needs_refresh:
+                    # Load recent data with overlap
+                    await load_data_source(
+                        report_type, mission_id, 
+                        hours_back=24,  # Last 24 hours
+                        source_preference="remote",
+                        current_user=None
+                    )
+                    logger.debug(f"BACKGROUND TASK: Refreshed {report_type} for {mission_id}")
+                    
+            except Exception as e:
+                logger.error(f"BACKGROUND TASK: Error refreshing {report_type} for {mission_id}: {e}")
+    
+    logger.info("BACKGROUND TASK: Smart background refresh completed.")
 
 
 # --- Automated Weekly Report Generation Task ---
@@ -669,10 +1379,19 @@ async def startup_event():
     MISSION_PLANS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Mission plans directory checked/created at: {MISSION_PLANS_DIR}")
 
+    # Initialize comprehensive cache on startup
+    logger.info("STARTUP: Initializing comprehensive data cache...")
+    try:
+        cached_count = await initialize_startup_cache()
+        logger.info(f"STARTUP: Successfully cached {cached_count} data sources on startup")
+    except Exception as e:
+        logger.error(f"STARTUP: Error initializing cache: {e}")
+
+    # Add minimal background refresh (much less frequent)
     scheduler.add_job(
         refresh_active_mission_cache,
         "interval",
-        minutes=settings.background_cache_refresh_interval_minutes,
+        minutes=120,  # Reduced from 60 to 120 minutes (2 hours)
         id="active_mission_refresh_job",
     )
     scheduler.add_job(
@@ -685,8 +1404,7 @@ async def startup_event():
         id='weekly_report_job'
     )
     scheduler.start()
-    logger.info("APScheduler started for background cache refresh.")
-    # Trigger an initial refresh shortly after startup
+    logger.info("APScheduler started for minimal background cache refresh.")
 
     # --- Database Initialization with File Lock ---
     # Restore DB initialization and form loading
@@ -817,7 +1535,7 @@ async def _process_loaded_data_for_home_view(
     found_primary_path_for_display = False
     priority_paths_checks = [
         (lambda p: "Remote:" in p and "output_realtime_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
-        (lambda p: "Remote:" in p and "output_past_missions" in p and "Data not loaded" not in p and "Error during load" not in p),
+        # (lambda p: "Remote:" in p and "output_past_missions" in p and "Data not loaded" not in p and "Error during load" not in p),  # Commented out - focusing on active missions only
         (lambda p: "Local (Custom):" in p and "Data not loaded" not in p and "Error during load" not in p),
         (lambda p: p.startswith("Local (Default") and "Data not loaded" not in p and "Error during load" not in p),
         (lambda p: "File Not Found" in p), # Handle file not found as a specific case
@@ -1150,6 +1868,7 @@ async def root(request: Request, current_user: models.User = Depends(get_current
         "vr2c": "vr2c",
         "fluorometer": "fluorometer",
         "wg_vm4": "wg_vm4",
+        "wg_vm4_info": "wg_vm4_info",  # WG-VM4 info data for automatic offload logging
         "ais": "ais",
         "errors": "errors"
     }
@@ -1163,6 +1882,10 @@ async def root(request: Request, current_user: models.User = Depends(get_current
             if sensor_card == "power" and "solar" not in report_types_to_load:
                 report_types_to_load.append("solar")
     
+    # Always include WG-VM4 info data for automatic offload logging (background processing)
+    if "wg_vm4_info" not in report_types_to_load:
+        report_types_to_load.append("wg_vm4_info")
+    
     logger.info(f"DASHBOARD: Loading data for mission {mission} with report types: {report_types_to_load}")
     
     hours = 24  # Default time window for summaries/mini-trends
@@ -1172,6 +1895,33 @@ async def root(request: Request, current_user: models.User = Depends(get_current
         *[load_data_source(rt, mission, current_user=current_user) for rt in report_types_to_load],
         return_exceptions=True
     )
+
+    # Process WG-VM4 info data for automatic offload logging
+    if "wg_vm4_info" in report_types_to_load:
+        try:
+            from .core.wg_vm4_station_service import process_wg_vm4_info_for_mission
+            from .core.processors import preprocess_wg_vm4_info_df
+            
+            # Find the WG-VM4 info data in results
+            wg_vm4_info_index = report_types_to_load.index("wg_vm4_info")
+            wg_vm4_info_result = results[wg_vm4_info_index]
+            
+            if not isinstance(wg_vm4_info_result, Exception) and wg_vm4_info_result is not None:
+                # Unpack the tuple from load_data_source (dataframe, source_path)
+                df, source_path = wg_vm4_info_result
+                if not df.empty:
+                    # Preprocess the data
+                    processed_df = preprocess_wg_vm4_info_df(df)
+                    
+                    # Process for automatic offload logging
+                    stats = process_wg_vm4_info_for_mission(session, processed_df, mission)
+                    logger.info(f"WG-VM4 auto-processing for mission {mission}: {stats}")
+                else:
+                    logger.debug(f"No WG-VM4 info data available for mission {mission}")
+            else:
+                logger.debug(f"WG-VM4 info data loading failed for mission {mission}")
+        except Exception as e:
+            logger.error(f"Error processing WG-VM4 info data for mission {mission}: {e}")
 
     # Process the loaded data for summaries and mini-trends
     context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission)
@@ -1206,6 +1956,7 @@ async def get_report_data_for_plotting(
             current_user=current_user,
             start_date=params.start_date,
             end_date=params.end_date,
+            hours_back=params.hours_back,  # Pass hours_back parameter for time-aware caching
         )
 
         if df is None or df.empty:
@@ -1774,6 +2525,81 @@ async def download_all_ais_csv(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating AIS CSV: {str(e)}")
+
+
+@app.get("/api/cache/stats")
+async def get_cache_statistics(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get cache statistics and performance metrics (admin only)"""
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        stats = get_cache_stats()
+        return {
+            "status": "success",
+            "data": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving cache statistics: {str(e)}")
+
+
+@app.post("/api/cache/reset")
+async def reset_cache_statistics(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Reset cache statistics (admin only)"""
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        global cache_stats
+        cache_stats = {
+            "hits": 0,
+            "misses": 0,
+            "refreshes": 0,
+            "total_requests": 0,
+            "data_volume_mb": 0.0,
+            "last_reset": datetime.now(timezone.utc),
+            "by_report_type": defaultdict(lambda: {"hits": 0, "misses": 0, "refreshes": 0, "data_volume_mb": 0.0}),
+            "by_mission": defaultdict(lambda: {"hits": 0, "misses": 0, "refreshes": 0, "data_volume_mb": 0.0}),
+        }
+        
+        logger.info(f"Cache statistics reset by admin user: {current_user.username}")
+        return {
+            "status": "success",
+            "message": "Cache statistics reset successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error resetting cache statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Error resetting cache statistics: {str(e)}")
+
+
+@app.get("/api/usage/summary")
+async def get_usage_summary_report(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get usage summary report from dedicated log files (admin only)"""
+    # Check if user is admin
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        summary = generate_usage_summary_report()
+        return {
+            "status": "success",
+            "data": summary,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error generating usage summary report: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating usage summary report: {str(e)}")
 
 
 # --- HTML Route for Forms ---
