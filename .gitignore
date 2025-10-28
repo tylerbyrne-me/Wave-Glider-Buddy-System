@@ -41,6 +41,7 @@
 *.env.*
 !*.env.example
 !.env.template
+*.md 
 
 # OS generated files #
 ######################
