@@ -7,7 +7,7 @@ can automatically update via NetworkLink mechanism.
 
 from typing import Optional, List
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import secrets
@@ -45,7 +45,8 @@ class CreateLiveKMLRequest(BaseModel):
 async def create_live_kml_token(
     request: CreateLiveKMLRequest,
     current_user: models.User = Depends(get_current_active_user),
-    session: SQLModelSession = Depends(get_db_session)
+    session: SQLModelSession = Depends(get_db_session),
+    request_obj: Request = None
 ):
     """
     Create a live KML token for one or more missions.
@@ -89,8 +90,14 @@ async def create_live_kml_token(
         
         logger.info(f"Created live KML token {token[:8]}... for missions: {', '.join(request.mission_ids)}")
         
+        # Get server URL from request
+        if request_obj:
+            base_url = str(request_obj.base_url).rstrip('/')
+        else:
+            base_url = "http://localhost:8000"
+        
         # Generate network link KML file content
-        network_link_kml = _generate_network_link_kml(token, request.mission_ids)
+        network_link_kml = _generate_network_link_kml(token, request.mission_ids, base_url)
         
         return {
             "token": token,
@@ -200,7 +207,8 @@ async def get_live_kml(
 @router.get("/api/kml/network_link/{token}")
 async def get_network_link_file(
     token: str,
-    session: SQLModelSession = Depends(get_db_session)
+    session: SQLModelSession = Depends(get_db_session),
+    request_obj: Request = None
 ):
     """
     Download a NetworkLink KML file for the given token.
@@ -216,7 +224,14 @@ async def get_network_link_file(
             raise HTTPException(status_code=404, detail="Token not found")
         
         mission_ids = token_record.mission_ids.split(',')
-        network_link_kml = _generate_network_link_kml(token, mission_ids)
+        
+        # Get server URL from request
+        if request_obj:
+            base_url = str(request_obj.base_url).rstrip('/')
+        else:
+            base_url = "http://localhost:8000"
+        
+        network_link_kml = _generate_network_link_kml(token, mission_ids, base_url)
         
         return Response(
             content=network_link_kml,
@@ -295,19 +310,18 @@ async def revoke_token(
         raise HTTPException(status_code=500, detail=f"Error revoking token: {str(e)}")
 
 
-def _generate_network_link_kml(token: str, mission_ids: List[str]) -> str:
+def _generate_network_link_kml(token: str, mission_ids: List[str], base_url: str = "http://localhost:8000") -> str:
     """Generate NetworkLink KML that Google Earth can use to subscribe to live updates"""
     mission_names = ", ".join([f"m{mid}" for mid in mission_ids])
     
-    # For localhost testing, use full URL
-    # In production, this should use the actual server URL
-    live_url = f"http://localhost:8000/api/kml/live/{token}"
+    # Use the provided base URL
+    live_url = f"{base_url}/api/kml/live/{token}"
     
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <NetworkLink>
     <name>Mission Track - Live ({mission_names})</name>
-    <description>Automatically updating mission track. Server must be running on http://localhost:8000</description>
+    <description>Automatically updating mission track from {base_url}</description>
     <refreshVisibility>1</refreshVisibility>
     <flyToView>0</flyToView>
     <Link>
