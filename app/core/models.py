@@ -616,6 +616,31 @@ class MissionNote(SQLModel, table=True):
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
 
+class LiveKMLToken(SQLModel, table=True):
+    """Stores tokens for live KML network links that auto-update in Google Earth"""
+    __tablename__ = "live_kml_tokens"
+    
+    token: str = SQLModelField(primary_key=True, max_length=64, description="Unique token for live KML access")
+    mission_ids: str = SQLModelField(sa_column=Column(Text), description="Comma-separated list of mission IDs")
+    user_id: int = SQLModelField(foreign_key="users.id", index=True)
+    
+    hours_back: int = Field(default=72, description="Hours of history to include")
+    refresh_interval_minutes: int = Field(default=10, description="Auto-refresh interval for Google Earth")
+    
+    is_active: bool = Field(default=True, index=True, description="Whether token is active")
+    expires_at: datetime = Field(description="Token expiration date/time")
+    access_count: int = Field(default=0, description="Number of times token has been accessed")
+    last_accessed_at: Optional[datetime] = None
+    
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by: int = Field(foreign_key="users.id")
+    description: Optional[str] = None
+    
+    # Future enhancements
+    color_scheme: Optional[str] = None
+    include_markers: bool = True
+    include_timestamps: bool = True
+
 # --- Pydantic models for API interaction ---
 
 class MissionOverviewUpdate(BaseModel):

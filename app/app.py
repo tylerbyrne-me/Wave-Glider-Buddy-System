@@ -102,6 +102,7 @@ from .routers import reporting as reporting_router
 from .routers import admin as admin_router
 from .routers import error_analysis as error_analysis_router
 from .routers import sensor_csv as sensor_csv_router
+from .routers import map_router, live_kml_router
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -189,6 +190,8 @@ app.include_router(reporting_router.router)
 app.include_router(admin_router.router)
 app.include_router(error_analysis_router.router)
 app.include_router(sensor_csv_router.router)
+app.include_router(map_router.router)
+app.include_router(live_kml_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
@@ -1387,11 +1390,11 @@ async def startup_event():
     except Exception as e:
         logger.error(f"STARTUP: Error initializing cache: {e}")
 
-    # Add minimal background refresh (much less frequent)
+    # Add background refresh using configured interval
     scheduler.add_job(
         refresh_active_mission_cache,
         "interval",
-        minutes=120,  # Reduced from 60 to 120 minutes (2 hours)
+        minutes=settings.background_cache_refresh_interval_minutes,
         id="active_mission_refresh_job",
     )
     scheduler.add_job(
