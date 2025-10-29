@@ -4,7 +4,7 @@ Unified CSV download router for all sensor cards
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 import pandas as pd
 
@@ -68,9 +68,9 @@ async def download_sensor_csv(
         if processed_df.empty:
             raise HTTPException(status_code=404, detail=f"No processed {SENSOR_NAMES[sensor_type]} data available")
         
-        # Apply time filtering if hours_back is specified
+        # Apply time filtering if hours_back is specified - always use UTC
         if hours_back > 0 and 'Timestamp' in processed_df.columns:
-            cutoff_time = datetime.now() - timedelta(hours=hours_back)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
             # Convert cutoff_time to pandas Timestamp for proper comparison
             cutoff_timestamp = pd.Timestamp(cutoff_time, tz='UTC')
             processed_df = processed_df[processed_df['Timestamp'] >= cutoff_timestamp]

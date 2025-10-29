@@ -58,9 +58,34 @@ def _initial_dataframe_setup(
             pd.DataFrame()
         )  # Return empty if timestamp column is essential and not found
 
+    # Parse timestamps - ALL timestamps are UTC, never convert to local time
+    # Use utc=True to parse naive timestamps as UTC (they are already in UTC)
+    # If timestamps are already timezone-aware and in UTC, they will remain UTC
+    # If timestamps are timezone-aware but in another timezone, convert to UTC
     df_processed[target_timestamp_col] = pd.to_datetime(
         df_processed[target_timestamp_col], errors="coerce", utc=True
     )
+    
+    # Ensure all timestamps are timezone-aware and in UTC
+    # ALL source data timestamps are UTC - never convert to/from local time
+    if not df_processed[target_timestamp_col].empty:
+        # Check each timestamp individually for timezone info
+        def check_and_ensure_utc(ts):
+            if pd.isna(ts):
+                return ts
+            if ts.tz is None:
+                # Naive - localize to UTC (they're already UTC, just need timezone label)
+                return ts.tz_localize('UTC')
+            elif str(ts.tz) != 'UTC':
+                # Timezone-aware but not UTC - convert to UTC
+                return ts.tz_convert('UTC')
+            else:
+                # Already UTC
+                return ts
+        
+        # Apply timezone checking and conversion
+        df_processed[target_timestamp_col] = df_processed[target_timestamp_col].apply(check_and_ensure_utc)
+    
     df_processed = df_processed.dropna(subset=[target_timestamp_col])
 
     # if df_processed.empty:
@@ -628,9 +653,22 @@ def preprocess_wg_vm4_info_df(df: pd.DataFrame) -> pd.DataFrame:
     
     df_processed = df.rename(columns=rename_map)
     
-    # Ensure timestamp is datetime
+    # Ensure timestamp is datetime - ALL timestamps are UTC
     if 'timeStamp' in df_processed.columns:
-        df_processed['timeStamp'] = pd.to_datetime(df_processed['timeStamp'])
+        df_processed['timeStamp'] = pd.to_datetime(df_processed['timeStamp'], errors="coerce", utc=True)
+        # Ensure UTC timezone if any are naive
+        if not df_processed['timeStamp'].empty:
+            def check_and_ensure_utc_ts(ts):
+                if pd.isna(ts):
+                    return ts
+                if ts.tz is None:
+                    return ts.tz_localize('UTC')
+                elif str(ts.tz) != 'UTC':
+                    return ts.tz_convert('UTC')
+                else:
+                    return ts
+            
+            df_processed['timeStamp'] = df_processed['timeStamp'].apply(check_and_ensure_utc_ts)
     
     # Ensure numeric columns are properly typed
     numeric_cols = ['latitude', 'longitude']

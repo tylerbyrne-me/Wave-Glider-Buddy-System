@@ -7,7 +7,7 @@ and generate KML files for export to Google Maps/Earth.
 
 from typing import List, Dict, Any, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -64,11 +64,36 @@ def prepare_track_points(df: pd.DataFrame, max_points: int = 1000) -> List[Dict[
     # Extract points
     track_points = []
     for _, row in df_clean.iterrows():
-        # Handle timestamp - convert to ISO string if it's a datetime
+        # Handle timestamp - ALL timestamps are UTC (never convert to local time)
+        # Source data timestamps are always in UTC according to specification
         timestamp = row['Timestamp']
-        if isinstance(timestamp, (pd.Timestamp, datetime)):
-            timestamp_str = timestamp.isoformat()
+        
+        if isinstance(timestamp, pd.Timestamp):
+            # Ensure UTC timezone
+            if timestamp.tz is None:
+                # Naive timestamp - localize to UTC (data source timestamps are always UTC)
+                timestamp_utc = timestamp.tz_localize('UTC')
+            elif str(timestamp.tz) != 'UTC':
+                # Timezone-aware but not UTC - convert to UTC
+                timestamp_utc = timestamp.tz_convert('UTC')
+            else:
+                # Already UTC
+                timestamp_utc = timestamp
+            
+            # Format as ISO 8601 with Z suffix (always UTC)
+            timestamp_str = timestamp_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+                
+        elif isinstance(timestamp, datetime):
+            # Python datetime object - ensure UTC
+            if timestamp.tzinfo is None:
+                # Naive - assume UTC (data source timestamps are always UTC)
+                timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                # Timezone-aware - ensure UTC
+                timestamp_utc = timestamp.astimezone(timezone.utc)
+            timestamp_str = timestamp_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
         else:
+            # Fallback to string conversion
             timestamp_str = str(timestamp)
         
         track_points.append({

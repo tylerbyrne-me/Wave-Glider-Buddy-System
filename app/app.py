@@ -568,7 +568,8 @@ def trim_data_to_range(
     if start_date and end_date:
         return df[(df["Timestamp"] >= start_date) & (df["Timestamp"] <= end_date)]
     elif hours_back:
-        cutoff = datetime.now() - timedelta(hours=hours_back)
+        # Always use UTC - never local time
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
         return df[df["Timestamp"] >= cutoff]
     
     return df
@@ -1049,10 +1050,10 @@ async def load_data_with_overlap(
         actual_start = start_date - timedelta(hours=overlap_hours)
         actual_end = end_date + timedelta(hours=overlap_hours)
     elif hours_back:
-        # Extend hours_back by overlap
+        # Extend hours_back by overlap - always use UTC
         actual_hours = hours_back + overlap_hours
-        actual_start = datetime.now() - timedelta(hours=actual_hours)
-        actual_end = datetime.now()
+        actual_start = datetime.now(timezone.utc) - timedelta(hours=actual_hours)
+        actual_end = datetime.now(timezone.utc)
     else:
         # Full dataset - no overlap needed
         actual_start = None
@@ -1268,8 +1269,11 @@ async def refresh_active_mission_cache():
                         
                         # Check if data is stale based on cache strategy
                         expiry_minutes = cache_strategy["expiry_minutes"]
-                        # Use timezone-aware datetime for comparison
-                        now = datetime.now(timezone.utc) if cache_timestamp.tzinfo else datetime.now()
+                        # Always use UTC for datetime operations
+                        now = datetime.now(timezone.utc)
+                        if cache_timestamp.tzinfo is None:
+                            # If cache timestamp is naive, localize to UTC for comparison
+                            cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
                         if now - cache_timestamp > timedelta(minutes=expiry_minutes):
                             needs_refresh = True
                             logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
@@ -1338,9 +1342,11 @@ async def smart_background_refresh():
                     if is_static_data_source(cached_source_path, report_type, mission_id):
                         continue
                     
-                    # Check if data is stale
-                    # Use timezone-aware datetime for comparison
-                    now = datetime.now(timezone.utc) if cache_timestamp.tzinfo else datetime.now()
+                    # Check if data is stale - always use UTC
+                    now = datetime.now(timezone.utc)
+                    if cache_timestamp.tzinfo is None:
+                        # If cache timestamp is naive, localize to UTC for comparison
+                        cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
                     if now - cache_timestamp > timedelta(minutes=strategy["expiry_minutes"]):
                         needs_refresh = True
                 
@@ -2305,14 +2311,16 @@ async def get_wave_spectrum_data(
             and "output_realtime_missions" in cached_source_path_info
         )
 
-        if is_realtime_source and (
-            datetime.now() - cache_timestamp < timedelta(minutes=CACHE_EXPIRY_MINUTES)
-        ):
-            logger.info(
-                f"CACHE HIT (valid - real-time processed spectrum): Returning "
-                f"wave spectrum for {mission_id} from cache. Derived from: "
-                f"{cached_source_path_info}"
-            )
+        if is_realtime_source:
+            now = datetime.now(timezone.utc)
+            if cache_timestamp.tzinfo is None:
+                cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
+            if now - cache_timestamp < timedelta(minutes=CACHE_EXPIRY_MINUTES):
+                logger.info(
+                    f"CACHE HIT (valid - real-time processed spectrum): Returning "
+                    f"wave spectrum for {mission_id} from cache. Derived from: "
+                    f"{cached_source_path_info}"
+                )
             spectral_records = cached_spectral_records
         elif (
             not is_realtime_source and cached_spectral_records
@@ -2355,7 +2363,7 @@ async def get_wave_spectrum_data(
             data_cache[spectrum_cache_key] = (
                 spectral_records,
                 f"Combined from {path_freq} and {path_energy}", # noqa
-                datetime.now(),
+                datetime.now(timezone.utc),
             )
 
     if not spectral_records:
@@ -2451,7 +2459,7 @@ async def download_recent_ais_csv(
         
         output.seek(0)
         content = output.getvalue()
-        filename = f"recent_ais_contacts_{mission}_{hours}h_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"recent_ais_contacts_{mission}_{hours}h_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")), 
@@ -2522,7 +2530,7 @@ async def download_all_ais_csv(
         
         output.seek(0)
         content = output.getvalue()
-        filename = f"all_ais_contacts_{mission}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"all_ais_contacts_{mission}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")), 

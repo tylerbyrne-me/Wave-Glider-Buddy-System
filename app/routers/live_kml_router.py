@@ -6,7 +6,7 @@ can automatically update via NetworkLink mechanism.
 """
 
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -30,9 +30,9 @@ def generate_token() -> str:
 
 
 def calculate_expiration_date() -> datetime:
-    """Calculate expiration date as Dec 31, 23:59:59 of current year"""
-    current_year = datetime.now().year
-    return datetime(current_year, 12, 31, 23, 59, 59, tzinfo=datetime.now().tzinfo)
+    """Calculate expiration date as Dec 31, 23:59:59 of current year in UTC"""
+    current_year = datetime.now(timezone.utc).year
+    return datetime(current_year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
 
 
 class CreateLiveKMLRequest(BaseModel):
@@ -79,7 +79,7 @@ async def create_live_kml_token(
             is_active=True,
             expires_at=expires_at,
             access_count=0,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
             created_by=current_user.id,
             description=request.description
         )
@@ -139,13 +139,17 @@ async def get_live_kml(
         if not token_record.is_active:
             return _generate_error_kml("Token has been revoked")
         
-        # Check if token has expired
-        if datetime.now() > token_record.expires_at:
-            return _generate_error_kml(f"Token expired on {token_record.expires_at.date()}")
+        # Check if token has expired - always use UTC
+        now = datetime.now(timezone.utc)
+        expires_at = token_record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if now > expires_at:
+            return _generate_error_kml(f"Token expired on {expires_at.date()}")
         
         # Update access tracking
         token_record.access_count += 1
-        token_record.last_accessed_at = datetime.now()
+        token_record.last_accessed_at = datetime.now(timezone.utc)
         session.commit()
         
         # Parse mission IDs
