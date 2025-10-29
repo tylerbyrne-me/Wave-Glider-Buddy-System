@@ -1268,7 +1268,9 @@ async def refresh_active_mission_cache():
                         
                         # Check if data is stale based on cache strategy
                         expiry_minutes = cache_strategy["expiry_minutes"]
-                        if datetime.now() - cache_timestamp > timedelta(minutes=expiry_minutes):
+                        # Use timezone-aware datetime for comparison
+                        now = datetime.now(timezone.utc) if cache_timestamp.tzinfo else datetime.now()
+                        if now - cache_timestamp > timedelta(minutes=expiry_minutes):
                             needs_refresh = True
                             logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
                     
@@ -1337,7 +1339,9 @@ async def smart_background_refresh():
                         continue
                     
                     # Check if data is stale
-                    if datetime.now() - cache_timestamp > timedelta(minutes=strategy["expiry_minutes"]):
+                    # Use timezone-aware datetime for comparison
+                    now = datetime.now(timezone.utc) if cache_timestamp.tzinfo else datetime.now()
+                    if now - cache_timestamp > timedelta(minutes=strategy["expiry_minutes"]):
                         needs_refresh = True
                 
                 if needs_refresh:
