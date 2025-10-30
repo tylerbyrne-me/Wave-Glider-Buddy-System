@@ -15,7 +15,7 @@ import numpy as np
 
 from sqlmodel import Session as SQLModelSession, select
 
-from .core import models
+from .core import models, utils
 from .core.plotting import (plot_ctd_for_report, plot_errors_for_report,
                           plot_power_for_report, plot_summary_page, plot_telemetry_for_report, plot_wave_for_report, plot_weather_for_report)
 from .core.processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
@@ -235,8 +235,11 @@ async def generate_weekly_report(
     error_df_filtered = error_df.copy()
 
     # Filter dataframes based on the provided date range if they are not empty
+    # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
     if not telemetry_df_filtered.empty and 'lastLocationFix' in telemetry_df_filtered.columns:
-        telemetry_df_filtered['lastLocationFix'] = pd.to_datetime(telemetry_df_filtered['lastLocationFix'], format='ISO8601', utc=True)
+        telemetry_df_filtered['lastLocationFix'] = utils.parse_timestamp_column(
+            telemetry_df_filtered['lastLocationFix'], errors='coerce', utc=True
+        )
         if start_date:
             telemetry_df_filtered = telemetry_df_filtered[telemetry_df_filtered['lastLocationFix'] >= pd.to_datetime(start_date).tz_localize('UTC')]
         if end_date:
@@ -244,7 +247,9 @@ async def generate_weekly_report(
             telemetry_df_filtered = telemetry_df_filtered[telemetry_df_filtered['lastLocationFix'] < end_date_inclusive]
 
     if not power_df_filtered.empty and 'gliderTimeStamp' in power_df_filtered.columns:
-        power_df_filtered['gliderTimeStamp'] = pd.to_datetime(power_df_filtered['gliderTimeStamp'], format='ISO8601', utc=True)
+        power_df_filtered['gliderTimeStamp'] = utils.parse_timestamp_column(
+            power_df_filtered['gliderTimeStamp'], errors='coerce', utc=True
+        )
         if start_date:
             power_df_filtered = power_df_filtered[power_df_filtered['gliderTimeStamp'] >= pd.to_datetime(start_date).tz_localize('UTC')]
         if end_date:
@@ -252,7 +257,9 @@ async def generate_weekly_report(
             power_df_filtered = power_df_filtered[power_df_filtered['gliderTimeStamp'] < end_date_inclusive]
 
     if not solar_df_filtered.empty and 'gliderTimeStamp' in solar_df_filtered.columns:
-        solar_df_filtered['gliderTimeStamp'] = pd.to_datetime(solar_df_filtered['gliderTimeStamp'], format='ISO8601', utc=True)
+        solar_df_filtered['gliderTimeStamp'] = utils.parse_timestamp_column(
+            solar_df_filtered['gliderTimeStamp'], errors='coerce', utc=True
+        )
         if start_date:
             solar_df_filtered = solar_df_filtered[solar_df_filtered['gliderTimeStamp'] >= pd.to_datetime(start_date).tz_localize('UTC')]
         if end_date:
@@ -294,7 +301,9 @@ async def generate_weekly_report(
 
     # Filter Error data
     if not error_df_filtered.empty and 'timeStamp' in error_df_filtered.columns:
-        error_df_filtered['timeStamp'] = pd.to_datetime(error_df_filtered['timeStamp'], format='ISO8601', utc=True)
+        error_df_filtered['timeStamp'] = utils.parse_timestamp_column(
+            error_df_filtered['timeStamp'], errors='coerce', utc=True
+        )
         if start_date:
             error_df_filtered = error_df_filtered[error_df_filtered['timeStamp'] >= pd.to_datetime(start_date).tz_localize('UTC')]
         if end_date:

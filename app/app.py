@@ -544,6 +544,65 @@ def generate_usage_summary_report() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def get_latest_timestamp_from_cache(
+    report_type: str,
+    mission_id: str,
+    source_preference: Optional[str] = None,
+    custom_local_path: Optional[str] = None
+) -> Optional[datetime]:
+    """
+    Get the latest timestamp from the cache for a given report type and mission.
+    Checks all cache entries (full dataset, hours_back variations) to find the absolute latest.
+    
+    Args:
+        report_type: Type of report (e.g., 'power', 'ctd', 'telemetry')
+        mission_id: Mission identifier
+        source_preference: 'local' or 'remote'
+        custom_local_path: Custom local path if specified
+        
+    Returns:
+        The latest timestamp found in any cache entry, or None if not found
+    """
+    latest_timestamp = None
+    
+    # Check multiple cache key variations to find the latest timestamp
+    # Priority: full_dataset > specific hours_back entries
+    cache_keys_to_check = [
+        create_time_aware_cache_key(report_type, mission_id, None, None, None, source_preference, custom_local_path),  # Full dataset
+    ]
+    
+    # Also check common hours_back values (24, 48, 72 hours) as they might have newer data
+    for hours in [24, 48, 72, 168]:
+        cache_keys_to_check.append(
+            create_time_aware_cache_key(report_type, mission_id, None, None, hours, source_preference, custom_local_path)
+        )
+    
+    for cache_key in cache_keys_to_check:
+        if cache_key in data_cache:
+            cached_df, _, _, last_data_timestamp = data_cache[cache_key]
+            
+            # Use the stored last_data_timestamp first
+            if last_data_timestamp is not None:
+                if latest_timestamp is None or last_data_timestamp > latest_timestamp:
+                    latest_timestamp = last_data_timestamp
+            # Fallback: calculate from DataFrame if last_data_timestamp not available
+            elif cached_df is not None and not cached_df.empty and "Timestamp" in cached_df.columns:
+                try:
+                    df_timestamp = cached_df["Timestamp"].max()
+                    if pd.notna(df_timestamp):
+                        if isinstance(df_timestamp, pd.Timestamp):
+                            df_timestamp = df_timestamp.to_pydatetime()
+                        elif not isinstance(df_timestamp, datetime):
+                            df_timestamp = pd.to_datetime(df_timestamp, utc=True)
+                        
+                        if latest_timestamp is None or df_timestamp > latest_timestamp:
+                            latest_timestamp = df_timestamp
+                except Exception as e:
+                    logger.debug(f"Error extracting timestamp from cache for {report_type}/{mission_id}: {e}")
+    
+    return latest_timestamp
+
+
 def trim_data_to_range(
     df: pd.DataFrame, 
     start_date: Optional[datetime], 
@@ -853,14 +912,33 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
     try:
         # Convert timestamp column to datetime if it's not already
         if not pd.api.types.is_datetime64_any_dtype(df[timestamp_col]):
-            # Try multiple formats to handle different timestamp formats
-            df[timestamp_col] = pd.to_datetime(df[timestamp_col], errors='coerce', utc=True)
-            
-            # Check if conversion was successful
-            if df[timestamp_col].isna().all():
-                logger.warning(f"Failed to convert timestamp column '{timestamp_col}' for {report_type}. Skipping date filtering.")
-                return df
+            # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
+            df[timestamp_col] = utils.parse_timestamp_column(
+                df[timestamp_col], errors='coerce', utc=True
+            )
         
+        # Remove rows with invalid timestamps (NaT) and epoch dates before filtering
+        # This prevents 1969 epoch dates from appearing in results
+        valid_timestamps_mask = df[timestamp_col].notna()
+        
+        # Filter out epoch dates (typically 1970-01-01 or 1969-12-31) which indicate parsing failures
+        # Use the minimum valid timestamp constant from utils
+        min_valid_date = utils.MIN_VALID_TIMESTAMP
+        valid_timestamps_mask = valid_timestamps_mask & (df[timestamp_col] >= min_valid_date)
+        
+        invalid_count = (~valid_timestamps_mask).sum()
+        if invalid_count > 0:
+            logger.warning(
+                f"Removing {invalid_count} rows with invalid timestamps (NaT or pre-2000 dates) "
+                f"from {report_type} (column: {timestamp_col})"
+            )
+        df = df[valid_timestamps_mask].copy()
+        
+        # Check if any valid data remains
+        if df.empty:
+            logger.warning(f"All timestamps invalid for {report_type} after parsing. Returning empty DataFrame.")
+            return df
+            
         # Ensure timezone awareness
         if start_date.tzinfo is None:
             start_date = start_date.replace(tzinfo=timezone.utc)
@@ -871,8 +949,15 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         mask = (df[timestamp_col] >= start_date) & (df[timestamp_col] <= end_date)
         filtered_df = df[mask].copy()
         
-        logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
-                   f"({start_date.isoformat()} to {end_date.isoformat()})")
+        # Calculate actual date range for logging (exclude NaT values)
+        if not filtered_df.empty:
+            actual_start = filtered_df[timestamp_col].min()
+            actual_end = filtered_df[timestamp_col].max()
+            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                       f"({actual_start.isoformat()} to {actual_end.isoformat()})")
+        else:
+            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                       f"(requested: {start_date.isoformat()} to {end_date.isoformat()}, no matching data)")
         
         return filtered_df
         
@@ -1274,7 +1359,9 @@ async def refresh_active_mission_cache():
                         if cache_timestamp.tzinfo is None:
                             # If cache timestamp is naive, localize to UTC for comparison
                             cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
-                        if now - cache_timestamp > timedelta(minutes=expiry_minutes):
+                        
+                        # Only check expiry if expiry_minutes is set (None means no expiry, use incremental loading)
+                        if expiry_minutes is not None and now - cache_timestamp > timedelta(minutes=expiry_minutes):
                             needs_refresh = True
                             logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
                     
@@ -1343,12 +1430,15 @@ async def smart_background_refresh():
                         continue
                     
                     # Check if data is stale - always use UTC
-                    now = datetime.now(timezone.utc)
-                    if cache_timestamp.tzinfo is None:
-                        # If cache timestamp is naive, localize to UTC for comparison
-                        cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
-                    if now - cache_timestamp > timedelta(minutes=strategy["expiry_minutes"]):
-                        needs_refresh = True
+                    # Only check expiry if expiry_minutes is set (None means no expiry, use incremental loading)
+                    expiry_minutes = strategy["expiry_minutes"]
+                    if expiry_minutes is not None:
+                        now = datetime.now(timezone.utc)
+                        if cache_timestamp.tzinfo is None:
+                            # If cache timestamp is naive, localize to UTC for comparison
+                            cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
+                        if now - cache_timestamp > timedelta(minutes=expiry_minutes):
+                            needs_refresh = True
                 
                 if needs_refresh:
                     # Load recent data with overlap
@@ -1515,7 +1605,7 @@ def shutdown_event():
 
 
 async def _process_loaded_data_for_home_view(
-    results: list, report_types_order: list, hours: int, mission_id: str # Added mission_id
+    results: list, report_types_order: list, hours: int, mission_id: str, current_user: Optional[models.User] = None
 ) -> dict:
     """
     Processes the loaded data results, calculates summaries, and determines
@@ -1612,6 +1702,53 @@ async def _process_loaded_data_for_home_view(
     if "telemetry" in data_frames and data_frames["telemetry"] is not None:
         navigation_info = summaries.get_navigation_status(data_frames.get("telemetry"))
         navigation_info["mini_trend"] = summaries.get_navigation_mini_trend(data_frames.get("telemetry"))
+        
+        # Calculate "Last data" timestamp from the same dataset that visualization uses
+        # This ensures it reflects what the user actually sees in the charts
+        # The visualization uses default hours_back=24, same filtering logic as get_report_data_for_plotting
+        try:
+            # Load data the same way visualization does (with default hours_back=24)
+            # This ensures we get the same dataset that's being visualized
+            default_hours_back = 24  # Default from the UI
+            df_viz, _ = await load_data_source(
+                "telemetry",
+                mission_id,
+                current_user=current_user,
+                hours_back=default_hours_back
+            )
+            
+            if df_viz is not None and not df_viz.empty:
+                # Preprocess the same way visualization does
+                from .core.processors import preprocess_telemetry_df
+                processed_df = preprocess_telemetry_df(df_viz)
+                
+                if not processed_df.empty and "Timestamp" in processed_df.columns:
+                    # Apply the same time filtering as visualization (from "now", not max_timestamp)
+                    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=default_hours_back)
+                    recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
+                    
+                    if not recent_data.empty:
+                        # Get the latest timestamp from the filtered visualization dataset
+                        latest_timestamp = recent_data["Timestamp"].max()
+                        
+                        if pd.notna(latest_timestamp):
+                            # Convert to datetime if needed
+                            if isinstance(latest_timestamp, pd.Timestamp):
+                                latest_timestamp = latest_timestamp.to_pydatetime()
+                            elif not isinstance(latest_timestamp, datetime):
+                                latest_timestamp = pd.to_datetime(latest_timestamp, utc=True)
+                            
+                            # Ensure timezone-aware
+                            if latest_timestamp.tzinfo is None:
+                                latest_timestamp = latest_timestamp.replace(tzinfo=timezone.utc)
+                            
+                            # Update the timestamp info to match what's actually visualized
+                            navigation_info["latest_timestamp_str"] = latest_timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+                            navigation_info["time_ago_str"] = summaries.time_ago(latest_timestamp)
+                            logger.debug(f"Updated navigation 'Last data' timestamp from visualization dataset: {navigation_info['latest_timestamp_str']}")
+        except Exception as e:
+            logger.debug(f"Error calculating navigation timestamp from visualization dataset: {e}")
+            # Fall back to using the existing timestamp if calculation fails
 
     if "ais" in data_frames and data_frames["ais"] is not None:
         ais_summary_data = summaries.get_ais_summary(data_frames.get("ais"), max_age_hours=hours)
@@ -1937,7 +2074,7 @@ async def root(request: Request, current_user: models.User = Depends(get_current
             logger.error(f"Error processing WG-VM4 info data for mission {mission}: {e}")
 
     # Process the loaded data for summaries and mini-trends
-    context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission)
+    context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission, current_user)
     context.update(get_template_context(
         request=request,
         mission=mission,
@@ -2059,13 +2196,14 @@ async def get_report_data_for_plotting(
                 # Fallback to using all processed data if no Timestamp column
                 recent_data = processed_df
         else:
-            # Use hours_back filtering (original behavior)
-            cutoff_time = max_timestamp - timedelta(hours=params.hours_back)
+            # Use hours_back filtering - filter based on "now", not max_timestamp
+            # This ensures consistent time ranges regardless of when data was last updated
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=params.hours_back)
             recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
             if recent_data.empty:
                 logger.info(
                     f"No data for {report_type.value}, mission {mission_id} within "
-                    f"{params.hours_back} hours of its latest data point ({max_timestamp})."
+                    f"{params.hours_back} hours of now (cutoff: {cutoff_time})."
                 )
                 return JSONResponse(content=[])
 
@@ -2152,9 +2290,10 @@ async def get_weather_forecast(
         else:
             # Standardize timestamp column before sorting
             # Ensure 'lastLocationFix' is datetime and sort
+            # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
             if "lastLocationFix" in df_telemetry.columns:
-                df_telemetry["lastLocationFix"] = pd.to_datetime(
-                    df_telemetry["lastLocationFix"], errors="coerce"
+                df_telemetry["lastLocationFix"] = utils.parse_timestamp_column(
+                    df_telemetry["lastLocationFix"], errors="coerce", utc=True
                 )
                 df_telemetry = df_telemetry.dropna(
                     subset=["lastLocationFix"]
@@ -2233,8 +2372,9 @@ async def get_marine_weather_data(
             )
         else:
             if "lastLocationFix" in df_telemetry.columns:
-                df_telemetry["lastLocationFix"] = pd.to_datetime(
-                    df_telemetry["lastLocationFix"], errors="coerce"
+                # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
+                df_telemetry["lastLocationFix"] = utils.parse_timestamp_column(
+                    df_telemetry["lastLocationFix"], errors="coerce", utc=True
                 )
                 df_telemetry = df_telemetry.dropna(subset=["lastLocationFix"])
                 if not df_telemetry.empty:

@@ -207,8 +207,11 @@ class WgVm4PayloadParser:
         
         for _, row in df.iterrows():
             try:
-                # Extract basic data
-                timestamp = pd.to_datetime(row['timeStamp'])
+                # Extract basic data - use robust parser to handle mixed formats
+                from . import utils
+                timestamp = utils.parse_timestamp_robust(row['timeStamp'], errors='coerce')
+                if pd.isna(timestamp):
+                    continue  # Skip invalid timestamps
                 latitude = float(row['latitude'])
                 longitude = float(row['longitude'])
                 

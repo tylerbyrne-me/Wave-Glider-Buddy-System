@@ -4,6 +4,8 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
+from . import utils
+
 logger = logging.getLogger(__name__)  # Get a logger for this module
 
 
@@ -59,34 +61,28 @@ def _initial_dataframe_setup(
         )  # Return empty if timestamp column is essential and not found
 
     # Parse timestamps - ALL timestamps are UTC, never convert to local time
-    # Use utc=True to parse naive timestamps as UTC (they are already in UTC)
-    # If timestamps are already timezone-aware and in UTC, they will remain UTC
-    # If timestamps are timezone-aware but in another timezone, convert to UTC
-    df_processed[target_timestamp_col] = pd.to_datetime(
+    # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
+    # Handles both: '2025-10-27T14:13:15Z' and '10/27/2025 2:13:14PM'
+    # parse_timestamp_column already ensures UTC timezone awareness
+    df_processed[target_timestamp_col] = utils.parse_timestamp_column(
         df_processed[target_timestamp_col], errors="coerce", utc=True
     )
     
-    # Ensure all timestamps are timezone-aware and in UTC
-    # ALL source data timestamps are UTC - never convert to/from local time
-    if not df_processed[target_timestamp_col].empty:
-        # Check each timestamp individually for timezone info
-        def check_and_ensure_utc(ts):
-            if pd.isna(ts):
-                return ts
-            if ts.tz is None:
-                # Naive - localize to UTC (they're already UTC, just need timezone label)
-                return ts.tz_localize('UTC')
-            elif str(ts.tz) != 'UTC':
-                # Timezone-aware but not UTC - convert to UTC
-                return ts.tz_convert('UTC')
-            else:
-                # Already UTC
-                return ts
-        
-        # Apply timezone checking and conversion
-        df_processed[target_timestamp_col] = df_processed[target_timestamp_col].apply(check_and_ensure_utc)
-    
+    # Remove NaT values (parsing failures)
     df_processed = df_processed.dropna(subset=[target_timestamp_col])
+    
+    # Filter out epoch dates (typically 1970-01-01 or 1969-12-31) which indicate parsing failures
+    # Use the minimum valid timestamp constant from utils
+    if not df_processed.empty:
+        min_valid_date = pd.Timestamp(utils.MIN_VALID_TIMESTAMP)
+        valid_mask = df_processed[target_timestamp_col] >= min_valid_date
+        invalid_count = (~valid_mask).sum()
+        if invalid_count > 0:
+            logger.warning(
+                f"Removing {invalid_count} rows with pre-2000 timestamps from preprocessing "
+                f"(column: {target_timestamp_col})"
+            )
+        df_processed = df_processed[valid_mask].copy()
 
     # if df_processed.empty:
     # logger.debug(
@@ -654,21 +650,12 @@ def preprocess_wg_vm4_info_df(df: pd.DataFrame) -> pd.DataFrame:
     df_processed = df.rename(columns=rename_map)
     
     # Ensure timestamp is datetime - ALL timestamps are UTC
+    # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
+    # parse_timestamp_column already ensures UTC timezone awareness
     if 'timeStamp' in df_processed.columns:
-        df_processed['timeStamp'] = pd.to_datetime(df_processed['timeStamp'], errors="coerce", utc=True)
-        # Ensure UTC timezone if any are naive
-        if not df_processed['timeStamp'].empty:
-            def check_and_ensure_utc_ts(ts):
-                if pd.isna(ts):
-                    return ts
-                if ts.tz is None:
-                    return ts.tz_localize('UTC')
-                elif str(ts.tz) != 'UTC':
-                    return ts.tz_convert('UTC')
-                else:
-                    return ts
-            
-            df_processed['timeStamp'] = df_processed['timeStamp'].apply(check_and_ensure_utc_ts)
+        df_processed['timeStamp'] = utils.parse_timestamp_column(
+            df_processed['timeStamp'], errors="coerce", utc=True
+        )
     
     # Ensure numeric columns are properly typed
     numeric_cols = ['latitude', 'longitude']
