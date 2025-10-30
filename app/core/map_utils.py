@@ -239,6 +239,8 @@ def generate_live_kml_with_track(
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         '<Document>',
+        '<open>1</open>',
+        '<visibility>1</visibility>',
         f'<name>Live Mission Tracks</name>',
         f'<description>{description or "Automatically updating mission tracks"}</description>'
     ]
@@ -286,10 +288,19 @@ def generate_live_kml_with_track(
         if not track_points:
             continue
         
+        # Group each mission in its own visible/open Folder
+        kml_parts.extend([
+            f'<Folder>',
+            f'  <name>Mission {mission_id}</name>',
+            f'  <open>1</open>',
+            f'  <visibility>1</visibility>'
+        ])
+
         # Start marker
         first_point = track_points[0]
         kml_parts.extend([
             f'<Placemark>',
+            f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} - Start</name>',
             f'  <description>Start: {first_point.get("timestamp", "N/A")}</description>',
             f'  <styleUrl>#startStyle{mission_id}</styleUrl>',
@@ -303,6 +314,7 @@ def generate_live_kml_with_track(
         last_point = track_points[-1]
         kml_parts.extend([
             f'<Placemark>',
+            f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} - End</name>',
             f'  <description>End: {last_point.get("timestamp", "N/A")}</description>',
             f'  <styleUrl>#endStyle{mission_id}</styleUrl>',
@@ -319,6 +331,7 @@ def generate_live_kml_with_track(
         
         kml_parts.extend([
             f'<Placemark>',
+            f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} Track</name>',
             f'  <description>Mission {mission_id} track with {len(track_points)} points</description>',
             f'  <styleUrl>#mission{mission_id}Style</styleUrl>',
@@ -331,6 +344,9 @@ def generate_live_kml_with_track(
             f'  </LineString>',
             f'</Placemark>'
         ])
+
+        # Close mission Folder
+        kml_parts.append('</Folder>')
     
     kml_parts.extend([
         '</Document>',
