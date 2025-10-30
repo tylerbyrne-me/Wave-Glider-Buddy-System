@@ -2,6 +2,7 @@ import { getUserProfile, checkAuth } from "/static/js/auth.js";
 import { fetchWithAuth, showToast, apiRequest } from "/static/js/api.js";
 
 document.addEventListener('DOMContentLoaded', function() {
+    const FEAT = (window.APP_FEATURES || {});
     // --- MODAL AND FORM ELEMENTS ---
     const goalModalElement = document.getElementById('goalModal');
     const goalModal = goalModalElement ? new bootstrap.Modal(goalModalElement) : null;
@@ -583,11 +584,23 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // --- INITIALIZATION ---
+    // Defensive cleanup for any server-rendered elements tagged with data-feature
+    document.querySelectorAll('[data-feature]').forEach(el => {
+        const key = el.getAttribute('data-feature');
+        if (FEAT[key] === false) {
+            el.remove();
+        }
+    });
+
     const initializePage = () => {
         // Load sidebar and announcement data
         loadAnnouncements();
-        loadUpcomingShifts();
-        loadTimesheetStatus();
+        if (FEAT.schedule) {
+            loadUpcomingShifts();
+        }
+        if (FEAT.payroll) {
+            loadTimesheetStatus();
+        }
 
         // Add vehicle names to each mission card
         document.querySelectorAll('.mission-info-section').forEach(missionSection => {

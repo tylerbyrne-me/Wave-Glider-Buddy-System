@@ -42,3 +42,29 @@ def check_feature_or_404(feature_name: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Feature '{feature_name}' is currently disabled"
         )
+
+
+def require_feature_dep(feature_name: str):
+    """
+    FastAPI dependency-style guard to require a feature for routes/handlers.
+
+    Usage:
+        @router.get("/payroll", dependencies=[Depends(require_feature_dep("payroll"))])
+    """
+    def _dependency():
+        if not is_feature_enabled(feature_name):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Feature '{feature_name}' is currently disabled"
+            )
+    return _dependency
+
+
+def return_if_feature_enabled(feature_name: str, value):
+    """
+    Convenience helper for handlers/services to short-circuit responses
+    when a feature is disabled. Returns None if disabled, else returns value.
+    """
+    if not is_feature_enabled(feature_name):
+        return None
+    return value

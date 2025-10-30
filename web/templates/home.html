@@ -6,9 +6,11 @@
 <div class="container mt-4" 
      data-user-role="{{ current_user.role if current_user.is_authenticated else '' }}"
      data-user-id="{{ current_user.id if current_user.is_authenticated else '' }}">
-    <div class="row">
+    {% set has_sidebar = is_schedule_enabled or is_payroll_enabled %}
+    {% set main_col_class = 'col-lg-9' if has_sidebar else 'col-lg-10 col-xl-8' %}
+    <div class="row {% if not has_sidebar %}justify-content-center{% endif %}">
         <!-- Main Content Area -->
-        <div class="col-lg-9">
+        <div class="{{ main_col_class }} mx-auto">
             <h1>Welcome, {{ current_user.full_name or current_user.username }}!</h1>
 
             <!-- Announcements Panel -->
@@ -156,17 +158,10 @@
             <hr>
             
             <!-- Quick Links -->
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Mission Dashboard</h5>
-                            <p class="card-text">View detailed real-time and historical data for active and past missions.</p>
-                            <a href="/" class="btn btn-primary mt-auto">Go to Dashboard</a>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6 mb-3">
+            <div class="row justify-content-center">
+                {# Mission Dashboard quick link temporarily removed (redundant until historical data returns) #}
+                {% if feature_enabled('schedule') %}
+                <div class="col-md-8 col-lg-6 mb-3" data-feature="schedule">
                     <div class="card h-100">
                         <div class="card-body d-flex flex-column">
                             <h5 class="card-title">Daily Schedule</h5>
@@ -175,6 +170,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
             </div>
             
             <!-- Mission Map Section -->
@@ -233,8 +229,10 @@
         </div>
 
         <!-- Right Sidebar: User-Specific Information -->
+        {% if has_sidebar %}
         <div class="col-lg-3">
-            <div class="card sticky-top" style="top: 130px;">
+            {% if feature_enabled('schedule') %}
+            <div class="card sticky-top" style="top: 130px;" data-feature="schedule">
                 <div class="card-header"><h5 class="mb-0">My Upcoming Shifts</h5></div>
                 <div class="card-body" id="upcomingShiftsContent" style="max-height: 400px; overflow-y: auto;">
                     <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div></div>
@@ -243,8 +241,10 @@
                     <a href="/schedule.html" class="btn btn-sm btn-outline-primary">View Full Schedule</a>
                 </div>
             </div>
+            {% endif %}
             <!-- New Timesheet Status Panel -->
-            <div class="card mt-4">
+            {% if feature_enabled('payroll') %}
+            <div class="card mt-4" data-feature="payroll">
                 <div class="card-header"><h5 class="mb-0">My Timesheet Status</h5></div>
                 <div class="card-body" id="timesheetStatusContent" style="max-height: 400px; overflow-y: auto;">
                     <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div></div>
@@ -253,7 +253,9 @@
                     <a href="/payroll/my_timesheets.html" class="btn btn-sm btn-outline-primary">View My Timesheets</a>
                 </div>
             </div>
+            {% endif %}
         </div>
+        {% endif %}
     </div>
 
     <!-- Modals for Admin Actions -->

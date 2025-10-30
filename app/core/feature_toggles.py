@@ -2,6 +2,7 @@
 Feature toggle utilities for enabling/disabling application features.
 """
 from typing import Dict, Any, Set, List
+import json
 from functools import lru_cache
 from ..config import settings
 
@@ -46,6 +47,10 @@ def _get_cached_feature_context() -> Dict[str, Any]:
         ]),
         "feature_count": len([enabled for enabled in features.values() if enabled]),
         "total_features": len(features),
+        # Template helpers
+        "feature_enabled": is_feature_enabled,
+        # Serialized flags for client-side use (e.g., window.APP_FEATURES)
+        "feature_flags_json": json.dumps(features),
     })
     
     return context

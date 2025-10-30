@@ -12,6 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import secrets
 import logging
+import hashlib
+from email.utils import format_datetime as format_http_datetime
 
 from ..auth_utils import get_current_active_user
 from ..core import models
@@ -118,7 +120,8 @@ async def create_live_kml_token(
 @router.get("/api/kml/live/{token}")
 async def get_live_kml(
     token: str,
-    session: SQLModelSession = Depends(get_db_session)
+    session: SQLModelSession = Depends(get_db_session),
+    request_obj: Request = None
 ):
     """
     Serve live KML data for a given token.
@@ -190,13 +193,56 @@ async def get_live_kml(
         if not all_track_points:
             return _generate_error_kml("No track data available for these missions")
         
-        kml_content = generate_live_kml_with_track(all_track_points, token_record.description)
-        
+        kml_payload = generate_live_kml_with_track(all_track_points, token_record.description)
+
+        # Build debug header comment (always UTC)
+        total_points = sum(len(tp) for _, tp in all_track_points)
+        refresh_secs = token_record.refresh_interval_minutes * 60
+
+        # Compute 10-min (or configured) cache bucket start aligned to interval
+        now_utc = datetime.now(timezone.utc)
+        bucket_secs = refresh_secs
+        bucket_epoch = int(now_utc.timestamp()) // bucket_secs * bucket_secs
+        bucket_start = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
+
+        debug_comment = (
+            f"<!-- server_utc={now_utc.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+            f"token={token[:8]}... hours_back={token_record.hours_back} "
+            f"missions={len(all_track_points)} points={total_points} "
+            f"cache_bucket_start={bucket_start.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+            f"refresh_seconds={refresh_secs} -->\n"
+        )
+
+        # Prepend debug info
+        kml_content = debug_comment + kml_payload
+
+        # Create ETag that changes when bucket flips or content changes
+        body_hash = hashlib.sha256(kml_content.encode("utf-8")).hexdigest()
+        etag = f'W/"{token}-{bucket_epoch}-{body_hash[:16]}"'
+
+        # Conditional request handling (304)
+        if request_obj is not None:
+            inm = request_obj.headers.get("If-None-Match")
+            if inm and inm == etag:
+                logger.info(
+                    "Live KML 304 Not Modified | token=%s bucket=%s",
+                    token[:8], bucket_start.isoformat()
+                )
+                return Response(status_code=304)
+
+        # Log access with cache/debug details
+        logger.info(
+            "Live KML 200 | token=%s missions=%d points=%d bucket=%s etag=%s",
+            token[:8], len(all_track_points), total_points, bucket_start.isoformat(), etag
+        )
+
         return Response(
             content=kml_content,
-            media_type="application/vnd.google-earth.kml+xml",
+            media_type="application/vnd.google-earth.kml+xml; charset=utf-8",
             headers={
-                "Cache-Control": f"public, max-age={token_record.refresh_interval_minutes * 60}",
+                "Cache-Control": f"public, max-age={refresh_secs}",
+                "ETag": etag,
+                "Last-Modified": format_http_datetime(now_utc),
                 "Content-Disposition": f'inline; filename="mission_live_{token[:8]}.kml"'
             }
         )
