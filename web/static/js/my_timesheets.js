@@ -1,19 +1,22 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file my_timesheets.js
+ * @description Display user's timesheet submissions
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     const tableBody = document.getElementById('timesheetsTableBody');
 
+    /**
+     * Load user's timesheet submissions
+     */
     async function loadMyTimesheets() {
         try {
-            const response = await fetchWithAuth('/api/timesheets/my_submissions');
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to load timesheet submissions.' }));
-                throw new Error(errorData.detail);
-            }
-            const timesheets = await response.json();
+            const timesheets = await apiRequest('/api/timesheets/my_submissions', 'GET');
 
             if (timesheets.length === 0) {
                 tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">You have not submitted any timesheets.</td></tr>';
@@ -69,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tableBody.innerHTML = tableHtml;
 
         } catch (error) {
-            console.error('Error fetching timesheets:', error);
+            showToast(`Error loading timesheets: ${error.message}`, 'danger');
             tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error: ${error.message}</td></tr>`;
         }
     }

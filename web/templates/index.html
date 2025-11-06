@@ -1767,7 +1767,7 @@
 
 {% block body_extra_js %}
   <script type="module" src="/static/js/dashboard.js"></script>
-  <script src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
+  <script type="module" src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
   <script>
     // Pass error analysis data to JavaScript
     window.errorAnalysisData = {{ error_analysis | tojson if error_analysis else '{}' }};

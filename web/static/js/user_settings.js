@@ -4,7 +4,7 @@
  */
 
 import { getAuthToken } from './auth.js';
-import { showToast } from './api.js';
+import { apiRequest, showToast } from './api.js';
 
 class UserSettings {
     constructor() {
@@ -43,24 +43,10 @@ class UserSettings {
 
     async loadUserData() {
         try {
-            const response = await fetch('/api/users/me', {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to load user data: ${response.statusText}`);
-            }
-
-            const userData = await response.json();
+            const userData = await apiRequest('/api/users/me', 'GET');
             this.populateUserData(userData);
-            
         } catch (error) {
-            console.error('Error loading user data:', error);
-            showToast('Failed to load user data. Please refresh the page.', 'danger');
+            showToast(`Failed to load user data: ${error.message}`, 'danger');
         }
     }
 
@@ -109,26 +95,11 @@ class UserSettings {
                 email: document.getElementById('email').value.trim() || null
             };
 
-            const response = await fetch('/api/users/me', {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(formData)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `Update failed: ${response.statusText}`);
-            }
-
-            const updatedUser = await response.json();
+            const updatedUser = await apiRequest('/api/users/me', 'PUT', formData);
             this.populateUserData(updatedUser);
             showToast('User information updated successfully!', 'success');
 
         } catch (error) {
-            console.error('Error updating user info:', error);
             showToast(`Failed to update information: ${error.message}`, 'danger');
         } finally {
             // Re-enable button
@@ -158,19 +129,7 @@ class UserSettings {
                 new_password: document.getElementById('newPassword').value
             };
 
-            const response = await fetch('/api/users/me/password', {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(formData)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `Password change failed: ${response.statusText}`);
-            }
+            await apiRequest('/api/users/me/password', 'PUT', formData);
 
             // Clear password fields
             document.getElementById('currentPassword').value = '';
@@ -180,7 +139,6 @@ class UserSettings {
             showToast('Password changed successfully!', 'success');
 
         } catch (error) {
-            console.error('Error changing password:', error);
             showToast(`Failed to change password: ${error.message}`, 'danger');
         } finally {
             // Re-enable button

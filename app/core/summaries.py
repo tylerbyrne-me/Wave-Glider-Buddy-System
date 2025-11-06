@@ -60,11 +60,19 @@ def _get_common_status_data(
     df: Optional[pd.DataFrame],
     preprocessor: callable,
     trend_name: str, # For logging and error messages
+    last_update_timestamp: Optional[datetime] = None,  # When data was last fetched from server
 ) -> Tuple[Dict[str, Any], Optional[pd.DataFrame], Optional[pd.Series]]:
     """
     Helper to perform common initial steps for status functions.
     Initializes result_shell, preprocesses DataFrame, updates latest timestamp info,
     and extracts the last row.
+
+    Args:
+        df: The input DataFrame
+        preprocessor: The preprocessing function to apply
+        trend_name: Name of the trend for logging
+        last_update_timestamp: Optional timestamp indicating when data was last fetched from server.
+                              If provided, this will be used for "last data" display instead of max timestamp in data.
 
     Returns: (result_shell, df_processed, last_row)
     """
@@ -83,8 +91,22 @@ def _get_common_status_data(
         return result_shell, None, None
 
     if not df_processed.empty and "Timestamp" in df_processed.columns:
-        update_info = utils.get_df_latest_update_info(df_processed, "Timestamp")
-        result_shell.update(update_info)
+        # Use last_update_timestamp (when data was fetched from server) if provided,
+        # otherwise fall back to max timestamp in the data
+        if last_update_timestamp is not None:
+            # Ensure timezone-aware
+            if last_update_timestamp.tzinfo is None:
+                last_update_timestamp = last_update_timestamp.replace(tzinfo=timezone.utc)
+            
+            result_shell["latest_timestamp_str"] = last_update_timestamp.strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+            result_shell["time_ago_str"] = time_ago(last_update_timestamp)
+        else:
+            # Fall back to max timestamp in data (legacy behavior)
+            update_info = utils.get_df_latest_update_info(df_processed, "Timestamp")
+            result_shell.update(update_info)
+        
         last_row = df_processed.loc[df_processed["Timestamp"].idxmax()]
         return result_shell, df_processed, last_row
     else:
@@ -166,12 +188,14 @@ def _generate_mini_trend(
 
 
 def get_power_status(
-    df_power: Optional[pd.DataFrame], df_solar: Optional[pd.DataFrame] = None
+    df_power: Optional[pd.DataFrame], 
+    df_solar: Optional[pd.DataFrame] = None,
+    last_update_timestamp: Optional[datetime] = None
 ) -> Dict:
     """Returns a summary dict for power status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_power_processed, last_row = _get_common_status_data(
-            df_power, preprocess_power_df, "Power"
+            df_power, preprocess_power_df, "Power", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -331,11 +355,14 @@ def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any
     )
 
 
-def get_fluorometer_status(df_fluorometer: Optional[pd.DataFrame]) -> Dict:
+def get_fluorometer_status(
+    df_fluorometer: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for fluorometer status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_fluorometer_processed, last_row = _get_common_status_data(
-            df_fluorometer, preprocess_fluorometer_df, "Fluorometer"
+            df_fluorometer, preprocess_fluorometer_df, "Fluorometer", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -373,11 +400,14 @@ def get_fluorometer_mini_trend(
     )
 
 
-def get_ctd_status(df_ctd: Optional[pd.DataFrame]) -> Dict:
+def get_ctd_status(
+    df_ctd: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for CTD status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_ctd_processed, last_row = _get_common_status_data(
-            df_ctd, preprocess_ctd_df, "CTD"
+            df_ctd, preprocess_ctd_df, "CTD", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -430,11 +460,14 @@ def get_ctd_mini_trend(df_ctd: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
     )
 
 
-def get_weather_status(df_weather: Optional[pd.DataFrame]) -> Dict:
+def get_weather_status(
+    df_weather: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for weather status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_weather_processed, last_row = _get_common_status_data(
-            df_weather, preprocess_weather_df, "Weather"
+            df_weather, preprocess_weather_df, "Weather", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -503,11 +536,14 @@ def get_weather_mini_trend(df_weather: Optional[pd.DataFrame]) -> List[Dict[str,
     )
 
 
-def get_wave_status(df_waves: Optional[pd.DataFrame]) -> Dict:
+def get_wave_status(
+    df_waves: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for wave status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_waves_processed, last_row = _get_common_status_data(
-            df_waves, preprocess_wave_df, "Wave"
+            df_waves, preprocess_wave_df, "Wave", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -728,11 +764,14 @@ def get_recent_errors(error_df, max_age_hours=24):
     return recent.sort_values("Timestamp", ascending=False).to_dict(orient="records")
 
 
-def get_vr2c_status(df_vr2c: Optional[pd.DataFrame]) -> Dict:
+def get_vr2c_status(
+    df_vr2c: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for VR2C status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_vr2c_processed, last_row = _get_common_status_data(
-            df_vr2c, preprocess_vr2c_df, "VR2C"
+            df_vr2c, preprocess_vr2c_df, "VR2C", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -766,11 +805,14 @@ def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]
     )
 
 
-def get_navigation_status(df_telemetry: Optional[pd.DataFrame]) -> Dict:
+def get_navigation_status(
+    df_telemetry: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for navigation status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_telemetry_processed, last_row = _get_common_status_data(
-            df_telemetry, preprocess_telemetry_df, "Navigation"
+            df_telemetry, preprocess_telemetry_df, "Navigation", last_update_timestamp
         )
         if last_row is None:
             return result_shell
@@ -856,11 +898,14 @@ def get_navigation_mini_trend(
     )
 
 
-def get_wg_vm4_status(df_wg_vm4: Optional[pd.DataFrame]) -> Dict:
+def get_wg_vm4_status(
+    df_wg_vm4: Optional[pd.DataFrame],
+    last_update_timestamp: Optional[datetime] = None
+) -> Dict:
     """Returns a summary dict for WG-VM4 status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
         result_shell, df_wg_vm4_processed, last_row = _get_common_status_data(
-            df_wg_vm4, preprocess_wg_vm4_df, "WG-VM4"
+            df_wg_vm4, preprocess_wg_vm4_df, "WG-VM4", last_update_timestamp
         )
         if last_row is None:
             return result_shell

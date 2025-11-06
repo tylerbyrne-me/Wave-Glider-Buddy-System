@@ -1,8 +1,13 @@
-import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_mission_overviews.js
+ * @description Admin mission overview management
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth, getUserProfile } from '/static/js/auth.js';
+import { apiRequest, showToast, fetchWithAuth } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     // Admin role verification
     getUserProfile().then(user => {
@@ -83,12 +88,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
 
+        /**
+         * Load available missions
+         */
         async function loadMissions() {
             missionSpinner.style.display = 'inline-block';
             try {
-                const response = await fetchWithAuth('/api/available_missions');
-                if (!response.ok) throw new Error('Failed to load missions.');
-                const missions = await response.json();
+                const missions = await apiRequest('/api/available_missions', 'GET');
 
                 missionSelect.innerHTML = '<option selected disabled>-- Select a Mission --</option>';
                 missions.forEach(missionId => {
@@ -98,6 +104,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     missionSelect.appendChild(option);
                 });
             } catch (error) {
+                showToast(`Error loading missions: ${error.message}`, 'danger');
                 missionSelect.innerHTML = `<option selected disabled>Error: ${error.message}</option>`;
             } finally {
                 missionSpinner.style.display = 'none';
@@ -115,9 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
             saveStatusDiv.innerHTML = '';
 
             try {
-                const response = await fetchWithAuth(`/api/missions/${selectedMissionId}/info`);
-                if (!response.ok) throw new Error('Failed to fetch mission overview.');
-                const missionInfo = await response.json();
+                const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
 
                 editingMissionTitle.textContent = `Editing Overview for: ${selectedMissionId}`;
                 
@@ -208,24 +213,13 @@ document.addEventListener('DOMContentLoaded', function() {
             };
 
             try {
-                const response = await fetchWithAuth(`/api/missions/${selectedMissionId}/overview`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Failed to save overview.');
-                }
-                
-                const savedOverview = await response.json();
-
+                const savedOverview = await apiRequest(`/api/missions/${selectedMissionId}/overview`, 'PUT', payload);
+                showToast('Overview saved successfully!', 'success');
                 saveStatusDiv.innerHTML = '<div class="alert alert-success">Overview saved successfully!</div>';
                 
                 // Update the UI with the new state without a full reload
                 documentUploadInput.value = ''; // Clear the file input
-                if (savedOverview.document_url) {
+                if (savedOverview && savedOverview.document_url) {
                     currentPlanLink.href = savedOverview.document_url;
                     currentPlanLink.textContent = savedOverview.document_url.split('/').pop();
                     currentPlanContainer.style.display = 'block';
@@ -236,6 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
             } catch (error) {
+                showToast(`Save failed: ${error.message}`, 'danger');
                 saveStatusDiv.innerHTML = `<div class="alert alert-danger">Save failed: ${error.message}</div>`;
             } finally {
                 saveBtn.disabled = false;

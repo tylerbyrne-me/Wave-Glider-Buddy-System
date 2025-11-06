@@ -1,8 +1,13 @@
-import { checkAuth } from "/static/js/auth.js";
-import { fetchWithAuth } from "/static/js/api.js";
+/**
+ * @file my_pic_handoffs.js
+ * @description Display user's PIC handoff submissions
+ */
 
-document.addEventListener('DOMContentLoaded', function () {
-    if (!checkAuth()) { // from auth.js
+import { checkAuth, logout } from "/static/js/auth.js";
+import { apiRequest, showToast } from "/static/js/api.js";
+
+document.addEventListener('DOMContentLoaded', async function () {
+    if (!await checkAuth()) {
         return;
     }
 
@@ -33,18 +38,10 @@ document.addEventListener('DOMContentLoaded', function () {
         noFormsMessage.style.display = 'none';
 
         try {
-            const response = await fetchWithAuth('/api/forms/pic_handoffs/my');
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    logout(); return;
-                }
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to load your PIC Handoffs.' }));
-                throw new Error(errorData.detail || `Error ${response.status}`);
-            }
-            const forms = await response.json();
+            const forms = await apiRequest('/api/forms/pic_handoffs/my', 'GET');
             renderFormsTable(forms);
         } catch (error) {
-            console.error('Error fetching your PIC Handoffs:', error);
+            showToast(`Error loading PIC Handoffs: ${error.message}`, 'danger');
             tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Error loading submissions: ${error.message}</td></tr>`;
             noFormsMessage.textContent = `Error: ${error.message}`;
             noFormsMessage.style.display = 'block';

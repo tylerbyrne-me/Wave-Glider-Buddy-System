@@ -8,22 +8,28 @@ from datetime import datetime, timedelta, timezone
 import io
 import pandas as pd
 
-from ..auth_utils import get_current_active_user
+from ..core.auth import get_current_active_user
 from ..core.models import User
 from ..core import processors
+from ..core.processor_framework import get_processor_registry
+from ..core.error_handlers import handle_processing_error, handle_validation_error, ErrorContext
 
 router = APIRouter(prefix="/api/sensor_csv", tags=["sensor-csv"])
 
+# Get processor registry for dynamic processor lookup
+_processor_registry = get_processor_registry()
+
 # Mapping of sensor types to their preprocessor functions
+# Use registry for consistency, with fallback to direct imports for backward compatibility
 SENSOR_PROCESSORS = {
-    "telemetry": processors.preprocess_telemetry_df,
-    "power": processors.preprocess_power_df,
-    "ctd": processors.preprocess_ctd_df,
-    "weather": processors.preprocess_weather_df,
-    "waves": processors.preprocess_wave_df,
-    "vr2c": processors.preprocess_vr2c_df,
-    "fluorometer": processors.preprocess_fluorometer_df,
-    "wg_vm4": processors.preprocess_wg_vm4_df,
+    "telemetry": _processor_registry.get("telemetry") or processors.preprocess_telemetry_df,
+    "power": _processor_registry.get("power") or processors.preprocess_power_df,
+    "ctd": _processor_registry.get("ctd") or processors.preprocess_ctd_df,
+    "weather": _processor_registry.get("weather") or processors.preprocess_weather_df,
+    "waves": _processor_registry.get("waves") or processors.preprocess_wave_df,
+    "vr2c": _processor_registry.get("vr2c") or processors.preprocess_vr2c_df,
+    "fluorometer": _processor_registry.get("fluorometer") or processors.preprocess_fluorometer_df,
+    "wg_vm4": _processor_registry.get("wg_vm4") or processors.preprocess_wg_vm4_df,
 }
 
 # Mapping of sensor types to their display names
@@ -50,23 +56,27 @@ async def download_sensor_csv(
     
     # Validate sensor type
     if sensor_type not in SENSOR_PROCESSORS:
-        raise HTTPException(status_code=400, detail=f"Invalid sensor type: {sensor_type}")
+        raise handle_validation_error(
+            message=f"Invalid sensor type: {sensor_type}. Valid types: {', '.join(SENSOR_PROCESSORS.keys())}",
+            field="sensor_type"
+        )
     
     try:
-        # Import the load_data_source function from app.py
-        from ..app import load_data_source
+        # Use data service with consolidated load_and_preprocess helper
+        from ..core.data_service import get_data_service
         
-        # Load sensor data using the same method as the dashboard
-        sensor_df, _ = await load_data_source(sensor_type, mission_id=mission, current_user=current_user)
-        if sensor_df is None or sensor_df.empty:
-            raise HTTPException(status_code=404, detail=f"No {SENSOR_NAMES[sensor_type]} data found for this mission")
-        
-        # Preprocess the data using the same logic as the dashboard
+        data_service = get_data_service()
         preprocessor = SENSOR_PROCESSORS[sensor_type]
-        processed_df = preprocessor(sensor_df)
         
-        if processed_df.empty:
-            raise HTTPException(status_code=404, detail=f"No processed {SENSOR_NAMES[sensor_type]} data available")
+        # Load, preprocess, and validate in one call
+        processed_df, _ = await data_service.load_and_preprocess(
+            report_type=sensor_type,
+            mission_id=mission,
+            preprocess_func=preprocessor,
+            error_message=f"No {SENSOR_NAMES[sensor_type]} data found for this mission",
+            preprocessed_error_message=f"No processed {SENSOR_NAMES[sensor_type]} data available",
+            current_user=current_user
+        )
         
         # Apply time filtering if hours_back is specified - always use UTC
         if hours_back > 0 and 'Timestamp' in processed_df.columns:
@@ -118,5 +128,12 @@ async def download_sensor_csv(
             headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating {SENSOR_NAMES[sensor_type]} CSV: {str(e)}")
+        raise handle_processing_error(
+            operation=f"generating {SENSOR_NAMES[sensor_type]} CSV",
+            error=e,
+            resource=mission,
+            user_id=str(current_user.id) if current_user else None
+        )

@@ -1,8 +1,13 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file mission_form.js
+ * @description Mission form rendering and submission
+ */
 
-document.addEventListener('DOMContentLoaded', function () {
-    if (!checkAuth()) { // from auth.js
+import { checkAuth } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function () {
+    if (!await checkAuth()) {
         return;
     }
 
@@ -17,16 +22,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const submissionStatusDiv = document.getElementById('submissionStatus');
     const formSpinner = document.getElementById('formSpinner');
 
+    /**
+     * Fetch and render the form schema
+     */
     async function fetchAndRenderFormSchema() {
         formSpinner.style.display = 'block';
         missionReportForm.style.display = 'none';
         try {
-            const response = await fetchWithAuth(`/api/forms/${missionId}/template/${formType}`);
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Failed to load form template (Status: ${response.status})`);
-            }
-            const schema = await response.json();
+            const schema = await apiRequest(`/api/forms/${missionId}/template/${formType}`, 'GET');
 
             formTitleElement.textContent = schema.title || 'Mission Form';
             if (schema.description) {
@@ -181,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // --- End dynamic navigation mode fields ---
 
         } catch (error) {
-            console.error('Error fetching or rendering form schema:', error);
+            showToast(`Error loading form: ${error.message}`, 'danger');
             formTitleElement.textContent = 'Error Loading Form';
             formDescriptionElement.textContent = error.message;
             submissionStatusDiv.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
@@ -254,28 +257,20 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         try {
-            const response = await fetchWithAuth(`/api/forms/${missionId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(submissionPayload)
-            });
-            const result = await response.json();
-            if (response.ok) {
-                // Ensure the timestamp string from the server is parsed as UTC.
-                const submissionTimestampStr = result.submission_timestamp.endsWith('Z') ? result.submission_timestamp : result.submission_timestamp + 'Z';
-                const submissionTime = new Date(submissionTimestampStr);
-                // Using en-GB for a common 24-hour format, and explicitly stating UTC
-                const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
-                submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
-                missionReportForm.reset(); // Optionally reset the form
-                // Close the tab after a short delay to allow the user to see the success message
-                setTimeout(() => { window.close(); }, 1500); 
-            } else {
-                submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Submission failed: ${result.detail || 'Unknown error'}</div>`;
-            }
+            const result = await apiRequest(`/api/forms/${missionId}`, 'POST', submissionPayload);
+            // Ensure the timestamp string from the server is parsed as UTC.
+            const submissionTimestampStr = result.submission_timestamp.endsWith('Z') ? result.submission_timestamp : result.submission_timestamp + 'Z';
+            const submissionTime = new Date(submissionTimestampStr);
+            // Using en-GB for a common 24-hour format, and explicitly stating UTC
+            const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
+            showToast('Form submitted successfully!', 'success');
+            submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
+            missionReportForm.reset(); // Optionally reset the form
+            // Close the tab after a short delay to allow the user to see the success message
+            setTimeout(() => { window.close(); }, 1500); 
         } catch (error) {
-            console.error('Error submitting form:', error);
-            submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Network error or unexpected issue during submission.</div>`;
+            showToast(`Error submitting form: ${error.message}`, 'danger');
+            submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;
         }
     });
 

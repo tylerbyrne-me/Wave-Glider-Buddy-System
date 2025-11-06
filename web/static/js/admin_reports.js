@@ -1,8 +1,13 @@
-import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_reports.js
+ * @description Admin reports generation and charting
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth, getUserProfile } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     // Verify user is an admin before proceeding
     getUserProfile().then(user => {
@@ -60,54 +65,54 @@ document.addEventListener('DOMContentLoaded', function() {
             const month = monthSelect.value;
 
             // Use Promise.all to fire off both requests concurrently
-            const [csvResponse, chartResponse] = await Promise.all([
-                fetchWithAuth(`/api/admin/reports/monthly_timesheet_summary?year=${year}&month=${month}`),
-                fetchWithAuth(`/api/admin/reports/monthly_summary_chart?year=${year}&month=${month}`)
-            ]).catch(error => {
-                console.error('Error during fetch operations:', error);
-                statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
-                chartSpinner.style.display = 'none';
-                return [null, null]; // Return nulls to avoid destructuring errors
-            });
-
-            // Handle CSV Download
-            if (csvResponse && csvResponse.ok) {
-                const blob = await csvResponse.blob();
-                const contentDisposition = csvResponse.headers.get('Content-Disposition');
-                let filename = `approved_timesheets_${year}-${String(month).padStart(2, '0')}.csv`;
-                if (contentDisposition && contentDisposition.includes('filename=')) {
-                    filename = contentDisposition.split('filename=')[1].replace(/"/g, '');
-                }
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-                statusDiv.innerHTML = `<div class="alert alert-success">Report downloaded successfully as <strong>${filename}</strong>.</div>`;
-            } else if (csvResponse) {
-                const errorData = await csvResponse.json().catch(() => ({ detail: 'An unknown error occurred during CSV download.' }));
-                statusDiv.innerHTML = `<div class="alert alert-danger">CSV Download Error: ${errorData.detail}</div>`;
+            // CSV download needs fetch directly for blob response, chart uses apiRequest for JSON
+            const token = localStorage.getItem('accessToken');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
             }
+            
+            try {
+                const [csvResponse, chartData] = await Promise.all([
+                    fetch(`/api/admin/reports/monthly_timesheet_summary?year=${year}&month=${month}`, { headers }),
+                    apiRequest(`/api/admin/reports/monthly_summary_chart?year=${year}&month=${month}`, 'GET')
+                ]);
 
-            // Handle Chart Data
-            chartSpinner.style.display = 'none';
-            if (chartResponse && chartResponse.ok) {
-                const chartData = await chartResponse.json();
-                if (chartData.length > 0) {
-                    renderPilotHoursChart(chartData);
-                    chartContainer.style.display = 'block';
-                } else {
-                    noChartData.style.display = 'block';
+                // Handle CSV Download
+                if (csvResponse && csvResponse.ok) {
+                    const blob = await csvResponse.blob();
+                    const contentDisposition = csvResponse.headers.get('Content-Disposition');
+                    let filename = `approved_timesheets_${year}-${String(month).padStart(2, '0')}.csv`;
+                    if (contentDisposition && contentDisposition.includes('filename=')) {
+                        filename = contentDisposition.split('filename=')[1].replace(/"/g, '');
+                    }
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                    showToast(`Report downloaded successfully as ${filename}`, 'success');
+                    statusDiv.innerHTML = `<div class="alert alert-success">Report downloaded successfully as <strong>${filename}</strong>.</div>`;
+                } else if (csvResponse) {
+                    const errorData = await csvResponse.json().catch(() => ({ detail: 'An unknown error occurred during CSV download.' }));
+                    showToast(`CSV Download Error: ${errorData.detail}`, 'danger');
+                    statusDiv.innerHTML = `<div class="alert alert-danger">CSV Download Error: ${errorData.detail}</div>`;
                 }
-            } else if (chartResponse) {
-                const errorData = await chartResponse.json().catch(() => ({ detail: 'An unknown error occurred fetching chart data.' }));
-                noChartData.textContent = `Chart Error: ${errorData.detail}`;
-                noChartData.className = 'alert alert-danger text-center';
-                noChartData.style.display = 'block';
+
+                // Handle Chart Data
+                chartSpinner.style.display = 'none';
+                if (chartData) {
+                    if (chartData.length > 0) {
+                        renderPilotHoursChart(chartData);
+                        chartContainer.style.display = 'block';
+                    } else {
+                        noChartData.style.display = 'block';
+                    }
+                }
             }
 
             // Re-enable button

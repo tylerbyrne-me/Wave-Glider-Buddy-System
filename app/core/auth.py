@@ -7,9 +7,9 @@ from sqlmodel import \
     Session as SQLModelSession  # type: ignore # Import Session and alias it
 from sqlmodel import select
 
-from app.core.models import (User, UserCreate,  # Added UserUpdateForAdmin
+from .models import (User, UserCreate,  # Added UserUpdateForAdmin
                              UserInDB, UserRoleEnum, UserUpdateForAdmin)
-from app.core.security import (  # TokenData imported from here, added get_password_hash
+from .security import (  # TokenData imported from here, added get_password_hash
     TokenData,
     decode_access_token,
     get_password_hash,
@@ -17,7 +17,7 @@ from app.core.security import (  # TokenData imported from here, added get_passw
 )
 # ALGORITHM and SECRET_KEY are used by decode_access_token internally,
 # assuming it fetches them from settings.
-from app.db import get_db_session  # Import the new get_db_session
+from .db import get_db_session  # Import the new get_db_session
 
 # Color palette for user shifts
 USER_COLORS = [
@@ -294,3 +294,4 @@ async def get_optional_current_user(
 
     user_data = user_in_db.model_dump(exclude={"hashed_password"})
     return User(**user_data)
+

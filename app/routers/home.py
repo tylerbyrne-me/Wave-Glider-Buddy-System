@@ -2,8 +2,8 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional, Dict, List
 from ..core import models
-from ..auth_utils import get_current_active_user, get_optional_current_user
-from ..db import get_db_session, SQLModelSession
+from ..core.auth import get_current_active_user, get_optional_current_user
+from ..core.db import get_db_session, SQLModelSession
 from app.core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context

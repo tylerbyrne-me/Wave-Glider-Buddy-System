@@ -4,8 +4,8 @@ from typing import List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 from sqlmodel import select
 from ..core import models
-from ..db import get_db_session, SQLModelSession
-from ..auth_utils import get_current_active_user, get_optional_current_user
+from ..core.db import get_db_session, SQLModelSession
+from ..core.auth import get_current_active_user, get_optional_current_user
 from ..config import settings
 import json
 import logging
@@ -104,10 +104,11 @@ async def get_form_template(mission_id: str, form_type: str):
         # Convert Pydantic model to dict for mutation and .get() access
         schema = schema_obj.model_dump(mode="python")
 
-        from app.app import load_data_source
+        from app.core.data_service import get_data_service
         from app.core import summaries
 
-        df_power, _ = await load_data_source("power", mission_id)
+        data_service = get_data_service()
+        df_power, _, _ = await data_service.load("power", mission_id, current_user=None)
         power_info = summaries.get_power_status(df_power, None) if df_power is not None else {}
         battery_wh = power_info.get("values", {}).get("BatteryWattHours", "N/A")
         battery_pct = power_info.get("values", {}).get("BatteryPercentage", "N/A")

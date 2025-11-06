@@ -10,7 +10,7 @@ from sqlmodel import Session, select, func, and_, or_
 
 from .error_classification_service import ErrorClassifier
 from ..core.error_types import ErrorCategory
-from ..routers.error_analysis_models import (
+from ..core.models.error_analysis import (
     ClassifiedError, ErrorCategoryStats, ErrorPattern,
     ErrorCategoryEnum, ErrorSeverityEnum, ErrorTrendData, ErrorDashboardSummary
 )

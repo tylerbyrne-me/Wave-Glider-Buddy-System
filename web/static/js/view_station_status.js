@@ -1,5 +1,10 @@
+/**
+ * @file view_station_status.js
+ * @description Station status management and offload logging
+ */
+
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+import { apiRequest, showToast } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function () { 
     const stationStatusTableBody = document.getElementById('stationStatusTableBody');
@@ -83,19 +88,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (loadingSpinner) loadingSpinner.style.display = 'block'; // Show spinner during fetch
 
         try {
-            // fetchWithAuth should be available from auth.js
-            if (typeof fetchWithAuth !== 'function') {
-                throw new Error("fetchWithAuth function is not available. auth.js might not be loaded correctly.");
-            }
-            const response = await fetchWithAuth('/api/stations/status_overview');
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch station statuses' }));
-                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-            }
-            allStationsData = await response.json();
+            allStationsData = await apiRequest('/api/stations/status_overview', 'GET');
             renderTable(allStationsData);
         } catch (error) {
-            console.error('Error fetching station statuses:', error);
+            showToast(`Error loading station statuses: ${error.message}`, 'danger');
             stationStatusTableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error loading data: ${error.message}</td></tr>`;
         } finally {
             if (loadingSpinner) loadingSpinner.style.display = 'none';
@@ -357,13 +353,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (loadingSpinner) loadingSpinner.style.display = 'block';
 
         try {
-            const response = await fetchWithAuth(`/api/station_metadata/${stationId}`);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch station details.' }));
-                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-            }
-
-            const stationData = await response.json();
+            const stationData = await apiRequest(`/api/station_metadata/${stationId}`, 'GET');
 
             // Populate Station Information
             document.getElementById('formSerialNumber').value = stationData.serial_number || '';
@@ -494,23 +484,14 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (payload.bottom_depth_m && isNaN(payload.bottom_depth_m)) delete payload.bottom_depth_m;
 
             try {
-                const response = await fetchWithAuth('/api/station_metadata/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const resultData = await response.json(); // Parse response data
-
-                if (!response.ok) {
-                    throw new Error(resultData.detail || `Failed to ${isAdding ? 'add' : 'save'} station.`);
-                }
+                const resultData = await apiRequest('/api/station_metadata/', 'POST', payload);
 
                 // Use resultData.is_created from the backend response
                 const finalSuccessMessage = resultData.is_created ?
                     'Station added successfully!' :
                     'Station information updated successfully!';
                 
+                showToast(finalSuccessMessage, 'success');
                 if (stationInfoResult) {
                     stationInfoResult.innerHTML = `<div class="alert alert-success">${finalSuccessMessage}</div>`;
                 }
@@ -520,7 +501,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 // if (editLogStationModalInstance) editLogStationModalInstance.hide();
 
             } catch (error) {
-                console.error(`Error ${isAdding ? 'saving' : 'adding'} station info:`, error);
+                showToast(`Error ${isAdding ? 'adding' : 'updating'} station: ${error.message}`, 'danger');
                 alert(`Error: ${error.message}`);
             } finally {
                 if (loadingSpinner) loadingSpinner.style.display = 'none';
@@ -552,17 +533,9 @@ document.addEventListener('DOMContentLoaded', async function () {
              if (payload.distance_command_sent_m && isNaN(payload.distance_command_sent_m)) delete payload.distance_command_sent_m;
 
             try {
-                const response = await fetchWithAuth(`/api/station_metadata/${currentEditingStationId}/offload_logs/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ detail: 'Failed to log new offload.' }));
-                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-                }
+                await apiRequest(`/api/station_metadata/${currentEditingStationId}/offload_logs/`, 'POST', payload);
                 await fetchStationStatuses(); // Refresh table
-                alert('New offload logged successfully!');
+                showToast('New offload logged successfully!', 'success');
                 // Clear only the offload log form fields
                 document.getElementById('formArrivalDate').value = '';
                 document.getElementById('formDistanceSent').value = '';
@@ -575,7 +548,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 document.getElementById('formWasOffloaded').checked = false;
                 // Keep modal open for potentially more logs or edits
             } catch (error) {
-                console.error("Error logging new offload:", error);
+                showToast(`Error logging offload: ${error.message}`, 'danger');
                 alert(`Error: ${error.message}`);
             } finally {
                 if (loadingSpinner) loadingSpinner.style.display = 'none';
@@ -613,9 +586,16 @@ document.addEventListener('DOMContentLoaded', async function () {
             uploadResult.innerHTML = '<div class="alert alert-info">Uploading...</div>';
 
             try {
-                // Note: fetchWithAuth for FormData doesn't need Content-Type header; browser sets it with boundary.
-                const response = await fetchWithAuth('/api/station_metadata/upload_csv/', {
+                // For FormData uploads, we need to use fetch directly since apiRequest expects JSON
+                const token = localStorage.getItem('accessToken');
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                // Note: Don't set Content-Type for FormData - browser sets it with boundary
+                const response = await fetch('/api/station_metadata/upload_csv/', {
                     method: 'POST',
+                    headers: headers,
                     body: formData
                 });
 
@@ -626,6 +606,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
 
                 let alertClass = response.status === 207 ? 'alert-warning' : 'alert-success';
+                showToast(resultData.message, response.status === 207 ? 'warning' : 'success');
                 let resultHtml = `<div class="alert ${alertClass}">${resultData.message}</div>`;
                 if (resultData.errors && resultData.errors.length > 0) {
                     resultHtml += '<h6>Errors:</h6><ul class="list-group">';
@@ -639,7 +620,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 await fetchStationStatuses(); // Refresh the main station table
 
             } catch (error) {
-                console.error('Error uploading CSV:', error);
+                showToast(`Error uploading CSV: ${error.message}`, 'danger');
                 uploadResult.innerHTML = `<div class="alert alert-danger">Upload failed: ${error.message}</div>`;
             } finally {
                 submitUploadBtn.disabled = false;
@@ -722,20 +703,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         try {
-            const response = await fetchWithAuth(`/api/station_metadata/${stationId}`, {
-                method: 'DELETE',
-            });
-
-            if (response.status === 204) { // DELETE successful
-                alert(`Station "${stationId}" deleted successfully.`);
-                await fetchStationStatuses(); // Refresh the table
-            } else if (response.status === 404) {
-                alert(`Station "${stationId}" not found.`);
-            } else {
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to delete station.' }));
-                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-            }
+            await apiRequest(`/api/station_metadata/${stationId}`, 'DELETE');
+            showToast(`Station "${stationId}" deleted successfully`, 'success');
+            await fetchStationStatuses(); // Refresh the table
         } catch (error) {
+            showToast(`Error deleting station: ${error.message}`, 'danger');
             console.error('Error deleting station:', error);
             alert(`Error: ${error.message}`);
         }

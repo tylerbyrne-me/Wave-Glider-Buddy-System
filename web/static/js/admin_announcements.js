@@ -1,8 +1,13 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_announcements.js
+ * @description Admin announcements management interface
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     // --- Element References ---
     const createForm = document.getElementById('createAnnouncementForm');
@@ -23,17 +28,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let announcementsMap = {}; // To store full announcement objects by ID
 
+    /**
+     * Load all announcements from the API
+     */
     async function loadAnnouncements() {
         try {
-            const response = await fetchWithAuth('/api/admin/announcements/all');
-            if (!response.ok) throw new Error('Failed to fetch announcements.');
-            
-            const announcements = await response.json();
+            const announcements = await apiRequest('/api/admin/announcements/all', 'GET');
             // Store announcements in a map for easy access by the edit function
             announcementsMap = {};
             announcements.forEach(ann => { announcementsMap[ann.id] = ann; });
             renderAnnouncements(announcements);
         } catch (error) {
+            showToast(`Error loading announcements: ${error.message}`, 'danger');
             listContainer.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
         }
     }
@@ -84,21 +90,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!content) return;
 
         try {
-            const response = await fetchWithAuth('/api/admin/announcements', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: content })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Failed to post announcement.');
-            }
-
+            await apiRequest('/api/admin/announcements', 'POST', { content: content });
+            showToast('Announcement posted successfully', 'success');
             createStatusDiv.innerHTML = '<div class="alert alert-success">Announcement posted successfully.</div>';
             contentInput.value = '';
             loadAnnouncements(); // Refresh the list
         } catch (error) {
+            showToast(`Error posting announcement: ${error.message}`, 'danger');
             createStatusDiv.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
         }
     });
@@ -114,21 +112,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const response = await fetchWithAuth(`/api/admin/announcements/${annId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: newContent })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Failed to save changes.');
-            }
-
+            await apiRequest(`/api/admin/announcements/${annId}`, 'PUT', { content: newContent });
+            showToast('Announcement updated successfully', 'success');
             editAnnouncementModal.hide();
             loadAnnouncements(); // Refresh the list to show changes
-
         } catch (error) {
+            showToast(`Error updating announcement: ${error.message}`, 'danger');
             editStatusDiv.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
         }
     });
@@ -138,11 +127,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const annId = e.target.dataset.id;
             if (confirm('Are you sure you want to archive this announcement? It will no longer be shown to users.')) {
                 try {
-                    const response = await fetchWithAuth(`/api/admin/announcements/${annId}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error('Failed to archive.');
+                    await apiRequest(`/api/admin/announcements/${annId}`, 'DELETE');
+                    showToast('Announcement archived successfully', 'success');
                     loadAnnouncements(); // Refresh list
                 } catch (error) {
-                    alert(error.message);
+                    showToast(`Error archiving announcement: ${error.message}`, 'danger');
                 }
             }
         }

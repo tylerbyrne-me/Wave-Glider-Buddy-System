@@ -1,8 +1,11 @@
 /**
- * Map Generator - Mission Track Visualization
+ * @file map_generator.js
+ * @description Map Generator - Mission Track Visualization
  * 
  * Provides interactive map display for mission tracks using Leaflet.js
  */
+
+import { apiRequest, showToast } from '/static/js/api.js';
 
 let missionMap = null;
 let missionTracks = [];
@@ -14,7 +17,7 @@ function initializeMissionMap() {
     // Check if map container exists
     const mapContainer = document.getElementById('missionMapContainer');
     if (!mapContainer) {
-        console.error('Map container not found: missionMapContainer');
+        // Map container not found - this is expected if map is not on the page
         return;
     }
 
@@ -35,10 +38,6 @@ function initializeMissionMap() {
         maxZoom: 18
     }).addTo(missionMap);
 
-    console.log('Mission map initialized');
-    console.log('Map object:', missionMap);
-    console.log('Map container size:', mapContainer.offsetWidth, 'x', mapContainer.offsetHeight);
-
     // Auto-load active missions from data attributes
     const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
     if (mapCard) {
@@ -50,15 +49,11 @@ function initializeMissionMap() {
                 const activeMissions = JSON.parse(activeMissionsData);
                 
                 if (activeMissions && activeMissions.length > 0) {
-                    console.log(`Auto-loading ${activeMissions.length} active missions (last ${defaultHours} hours)`);
-                    
                     // Load all active missions automatically
                     loadMultipleMissionTracks(activeMissions, parseInt(defaultHours));
-                } else {
-                    console.log('No active missions to load');
                 }
             } catch (error) {
-                console.error('Error parsing active missions data:', error);
+                showToast('Error loading active missions data', 'danger');
             }
         }
     }
@@ -66,26 +61,19 @@ function initializeMissionMap() {
 
 /**
  * Load and display a single mission track
+ * @param {string} missionId - Mission identifier
+ * @param {number} hoursBack - Number of hours of history to retrieve
  */
 async function loadMissionTrack(missionId, hoursBack = 72) {
     if (!missionMap) {
-        console.error('Map not initialized');
+        showToast('Map not initialized', 'danger');
         return;
     }
 
     try {
-        console.log(`Loading track for mission ${missionId} (last ${hoursBack} hours)`);
-        
-        const response = await fetch(`/api/map/telemetry/${missionId}?hours_back=${hoursBack}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
+        const data = await apiRequest(`/api/map/telemetry/${missionId}?hours_back=${hoursBack}`, 'GET');
         
         if (!data.track_points || data.track_points.length === 0) {
-            console.warn(`No track points for mission ${missionId}`);
             displayNoTrackMessage(missionId);
             return;
         }
@@ -125,31 +113,25 @@ async function loadMissionTrack(missionId, hoursBack = 72) {
         updateTrackInfo(missionId, data.point_count, data.bounds);
 
     } catch (error) {
-        console.error(`Error loading track for mission ${missionId}:`, error);
+        showToast(`Error loading track for mission ${missionId}: ${error.message}`, 'danger');
         displayErrorMessage(`Error loading track: ${error.message}`);
     }
 }
 
 /**
  * Load and display multiple mission tracks
+ * @param {Array<string>} missionIds - Array of mission identifiers
+ * @param {number} hoursBack - Number of hours of history to retrieve
  */
 async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
     if (!missionMap) {
-        console.error('Map not initialized');
+        showToast('Map not initialized', 'danger');
         return;
     }
 
     try {
-        console.log(`Loading tracks for missions: ${missionIds.join(', ')}`);
-        
         const missionIdParam = missionIds.join(',');
-        const response = await fetch(`/api/map/multiple?mission_ids=${missionIdParam}&hours_back=${hoursBack}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
+        const data = await apiRequest(`/api/map/multiple?mission_ids=${missionIdParam}&hours_back=${hoursBack}`, 'GET');
         
         // Clear existing tracks
         clearTracks();
@@ -160,7 +142,6 @@ async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
         let colorIndex = 0;
         for (const [missionId, trackData] of Object.entries(data.missions)) {
             if (!trackData.track_points || trackData.track_points.length === 0) {
-                console.warn(`No track points for mission ${missionId}`);
                 continue;
             }
 
@@ -199,7 +180,7 @@ async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
         updateMultipleTrackInfo(data.missions);
 
     } catch (error) {
-        console.error('Error loading multiple tracks:', error);
+        showToast(`Error loading tracks: ${error.message}`, 'danger');
         displayErrorMessage(`Error loading tracks: ${error.message}`);
     }
 }
@@ -347,26 +328,13 @@ async function generateLiveKML() {
         displayLiveKMLStatus('Generating live KML link...', 'info');
         
         // Create live KML token
-        const response = await fetch('/api/kml/create_live', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                mission_ids: missionIds,
-                hours_back: hoursBack,
-                description: `Live track for ${missionIds.join(', ')}`
-            })
+        const data = await apiRequest('/api/kml/create_live', 'POST', {
+            mission_ids: missionIds,
+            hours_back: hoursBack,
+            description: `Live track for ${missionIds.join(', ')}`
         });
         
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to create live KML token');
-        }
-        
-        const data = await response.json();
-        
-        // Download the network link file
+        // Download the network link file (this endpoint is public, no auth required)
         const downloadResponse = await fetch(`/api/kml/network_link/${data.token}`);
         const blob = await downloadResponse.blob();
         
@@ -388,7 +356,7 @@ async function generateLiveKML() {
         );
         
     } catch (error) {
-        console.error('Error generating live KML:', error);
+        showToast(`Error generating live KML: ${error.message}`, 'danger');
         displayLiveKMLStatus(
             `Error: ${error.message}`,
             'danger'
@@ -409,6 +377,7 @@ function displayLiveKMLStatus(message, type) {
     }
 }
 
+
 /**
  * Download KML file for a mission
  */
@@ -423,10 +392,8 @@ async function downloadMissionKML(missionId, hoursBack = 72) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        console.log(`KML download triggered for mission ${missionId}`);
     } catch (error) {
-        console.error(`Error downloading KML for mission ${missionId}:`, error);
+        showToast(`Error downloading KML for mission ${missionId}: ${error.message}`, 'danger');
         displayErrorMessage(`Error downloading KML: ${error.message}`);
     }
 }
@@ -435,11 +402,9 @@ async function downloadMissionKML(missionId, hoursBack = 72) {
  * Handle mission selection dropdown
  */
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, checking for map container...');
-    
     // Check if Leaflet is available
     if (typeof L === 'undefined') {
-        console.error('Leaflet library not loaded');
+        showToast('Leaflet library not loaded', 'danger');
         return;
     }
     
@@ -447,7 +412,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const mapContainer = document.getElementById('missionMapContainer');
     
     if (mapContainer) {
-        console.log('Map container found, initializing...');
         // Initialize map when container is present
         initializeMissionMap();
         
@@ -477,7 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             const activeMissions = JSON.parse(activeMissionsData);
                             loadMultipleMissionTracks(activeMissions, hoursBack);
                         } catch (error) {
-                            console.error('Error parsing active missions:', error);
+                            showToast('Error loading missions', 'danger');
                             displayErrorMessage('Error loading missions');
                         }
                     } else {
@@ -509,19 +473,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 await generateLiveKML();
             });
         }
-    } else {
-        console.log('Map container not found on page load, retrying in 500ms...');
-        // Retry after a short delay in case the page is still loading
-        setTimeout(function() {
-            const retryContainer = document.getElementById('missionMapContainer');
-            if (retryContainer) {
-                console.log('Map container found on retry, initializing...');
-                initializeMissionMap();
-            } else {
-                console.log('Map container still not found after retry');
-            }
-        }, 500);
-    }
+        } else {
+            // Retry after a short delay in case the page is still loading
+            setTimeout(function() {
+                const retryContainer = document.getElementById('missionMapContainer');
+                if (retryContainer) {
+                    initializeMissionMap();
+                }
+            }, 500);
+        }
 });
+
+// Export functions for use in other modules if needed
+export { initializeMissionMap, loadMissionTrack, loadMultipleMissionTracks, generateLiveKML, downloadMissionKML };
 
 

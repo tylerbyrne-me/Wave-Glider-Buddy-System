@@ -2,7 +2,7 @@
 import logging
 
 from ...core import models
-from ...db import SQLModelSession
+from ...core.db import SQLModelSession
 
 logger = logging.getLogger(__name__)
 

@@ -4,8 +4,8 @@ from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
 from sqlmodel import select, delete, func, case
 from ..core import models
-from ..db import get_db_session, SQLModelSession
-from ..auth_utils import get_current_active_user, get_current_admin_user, get_optional_current_user
+from ..core.db import get_db_session, SQLModelSession
+from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import io
 import csv
 import logging
@@ -15,7 +15,7 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 # (PayPeriodUpdate and MonthlyChartData have been moved to app/core/models.py)
 import calendar
 from app.core.templates import templates
-from .. import auth_utils
+from ..core import auth
 from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Payroll"])
@@ -33,7 +33,7 @@ async def get_open_pay_periods(
     any periods for which the user already has an active 'submitted' or 'approved' timesheet.
     """
     # Get the current user's DB entry
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 
@@ -67,7 +67,7 @@ async def calculate_timesheet_hours(
     if not pay_period:
         raise HTTPException(status_code=404, detail="Pay period not found.")
 
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 
@@ -99,7 +99,7 @@ async def submit_timesheet(
     If an active timesheet already exists (e.g., a rejected one), it will be
     deactivated, and this new submission will become the active one.
     """
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 
@@ -139,7 +139,7 @@ async def get_my_timesheet_submissions(
     Gets all of the current user's timesheet submissions (active and inactive),
     ordered by pay period and then by submission date.
     """
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 
@@ -162,7 +162,7 @@ async def get_my_timesheet_status_for_home_panel(
     """
     Gets a summary of the user's timesheet status for the current/most recent pay period.
     """
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 
@@ -207,7 +207,7 @@ async def get_my_timesheet_statuses(
     Gets the status of the current user's most recent *active* timesheet submission
     for each pay period they have submitted for.
     """
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
 

@@ -15,10 +15,11 @@ import logging
 import hashlib
 from email.utils import format_datetime as format_http_datetime
 
-from ..auth_utils import get_current_active_user
+from ..core.auth import get_current_active_user
 from ..core import models
-from ..db import get_db_session, SQLModelSession
+from ..core.db import get_db_session, SQLModelSession
 from ..core.map_utils import prepare_track_points, generate_live_kml_with_track
+from ..core.data_service import get_data_service
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -158,16 +159,17 @@ async def get_live_kml(
         # Parse mission IDs
         mission_ids = token_record.mission_ids.split(',')
         
-        # Import load_data_source inside function to avoid circular import
-        from ..app import load_data_source
+        # Use data service (no circular dependency)
         from ..core.processors import preprocess_telemetry_df
         
         # Fetch data for all missions
         all_track_points = []
+        data_service = get_data_service()
+        
         for mission_id in mission_ids:
             try:
-                # Load telemetry data
-                df, source_path = await load_data_source(
+                # Load telemetry data using data service
+                df, source_path, _ = await data_service.load(
                     "telemetry",
                     mission_id,
                     source_preference=None,

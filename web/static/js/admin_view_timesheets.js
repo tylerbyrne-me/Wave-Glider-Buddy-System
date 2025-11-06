@@ -1,8 +1,13 @@
-import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_view_timesheets.js
+ * @description Admin timesheet review and management
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth, getUserProfile } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     const payPeriodSelect = document.getElementById('payPeriodSelectAdmin');
     const payPeriodSpinner = document.getElementById('payPeriodSpinnerAdmin');
@@ -32,12 +37,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const historyTableContainer = document.getElementById('historyTableContainer');
     const historyTableBody = document.getElementById('historyTableBody');
 
+    /**
+     * Fetch all pay periods
+     */
     async function fetchAllPayPeriods() {
         try {
             // Use the admin endpoint to get all periods, not just open ones
-            const response = await fetchWithAuth('/api/admin/pay_periods');
-            if (!response.ok) throw new Error('Failed to load pay periods.');
-            const periods = await response.json();
+            const periods = await apiRequest('/api/admin/pay_periods', 'GET');
 
             payPeriodSelect.innerHTML = '<option value="" selected disabled>-- Select a Period --</option>';
             if (periods.length > 0) {
@@ -52,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 payPeriodSelect.innerHTML = '<option selected>No pay periods found.</option>';
             }
         } catch (error) {
-            console.error("Error fetching pay periods:", error);
+            showToast(`Error loading pay periods: ${error.message}`, 'danger');
             payPeriodSelect.innerHTML = `<option selected>Error: ${error.message}</option>`;
         } finally {
             payPeriodSpinner.style.display = 'none';
@@ -74,11 +80,10 @@ document.addEventListener('DOMContentLoaded', function() {
         exportCsvBtn.style.display = 'none'; // Hide until data is loaded
 
         try {
-            const response = await fetchWithAuth(`/api/admin/timesheets?pay_period_id=${periodId}`);
-            if (!response.ok) throw new Error('Failed to fetch timesheets for this period.');
-            const timesheets = await response.json();
+            const timesheets = await apiRequest(`/api/admin/timesheets?pay_period_id=${periodId}`, 'GET');
             renderTable(timesheets, periodId);
         } catch (error) {
+            showToast(`Error loading timesheets: ${error.message}`, 'danger');
             tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">${error.message}</td></tr>`;
         } finally {
             timesheetsSpinner.style.display = 'none';
@@ -212,21 +217,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const response = await fetchWithAuth(`/api/admin/timesheets/${timesheetId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Failed to update timesheet status.');
-            }
-
+            await apiRequest(`/api/admin/timesheets/${timesheetId}`, 'PATCH', payload);
+            showToast('Timesheet updated successfully', 'success');
             timesheetActionModal.hide();
             // Re-fetch timesheets for the current period to update the table
             payPeriodSelect.dispatchEvent(new Event('change')); 
         } catch (error) {
+            showToast(`Error updating timesheet: ${error.message}`, 'danger');
             timesheetActionErrorDiv.textContent = error.message;
             timesheetActionErrorDiv.style.display = 'block';
         } finally {
@@ -241,12 +238,7 @@ document.addEventListener('DOMContentLoaded', function() {
         timesheetHistoryModal.show();
     
         try {
-            const response = await fetchWithAuth(`/api/admin/timesheets/${timesheetId}/history`);
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Failed to load submission history.');
-            }
-            const history = await response.json();
+            const history = await apiRequest(`/api/admin/timesheets/${timesheetId}/history`, 'GET');
     
             let historyHtml = '';
             if (history.length === 0) {
@@ -305,8 +297,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const response = await fetchWithAuth(`/api/admin/timesheets/export_csv?pay_period_id=${payPeriodId}`);
-            if (!response.ok) throw new Error('Failed to export timesheets to CSV.');
+            // CSV export needs fetch directly for blob response
+            const token = localStorage.getItem('accessToken');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const response = await fetch(`/api/admin/timesheets/export_csv?pay_period_id=${payPeriodId}`, { headers });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to export timesheets to CSV.');
+            }
             
             const blob = await response.blob();
             const contentDisposition = response.headers.get('Content-Disposition');
@@ -324,8 +326,7 @@ document.addEventListener('DOMContentLoaded', function() {
             window.URL.revokeObjectURL(url);
             a.remove();
         } catch (error) {
-            alert("Error exporting timesheets: " + error.message);
-            console.error("Export error:", error);
+            showToast(`Error exporting timesheets: ${error.message}`, 'danger');
         }
     });
 

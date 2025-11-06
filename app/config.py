@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Feature Toggles - JSON string in .env, parsed here
     feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true}'
     
+    
     # Parsed values (not loaded directly from env)
     remote_mission_folder_map: dict[str, str] = {}
     feature_toggles: dict[str, bool] = {}

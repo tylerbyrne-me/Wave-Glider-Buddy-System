@@ -3,8 +3,8 @@ from fastapi.responses import HTMLResponse
 from typing import List, Optional
 from sqlmodel import select
 from ..core import models
-from ..db import get_db_session, SQLModelSession
-from ..auth_utils import get_current_active_user, get_current_admin_user, get_optional_current_user
+from ..core.db import get_db_session, SQLModelSession
+from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import logging
 
 # Import Announcement models from app.py or core.models
@@ -17,7 +17,7 @@ from ..core.models import (
     AnnouncementReadWithAcks,
     AcknowledgedByInfo,
 )
-from .. import auth_utils
+from ..core import auth
 from app.core.templates import templates
 from ..core.template_context import get_template_context
 
@@ -67,7 +67,7 @@ async def get_active_announcements(
 ):
     active_announcements_stmt = select(Announcement).where(Announcement.is_active == True).order_by(Announcement.created_at_utc.desc())
     active_announcements = session.exec(active_announcements_stmt).all()
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
     user_acks_stmt = select(AnnouncementAcknowledgement.announcement_id).where(AnnouncementAcknowledgement.user_id == user_in_db.id)
@@ -85,7 +85,7 @@ async def acknowledge_announcement(
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
     announcement = session.get(Announcement, announcement_id)

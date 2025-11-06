@@ -10,11 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import select  # Import select for queries
 
-from ..auth_utils import get_current_active_user, get_current_admin_user
+from ..core.auth import get_current_active_user, get_current_admin_user
 from ..core import models
 from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
-from ..db import SQLModelSession, get_db_session
+from ..core.db import SQLModelSession, get_db_session
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,13 @@
-import { checkAuth } from "/static/js/auth.js";
-import { fetchWithAuth } from "/static/js/api.js";
+/**
+ * @file view_pic_handoffs.js
+ * @description View recent PIC handoff submissions
+ */
 
-document.addEventListener('DOMContentLoaded', function () {
-    if (!checkAuth()) { // from auth.js
+import { checkAuth, logout } from "/static/js/auth.js";
+import { apiRequest, showToast } from "/static/js/api.js";
+
+document.addEventListener('DOMContentLoaded', async function () {
+    if (!await checkAuth()) {
         return;
     }
 
@@ -37,25 +42,17 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             let apiUrl = '/api/forms/pic_handoffs/recent';
             if (formId) {
-                apiUrl = `/api/forms/id/${formId}`; // ToDo: Implement endpoint
+                apiUrl = `/api/forms/id/${formId}`;
             }
 
-            const response = await fetchWithAuth(apiUrl);
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    logout(); return;
-                }
-                const errorData = await response.json().catch(() => ({ detail: 'Failed to load recent PIC Handoffs.' }));
-                throw new Error(errorData.detail || `Error ${response.status}`);
-            }
-            const forms = await response.json();
+            const forms = await apiRequest(apiUrl, 'GET');
             if (formId) {
                 displayFormDetailsInModal(forms);
             } else {
                 renderFormsTable(forms);
             }
         } catch (error) {
-            console.error('Error fetching recent PIC Handoffs:', error);
+            showToast(`Error loading PIC Handoffs: ${error.message}`, 'danger');
             tableBody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Error loading submissions: ${error.message}</td></tr>`;
             noFormsMessage.textContent = `Error: ${error.message}`;
             noFormsMessage.style.display = 'block';

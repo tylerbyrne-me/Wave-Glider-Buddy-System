@@ -6,10 +6,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlmodel import Session as SQLModelSession
 from sqlmodel import select
 
-from ..auth_utils import get_current_admin_user
+from ..core.auth import get_current_admin_user
 from ..core import models
-from ..db import get_db_session
-from ..reporting import generate_weekly_report
+from ..core.data_service import get_data_service
+from ..core.db import get_db_session
+from ..core.reporting import generate_weekly_report
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,8 @@ async def generate_mission_report(
     Generates a weekly PDF report containing telemetry and power summaries for the
     specified mission. Restricted to administrators.
     """
-    # NOTE: We import the main app's data loading function here, inside the endpoint,
-    # to avoid circular dependencies at the module level.
-    from ..app import load_data_source
+    # Use data service (no circular dependency)
+    data_service = get_data_service()
 
     mission_overview = session.exec(
         select(models.MissionOverview).where(models.MissionOverview.mission_id == mission_id)
@@ -49,33 +49,27 @@ async def generate_mission_report(
         
     logger.info(f"Fetching data for '{mission_id}' report, initiated by '{current_user.username}'.")
     try:
-        results = await asyncio.gather(
-            load_data_source("telemetry", mission_id, current_user=current_user),
-            load_data_source("power", mission_id, current_user=current_user),
-            load_data_source("ctd", mission_id, current_user=current_user),
-            load_data_source("weather", mission_id, current_user=current_user),
-            load_data_source("waves", mission_id, current_user=current_user),
-            load_data_source("solar", mission_id, current_user=current_user),
-            load_data_source("errors", mission_id, current_user=current_user),
-            return_exceptions=True,
+        # Use consolidated load_multiple helper for concurrent loading
+        report_types = ["telemetry", "power", "ctd", "weather", "waves", "solar", "errors"]
+        data_results = await data_service.load_multiple(
+            report_types=report_types,
+            mission_id=mission_id,
+            current_user=current_user
         )
-        telemetry_res, power_res, ctd_res, weather_res, wave_res, solar_res, error_res = results
-
-        telemetry_df = telemetry_res[0] if not isinstance(telemetry_res, Exception) else pd.DataFrame()
-        power_df = power_res[0] if not isinstance(power_res, Exception) else pd.DataFrame()
-        ctd_df = ctd_res[0] if not isinstance(ctd_res, Exception) else pd.DataFrame()
-        weather_df = weather_res[0] if not isinstance(weather_res, Exception) else pd.DataFrame()
-        wave_df = wave_res[0] if not isinstance(wave_res, Exception) else pd.DataFrame()
-        solar_df = solar_res[0] if not isinstance(solar_res, Exception) else pd.DataFrame()
-        error_df = error_res[0] if not isinstance(error_res, Exception) else pd.DataFrame()
-
-        if isinstance(telemetry_res, Exception): logger.error(f"Error loading telemetry data for report: {telemetry_res}")
-        if isinstance(power_res, Exception): logger.error(f"Error loading power data for report: {power_res}")
-        if isinstance(ctd_res, Exception): logger.error(f"Error loading ctd data for report: {ctd_res}")
-        if isinstance(weather_res, Exception): logger.error(f"Error loading weather data for report: {weather_res}")
-        if isinstance(wave_res, Exception): logger.error(f"Error loading wave data for report: {wave_res}")
-        if isinstance(solar_res, Exception): logger.error(f"Error loading solar data for report: {solar_res}")
-        if isinstance(error_res, Exception): logger.error(f"Error loading error data for report: {error_res}")
+        
+        # Extract DataFrames from results (empty DataFrame if error occurred)
+        telemetry_df = data_results.get("telemetry", (pd.DataFrame(), "", None))[0]
+        power_df = data_results.get("power", (pd.DataFrame(), "", None))[0]
+        ctd_df = data_results.get("ctd", (pd.DataFrame(), "", None))[0]
+        weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
+        wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
+        solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
+        error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
+        
+        # Log any errors (empty DataFrames indicate errors were caught in load_multiple)
+        for report_type in report_types:
+            if data_results.get(report_type, (pd.DataFrame(), "", None))[1] == "Error":
+                logger.error(f"Error loading {report_type} data for report")
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)

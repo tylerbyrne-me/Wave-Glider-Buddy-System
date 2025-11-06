@@ -10,11 +10,11 @@ from datetime import datetime, timezone, timedelta
 import io
 import csv
 
-from ..db import get_db_session
-from ..auth_utils import get_current_active_user, get_current_admin_user
+from ..core.db import get_db_session
+from ..core.auth import get_current_active_user, get_current_admin_user
 from ..core.models import User
 from ..services.error_analysis_service import ErrorAnalysisService
-from .error_analysis_models import ErrorDashboardSummary, ErrorTrendData
+from ..core.models.error_analysis import ErrorDashboardSummary, ErrorTrendData
 from ..services.error_classification_service import classify_error_message, analyze_error_messages
 from ..services.error_plotting_service import (
     plot_error_trends, plot_error_heatmap, plot_error_summary_dashboard, 
@@ -25,6 +25,8 @@ import base64
 import matplotlib
 import asyncio
 from ..core import loaders
+from ..core.data_service import get_data_service
+from ..core.error_handlers import handle_processing_error, ErrorContext
 from ..config import settings
 import matplotlib.pyplot as plt
 matplotlib.use('Agg')  # Use non-interactive backend
@@ -46,8 +48,14 @@ async def classify_error(
             "confidence": confidence,
             "description": description
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
+        raise handle_processing_error(
+            operation="classifying error message",
+            error=e,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/analyze/{mission_id}")
 async def analyze_mission_errors(
@@ -60,8 +68,15 @@ async def analyze_mission_errors(
         service = ErrorAnalysisService(session)
         analysis = service.analyze_error_patterns(mission_id)
         return analysis
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise handle_processing_error(
+            operation="analyzing mission errors",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/dashboard/{mission_id}")
 async def get_error_dashboard(
@@ -74,8 +89,15 @@ async def get_error_dashboard(
         service = ErrorAnalysisService(session)
         summary = service.get_dashboard_summary(mission_id)
         return summary
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dashboard data failed: {str(e)}")
+        raise handle_processing_error(
+            operation="getting dashboard data",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/trends/{mission_id}")
 async def get_error_trends(
@@ -89,8 +111,15 @@ async def get_error_trends(
         service = ErrorAnalysisService(session)
         trends = service.get_error_trends(mission_id, days_back)
         return trends
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Trend analysis failed: {str(e)}")
+        raise handle_processing_error(
+            operation="getting error trends",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/plot/trends/{mission_id}")
 async def get_error_trends_plot(
@@ -116,8 +145,15 @@ async def get_error_trends_plot(
         plt.close(fig)  # Clean up
         
         return {"image": f"data:image/png;base64,{img_base64}"}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Plot generation failed: {str(e)}")
+        raise handle_processing_error(
+            operation="generating trends plot",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/plot/heatmap/{mission_id}")
 async def get_error_heatmap_plot(
@@ -143,8 +179,15 @@ async def get_error_heatmap_plot(
         plt.close(fig)  # Clean up
         
         return {"image": f"data:image/png;base64,{img_base64}"}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Heatmap generation failed: {str(e)}")
+        raise handle_processing_error(
+            operation="generating heatmap plot",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/plot/dashboard/{mission_id}")
 async def get_error_dashboard_plot(
@@ -169,8 +212,15 @@ async def get_error_dashboard_plot(
         plt.close(fig)  # Clean up
         
         return {"image": f"data:image/png;base64,{img_base64}"}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dashboard plot generation failed: {str(e)}")
+        raise handle_processing_error(
+            operation="generating dashboard plot",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 @router.get("/plot/timeline/{mission_id}")
 async def get_error_timeline_plot(
@@ -201,8 +251,15 @@ async def get_error_timeline_plot(
         plt.close(fig)  # Clean up
         
         return {"image": f"data:image/png;base64,{img_base64}"}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Timeline plot generation failed: {str(e)}")
+        raise handle_processing_error(
+            operation="generating timeline plot",
+            error=e,
+            resource=mission_id,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 # HTML endpoints for web interface
 @router.get("/dashboard.html", response_class=HTMLResponse)
@@ -367,15 +424,18 @@ async def download_recent_errors_csv(
 ):
     """Download recent errors (last 24 hours) as CSV"""
     try:
-        # Use the same data loading logic as the main dashboard
-        from ..app import load_data_source
+        # Use data service (no circular dependency)
         from ..core.summaries import get_recent_errors
         from ..services.error_classification_service import classify_error_message
         
-        # Load error data using the same method as the dashboard
-        errors_df, _ = await load_data_source("errors", mission_id=mission, current_user=current_user)
-        if errors_df is None or errors_df.empty:
-            raise HTTPException(status_code=404, detail="No error data found for this mission")
+        data_service = get_data_service()
+        # Load and validate error data using consolidated helper
+        errors_df, _, _ = await data_service.load_and_validate(
+            report_type="errors",
+            mission_id=mission,
+            error_message="No error data found for this mission",
+            current_user=current_user
+        )
         
         # Get recent errors using the same logic as the dashboard
         recent_errors = get_recent_errors(errors_df, max_age_hours=hours)
@@ -423,8 +483,15 @@ async def download_recent_errors_csv(
             headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating CSV: {str(e)}")
+        raise handle_processing_error(
+            operation="generating recent errors CSV",
+            error=e,
+            resource=mission,
+            user_id=str(current_user.id) if current_user else None
+        )
 
 
 @router.get("/csv/all")
@@ -434,14 +501,17 @@ async def download_all_errors_csv(
 ):
     """Download all mission errors as CSV"""
     try:
-        # Use the same data loading logic as the main dashboard
-        from ..app import load_data_source
+        # Use data service (no circular dependency)
         from ..services.error_classification_service import classify_error_message
         
-        # Load error data using the same method as the dashboard
-        all_errors_df, _ = await load_data_source("errors", mission_id=mission, current_user=current_user)
-        if all_errors_df is None or all_errors_df.empty:
-            raise HTTPException(status_code=404, detail="No error data found for this mission")
+        data_service = get_data_service()
+        # Load and validate error data using consolidated helper
+        all_errors_df, _ = await data_service.load_and_validate(
+            report_type="errors",
+            mission_id=mission,
+            error_message="No error data found for this mission",
+            current_user=current_user
+        )
         
         # Create CSV
         output = io.StringIO()
@@ -495,5 +565,12 @@ async def download_all_errors_csv(
             headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating CSV: {str(e)}")
+        raise handle_processing_error(
+            operation="generating all errors CSV",
+            error=e,
+            resource=mission,
+            user_id=str(current_user.id) if current_user else None
+        )

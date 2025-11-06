@@ -6,11 +6,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session as SQLModelSession
 from pydantic import BaseModel, Field
 
-from .. import auth_utils  # Import auth_utils module
-from ..auth_utils import get_current_admin_user, get_current_active_user, get_optional_current_user
+from ..core import auth  # Import auth module
+from ..core.auth import get_current_admin_user, get_current_active_user, get_optional_current_user
 from ..core import models
 from ..core.security import create_access_token, verify_password
-from ..db import get_db_session
+from ..core.db import get_db_session
 from app.core.templates import templates
 from ..core.template_context import get_template_context
 
@@ -25,7 +25,7 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
     """Authenticates user and returns a token in the body and sets a secure cookie."""
-    user_in_db = auth_utils.get_user_from_db(session, form_data.username)
+    user_in_db = auth.get_user_from_db(session, form_data.username)
     if not user_in_db or not verify_password(
         form_data.password, user_in_db.hashed_password
     ):
@@ -39,7 +39,7 @@ async def login_for_access_token(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
         )
 
-    auth_utils.logger.info(  # Use auth_utils.logger
+    auth.logger.info(  # Use auth.logger
         f"User '{user_in_db.username}' authenticated successfully. Issuing token."
     )
     access_token = create_access_token(
@@ -74,17 +74,17 @@ async def register_new_user(
     current_admin: Annotated[models.User, Depends(get_current_admin_user)],
     session: Annotated[SQLModelSession, Depends(get_db_session)],
 ):
-    auth_utils.logger.info(  # Use auth_utils.logger
+    auth.logger.info(  # Use auth.logger
         f"Attempting to register new user: {user_in.username}"
     )
     try:
-        created_user_in_db = auth_utils.add_user_to_db(
+        created_user_in_db = auth.add_user_to_db(
             session, user_in
         )  # auth_utils module is already imported
         # Return User model, not UserInDB (which includes hashed_password)
         return models.User.model_validate(created_user_in_db.model_dump())
     except HTTPException as e:  # Catch username already exists error
-        auth_utils.logger.warning(  # Use auth_utils.logger
+        auth.logger.warning(  # Use auth.logger
             f"Registration failed for {user_in.username}: {e.detail}"
         )
         raise e  # Re-raise the HTTPException
@@ -106,10 +106,10 @@ async def admin_list_users(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
 ):
     """Lists all users. Admin only."""
-    auth_utils.logger.info(  # Use auth_utils.logger
+    auth.logger.info(  # Use auth.logger
         f"Admin '{current_admin.username}' requesting list of all users."
     )
-    return auth_utils.list_all_users_from_db(
+    return auth.list_all_users_from_db(
         session
     )  # auth_utils module already imported
 
@@ -126,7 +126,7 @@ async def admin_update_user(
     Admin only.
     """
     update_data_str = user_update.model_dump(exclude_unset=True)
-    auth_utils.logger.info(  # Use auth_utils.logger
+    auth.logger.info(  # Use auth.logger
         f"Admin '{current_admin.username}' updating user '{username}' with: {update_data_str}"
     )
 
@@ -142,7 +142,7 @@ async def admin_update_user(
             )
             active_admins = session.exec(stmt).all()
             if len(active_admins) == 1 and active_admins[0].username == username:
-                auth_utils.logger.error(  # Use auth_utils.logger
+                auth.logger.error(  # Use auth.logger
                     f"Admin '{current_admin.username}' attempted to disable or "
                     f"demote themselves as the sole active admin."
                 )
@@ -151,11 +151,11 @@ async def admin_update_user(
                     detail="Cannot disable or demote the only active administrator.",
                 )
 
-    updated_user_in_db = auth_utils.update_user_details_in_db(
+    updated_user_in_db = auth.update_user_details_in_db(
         session, username, user_update
     )  # auth_utils module already imported
     if not updated_user_in_db:
-        auth_utils.logger.warning(  # Use auth_utils.logger
+        auth.logger.warning(  # Use auth.logger
             f"Admin '{current_admin.username}' failed to update "
             f"non-existent user '{username}'."
         )
@@ -175,15 +175,15 @@ async def admin_change_user_password(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
 ):
     """Changes a user's password. Admin only."""
-    auth_utils.logger.info(  # Use auth_utils.logger
+    auth.logger.info(  # Use auth.logger
         f"Admin '{current_admin.username}' attempting to change password for "
         f"user '{username}'."
     )
-    success = auth_utils.update_user_password_in_db(
+    success = auth.update_user_password_in_db(
         session, username, password_update.new_password
     )  # auth_utils module already imported
     if not success:
-        auth_utils.logger.warning(  # Use auth_utils.logger
+        auth.logger.warning(  # Use auth.logger
             f"Admin '{current_admin.username}' failed to change password for "
             f"non-existent user '{username}'."
         )
@@ -232,7 +232,7 @@ async def update_current_user(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
 ):
     """Update current user's personal information (full name, email)."""
-    auth_utils.logger.info(
+    auth.logger.info(
         f"User '{current_user.username}' updating their own information: {user_update.model_dump(exclude_unset=True)}"
     )
     
@@ -242,12 +242,12 @@ async def update_current_user(
         email=user_update.email
     )
     
-    updated_user_in_db = auth_utils.update_user_details_in_db(
+    updated_user_in_db = auth.update_user_details_in_db(
         session, current_user.username, admin_update
     )
     
     if not updated_user_in_db:
-        auth_utils.logger.error(
+        auth.logger.error(
             f"Failed to update user '{current_user.username}' - user not found in database."
         )
         raise HTTPException(
@@ -266,12 +266,12 @@ async def change_current_user_password(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
 ):
     """Change current user's password."""
-    auth_utils.logger.info(
+    auth.logger.info(
         f"User '{current_user.username}' attempting to change their password."
     )
     
     # Get the user from database to verify current password
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
@@ -280,7 +280,7 @@ async def change_current_user_password(
     
     # Verify current password
     if not verify_password(password_change.current_password, user_in_db.hashed_password):
-        auth_utils.logger.warning(
+        auth.logger.warning(
             f"User '{current_user.username}' provided incorrect current password."
         )
         raise HTTPException(
@@ -289,12 +289,12 @@ async def change_current_user_password(
         )
     
     # Update password
-    success = auth_utils.update_user_password_in_db(
+    success = auth.update_user_password_in_db(
         session, current_user.username, password_change.new_password
     )
     
     if not success:
-        auth_utils.logger.error(
+        auth.logger.error(
             f"Failed to update password for user '{current_user.username}'."
         )
         raise HTTPException(
@@ -302,7 +302,7 @@ async def change_current_user_password(
             detail="Failed to update password"
         )
     
-    auth_utils.logger.info(
+    auth.logger.info(
         f"User '{current_user.username}' successfully changed their password."
     )
     return {"message": "Password updated successfully"}

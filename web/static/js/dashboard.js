@@ -1,14 +1,16 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file dashboard.js
+ * @description Main dashboard with sensor data visualization
+ */
 
-document.addEventListener('DOMContentLoaded', async function() { // Make async
-    console.log("Dashboard.js: DOMContentLoaded event fired."); // DEBUG: Start of handler
+import { checkAuth, logout } from '/static/js/auth.js';
+import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
     // --- Authentication Check ---
-    if (!checkAuth()) { // checkAuth is from auth.js
-        console.log("Dashboard.js: checkAuth() returned false or redirected. Aborting further script execution."); // DEBUG
+    if (!await checkAuth()) {
         return; // Stop further execution if not authenticated and redirection is handled by checkAuth
     }
-    console.log("Dashboard.js: checkAuth() passed."); // DEBUG
     const missionId = document.body.dataset.missionId;
     // console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
     const missionSelector = document.getElementById('missionSelector'); // Keep this
@@ -18,7 +20,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     // Get enabled sensors from backend configuration
     const enabledSensorsStr = document.body.dataset.enabledSensors || '';
     const enabledSensors = enabledSensorsStr ? enabledSensorsStr.split(',') : [];
-    console.log("Dashboard.js: Enabled sensors from backend:", enabledSensors);
     
     // Helper function to check if a sensor is enabled
     function isSensorEnabled(sensorName) {
@@ -396,16 +397,10 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 const endISO = endDate.toISOString();
                 apiUrl += `&start_date=${encodeURIComponent(startISO)}&end_date=${encodeURIComponent(endISO)}`;
                 
-                // Debug logging
-                console.log(`Date range mode for ${reportType}:`);
-                console.log(`  Input values: ${startInput.value} to ${endInput.value}`);
-                console.log(`  Parsed dates: ${startDate} to ${endDate}`);
-                console.log(`  ISO strings: ${startISO} to ${endISO}`);
-                console.log(`  API URL: ${apiUrl}`);
+                // Date range mode
             } else {
                 // Use hours back mode
                 apiUrl = `/api/data/${reportType}/${mission}?hours_back=${hours}&granularity_minutes=${granularity}`;
-                console.log(`Hours back mode for ${reportType}: ${hours} hours`);
             }
             
             apiUrl += `&source=${currentSource}`;
@@ -416,26 +411,10 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 apiUrl += `&refresh=true`;
             }
             
-            // const response = await fetch(apiUrl); // Old way
-            const response = await fetchWithAuth(apiUrl); // Use fetchWithAuth
-
-            if (response.status === 401 || response.status === 403) {
-                // Unauthorized or Forbidden
-                console.warn(`Auth error (${response.status}) fetching ${reportType}. Redirecting to login.`);
-                logout(); // Clear token and redirect
-                return null; // Or throw an error to stop further processing
-            }
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                const errorMessage = `Error fetching ${reportType} data: ${response.statusText}. Server: ${errorText}`;
-                console.error(errorMessage);
-                displayGlobalError(`Failed to load ${reportType} chart data.`);
-                return null;
-            }
-            return await response.json();
+            const data = await apiRequest(apiUrl, 'GET');
+            return data;
         } catch (error) {
-            console.error(`Network error fetching ${reportType} data:`, error);
+            showToast(`Error loading ${reportType} data: ${error.message}`, 'danger');
             displayGlobalError(`Network error while fetching ${reportType} chart data.`);
             return null;
         } finally {
@@ -632,7 +611,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             renderPowerChart(powerData); // Renders power chart (now without total solar)
             renderSolarPanelChart(solarData, powerData); // Pass both solar (individual) and power (for total solar) data
         }).catch(error => {
-            console.error("Error loading power/solar data:", error);
+            showToast(`Error loading power/solar data: ${error.message}`, 'danger');
             renderPowerChart(null);
             renderSolarPanelChart(null, null);
         });
@@ -653,11 +632,9 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      * @param {Array<Object>|null} chartData - The data array fetched from the API.
      */
     function renderCtdProfileChart(chartData) {
-        console.log('Attempting to render CTD Profile Chart. Data received:', chartData);
         const canvas = document.getElementById('ctdProfileChart');
         if (!canvas) {
-            console.error("Canvas element 'ctdProfileChart' not found.");
-            return;
+            return; // Canvas not found - silent fail (DOM issue)
         }
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
@@ -848,29 +825,12 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 forecastParams.append('start_date', startDate.toISOString());
                 forecastParams.append('end_date', endDate.toISOString());
             }
-            // const response = await fetch(`${forecastApiUrl}?${forecastParams.toString()}`); // Old way
-            const response = await fetchWithAuth(`${forecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
-
-            if (response.status === 401 || response.status === 403) {
-                console.warn(`Auth error (${response.status}) fetching forecast. Redirecting to login.`);
-                logout();
-                return null;
-            }
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                const errorMessage = `Error fetching forecast data: ${response.statusText}. Server: ${errorText}`;
-                console.error(errorMessage);
-                displayGlobalError('Failed to load weather forecast.');
-                return null;
-            }
-            return await response.json();
+            const forecastData = await apiRequest(`${forecastApiUrl}?${forecastParams.toString()}`, 'GET');
+            return forecastData;
         } catch (error) {
-            console.error(`Network error fetching forecast data:`, error);
-            displayGlobalError('Network error while fetching weather forecast.');
+            showToast(`Error loading forecast: ${error.message}`, 'danger');
+            displayGlobalError('Failed to load weather forecast.');
             return null;
-        } finally {
-            // Spinner management removed for forecast
         }
     }
 
@@ -1067,25 +1027,11 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 forecastParams.append('start_date', startDate.toISOString());
                 forecastParams.append('end_date', endDate.toISOString());
             }
-            // const response = await fetch(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Old way
-            const response = await fetchWithAuth(`${marineForecastApiUrl}?${forecastParams.toString()}`); // Use fetchWithAuth
-
-            if (response.status === 401 || response.status === 403) {
-                console.warn(`Auth error (${response.status}) fetching marine forecast. Redirecting to login.`);
-                logout();
-                return null;
-            }
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Error fetching marine forecast data: ${response.statusText}. Server: ${errorText}`);
-                displayGlobalError('Failed to load marine forecast.');
-                return null;
-            }
-            return await response.json();
+            const marineForecastData = await apiRequest(`${marineForecastApiUrl}?${forecastParams.toString()}`, 'GET');
+            return marineForecastData;
         } catch (error) {
-            console.error(`Network error fetching marine forecast data:`, error);
-            displayGlobalError('Network error while fetching marine forecast.');
+            showToast(`Error loading marine forecast: ${error.message}`, 'danger');
+            displayGlobalError('Failed to load marine forecast.');
             return null;
         }
     }
@@ -1183,8 +1129,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         const metaInfoContainer = document.getElementById('marineForecastMetaInfo');
 
         if (!initialContainer || !extendedContainer || !toggleButton || !metaInfoContainer) {
-            console.error("One or more marine forecast display elements are missing from the DOM.");
-            return;
+            return; // Missing DOM elements - silent fail (DOM issue)
         }
 
         if (!marineForecastData || !marineForecastData.hourly || !marineForecastData.hourly.time || marineForecastData.hourly.time.length === 0) {
@@ -1341,7 +1286,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderWaveHeightDirectionChart(chartData) {
         const canvas = document.getElementById('waveHeightDirectionChart');
-        if (!canvas) { console.error("Canvas 'waveHeightDirectionChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1430,7 +1375,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     async function fetchAndRenderWaveSpectrum(mission) {
         const canvas = document.getElementById('waveSpectrumChart');
-        if (!canvas) { console.error("Canvas 'waveSpectrumChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'block';
@@ -1457,27 +1402,10 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             }
             // Note: We are NOT passing a specific timestamp here, relying on the backend to get the latest
             // unless a specific timestamp selection UI is added later.
-            // const response = await fetch(`${apiUrl}?${spectrumParams.toString()}`); // Old way
-            const response = await fetchWithAuth(`${apiUrl}?${spectrumParams.toString()}`); // Use fetchWithAuth
-
-            if (response.status === 401 || response.status === 403) {
-                console.warn(`Auth error (${response.status}) fetching wave spectrum. Redirecting to login.`);
-                logout();
-                renderWaveSpectrumChart(null);
-                return;
-            }
-            if (!response.ok) {
-                const errorText = await response.text();
-                const errorMessage = `Error fetching wave spectrum data: ${response.statusText}. Server: ${errorText}`;
-                console.error(errorMessage);
-                displayGlobalError('Failed to load wave spectrum data.');
-                renderWaveSpectrumChart(null); // Render empty chart
-                return;
-            }
-            const spectrumData = await response.json();
+            const spectrumData = await apiRequest(`${apiUrl}?${spectrumParams.toString()}`, 'GET');
             renderWaveSpectrumChart(spectrumData);
         } catch (error) {
-            console.error(`Network error fetching wave spectrum data:`, error);
+            showToast(`Error loading wave spectrum: ${error.message}`, 'danger');
             displayGlobalError('Network error while fetching wave spectrum data.');
             renderWaveSpectrumChart(null); // Render empty chart
         } finally {
@@ -1522,7 +1450,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderFluorometerChart(chartData) {
         const canvas = document.getElementById('fluorometerChart');
-        if (!canvas) { console.error("Canvas 'fluorometerChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1700,7 +1628,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderTelemetryChart(chartData) { // Renamed from renderNavigationChart
         const canvas = document.getElementById('telemetryChart'); // Updated ID
-        if (!canvas) { console.error("Canvas 'telemetryChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1771,7 +1699,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderNavigationCurrentChart(chartData) {
         const canvas = document.getElementById('telemetryCurrentChart');
-        if (!canvas) { console.error("Canvas 'telemetryCurrentChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1842,7 +1770,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderNavigationHeadingDiffChart(chartData) {
         const canvas = document.getElementById('telemetryHeadingDiffChart');
-        if (!canvas) { console.error("Canvas 'telemetryHeadingDiffChart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1917,7 +1845,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
      */
     function renderWgVm4Chart(chartData) {
         const canvas = document.getElementById('wgVm4Chart');
-        if (!canvas) { console.error("Canvas 'wgVm4Chart' not found."); return; }
+        if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
         if (spinner) spinner.style.display = 'none';
@@ -1989,8 +1917,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     function renderErrorCategoryChart() {
         const canvas = document.getElementById('errorCategoryChart');
         if (!canvas) {
-            console.log('Error category chart canvas not found');
-            return;
+            return; // Canvas not found - silent fail (DOM issue)
         }
         
         const ctx = canvas.getContext('2d');
@@ -2104,8 +2031,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
         // console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
         const canvas = document.getElementById(canvasId);
         if (!canvas) {
-            console.error(`Mini chart canvas with ID ${canvasId} not found.`);
-            return;
+            return; // Canvas not found - silent fail (DOM issue)
         }
         const ctx = canvas.getContext('2d');
 
@@ -2254,7 +2180,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                             // console.log(`  No data points to render for mini chart ${category} (data is empty or null).`);
                         }
                     } catch (e) {
-                        console.error(`Error parsing mini-trend data for ${category}:`, e, `Problematic JSON: "${trendDataJson}"`);
+                        // Silent fail for parsing errors (data issue)
                     }
                 }
             }
@@ -2307,7 +2233,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
             'power': () => isSensorEnabled('power') ? Promise.all([fetchChartData('power', missionId), fetchChartData('solar', missionId)]).then(([powerData, solarData]) => {
                 renderPowerChart(powerData);
                 renderSolarPanelChart(solarData, powerData);
-            }).catch(error => { console.error("Error loading power/solar data:", error); renderPowerChart(null); renderSolarPanelChart(null, null); }) : Promise.resolve(),
+            }).catch(error => { showToast(`Error loading power/solar data: ${error.message}`, 'danger'); renderPowerChart(null); renderSolarPanelChart(null, null); }) : Promise.resolve(),
             'ctd': () => isSensorEnabled('ctd') ? fetchChartData('ctd', missionId).then(data => {
                 renderCtdChart(data);
                 renderCtdProfileChart(data);
@@ -2324,7 +2250,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 renderTelemetryChart(data); // Updated function name
                 renderNavigationCurrentChart(data);
                 renderNavigationHeadingDiffChart(data);
-            }).catch(error => { console.error("Error loading telemetry data:", error); renderTelemetryChart(null); renderNavigationCurrentChart(null); renderNavigationHeadingDiffChart(null); }) : Promise.resolve(), // Add catch for telemetry
+            }).catch(error => { showToast(`Error loading telemetry data: ${error.message}`, 'danger'); renderTelemetryChart(null); renderNavigationCurrentChart(null); renderNavigationHeadingDiffChart(null); }) : Promise.resolve(), // Add catch for telemetry
             'errors': () => isSensorEnabled('errors') ? Promise.resolve().then(() => {
                 renderErrorCategoryChart();
             }) : Promise.resolve()
@@ -2499,8 +2425,7 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
     function saveChartsAsPng(category, highResolution = false) {
         const detailView = document.getElementById(`detail-${category}`);
         if (!detailView) {
-            console.error(`Detail view for category ${category} not found.`);
-            return;
+            return; // Detail view not found - silent fail (DOM issue)
         }
 
         const mission = document.body.dataset.missionId;
@@ -2625,8 +2550,6 @@ document.addEventListener('DOMContentLoaded', async function() { // Make async
                 reportTypes.add(input.dataset.reportType);
             }
         });
-        
-        console.log('Clearing all date ranges for report types:', Array.from(reportTypes));
         reportTypes.forEach(reportType => {
             clearDateRange(reportType);
         });

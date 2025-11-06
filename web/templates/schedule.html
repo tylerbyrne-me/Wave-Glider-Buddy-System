@@ -245,17 +245,9 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-    {# Ensure jQuery is loaded if DayPilot or your custom scripts need it #}
-    {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
-
+{% block body_extra_js %}
     {# FullCalendar JS served locally #}
     <script src="{{ url_for('static', path='fullcalendar/main.min.js') }}"></script>
-
-    {# Link to your custom schedule.js if you move the script out #}
-    <script src="{{ url_for('static', path='js/schedule.js') }}"></script>
-{% endblock %}
-
-{% block body_extra_js %}
+    {# Schedule.js as ES6 module #}
     <script type="module" src="/static/js/schedule.js"></script>
 {% endblock %}

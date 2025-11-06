@@ -1,4 +1,16 @@
-function initializeWgVm4OffloadSection() {
+/**
+ * @file wg_vm4.js
+ * @description WG-VM4 Offload Log Management
+ * 
+ * Handles station metadata search and offload log submission for WG-VM4 stations
+ */
+
+import { apiRequest, showToast } from '/static/js/api.js';
+
+/**
+ * Initialize the WG-VM4 offload section
+ */
+export function initializeWgVm4OffloadSection() {
     // DOM element getters
     const stationIdSearchInput = document.getElementById('stationIdSearch');
     const fetchStationDataBtn = document.getElementById('fetchStationDataBtn');
@@ -13,7 +25,10 @@ function initializeWgVm4OffloadSection() {
     let currentStationData = null; // To store fetched station metadata
     let searchTimeout; // For debouncing search
 
-    // --- Station Search & Metadata Fetch ---
+    /**
+     * Search for stations by query string
+     * @param {string} query - Search query (minimum 2 characters)
+     */
     async function searchStations(query) {
         if (!query || query.length < 2) { // Min 2 chars to search
             stationSearchResultsContainer.innerHTML = '';
@@ -21,13 +36,7 @@ function initializeWgVm4OffloadSection() {
             return;
         }
         try {
-            const response = await fetchWithAuth(`/api/station_metadata/?query=${encodeURIComponent(query)}&limit=5`);
-            if (!response.ok) {
-                console.error('Error searching stations:', response.statusText);
-                stationSearchResultsContainer.style.display = 'none';
-                return;
-            }
-            const stations = await response.json();
+            const stations = await apiRequest(`/api/station_metadata/?query=${encodeURIComponent(query)}&limit=5`, 'GET');
             stationSearchResultsContainer.innerHTML = '';
             if (stations.length > 0) {
                 stations.forEach(station => {
@@ -48,11 +57,15 @@ function initializeWgVm4OffloadSection() {
                 stationSearchResultsContainer.style.display = 'none';
             }
         } catch (error) {
-            console.error('Network error searching stations:', error);
+            showToast(`Error searching stations: ${error.message}`, 'danger');
             stationSearchResultsContainer.style.display = 'none';
         }
     }
 
+    /**
+     * Fetch metadata for a specific station
+     * @param {string} stationId - Station identifier
+     */
     async function fetchStationMetadata(stationId) {
         if (!stationId) return;
         stationMetadataError.style.display = 'none';
@@ -61,20 +74,13 @@ function initializeWgVm4OffloadSection() {
         if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
 
         try {
-            const response = await fetchWithAuth(`/api/station_metadata/${stationId}`);
-            if (!response.ok) {
-                const err = await response.json();
-                stationMetadataError.textContent = `Error: ${err.detail || response.statusText}`;
-                stationMetadataError.style.display = 'block';
-                return;
-            }
-            currentStationData = await response.json();
+            currentStationData = await apiRequest(`/api/station_metadata/${stationId}`, 'GET');
             displayStationMetadata(currentStationData);
             buildOffloadLogFormFields(currentStationData);
             if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = false;
         } catch (error) {
-            console.error('Error fetching station metadata:', error);
-            stationMetadataError.textContent = 'Network error or invalid station ID.';
+            showToast(`Error fetching station metadata: ${error.message}`, 'danger');
+            stationMetadataError.textContent = `Error: ${error.message}`;
             stationMetadataError.style.display = 'block';
         }
     }
@@ -323,26 +329,18 @@ function initializeWgVm4OffloadSection() {
             };
 
             try {
-                const response = await fetchWithAuth(`/api/forms/${missionId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-success">Log for station ${currentStationData.station_id} submitted successfully!</div>`;
-                    wgVm4OffloadForm.reset();
-                    if(stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
-                    currentStationData = null;
-                    if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
-                    if(stationIdSearchInput) stationIdSearchInput.value = '';
-                    buildOffloadLogFormFields(null); 
-                } else {
-                    if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-danger">Submission failed: ${result.detail || 'Unknown error'}</div>`;
-                }
+                const result = await apiRequest(`/api/forms/${missionId}`, 'POST', payload);
+                showToast(`Log for station ${currentStationData.station_id} submitted successfully!`, 'success');
+                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-success">Log for station ${currentStationData.station_id} submitted successfully!</div>`;
+                wgVm4OffloadForm.reset();
+                if(stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
+                currentStationData = null;
+                if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
+                if(stationIdSearchInput) stationIdSearchInput.value = '';
+                buildOffloadLogFormFields(null); 
             } catch (error) {
-                console.error('Error submitting offload log:', error);
-                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-danger">Network error during submission.</div>`;
+                showToast(`Error submitting offload log: ${error.message}`, 'danger');
+                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;
             } finally {
                 if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = !currentStationData; 
             }

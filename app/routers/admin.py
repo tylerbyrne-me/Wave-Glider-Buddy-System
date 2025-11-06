@@ -6,7 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from ..auth_utils import get_current_admin_user, get_optional_current_user
+from ..core.auth import get_current_admin_user, get_optional_current_user
 from ..core import models
 from ..core.templates import templates
 from ..core.template_context import get_template_context
@@ -43,7 +43,8 @@ def _format_trigger(trigger) -> models.JobTriggerInfo:
 @router.get("/scheduler/jobs", response_model=List[models.ScheduledJob], summary="Get Status of Scheduled Jobs")
 async def get_scheduler_jobs():
     """Retrieves a list of all jobs currently scheduled in APScheduler."""
-    from ..app import scheduler  # Import here to avoid circular dependency
+    from ..core.scheduler import get_scheduler
+    scheduler = get_scheduler()
     
     jobs_list = []
     now_utc = datetime.now(timezone.utc)

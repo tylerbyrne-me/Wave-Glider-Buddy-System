@@ -15,19 +15,19 @@ import numpy as np
 
 from sqlmodel import Session as SQLModelSession, select
 
-from .core import models, utils
-from .core.plotting import (plot_ctd_for_report, plot_errors_for_report,
+from . import models, utils
+from .plotting import (plot_ctd_for_report, plot_errors_for_report,
                           plot_power_for_report, plot_summary_page, plot_telemetry_for_report, plot_wave_for_report, plot_weather_for_report)
-from .core.processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
+from .processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
 
 logger = logging.getLogger(__name__)
 
 # Define the output directory for reports
-REPORTS_DIR = Path(__file__).resolve().parent.parent / "web" / "static" / "mission_reports"
+REPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Define the path to the company logo. **Please update 'your_logo_name.png' to your actual logo file name.**
-LOGO_PATH = Path(__file__).resolve().parent.parent / "web" / "static" / "images" / "otn_logo.png"
+LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "images" / "otn_logo.png"
 
 def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     """
@@ -516,28 +516,25 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
     Loads data, generates a standard weekly report, and saves the URL to the database.
     Designed to be called by an automated scheduler.
     """
-    # NOTE: We import the main app's data loading function here, inside the function,
-    # to avoid circular dependencies at the module level.
-    from .app import load_data_source
+    # NOTE: Use data_service instead of importing from app.py to avoid circular dependencies
+    from .data_service import get_data_service
 
     logger.info(f"AUTOMATED: Starting weekly report generation for mission '{mission_id}'.")
     try:
-        # Load data sources, providing empty DataFrames as a fallback if a source is missing.
-        telemetry_res = await load_data_source("telemetry", mission_id, current_user=None)
-        power_res = await load_data_source("power", mission_id, current_user=None)
-        solar_res = await load_data_source("solar", mission_id, current_user=None)
-        ctd_res = await load_data_source("ctd", mission_id, current_user=None)
-        weather_res = await load_data_source("weather", mission_id, current_user=None)
-        wave_res = await load_data_source("waves", mission_id, current_user=None)
-        error_res = await load_data_source("errors", mission_id, current_user=None)
-
-        telemetry_df = telemetry_res[0] if telemetry_res else pd.DataFrame()
-        power_df = power_res[0] if power_res else pd.DataFrame()
-        solar_df = solar_res[0] if solar_res else pd.DataFrame()
-        ctd_df = ctd_res[0] if ctd_res else pd.DataFrame()
-        weather_df = weather_res[0] if weather_res else pd.DataFrame()
-        wave_df = wave_res[0] if wave_res else pd.DataFrame()
-        error_df = error_res[0] if error_res else pd.DataFrame()
+        # Use data service for data loading (no circular dependency)
+        data_service = get_data_service()
+        
+        # Load data sources concurrently
+        report_types = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
+        results = await data_service.load_multiple(report_types, mission_id, hours_back=168)  # 1 week
+        
+        telemetry_df = results.get("telemetry", pd.DataFrame())
+        power_df = results.get("power", pd.DataFrame())
+        solar_df = results.get("solar", pd.DataFrame())
+        ctd_df = results.get("ctd", pd.DataFrame())
+        weather_df = results.get("weather", pd.DataFrame())
+        wave_df = results.get("waves", pd.DataFrame())
+        error_df = results.get("errors", pd.DataFrame())
 
         # Fetch mission goals
         goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
@@ -569,3 +566,4 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
         logger.info(f"AUTOMATED: Successfully generated and saved weekly report for mission '{mission_id}'. URL: {report_url}")
     except Exception as e:
         logger.error(f"AUTOMATED: Failed to generate weekly report for mission '{mission_id}': {e}", exc_info=True)
+

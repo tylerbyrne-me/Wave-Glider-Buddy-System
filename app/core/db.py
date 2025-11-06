@@ -24,3 +24,4 @@ def get_db_session():
     # It will be automatically closed after the request.
     with SQLModelSession(sqlite_engine) as session:
         yield session
+

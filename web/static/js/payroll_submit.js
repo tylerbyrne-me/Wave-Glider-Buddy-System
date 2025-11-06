@@ -1,8 +1,13 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file payroll_submit.js
+ * @description Timesheet submission interface
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     const resubmitPeriodId = urlParams.get('resubmit_for_period');
@@ -19,11 +24,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let currentCalculatedHours = 0;
 
+    /**
+     * Fetch open pay periods
+     */
     async function fetchOpenPayPeriods() {
         try {
-            const response = await fetchWithAuth('/api/pay_periods/open');
-            if (!response.ok) throw new Error('Failed to load pay periods.');
-            const periods = await response.json();
+            const periods = await apiRequest('/api/pay_periods/open', 'GET');
 
             payPeriodSelect.innerHTML = '<option value="" selected disabled>-- Select a Period --</option>';
             if (periods.length > 0) {
@@ -44,6 +50,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 payPeriodSelect.innerHTML = '<option selected>No open pay periods available.</option>';
             }
         } catch (error) {
+            showToast(`Error loading pay periods: ${error.message}`, 'danger');
             payPeriodSelect.innerHTML = `<option selected>Error: ${error.message}</option>`;
         } finally {
             payPeriodSpinner.style.display = 'none';
@@ -64,13 +71,12 @@ document.addEventListener('DOMContentLoaded', function() {
         submissionStatusDiv.innerHTML = '';
 
         try {
-            const response = await fetchWithAuth(`/api/timesheets/calculate?pay_period_id=${periodId}`);
-            if (!response.ok) throw new Error('Failed to calculate hours.');
-            const data = await response.json();
+            const data = await apiRequest(`/api/timesheets/calculate?pay_period_id=${periodId}`, 'GET');
             currentCalculatedHours = data.calculated_hours;
             calculatedHoursSpan.textContent = currentCalculatedHours;
             submitBtn.disabled = false;
         } catch (error) {
+            showToast(`Error calculating hours: ${error.message}`, 'danger');
             calculatedHoursSpan.textContent = `Error`;
             submissionStatusDiv.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
         } finally {
@@ -90,18 +96,8 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         try {
-            const response = await fetchWithAuth('/api/timesheets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                throw new Error(result.detail || 'Failed to submit timesheet.');
-            }
-
+            await apiRequest('/api/timesheets', 'POST', payload);
+            showToast('Timesheet submitted successfully!', 'success');
             submissionStatusDiv.innerHTML = `<div class="alert alert-success">Timesheet submitted successfully!</div>`;
             // Reset form state
             payPeriodSelect.value = "";
@@ -109,6 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
             pilotNotesTextarea.value = "";
 
         } catch (error) {
+            showToast(`Error submitting timesheet: ${error.message}`, 'danger');
             submissionStatusDiv.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
             submitBtn.disabled = false; // Re-enable on error
         }

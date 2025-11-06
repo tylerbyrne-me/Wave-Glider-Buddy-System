@@ -1,5 +1,10 @@
+/**
+ * @file schedule.js
+ * @description Schedule management with FullCalendar integration
+ */
+
 import { getUserProfile, checkAuth } from "/static/js/auth.js";
-import { fetchWithAuth } from "/static/js/api.js";
+import { apiRequest, showToast } from "/static/js/api.js";
 
 document.addEventListener('DOMContentLoaded', async function () {
     // This function was moved from schedule.html to make this script more self-contained.
@@ -233,27 +238,14 @@ document.addEventListener('DOMContentLoaded', async function () {
                 };
 
                 try {
-                    const response = await fetchWithAuth('/api/schedule/shifts', { // Use new shifts endpoint
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(newEventData),
-                    });
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({
-                            detail: "Server error during sign-up."
-                        }));
-                        throw new Error(errorData.detail || "Server error");
-                    }
-                    alert(`Shift added for ${window.currentUser.username}.`);
+                    await apiRequest('/api/schedule/shifts', 'POST', newEventData);
+                    showToast(`Shift added for ${window.currentUser.username}`, 'success');
                     mainCalendar.refetchEvents(); // Reload events to show the new one
                     // Clear the submission flag after a short delay.
                     setTimeout(() => { this.isSubmitting = false; }, 1000);
 
                 } catch (error) {
-                    alert("Error signing up: " + error.message);
+                    showToast(`Error signing up: ${error.message}`, 'danger');
                 }
             }
         }, // End dateClick callback
@@ -274,11 +266,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                 if (window.currentUser.role === 'admin') {
                     if (confirm(`Do you want to remove this LRI Block?`)) {
                         try {
-                            const response = await fetchWithAuth(`/api/schedule/lri_blocks/${event.id}`, { method: 'DELETE' });
-                            if (!response.ok) { throw new Error((await response.json()).detail || "Server error during LRI block removal."); }
-                            alert("LRI Block removed.");
+                            await apiRequest(`/api/schedule/lri_blocks/${event.id}`, 'DELETE');
+                            showToast('LRI Block removed', 'success');
                             event.remove(); // Optimistic update
-                        } catch (error) { alert("Error removing LRI Block: " + error.message); }
+                        } catch (error) {
+                            showToast(`Error removing LRI Block: ${error.message}`, 'danger');
+                        }
                     }
                 } else { alert("This slot is reserved for LRI."); }
                 return; // Stop further processing for LRI blocks
@@ -287,50 +280,40 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (event.extendedProps.type === "unavailability") {
                 if (confirm(`Do you want to remove this unavailability: ${event.title}?`)) {
                     try {
-                        const response = await fetchWithAuth(`/api/schedule/unavailability/${event.id.replace('unavail-', '')}`, { method: 'DELETE' });
-                        if (!response.ok) { throw new Error((await response.json()).detail || "Server error during unavailability removal."); }
-                        alert("Unavailability removed.");
+                        await apiRequest(`/api/schedule/unavailability/${event.id.replace('unavail-', '')}`, 'DELETE');
+                        showToast('Unavailability removed', 'success');
                         event.remove(); // Optimistic update
                     } catch (error) {
-                        alert("Error removing unavailability: " + error.message);
+                        showToast(`Error removing unavailability: ${error.message}`, 'danger');
                     }
                 }
             } else if (originalTitle === window.currentUser.username) { // User clicked their own shift
                 if (confirm("Do you want to unassign yourself from this shift?")) {
                     try { // Use new shifts endpoint
-                        const response = await fetchWithAuth(`/api/schedule/shifts/${event.id}`, { method: 'DELETE' });
-                        if (!response.ok) {
-                            throw new Error((await response.json()).detail || "Server error during unassignment.");
-                        }
-                        alert(`Shift unassigned.`);
+                        await apiRequest(`/api/schedule/shifts/${event.id}`, 'DELETE');
+                        showToast('Shift unassigned', 'success');
                         event.remove(); // Optimistic update
                     } catch (error) {
-                        alert("Error unassigning: " + error.message);
+                        showToast(`Error unassigning: ${error.message}`, 'danger');
                     }
                 } // End confirm
             } else { // Clicked someone else's shift
                 let modalContent = `<b>Shift Details:</b><br/>Pilot: ${originalTitle}<br/>Start: ${event.start.toLocaleString()}<br/>End: ${event.end.toLocaleString()}`;
 
                 try {
-                    const handoffResponse = await fetchWithAuth(`/api/schedule/events/${event.id}/pic_handoffs`);
-                    if (handoffResponse.ok) {
-                        const handoffForms = await handoffResponse.json();
-                        if (handoffForms.length > 0) {
-                            modalContent += `<br/><br/><b>PIC Handoffs during this shift:</b><ul>`;
-                            handoffForms.forEach(form => {
-                                const submissionTime = new Date(form.submission_timestamp);
-                                const viewUrl = `/view_pic_handoffs.html?form_id=${form.form_db_id}&mission_id=${form.mission_id}`;
-                                modalContent += `<li><a href="${viewUrl}" target="_blank">${form.mission_id} - PIC Handoff (${submissionTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})</a> by ${form.submitted_by_username}</li>`;
-                            });
-                            modalContent += `</ul>`;
-                        } else {
-                            modalContent += `<br/><br/><i>No PIC Handoff forms found for this shift.</i>`;
-                        }
+                    const handoffForms = await apiRequest(`/api/schedule/events/${event.id}/pic_handoffs`, 'GET');
+                    if (handoffForms && handoffForms.length > 0) {
+                        modalContent += `<br/><br/><b>PIC Handoffs during this shift:</b><ul>`;
+                        handoffForms.forEach(form => {
+                            const submissionTime = new Date(form.submission_timestamp);
+                            const viewUrl = `/view_pic_handoffs.html?form_id=${form.form_db_id}&mission_id=${form.mission_id}`;
+                            modalContent += `<li><a href="${viewUrl}" target="_blank">${form.mission_id} - PIC Handoff (${submissionTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})</a> by ${form.submitted_by_username}</li>`;
+                        });
+                        modalContent += `</ul>`;
                     } else {
-                        modalContent += `<br/><br/><i>Could not load PIC Handoff information.</i>`;
+                        modalContent += `<br/><br/><i>No PIC Handoff forms found for this shift.</i>`;
                     }
                 } catch (error) {
-                    console.error("Network error fetching PIC Handoffs:", error);
                     modalContent += `<br/><br/><i>Error loading PIC Handoff information.</i>`;
                 }
 
@@ -353,18 +336,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     async function fetchAllScheduleEvents(fetchInfo, successCallback, failureCallback) {
         try {
             // Fetch all events (shifts and unavailabilities) from the combined endpoint
-            const response = await fetchWithAuth(`/api/schedule/events?start=${fetchInfo.start.toISOString()}&end=${fetchInfo.end.toISOString()}`);
-
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    console.warn(`Auth error (${response.status}) fetching schedule events. Redirecting to login.`);
-                    logout();
-                    return;
-                }
-                const errorData = await response.json().catch(() => ({ detail: "Server error fetching schedule events." }));
-                throw new Error(errorData.detail || "Server error fetching schedule events.");
-            }
-            const events = await response.json(); // This now contains both shifts and unavailabilities
+            const events = await apiRequest(`/api/schedule/events?start=${fetchInfo.start.toISOString()}&end=${fetchInfo.end.toISOString()}`, 'GET');
 
             const allEvents = [];
             events.forEach(event => {
@@ -603,7 +575,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         const apiUrl = `/api/schedule/download?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&format=${encodeURIComponent(format)}&user_scope=${encodeURIComponent(userScope)}`;
 
         try {
-            const response = await fetchWithAuth(apiUrl, { method: 'GET' });
+            // Download endpoint returns blob, use fetch directly
+            const token = localStorage.getItem('accessToken');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const response = await fetch(apiUrl, { method: 'GET', headers });
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -619,11 +597,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(link.href);
-            alert("Schedule download started.");
+            showToast("Schedule download started", 'success');
 
         } catch (error) {
-            console.error("Failed to download schedule:", error);
-            alert("Network error downloading schedule: " + error.message);
+            showToast(`Error downloading schedule: ${error.message}`, 'danger');
         }
     }
 
@@ -658,16 +635,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
 
             try {
-                const response = await fetchWithAuth('/api/schedule/unavailability', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ start_time_utc: startDate, end_time_utc: endDate, reason: reason }),
-                });
-                if (!response.ok) { throw new Error((await response.json()).detail || "Server error blocking time."); }
+                await apiRequest('/api/schedule/unavailability', 'POST', { start_time_utc: startDate, end_time_utc: endDate, reason: reason });
+                showToast('Time blocked successfully', 'success');
                 blockTimeModal.hide();
                 mainCalendar.refetchEvents(); // Refresh calendar to show new unavailability
             } catch (error) {
-                blockTimeErrorDiv.textContent = "Error blocking time: " + error.message;
+                showToast(`Error blocking time: ${error.message}`, 'danger');
+                blockTimeErrorDiv.textContent = error.message;
                 blockTimeErrorDiv.style.display = 'block';
             }
         });
@@ -714,22 +688,17 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
 
             try {
-                const response = await fetchWithAuth('/api/schedule/lri_blocks', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        start_date: startDate, 
-                        end_date: endDate,
-                        reason: "LRI Piloting Block" // Optional reason
-                    }),
+                await apiRequest('/api/schedule/lri_blocks', 'POST', { 
+                    start_date: startDate, 
+                    end_date: endDate,
+                    reason: "LRI Piloting Block" // Optional reason
                 });
-                if (!response.ok) { 
-                    throw new Error((await response.json()).detail || "Server error blocking LRI time."); 
-                }
+                showToast('LRI time blocked successfully', 'success');
                 blockLriTimeModal.hide();
                 mainCalendar.refetchEvents(); // Refresh calendar to show new LRI blocks
             } catch (error) {
-                blockLriTimeErrorDiv.textContent = "Error blocking LRI time: " + error.message;
+                showToast(`Error blocking LRI time: ${error.message}`, 'danger');
+                blockLriTimeErrorDiv.textContent = error.message;
                 blockLriTimeErrorDiv.style.display = 'block';
             }
         });
@@ -771,13 +740,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (confirm(`Are you sure you want to clear ALL shifts, LRI blocks, and unavailability from ${startDate} to ${endDate}? This action cannot be undone.`)) {
                 try {
                     const apiUrl = `/api/schedule/clear_range?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
-                    const response = await fetchWithAuth(apiUrl, { method: 'DELETE' });
-                    if (!response.ok) { throw new Error((await response.json()).detail || "Server error during clear operation."); }
-                    alert(`All shifts and blocks from ${startDate} to ${endDate} cleared successfully.`);
+                    await apiRequest(apiUrl, 'DELETE');
+                    showToast(`All shifts and blocks from ${startDate} to ${endDate} cleared successfully`, 'success');
                     clearRangeModal.hide();
                     mainCalendar.refetchEvents(); // Reload events
                 } catch (error) {
-                    clearRangeErrorDiv.textContent = "Error clearing range: " + error.message;
+                    showToast(`Error clearing range: ${error.message}`, 'danger');
+                    clearRangeErrorDiv.textContent = error.message;
                     clearRangeErrorDiv.style.display = 'block';
                 }
             }

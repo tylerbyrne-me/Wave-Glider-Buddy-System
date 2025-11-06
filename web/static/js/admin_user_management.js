@@ -1,8 +1,13 @@
-import { checkAuth } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_user_management.js
+ * @description Admin user management interface
+ */
 
-document.addEventListener('DOMContentLoaded', function () {
-    if (!checkAuth()) { // from auth.js
+import { checkAuth, logout } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function () {
+    if (!await checkAuth()) {
         return;
     }
 
@@ -46,49 +51,20 @@ document.addEventListener('DOMContentLoaded', function () {
     const closeUserManagementPageBtn = document.getElementById('closeUserManagementPageBtn');
 
 
+    /**
+     * Fetch and display all users
+     */
     async function fetchAndDisplayUsers() {
         userManagementSpinner.style.display = 'block';
         userManagementTableContainer.style.display = 'none';
         noUsersMessage.style.display = 'none';
 
         try {
-            const response = await fetchWithAuth('/api/admin/users');
-            let users; // Declare users here
-
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    logout(); return;
-                }
-                // Try to get more detailed error information
-                let errorDetailMessage = `Failed to load users (Status: ${response.status})`;
-                try {
-                    const errorText = await response.text(); // Get raw text first
-                    console.error("Raw error response from /api/admin/users:", errorText);
-                    try {
-                        const errorData = JSON.parse(errorText); // Try to parse it
-                        errorDetailMessage = errorData.detail || errorDetailMessage;
-                    } catch (parseError) {
-                        // If parsing fails, use the raw text (or a snippet)
-                        errorDetailMessage = `${errorDetailMessage}. Server sent non-JSON response: ${errorText.substring(0, 200)}...`;
-                    }
-                } catch (textError) {
-                    console.error("Could not read error response text:", textError);
-                }
-                throw new Error(errorDetailMessage);
-            }
-
-            // If response.ok, try to parse as JSON
-            const responseText = await response.text(); // Get text first
-            try {
-                users = JSON.parse(responseText); // Then parse
-            } catch (e) {
-                console.error("Failed to parse successful response as JSON. Raw text:", responseText);
-                throw new Error("Received successful but unparsable response from server.");
-            }
+            const users = await apiRequest('/api/admin/users', 'GET');
 
             usersTableBody.innerHTML = '';
 
-            if (users.length === 0) {
+            if (!users || users.length === 0) {
                 noUsersMessage.style.display = 'block';
             } else {
                 users.forEach(user => {
@@ -133,7 +109,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 userManagementTableContainer.style.display = 'block';
             }
         } catch (error) {
-            console.error('Error fetching or displaying users:', error.message); // Log the error message
             usersTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
             userManagementTableContainer.style.display = 'block';
             noUsersMessage.style.display = 'none';
@@ -189,23 +164,14 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         try {
-            const response = await fetchWithAuth(`/api/admin/users/${username}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (response.ok) {
-                editUserModal.hide();
-                fetchAndDisplayUsers(); // Refresh the list
-            } else {
-                const errorData = await response.json();
-                editUserErrorDiv.textContent = errorData.detail || 'Failed to update user.';
-                editUserErrorDiv.style.display = 'block';
-            }
+            await apiRequest(`/api/admin/users/${username}`, 'PUT', payload);
+            showToast('User updated successfully', 'success');
+            editUserModal.hide();
+            fetchAndDisplayUsers(); // Refresh the list
         } catch (error) {
-            editUserErrorDiv.textContent = 'Network error or unexpected issue.';
+            showToast(`Error updating user: ${error.message}`, 'danger');
+            editUserErrorDiv.textContent = error.message;
             editUserErrorDiv.style.display = 'block';
-            console.error("Error saving user changes:", error);
         }
     });
 
@@ -240,23 +206,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         try {
-            const response = await fetchWithAuth(`/api/admin/users/${username}/password`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ new_password: newPassword })
-            });
-            if (response.ok) {
-                changePasswordModal.hide();
-                // Optionally show a success toast/message on the main page
-            } else {
-                const errorData = await response.json();
-                changePasswordErrorDiv.textContent = errorData.detail || 'Failed to change password.';
-                changePasswordErrorDiv.style.display = 'block';
-            }
+            await apiRequest(`/api/admin/users/${username}/password`, 'PUT', { new_password: newPassword });
+            showToast('Password changed successfully', 'success');
+            changePasswordModal.hide();
+            fetchAndDisplayUsers(); // Refresh the list
         } catch (error) {
-            changePasswordErrorDiv.textContent = 'Network error or unexpected issue.';
+            showToast(`Error changing password: ${error.message}`, 'danger');
+            changePasswordErrorDiv.textContent = error.message;
             changePasswordErrorDiv.style.display = 'block';
-            console.error("Error changing password:", error);
         }
     });
 
@@ -307,24 +264,14 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         try {
-            const response = await fetchWithAuth('/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            
-            if (response.ok) {
-                addNewUserModal.hide();
-                fetchAndDisplayUsers(); // Refresh the list
-            } else {
-                const errorData = await response.json();
-                addNewUserErrorDiv.textContent = errorData.detail || 'Failed to create user.';
-                addNewUserErrorDiv.style.display = 'block';
-            }
+            await apiRequest('/register', 'POST', payload);
+            showToast('User created successfully', 'success');
+            addNewUserModal.hide();
+            fetchAndDisplayUsers(); // Refresh the list
         } catch (error) {
-            addNewUserErrorDiv.textContent = 'Network error or unexpected issue.';
+            showToast(`Error creating user: ${error.message}`, 'danger');
+            addNewUserErrorDiv.textContent = error.message;
             addNewUserErrorDiv.style.display = 'block';
-            console.error("Error creating new user:", error);
         }
     });
 

@@ -9,122 +9,16 @@ from . import utils
 logger = logging.getLogger(__name__)  # Get a logger for this module
 
 
-def standardize_timestamp_column(
-    df: pd.DataFrame, preferred: str = "Timestamp"
-) -> pd.DataFrame:
-    """Renames the first found common timestamp column"""
-    if df.empty:
-        return df
-    for col in df.columns:
-        lower_col = col.lower()
-        if "time" in lower_col or col in [
-            "timeStamp",
-            "gliderTimeStamp",
-            "lastLocationFix",
-        ]:
-            # logger.debug(f"Standardized timestamp column: '{col}' to '{preferred}'.")
-            df = df.rename(columns={col: preferred})
-            return df
-    # logger.debug(
-    # f"No standardizable timestamp column found for preferred name
-    # '{preferred}'. Columns: {df.columns.tolist()}"
-    # )
-    return df
+# Import shared utilities (moved to processor_utils to avoid circular imports)
+from .processor_utils import (
+    standardize_timestamp_column,
+    initial_dataframe_setup,
+    apply_common_processing,
+)
 
-
-def _initial_dataframe_setup(
-    df: pd.DataFrame, target_timestamp_col: str
-) -> pd.DataFrame:
-    """
-    Handles initial DataFrame checks, timestamp standardization, conversion to UTC, and NaT removal.
-    Works on a copy of the input DataFrame.
-    Returns an empty DataFrame if input is invalid or processing results in an empty DataFrame.
-    """
-    if df is None or df.empty:
-        # logger.debug(
-        #     f"Input DataFrame for '{target_timestamp_col}' processing is None or empty."
-        # )
-        return pd.DataFrame()
-
-    df_processed = df.copy()  # Work on a copy to avoid modifying the original DataFrame
-    df_processed = standardize_timestamp_column(
-        df_processed, preferred=target_timestamp_col
-    )
-
-    if target_timestamp_col not in df_processed.columns:
-        logger.warning(
-            f"Timestamp column '{target_timestamp_col}' not found after "
-            f"standardization for '{target_timestamp_col}' type. Cannot proceed. Columns: {df_processed.columns.tolist()}"
-        )
-        return (
-            pd.DataFrame()
-        )  # Return empty if timestamp column is essential and not found
-
-    # Parse timestamps - ALL timestamps are UTC, never convert to local time
-    # Use robust parser to handle mixed formats (ISO 8601 and 12hr AM/PM)
-    # Handles both: '2025-10-27T14:13:15Z' and '10/27/2025 2:13:14PM'
-    # parse_timestamp_column already ensures UTC timezone awareness
-    df_processed[target_timestamp_col] = utils.parse_timestamp_column(
-        df_processed[target_timestamp_col], errors="coerce", utc=True
-    )
-    
-    # Remove NaT values (parsing failures)
-    df_processed = df_processed.dropna(subset=[target_timestamp_col])
-    
-    # Filter out epoch dates (typically 1970-01-01 or 1969-12-31) which indicate parsing failures
-    # Use the minimum valid timestamp constant from utils
-    if not df_processed.empty:
-        min_valid_date = pd.Timestamp(utils.MIN_VALID_TIMESTAMP)
-        valid_mask = df_processed[target_timestamp_col] >= min_valid_date
-        invalid_count = (~valid_mask).sum()
-        if invalid_count > 0:
-            logger.warning(
-                f"Removing {invalid_count} rows with pre-2000 timestamps from preprocessing "
-                f"(column: {target_timestamp_col})"
-            )
-        df_processed = df_processed[valid_mask].copy()
-
-    # if df_processed.empty:
-    # logger.debug(
-    #     f"DataFrame became empty after timestamp processing for '{target_timestamp_col}'."
-    # )
-    return df_processed
-
-def _apply_common_processing(
-    df: pd.DataFrame,
-    timestamp_col: str,
-    rename_map: Dict[str, str],
-    numeric_cols: List[str],
-) -> pd.DataFrame:
-    """
-    Applies a common sequence of preprocessing steps: timestamp setup, renaming, and numeric conversion.
-    """
-    df_processed = _initial_dataframe_setup(df, timestamp_col)
-    if df_processed.empty:
-        # To ensure schema consistency even for empty dataframes, add expected columns
-        expected_cols = [timestamp_col] + list(rename_map.values())
-        for col in expected_cols:
-            if col not in df_processed.columns:
-                if col == timestamp_col:
-                    df_processed[col] = pd.Series(dtype="datetime64[ns, UTC]")
-                else:
-                    df_processed[col] = np.nan
-        return df_processed
-
-    df_processed = df_processed.rename(columns=rename_map)
-
-    all_expected_cols = [timestamp_col] + list(rename_map.values())
-
-    for col in all_expected_cols:
-        if col not in df_processed.columns:
-            df_processed[col] = np.nan
-
-        if col in numeric_cols:
-            df_processed[col] = pd.to_numeric(
-                df_processed[col], errors="coerce"
-            )
-
-    return df_processed
+# Create aliases for backward compatibility
+_initial_dataframe_setup = initial_dataframe_setup
+_apply_common_processing = apply_common_processing
 
 
 def preprocess_power_df(df):
@@ -669,3 +563,33 @@ def preprocess_wg_vm4_info_df(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_processed
 
+
+# ============================================================================
+# Processor Registry Initialization
+# ============================================================================
+# Lazy initialization to avoid circular imports
+# The registry is initialized when processors module is imported
+def _initialize_registry():
+    """Initialize processor registry with all processors."""
+    from .processor_framework import get_processor_registry
+    
+    registry = get_processor_registry()
+    
+    # Register all existing processors
+    registry.register("power", preprocess_power_df)
+    registry.register("ctd", preprocess_ctd_df)
+    registry.register("weather", preprocess_weather_df)
+    registry.register("waves", preprocess_wave_df)
+    registry.register("ais", preprocess_ais_df)
+    registry.register("errors", preprocess_error_df)
+    registry.register("vr2c", preprocess_vr2c_df)
+    registry.register("fluorometer", preprocess_fluorometer_df)
+    registry.register("solar", preprocess_solar_df)
+    registry.register("telemetry", preprocess_telemetry_df)
+    registry.register("wg_vm4", preprocess_wg_vm4_df)
+    registry.register("wg_vm4_info", preprocess_wg_vm4_info_df)
+    
+    return registry
+
+# Initialize registry on module import
+_processor_registry = _initialize_registry()

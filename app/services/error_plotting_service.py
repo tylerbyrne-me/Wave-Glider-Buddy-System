@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 import seaborn as sns
-from ..routers.error_analysis_models import ErrorTrendData
+from ..core.models.error_analysis import ErrorTrendData
 
 # Trend plotting functions
 def plot_error_trends(trend_data: List[ErrorTrendData], mission_id: str, 

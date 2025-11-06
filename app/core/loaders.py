@@ -1,10 +1,14 @@
 import io
 import logging
+import os
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Tuple
 
 # import requests # disabled in favor of httpx
 import httpx  # async http requests
 import pandas as pd
+from email.utils import parsedate_to_datetime
 
 logger = logging.getLogger(
     __name__
@@ -18,8 +22,14 @@ async def load_report(
     base_path: Path = None,
     base_url: str = None,
     client: httpx.AsyncClient = None,
-):
-    """Loads a report as a DataFrame from local or remote. Returns None on error."""
+) -> Tuple[Optional[pd.DataFrame], Optional[datetime]]:
+    """
+    Loads a report as a DataFrame from local or remote.
+    
+    Returns:
+        Tuple of (DataFrame or None, file_modification_time or None)
+        file_modification_time: Last-Modified header for remote, file mtime for local
+    """
     reports = {
         "power": "Amps Power Summary Report.csv",  # Existing
         "solar": "Amps Solar Input Port Report.csv",  # New solar panel report
@@ -46,7 +56,15 @@ async def load_report(
         file_path = Path(base_path) / mission_id / filename
         # Reading file is synchronous, keep the function async for consistency if remote is an option
         try:
-            return pd.read_csv(file_path)
+            df = pd.read_csv(file_path)
+            # Get file modification time
+            file_mod_time = None
+            try:
+                mtime = os.path.getmtime(file_path)
+                file_mod_time = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (OSError, ValueError) as e:
+                logger.debug(f"Could not get file modification time for {file_path}: {e}")
+            return df, file_mod_time
         except FileNotFoundError as e:
             # If base_url is also provided, we might want to fall back. For
             # now, if base_path is given, we assume it's the primary target.
@@ -55,7 +73,7 @@ async def load_report(
             logger.info(
                 f"File not found at local path: {file_path}. Error: {e}"
             )
-            return None
+            return None, None
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
         # If an external client is provided, use it directly without an
@@ -67,10 +85,21 @@ async def load_report(
             try:
                 response = await client.get(url, timeout=DEFAULT_TIMEOUT)
                 response.raise_for_status()
-                return pd.read_csv(io.StringIO(response.text))
+                df = pd.read_csv(io.StringIO(response.text))
+                # Get Last-Modified header
+                file_mod_time = None
+                last_modified_header = response.headers.get("Last-Modified")
+                if last_modified_header:
+                    try:
+                        file_mod_time = parsedate_to_datetime(last_modified_header)
+                        if file_mod_time.tzinfo is None:
+                            file_mod_time = file_mod_time.replace(tzinfo=timezone.utc)
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Could not parse Last-Modified header '{last_modified_header}' for {url}: {e}")
+                return df, file_mod_time
             except httpx.RequestError as e:
                 logger.error(f"HTTP request failed for {url}: {e}")
-                return None
+                return None, None
         else:
             # This case should ideally not be hit if app.py always provides a
             # client for remote calls.
@@ -82,10 +111,21 @@ async def load_report(
                 ) as current_client:  # Fallback to create a client
                     response = await current_client.get(url)
                     response.raise_for_status()
-                    return pd.read_csv(io.StringIO(response.text))
+                    df = pd.read_csv(io.StringIO(response.text))
+                    # Get Last-Modified header
+                    file_mod_time = None
+                    last_modified_header = response.headers.get("Last-Modified")
+                    if last_modified_header:
+                        try:
+                            file_mod_time = parsedate_to_datetime(last_modified_header)
+                            if file_mod_time.tzinfo is None:
+                                file_mod_time = file_mod_time.replace(tzinfo=timezone.utc)
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"Could not parse Last-Modified header '{last_modified_header}' for {url}: {e}")
+                    return df, file_mod_time
             except httpx.RequestError as e:
                 logger.error(f"HTTP request failed for {url}: {e}")
-                return None
+                return None, None
     else:
         raise ValueError(
             "Either base_path or base_url must be provided to load_report."

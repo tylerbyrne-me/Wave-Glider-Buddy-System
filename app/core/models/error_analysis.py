@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from enum import Enum
 from sqlmodel import SQLModel, Field, Column, Text, Integer, Float, Boolean
-from ..core.error_types import ErrorCategory
+from ..error_types import ErrorCategory
 
 # Use the same ErrorCategory enum for consistency
 ErrorCategoryEnum = ErrorCategory
@@ -103,3 +103,4 @@ class ErrorDashboardSummary(SQLModel):
     top_error_types: List[dict]
     self_correction_rate: float
     trend_direction: str  # "increasing", "decreasing", "stable"
+

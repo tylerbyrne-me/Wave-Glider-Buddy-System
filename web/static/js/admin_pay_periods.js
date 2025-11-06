@@ -1,8 +1,13 @@
-import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { fetchWithAuth } from '/static/js/api.js';
+/**
+ * @file admin_pay_periods.js
+ * @description Admin pay period management
+ */
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAuth()) return;
+import { checkAuth, getUserProfile } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await checkAuth()) return;
 
     // Ensure user is an admin
     getUserProfile().then(user => {
@@ -29,15 +34,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const editErrorDiv = document.getElementById('editPeriodError');
         const saveChangesBtn = document.getElementById('savePeriodChangesBtn');
 
+        /**
+         * Load all pay periods
+         */
         async function loadPayPeriods() {
             tableSpinner.style.display = 'block';
             tableContainer.style.display = 'none';
             try {
-                const response = await fetchWithAuth('/api/admin/pay_periods');
-                if (!response.ok) throw new Error('Failed to load pay periods.');
-                const periods = await response.json();
+                const periods = await apiRequest('/api/admin/pay_periods', 'GET');
                 renderTable(periods);
             } catch (error) {
+                showToast(`Error loading pay periods: ${error.message}`, 'danger');
                 tableBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">${error.message}</td></tr>`;
             } finally {
                 tableSpinner.style.display = 'none';
@@ -92,18 +99,16 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
+        /**
+         * Delete a pay period
+         */
         async function deletePayPeriod(id) {
             try {
-                const response = await fetchWithAuth(`/api/admin/pay_periods/${id}`, {
-                    method: 'DELETE'
-                });
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'Failed to delete pay period.');
-                }
+                await apiRequest(`/api/admin/pay_periods/${id}`, 'DELETE');
+                showToast('Pay period deleted successfully', 'success');
                 loadPayPeriods(); // Refresh table on success
             } catch (error) {
-                alert(`Error: ${error.message}`);
+                showToast(`Error deleting pay period: ${error.message}`, 'danger');
             }
         }
 
@@ -121,18 +126,12 @@ document.addEventListener('DOMContentLoaded', function() {
             };
 
             try {
-                const response = await fetchWithAuth('/api/admin/pay_periods', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to create pay period.');
-                }
+                await apiRequest('/api/admin/pay_periods', 'POST', payload);
+                showToast('Pay period created successfully', 'success');
                 createForm.reset();
                 loadPayPeriods(); // Refresh table
             } catch (error) {
+                showToast(`Error creating pay period: ${error.message}`, 'danger');
                 createErrorDiv.textContent = error.message;
                 createErrorDiv.style.display = 'block';
             } finally {
@@ -154,18 +153,12 @@ document.addEventListener('DOMContentLoaded', function() {
             };
 
             try {
-                const response = await fetchWithAuth(`/api/admin/pay_periods/${periodId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to update pay period.');
-                }
+                await apiRequest(`/api/admin/pay_periods/${periodId}`, 'PATCH', payload);
+                showToast('Pay period updated successfully', 'success');
                 editModal.hide();
                 loadPayPeriods(); // Refresh table
             } catch (error) {
+                showToast(`Error updating pay period: ${error.message}`, 'danger');
                 editErrorDiv.textContent = error.message;
                 editErrorDiv.style.display = 'block';
             } finally {

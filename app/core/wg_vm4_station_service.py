@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import math
 
 from sqlmodel import select
-from ..db import SQLModelSession
+from .db import SQLModelSession
 from . import models
 from .wg_vm4_payload_parser import WgVm4PayloadParser, OffloadEvent, OffloadEventType
 

@@ -4,11 +4,11 @@ from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
 from sqlmodel import select, delete
 from ..core import models
-from ..db import get_db_session, SQLModelSession
-from ..auth_utils import (
+from ..core.db import get_db_session, SQLModelSession
+from ..core.auth import (
     get_current_active_user, get_current_admin_user, get_optional_current_user, get_user_from_db
 )
-from .. import auth_utils
+from ..core import auth
 import io
 import ics
 import csv
@@ -152,7 +152,7 @@ async def get_schedule_events_api(
     consecutive_shift_info = _detect_consecutive_shifts(db_assignments)
     
     response_events = []
-    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    lri_pilot_user = auth.get_user_from_db(session, "LRI_PILOT")
     
     # Group assignments by user and create merged events
     user_assignments = {}
@@ -391,7 +391,7 @@ async def create_schedule_event_api(
     if not (abs(duration_hours - 3) < 0.01 and final_start_dt.minute == 0 and final_start_dt.second == 0):
         logger.warning(f"Invalid shift slot attempted: Start time must be on the hour and duration must be 3 hours. Received start: {final_start_dt}, end: {final_end_dt}")
         raise HTTPException(status_code=400, detail="Invalid shift slot. Must be a 3-hour block starting on a designated hour.")
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         logger.error(f"Consistency error: User '{current_user.username}' found by token but not in DB for event creation.")
         raise HTTPException(status_code=500, detail="User not found in database.")
@@ -432,7 +432,7 @@ async def create_lri_blocks_api(
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"Admin '{current_admin.username}' creating LRI blocks from {block_in.start_date} to {block_in.end_date}.")
-    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    lri_pilot_user = auth.get_user_from_db(session, "LRI_PILOT")
     if not lri_pilot_user:
         raise HTTPException(status_code=500, detail="LRI_PILOT user not found in database. Please ensure it's initialized.")
     created_events = []
@@ -500,7 +500,7 @@ async def delete_lri_block_api(
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"Admin '{current_admin.username}' attempting to delete LRI block ID: {shift_assignment_id}")
-    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    lri_pilot_user = auth.get_user_from_db(session, "LRI_PILOT")
     if not lri_pilot_user:
         raise HTTPException(status_code=500, detail="LRI_PILOT user not found.")
     db_assignment = session.get(models.ShiftAssignment, shift_assignment_id)
@@ -520,7 +520,7 @@ async def create_unavailability_api(
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"User '{current_user.username}' creating unavailability: {unavailability_in}")
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=500, detail="User not found in database.")
     if unavailability_in.start_time_utc > unavailability_in.end_time_utc:
@@ -644,7 +644,7 @@ async def get_my_upcoming_shifts(
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
-    user_in_db = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db = auth.get_user_from_db(session, current_user.username)
     if not user_in_db:
         raise HTTPException(status_code=404, detail="Current user not found in database.")
     now_utc = datetime.now(timezone.utc)
@@ -681,11 +681,11 @@ async def delete_schedule_event_api(
         logger.warning(f"Shift assignment ID {assignment_id} not found for deletion.")
         raise HTTPException(status_code=404, detail="Shift assignment not found.")
     is_admin = current_user.role == models.UserRoleEnum.admin
-    user_in_db_for_auth = auth_utils.get_user_from_db(session, current_user.username)
+    user_in_db_for_auth = auth.get_user_from_db(session, current_user.username)
     if not user_in_db_for_auth:
         logger.error(f"Consistency error: User '{current_user.username}' not found in DB for auth.")
         raise HTTPException(status_code=500, detail="User not found in database for authorization.")
-    lri_pilot_user = auth_utils.get_user_from_db(session, "LRI_PILOT")
+    lri_pilot_user = auth.get_user_from_db(session, "LRI_PILOT")
     is_lri_block = lri_pilot_user and db_assignment.user_id == lri_pilot_user.id
     if is_lri_block:
         if not is_admin:
@@ -721,7 +721,7 @@ async def download_schedule_data(
     )
     user_in_db_for_filter = None
     if user_scope == "my_shifts":
-        user_in_db_for_filter = auth_utils.get_user_from_db(session, current_user.username)
+        user_in_db_for_filter = auth.get_user_from_db(session, current_user.username)
         if not user_in_db_for_filter:
             logger.error(f"Could not find UserInDB for current_user {current_user.username} when filtering for 'my_shifts'. This should not happen if user is authenticated.")
             raise HTTPException(status_code=404, detail="Current user details not found for filtering.")

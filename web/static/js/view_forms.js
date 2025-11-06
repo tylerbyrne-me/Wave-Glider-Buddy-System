@@ -1,5 +1,13 @@
-document.addEventListener('DOMContentLoaded', function () {
-    if (!checkAuth()) { // from auth.js
+/**
+ * @file view_forms.js
+ * @description View and display submitted forms for missions
+ */
+
+import { checkAuth, logout } from '/static/js/auth.js';
+import { apiRequest, showToast } from '/static/js/api.js';
+
+document.addEventListener('DOMContentLoaded', async function () {
+    if (!await checkAuth()) {
         // If checkAuth redirects, this script might not fully execute, which is fine.
         return;
     }
@@ -16,23 +24,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const urlParams = new URLSearchParams(window.location.search);
     const formIdToAutoOpen = urlParams.get('form_id');
 
+    /**
+     * Fetches and displays all submitted forms
+     */
     async function fetchAndDisplayForms() {
         formsSpinner.style.display = 'block';
         formsTableContainer.style.display = 'none';
         noFormsMessage.style.display = 'none';
 
         try {
-            const response = await fetchWithAuth('/api/forms/all'); // Assumes fetchWithAuth is globally available from auth.js
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    // Should be handled by checkAuth, but as a fallback:
-                    logout(); // Redirect to login if not authorized
-                    return;
-                }
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Failed to load forms (Status: ${response.status})`);
-            }
-            const forms = await response.json();
+            const forms = await apiRequest('/api/forms/all', 'GET');
 
             formsTableBody.innerHTML = ''; // Clear existing rows
 
@@ -44,7 +45,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 const picHandoffHighlightedForMission = {}; // Object to track missions for PIC Handoff highlight
 
                 forms.forEach((form, index) => { // Added index
-                        console.log(`Processing form: Mission ID: ${form.mission_id}, Form Type: '${form.form_type}', Form Title: '${form.form_title}'`); // DEBUG LINE
                     const row = formsTableBody.insertRow();
 
                     // General highlight for the absolute most recent form if user is a pilot
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 formsTableContainer.style.display = 'block';
             }
         } catch (error) {
-            console.error('Error fetching or displaying forms:', error);
+            showToast(`Error loading forms: ${error.message}`, 'danger');
             formsTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error loading forms: ${error.message}</td></tr>`;
             formsTableContainer.style.display = 'block'; // Show table container to display error
             noFormsMessage.style.display = 'none';
@@ -106,6 +106,11 @@ document.addEventListener('DOMContentLoaded', function () {
             formsSpinner.style.display = 'none';
         }
     }
+
+    /**
+     * Renders form details in the modal
+     * @param {Object} form - The form object to render
+     */
     function renderFormDetailsInModal(form) {
         formDetailsContentElement.innerHTML = ''; // Clear previous content
 
