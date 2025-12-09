@@ -482,26 +482,21 @@ def trim_data_to_range(
     """
     Trim the cached data to the exact requested range.
     
+    NOTE: This function is kept for backward compatibility but delegates to 
+    app.core.data_service.trim_data_to_range which has the updated logic.
+    
     Args:
         df: DataFrame to trim
         start_date: Start date for trimming
         end_date: End date for trimming
-        hours_back: Hours back from now for trimming
+        hours_back: Hours back from the last recorded data point (not from now)
         
     Returns:
         Trimmed DataFrame
     """
-    if df.empty or "Timestamp" not in df.columns:
-        return df
-    
-    if start_date and end_date:
-        return df[(df["Timestamp"] >= start_date) & (df["Timestamp"] <= end_date)]
-    elif hours_back:
-        # Always use UTC - never local time
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-        return df[df["Timestamp"] >= cutoff]
-    
-    return df
+    # Delegate to the data_service version which has the updated logic
+    from app.core.data_service import trim_data_to_range as data_service_trim
+    return data_service_trim(df, start_date, end_date, hours_back)
 
 
 def merge_data_with_overlap(
@@ -1057,13 +1052,39 @@ async def refresh_active_mission_cache():
         if user_id in user_sessions:
             active_missions.update(user_sessions[user_id]["missions_accessed"])
     
-    # Fallback to configured active missions if no user activity
-    if not active_missions:
-        active_missions = settings.active_realtime_missions
-        logger.info("BACKGROUND TASK: No user activity data. Using configured active missions.")
+    # Filter out historical missions - only refresh active real-time missions
+    # Historical missions are those NOT in settings.active_realtime_missions
+    # Also handle "1071-m169" format by extracting base mission ID (e.g., "m169")
+    # Filter out empty strings from active_realtime_missions
+    active_realtime_missions_set = set(m for m in settings.active_realtime_missions if m and m.strip())
+    
+    # Filter missions: only include those that are in active_realtime_missions
+    # Handle both "m169" and "1071-m169" formats
+    filtered_missions = []
+    for mission_id in active_missions:
+        # Extract base mission ID (e.g., "m169" from "1071-m169" or just "m169")
+        base_mission_id = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        
+        # Check if this is an active real-time mission
+        if base_mission_id in active_realtime_missions_set or mission_id in active_realtime_missions_set:
+            filtered_missions.append(mission_id)
+        else:
+            logger.debug(f"BACKGROUND TASK: Skipping historical mission {mission_id} (not in active_realtime_missions)")
+    
+    # Fallback to configured active missions if no user activity or all missions were historical
+    if not filtered_missions:
+        # Filter out empty strings from configured active missions
+        filtered_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
+        logger.info("BACKGROUND TASK: No active real-time missions from user activity. Using configured active missions.")
     else:
-        active_missions = list(active_missions)
-        logger.info(f"BACKGROUND TASK: Refreshing data for missions accessed by active users: {active_missions}")
+        logger.info(f"BACKGROUND TASK: Refreshing data for active real-time missions: {filtered_missions}")
+    
+    # Final check: ensure we have valid missions to refresh
+    if not filtered_missions:
+        logger.info("BACKGROUND TASK: No valid active real-time missions configured. Skipping cache refresh.")
+        return
+    
+    active_missions = filtered_missions
     
     # Get database session for checking sensor card configurations
     from .core.db import SQLModelSession, sqlite_engine
@@ -1138,21 +1159,29 @@ async def refresh_active_mission_cache():
                             logger.debug(f"BACKGROUND TASK: Skipping static data source {report_type} ({mission_id})")
                             continue
                         
-                        # Check if data is stale based on cache strategy
-                        expiry_minutes = cache_strategy["expiry_minutes"]
-                        # Always use UTC for datetime operations
-                        now = datetime.now(timezone.utc)
-                        if cache_timestamp.tzinfo is None:
-                            # If cache timestamp is naive, localize to UTC for comparison
-                            cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
-                        
-                        # Only check expiry if expiry_minutes is set (None means no expiry, use incremental loading)
-                        if expiry_minutes is not None and now - cache_timestamp > timedelta(minutes=expiry_minutes):
+                        # For incremental data types, always refresh to check for new data
+                        # This ensures cache_timestamp is updated and frontend can detect refresh cycles
+                        if cache_strategy.get("incremental", False):
+                            # Always refresh incremental data types to check for updates
                             needs_refresh = True
-                            logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
+                            logger.debug(f"BACKGROUND TASK: Refreshing incremental data type {report_type} ({mission_id}) to check for updates")
+                        else:
+                            # For non-incremental data, check expiry
+                            expiry_minutes = cache_strategy["expiry_minutes"]
+                            # Always use UTC for datetime operations
+                            now = datetime.now(timezone.utc)
+                            if cache_timestamp.tzinfo is None:
+                                # If cache timestamp is naive, localize to UTC for comparison
+                                cache_timestamp = cache_timestamp.replace(tzinfo=timezone.utc)
+                            
+                            # Only check expiry if expiry_minutes is set (None means no expiry, use incremental loading)
+                            if expiry_minutes is not None and now - cache_timestamp > timedelta(minutes=expiry_minutes):
+                                needs_refresh = True
+                                logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is stale - will refresh")
                     
                     if needs_refresh:
                         # Use smart loading - will try incremental first if possible
+                        # This will update cache_timestamp even if no new data is found
                         await load_data_source(
                             report_type,
                             mission_id,
@@ -1161,7 +1190,7 @@ async def refresh_active_mission_cache():
                             current_user=None,
                         )
                         refreshed_count += 1
-                        logger.debug(f"BACKGROUND TASK: Refreshed {report_type} for {mission_id}")
+                        logger.info(f"BACKGROUND TASK: Refreshed {report_type} for {mission_id} (cache timestamp updated)")
                         mission_usage_logger.info(f"BACKGROUND_REFRESH: Refreshed {report_type} for {mission_id}")
                     else:
                         logger.debug(f"BACKGROUND TASK: Cached data for {report_type} ({mission_id}) is still fresh")
@@ -1269,21 +1298,37 @@ async def startup_event():
     MISSION_PLANS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Mission plans directory checked/created at: {MISSION_PLANS_DIR}")
 
-    # Initialize comprehensive cache on startup
-    logger.info("STARTUP: Initializing comprehensive data cache...")
+    # Step 1: Sync remote data to local storage
+    logger.info("STARTUP: Syncing remote data to local storage...")
+    try:
+        from .core.sync_service import sync_all_realtime_missions
+        sync_results = await sync_all_realtime_missions()
+        total_successful = sum(r["successful"] for r in sync_results.values())
+        total_failed = sum(r["failed"] for r in sync_results.values())
+        logger.info(
+            f"STARTUP: Sync complete - {total_successful} files synced, {total_failed} failed. "
+            f"Results: {sync_results}"
+        )
+    except Exception as e:
+        logger.error(f"STARTUP: Error syncing data to local storage: {e}", exc_info=True)
+        # Continue anyway - may have some local data or can fall back to remote
+    
+    # Step 2: Initialize cache from local storage (faster than remote)
+    logger.info("STARTUP: Initializing cache from local storage...")
     try:
         cached_count = await initialize_startup_cache()
-        logger.info(f"STARTUP: Successfully cached {cached_count} data sources on startup")
+        logger.info(f"STARTUP: Successfully cached {cached_count} data sources from local storage")
     except Exception as e:
-        logger.error(f"STARTUP: Error initializing cache: {e}")
+        logger.error(f"STARTUP: Error initializing cache: {e}", exc_info=True)
 
-    # Add background refresh using configured interval
+    # Add background refresh using configured interval (default: 10 minutes from .env)
     scheduler.add_job(
         refresh_active_mission_cache,
         "interval",
         minutes=settings.background_cache_refresh_interval_minutes,
         id="active_mission_refresh_job",
     )
+    logger.info(f"Background cache refresh scheduled every {settings.background_cache_refresh_interval_minutes} minutes")
     scheduler.add_job(
         run_weekly_reports_job,
         'cron',
@@ -1766,9 +1811,17 @@ async def _process_loaded_data_for_home_view(
 
 @app.get("/", include_in_schema=False)
 async def root(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
+    """Active mission dashboard."""
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/home.html")
+    
+    # Reuse shared dashboard rendering logic
+    return await _render_dashboard(request, mission, current_user, session, is_historical=False)
+
+
+async def _render_dashboard(request: Request, mission: str, current_user: models.User, session: SQLModelSession, is_historical: bool = False):
+    """Shared dashboard rendering logic for both active and historical missions."""
 
     # Load mission overview data for sensor card configuration
     mission_overview = session.get(models.MissionOverview, mission)
@@ -1863,7 +1916,8 @@ async def root(request: Request, current_user: models.User = Depends(get_current
     )
 
     # Process WG-VM4 info data for automatic offload logging
-    if "wg_vm4_info" in report_types_to_load:
+    # Skip processing for historical missions to prevent overwriting current offload logs
+    if "wg_vm4_info" in report_types_to_load and not is_historical:
         try:
             from .core.wg_vm4_station_service import process_wg_vm4_info_for_mission
             from .core.processors import preprocess_wg_vm4_info_df
@@ -1873,9 +1927,16 @@ async def root(request: Request, current_user: models.User = Depends(get_current
             wg_vm4_info_result = results[wg_vm4_info_index]
             
             if not isinstance(wg_vm4_info_result, Exception) and wg_vm4_info_result is not None:
-                # Unpack the tuple from load_data_source (dataframe, source_path)
-                df, source_path = wg_vm4_info_result
-                if not df.empty:
+                # Unpack the tuple from load_data_source (dataframe, source_path, file_mod_time)
+                if isinstance(wg_vm4_info_result, tuple) and len(wg_vm4_info_result) == 3:
+                    df, source_path, _ = wg_vm4_info_result
+                elif isinstance(wg_vm4_info_result, tuple) and len(wg_vm4_info_result) == 2:
+                    # Backward compatibility
+                    df, source_path = wg_vm4_info_result
+                else:
+                    logger.error(f"Unexpected wg_vm4_info_result format: {wg_vm4_info_result}")
+                    df, source_path = None, None
+                if df is not None and not df.empty:
                     # Preprocess the data
                     processed_df = preprocess_wg_vm4_info_df(df)
                     
@@ -1888,6 +1949,8 @@ async def root(request: Request, current_user: models.User = Depends(get_current
                 logger.debug(f"WG-VM4 info data loading failed for mission {mission}")
         except Exception as e:
             logger.error(f"Error processing WG-VM4 info data for mission {mission}: {e}")
+    elif "wg_vm4_info" in report_types_to_load and is_historical:
+        logger.info(f"Skipping WG-VM4 offload log processing for historical mission {mission} to prevent overwriting current logs")
 
     # Process the loaded data for summaries and mini-trends
     context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission, current_user)
@@ -1899,8 +1962,30 @@ async def root(request: Request, current_user: models.User = Depends(get_current
     
     # Add sensor card configuration to context
     context["enabled_sensor_cards"] = enabled_sensor_cards
+    
+    # Determine if this is a realtime mission (only for active missions)
+    is_realtime = mission in settings.active_realtime_missions if not is_historical else False
+    context["is_current_mission_realtime"] = is_realtime
+    context["is_historical_mission"] = is_historical
 
     return templates.TemplateResponse("index.html", context)
+
+
+@app.get("/historical", include_in_schema=False)
+async def historical_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
+    """Historical mission dashboard - same as root but for past missions without cache refresh."""
+    from fastapi import HTTPException
+    
+    mission = request.query_params.get("mission")
+    if not mission:
+        return RedirectResponse(url="/home.html")
+    
+    # Check if user is admin (only admins can access historical missions)
+    if current_user.role != models.UserRoleEnum.admin:
+        raise HTTPException(status_code=403, detail="Only administrators can access historical missions")
+    
+    # Reuse the same logic as root endpoint but mark as historical
+    return await _render_dashboard(request, mission, current_user, session, is_historical=True)
 
 @app.get("/api/data/{report_type}/{mission_id}")
 async def get_report_data_for_plotting(
@@ -1910,8 +1995,9 @@ async def get_report_data_for_plotting(
     current_user: models.User = Depends(get_current_active_user),  # Protect API
 ):
     try:
-        # Unpack the DataFrame and the source path; we only need the DataFrame here
-        df, _, _ = await load_data_source(  # type: ignore
+        # Unpack the DataFrame, source path, and file modification time
+        # Also get cache metadata for frontend sync
+        df, source_path, file_mod_time = await load_data_source(  # type: ignore
             report_type.value,
             mission_id,  # Use .value for Enum
             source_preference=(
@@ -1924,10 +2010,36 @@ async def get_report_data_for_plotting(
             end_date=params.end_date,
             hours_back=params.hours_back,  # Pass hours_back parameter for time-aware caching
         )
+        
+        # Get cache metadata for this request
+        # Note: create_time_aware_cache_key and data_cache are already imported at top of file
+        cache_key = create_time_aware_cache_key(
+            report_type.value, mission_id, params.start_date, params.end_date,
+            params.hours_back, params.source.value if params.source else None,
+            params.local_path
+        )
+        
+        # Extract cache timestamps if available
+        cache_timestamp = None
+        last_data_timestamp = None
+        if cache_key in data_cache:
+            _, _, cache_timestamp, last_data_timestamp, _ = data_cache[cache_key]
 
         if df is None or df.empty:
-            # Return empty list for charts instead of 404 to allow chart to render "no data"
-            return JSONResponse(content=[])
+            # Return empty data with cache metadata for charts instead of 404
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                }
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         # --- Specific filtering for wave direction outliers BEFORE preprocessing/resampling ---
         if report_type.value == "waves":
@@ -1974,7 +2086,20 @@ async def get_report_data_for_plotting(
                 f"No processable data after preprocessing for {report_type.value}, "
                 f"mission {mission_id}"
             )
-            return JSONResponse(content=[])
+            # Return empty data with cache metadata
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                }
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         # Determine the most recent timestamp in the data
         max_timestamp = processed_df["Timestamp"].max()
@@ -1984,7 +2109,20 @@ async def get_report_data_for_plotting(
                 f"No valid timestamps in processed data for {report_type.value}, "
                 f"mission {mission_id} after preprocessing."
             )
-            return JSONResponse(content=[])
+            # Return empty data with cache metadata
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                }
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         # Apply time-based filtering based on whether date range or hours_back is used
         if params.start_date is not None and params.end_date is not None:
@@ -2012,20 +2150,64 @@ async def get_report_data_for_plotting(
                 # Fallback to using all processed data if no Timestamp column
                 recent_data = processed_df
         else:
-            # Use hours_back filtering - filter based on "now", not max_timestamp
-            # This ensures consistent time ranges regardless of when data was last updated
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=params.hours_back)
+            # Use hours_back filtering - filter based on last recorded data timestamp, not "now"
+            # This allows historical missions to display their last 24 hours of data
+            # even if that data is from days, weeks, or months ago
+            # max_timestamp is already calculated above (line 2084)
+            
+            # Ensure max_timestamp is a datetime object
+            if hasattr(max_timestamp, 'to_pydatetime'):
+                last_data_timestamp = max_timestamp.to_pydatetime()
+            elif isinstance(max_timestamp, (int, float)):
+                last_data_timestamp = datetime.fromtimestamp(max_timestamp, tz=timezone.utc)
+            elif not isinstance(max_timestamp, datetime):
+                last_data_timestamp = pd.to_datetime(max_timestamp, utc=True)
+            else:
+                last_data_timestamp = max_timestamp
+            
+            # Ensure timezone awareness
+            if last_data_timestamp.tzinfo is None:
+                last_data_timestamp = last_data_timestamp.replace(tzinfo=timezone.utc)
+            
+            # Calculate cutoff from the last data point, not from now
+            cutoff_time = last_data_timestamp - timedelta(hours=params.hours_back)
             recent_data = processed_df[processed_df["Timestamp"] > cutoff_time]
             if recent_data.empty:
                 logger.info(
                     f"No data for {report_type.value}, mission {mission_id} within "
-                    f"{params.hours_back} hours of now (cutoff: {cutoff_time})."
+                    f"{params.hours_back} hours of last recorded data (cutoff: {cutoff_time}, last data: {last_data_timestamp})."
                 )
-                return JSONResponse(content=[])
+                # Return empty data with cache metadata
+                response_data = {
+                    "data": [],
+                    "cache_metadata": {
+                        "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                        "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                        "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                    }
+                }
+                response = JSONResponse(content=response_data)
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+                return response
 
         if recent_data.empty:
             logger.info(f"No data remaining after filtering for {report_type.value}, mission {mission_id}")
-            return JSONResponse(content=[])
+            # Return empty data with cache metadata
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                }
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         # Resample data based on user-defined granularity
         data_to_resample = recent_data.set_index("Timestamp")
@@ -2036,7 +2218,20 @@ async def get_report_data_for_plotting(
                 f"No numeric data to resample for {report_type.value}, "
                 f"mission {mission_id} after filtering and before resampling."
             )
-            return JSONResponse(content=[])
+            # Return empty data with cache metadata
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                }
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         # Perform resampling using the specified granularity
         resampled_data = numeric_cols.resample(f"{params.granularity_minutes}min").mean().reset_index()
@@ -2053,9 +2248,26 @@ async def get_report_data_for_plotting(
                 "%Y-%m-%dT%H:%M:%S"
             )
 
-        # Replace NaN with None for JSON compatibility and return
+        # Replace NaN with None for JSON compatibility
         resampled_data = resampled_data.replace({np.nan: None})
-        return JSONResponse(content=resampled_data.to_dict(orient="records"))
+        
+        # Prepare response with data and cache metadata
+        response_data = {
+            "data": resampled_data.to_dict(orient="records"),
+            "cache_metadata": {
+                "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+            }
+        }
+        
+        # Add cache-busting headers to prevent browser caching
+        response = JSONResponse(content=response_data)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -2068,6 +2280,51 @@ async def get_report_data_for_plotting(
 # ---
 
 
+@app.get("/api/cache-status/{mission_id}")
+async def get_cache_status(
+    mission_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """
+    Get cache status for all report types for a mission.
+    Used by frontend to detect when data has been updated.
+    """
+    # Note: create_time_aware_cache_key, data_cache, and CACHE_STRATEGIES are already imported at top of file
+    
+    cache_status = {}
+    
+    # Check cache status for all incremental report types
+    for report_type in CACHE_STRATEGIES.keys():
+        # Try to find cache entry (check common time ranges)
+        cache_timestamp = None
+        last_data_timestamp = None
+        
+        # Check multiple possible cache keys (different time ranges)
+        # Also check with "remote" source preference since that's what background refresh uses
+        for hours_back in [None, 24, 72]:
+            for source_pref in [None, "remote"]:
+                cache_key = create_time_aware_cache_key(
+                    report_type, mission_id, None, None, hours_back, source_pref, None
+                )
+                if cache_key in data_cache:
+                    _, _, cache_timestamp, last_data_timestamp, _ = data_cache[cache_key]
+                    break
+            if cache_timestamp:
+                break
+        
+        cache_status[report_type] = {
+            "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+            "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+            "cached": cache_timestamp is not None,
+        }
+    
+    response = JSONResponse(content=cache_status)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/api/forecast/{mission_id}")
 async def get_weather_forecast(
     mission_id: str,
@@ -2077,7 +2334,16 @@ async def get_weather_forecast(
     """
     Provides a weather forecast.
     If lat and lon are not provided, it attempts to infer them from the latest telemetry data.
+    Forecasts are not provided for historical missions.
     """
+    # Skip forecasting for historical missions
+    if params.is_historical:
+        logger.info(f"Skipping weather forecast for historical mission {mission_id}")
+        raise HTTPException(
+            status_code=400,
+            detail="Weather forecasts are not available for historical missions.",
+        )
+    
     final_lat, final_lon = params.lat, params.lon
 
     if final_lat is None or final_lon is None:
@@ -2164,7 +2430,15 @@ async def get_marine_weather_data(
     params: models.ForecastParams = Depends(),
     current_user: models.User = Depends(get_current_active_user),  # Protect API
 ):
-    """Provides marine-specific forecast data (waves, currents)."""
+    """Provides marine-specific forecast data (waves, currents). Forecasts are not provided for historical missions."""
+    # Skip forecasting for historical missions
+    if params.is_historical:
+        logger.info(f"Skipping marine forecast for historical mission {mission_id}")
+        raise HTTPException(
+            status_code=400,
+            detail="Marine forecasts are not available for historical missions.",
+        )
+    
     final_lat, final_lon = params.lat, params.lon
 
     if final_lat is None or final_lon is None:

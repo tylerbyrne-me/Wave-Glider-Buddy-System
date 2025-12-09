@@ -187,7 +187,6 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
     const viewFormsBtnBanner = document.getElementById('viewFormsBtnBanner');
     const registerUserBtnBanner = document.getElementById('registerUserBtnBanner');
     const userManagementBtnBanner = document.getElementById('userManagementBtnBanner');
-    const missionSelectorDropdownMenu = document.getElementById('missionSelectorDropdownMenu'); // New dropdown menu for missions
     const submitNewPicHandoffLink = document.getElementById('submitNewPicHandoffLink');
 
     // Fetch user profile to update banner elements
@@ -236,55 +235,91 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         if (document.getElementById('payrollDropdown')) document.getElementById('payrollDropdown').style.display = 'none';
     }
 
-    // --- Populate Mission Selector in Banner (if present on the page) ---
-    if (missionSelectorDropdownMenu) {
-        const pageMissionId = document.body.dataset.missionId; // Available on index.html, mission_form.html etc.
+    // --- Populate Active Mission Selector in Banner (if present on the page) ---
+    const activeMissionSelectorDropdownMenu = document.getElementById('activeMissionSelectorDropdownMenu');
+    if (activeMissionSelectorDropdownMenu) {
+        const pageMissionId = document.body.dataset.missionId;
+        const isHistorical = document.body.dataset.isHistorical === 'true';
 
         try {
             const missions = await apiRequest('/api/available_missions', 'GET');
-            missionSelectorDropdownMenu.innerHTML = '';
-            if (missions.length === 0) {
-                const option = document.createElement('option');
-                option.value = "";
-                option.textContent = "No missions";
-                missionSelectorDropdownMenu.appendChild(option);
-                missionSelectorDropdownMenu.disabled = true;
-                // Also disable the dropdown toggle if no missions
-                document.getElementById('missionDashboardDropdown').classList.add('disabled');
+            activeMissionSelectorDropdownMenu.innerHTML = '';
+            // Filter out empty strings and null values
+            const validMissions = missions.filter(m => m && m.trim());
+            if (validMissions.length === 0) {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = '<a class="dropdown-item disabled">No active missions</a>';
+                activeMissionSelectorDropdownMenu.appendChild(listItem);
             } else {
-                missions.forEach(m_id => {
+                validMissions.forEach(m_id => {
                     const listItem = document.createElement('li');
                     const link = document.createElement('a');
                     link.classList.add('dropdown-item');
-                    link.href = `/?mission=${m_id}`; // Link to dashboard with selected mission
+                    link.href = `/?mission=${m_id}`;
                     link.textContent = m_id;
-                    if (pageMissionId && m_id === pageMissionId) {
-                        link.classList.add('active'); // Highlight active mission
+                    if (pageMissionId && m_id === pageMissionId && !isHistorical) {
+                        link.classList.add('active');
                     }
                     listItem.appendChild(link);
-                    missionSelectorDropdownMenu.appendChild(listItem);
+                    activeMissionSelectorDropdownMenu.appendChild(listItem);
                 });
             }
         } catch (error) {
-            console.error('Error fetching missions for banner in auth.js:', error);
-            missionSelectorDropdownMenu.innerHTML = '<option value="">Error</option>';
-            missionSelectorDropdownMenu.disabled = true;
+            console.error('Error fetching active missions for banner:', error);
+            activeMissionSelectorDropdownMenu.innerHTML = '<li><a class="dropdown-item disabled">Error loading missions</a></li>';
         }
+    }
 
-        // Update "Submit New PIC Handoff" link when mission changes (for non-dashboard pages)
-        // For dashboard, mission selection reloads the page, so this is for other pages.
-        // This listener is on the dropdown menu itself, not the individual links.
-        missionSelectorDropdownMenu.addEventListener('click', function(event) {
+    // --- Populate Historical Mission Selector in Banner (if present on the page) ---
+    const historicalMissionSelectorDropdownMenu = document.getElementById('historicalMissionSelectorDropdownMenu');
+    if (historicalMissionSelectorDropdownMenu) {
+        const pageMissionId = document.body.dataset.missionId;
+        const isHistorical = document.body.dataset.isHistorical === 'true';
+
+        try {
+            const missions = await apiRequest('/api/available_historical_missions', 'GET');
+            historicalMissionSelectorDropdownMenu.innerHTML = '';
+            // Filter out empty strings and null values
+            const validMissions = missions.filter(m => m && m.trim());
+            if (validMissions.length === 0) {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = '<a class="dropdown-item disabled">No historical missions</a>';
+                historicalMissionSelectorDropdownMenu.appendChild(listItem);
+            } else {
+                validMissions.forEach(m_id => {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.classList.add('dropdown-item');
+                    link.href = `/historical?mission=${m_id}`;
+                    link.textContent = m_id;
+                    if (pageMissionId && m_id === pageMissionId && isHistorical) {
+                        link.classList.add('active');
+                    }
+                    listItem.appendChild(link);
+                    historicalMissionSelectorDropdownMenu.appendChild(listItem);
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching historical missions for banner:', error);
+            historicalMissionSelectorDropdownMenu.innerHTML = '<li><a class="dropdown-item disabled">Error loading missions</a></li>';
+        }
+    }
+
+    // --- Update "Submit New PIC Handoff" link for active missions ---
+    const activeMissionMenu = document.getElementById('activeMissionSelectorDropdownMenu');
+    if (activeMissionMenu) {
+        activeMissionMenu.addEventListener('click', function(event) {
             const targetLink = event.target.closest('.dropdown-item');
             if (targetLink && targetLink.href.includes('/?mission=')) {
                 const newMissionId = new URL(targetLink.href).searchParams.get('mission');
                 updateSubmitNewPicHandoffLink(newMissionId);
             }
         });
-
-        // Initial update of the "Submit New PIC Handoff" link
-        updateSubmitNewPicHandoffLink(pageMissionId);
     }
+
+    // Initial update of the "Submit New PIC Handoff" link
+    const pageMissionId = document.body.dataset.missionId;
+    updateSubmitNewPicHandoffLink(pageMissionId);
 
     function updateSubmitNewPicHandoffLink(missionId) {
         if (submitNewPicHandoffLink) {

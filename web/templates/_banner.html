@@ -40,12 +40,21 @@
       <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
         <ul class="navbar-nav d-flex" style="padding-left: var(--banner-padding-x); width:100%;"> {# Removed justify-content-start for individual item control #}
           <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
-            <a class="nav-link dropdown-toggle" href="#" id="missionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Mission Dashboard
+            <a class="nav-link dropdown-toggle" href="#" id="activeMissionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Active Mission Dashboard
             </a>
-            <ul class="dropdown-menu" aria-labelledby="missionDashboardDropdown" id="missionSelectorDropdownMenu">
-              <!-- Mission options populated by JS -->
+            <ul class="dropdown-menu" aria-labelledby="activeMissionDashboardDropdown" id="activeMissionSelectorDropdownMenu">
+              <!-- Active mission options populated by JS -->
               <li><a class="dropdown-item" href="/">Loading Missions...</a></li>
+            </ul>
+          </li>
+          <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link dropdown-toggle" href="#" id="historicalMissionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Historical Mission Dashboard
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="historicalMissionDashboardDropdown" id="historicalMissionSelectorDropdownMenu">
+              <!-- Historical mission options populated by JS -->
+              <li><a class="dropdown-item" href="/historical">Loading Missions...</a></li>
             </ul>
           </li>
           {% if features.schedule %}
@@ -102,7 +111,7 @@
           <li class="nav-item ms-auto me-3"> {# ms-auto pushes this to the right #}
             <div class="form-check form-switch d-flex align-items-center"> {# Removed float:right #}
               <input class="form-check-input me-2" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
-              <label class="form-check-label small text-white" for="autoRefreshToggleBanner" title="Enable/disable 5-minute auto-refresh for this real-time mission.">Auto-Refresh <span id="refreshCountdown"></span></label>
+              <label class="form-check-label small text-white" for="autoRefreshToggleBanner" title="Enable/disable auto-refresh. Page will refresh when cache updates (every ~10 minutes).">Auto-Refresh <span id="refreshCountdown"></span></label>
             </div>
           </li>
           {% endif %}

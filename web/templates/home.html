@@ -59,6 +59,100 @@
                                             {% endif %}
                                         </div>
 
+                                        <!-- Sensor Tracker Metadata Section -->
+                                        {% if mission_info.sensor_tracker_deployment %}
+                                        <hr>
+                                        <div class="mt-3">
+                                            <h5 class="mb-3">Sensor Tracker Metadata</h5>
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <dl class="row mb-0">
+                                                        {% if mission_info.sensor_tracker_deployment.title %}
+                                                        <dt class="col-sm-5">Title:</dt>
+                                                        <dd class="col-sm-7">{{ mission_info.sensor_tracker_deployment.title }}</dd>
+                                                        {% endif %}
+                                                        
+                                                        {% if mission_info.sensor_tracker_deployment.start_time %}
+                                                        <dt class="col-sm-5">Start:</dt>
+                                                        <dd class="col-sm-7">{{ mission_info.sensor_tracker_deployment.start_time.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+                                                        {% endif %}
+                                                        
+                                                        {% if mission_info.sensor_tracker_deployment.end_time %}
+                                                        <dt class="col-sm-5">End:</dt>
+                                                        <dd class="col-sm-7">{{ mission_info.sensor_tracker_deployment.end_time.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+                                                        {% endif %}
+                                                        
+                                                        {% if mission_info.sensor_tracker_deployment.data_repository_link %}
+                                                        <dt class="col-sm-5">Data Repository:</dt>
+                                                        <dd class="col-sm-7">
+                                                            <a href="{{ mission_info.sensor_tracker_deployment.data_repository_link }}" target="_blank" rel="noopener noreferrer">
+                                                                {{ mission_info.sensor_tracker_deployment.data_repository_link }}
+                                                            </a>
+                                                        </dd>
+                                                        {% endif %}
+                                                    </dl>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <dl class="row mb-0">
+                                                        {% if mission_info.sensor_tracker_deployment.deployment_comment %}
+                                                        <dt class="col-sm-12 mb-2">Deployment Description:</dt>
+                                                        <dd class="col-sm-12">
+                                                            <p class="text-muted small mb-0" style="white-space: pre-wrap;">{{ mission_info.sensor_tracker_deployment.deployment_comment }}</p>
+                                                        </dd>
+                                                        {% endif %}
+                                                    </dl>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Instruments Section -->
+                                            {% set platform_instruments = [] %}
+                                            {% set science_instruments = [] %}
+                                            {% for inst in mission_info.sensor_tracker_instruments if inst %}
+                                                {% if inst.is_platform_direct %}
+                                                    {% set _ = platform_instruments.append(inst) %}
+                                                {% elif inst.data_logger_type == "science" %}
+                                                    {% set _ = science_instruments.append(inst) %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            
+                                            {% if platform_instruments or science_instruments %}
+                                            <div class="row mt-3">
+                                                {% if platform_instruments %}
+                                                <div class="col-md-6">
+                                                    <h6 class="mb-2">Platform Direct Instruments</h6>
+                                                    <ul class="list-unstyled small">
+                                                        {% for inst in platform_instruments %}
+                                                        <li class="mb-1">
+                                                            <strong>{{ inst.instrument_name or inst.instrument_identifier }}</strong>
+                                                            {% if inst.instrument_serial %}
+                                                            <span class="text-muted">({{ inst.instrument_serial }})</span>
+                                                            {% endif %}
+                                                        </li>
+                                                        {% endfor %}
+                                                    </ul>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                {% if science_instruments %}
+                                                <div class="col-md-6">
+                                                    <h6 class="mb-2">Science Computer Instruments</h6>
+                                                    <ul class="list-unstyled small">
+                                                        {% for inst in science_instruments %}
+                                                        <li class="mb-1">
+                                                            <strong>{{ inst.instrument_name or inst.instrument_identifier }}</strong>
+                                                            {% if inst.instrument_serial %}
+                                                            <span class="text-muted">({{ inst.instrument_serial }})</span>
+                                                            {% endif %}
+                                                        </li>
+                                                        {% endfor %}
+                                                    </ul>
+                                                </div>
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
+
                                         <hr>
 
                                         <!-- Mission Notes Section -->

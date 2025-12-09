@@ -109,3 +109,155 @@ async def generate_mission_report(
         logger.info(f"Successfully generated one-off report for mission '{mission_id}'. URL: {report_url}. Not saved to overview.")
 
     return mission_overview
+
+
+@router.post(
+    "/missions/{mission_id}/generate-report-with-sensor-tracker",
+    response_model=models.MissionOverview,
+    summary="Generate a report with Sensor Tracker metadata sync.",
+)
+async def generate_report_with_sensor_tracker(
+    mission_id: str,
+    report_type: str = Body(..., embed=True, description="Report type: 'weekly' or 'end_of_mission'"),
+    force_refresh_sensor_tracker: bool = Body(default=False, embed=True, description="Force refresh Sensor Tracker data"),
+    save_to_overview: bool = Body(default=True, embed=True, description="Save report URL to mission overview"),
+    session: SQLModelSession = Depends(get_db_session),
+    current_user: models.User = Depends(get_current_admin_user),
+):
+    """
+    Generates a report (weekly or end-of-mission) with Sensor Tracker metadata.
+    Syncs Sensor Tracker data on-demand before generating the report.
+    Restricted to administrators.
+    """
+    from ..services.sensor_tracker_service import SensorTrackerService, SENSOR_TRACKER_AVAILABLE
+    
+    logger.info(
+        f"Generating {report_type} report for mission '{mission_id}' "
+        f"with Sensor Tracker sync (force_refresh={force_refresh_sensor_tracker}), "
+        f"initiated by '{current_user.username}'."
+    )
+    
+    # Sync Sensor Tracker data if available
+    sensor_tracker_deployment = None
+    if SENSOR_TRACKER_AVAILABLE:
+        try:
+            from ..services.sensor_tracker_sync_service import SensorTrackerSyncService
+            
+            logger.info(f"Syncing Sensor Tracker data for mission '{mission_id}' (force_refresh={force_refresh_sensor_tracker})")
+            
+            sync_service = SensorTrackerSyncService()
+            sensor_tracker_deployment = await sync_service.get_or_sync_mission(
+                mission_id=mission_id,
+                force_refresh=force_refresh_sensor_tracker,
+                session=session
+            )
+            
+            if sensor_tracker_deployment:
+                logger.info(
+                    f"Successfully synced Sensor Tracker data for mission '{mission_id}' "
+                    f"(deployment ID: {sensor_tracker_deployment.sensor_tracker_deployment_id}, "
+                    f"status: {sensor_tracker_deployment.sync_status})"
+                )
+            else:
+                logger.info(f"No Sensor Tracker deployment found or synced for mission '{mission_id}'")
+                
+        except Exception as e:
+            logger.warning(f"Failed to sync Sensor Tracker data for mission '{mission_id}': {e}", exc_info=True)
+            # Continue with report generation even if sync fails
+    else:
+        logger.info("Sensor Tracker service not available. Report will be generated without Sensor Tracker metadata.")
+    
+    # Use existing report generation logic
+    data_service = get_data_service()
+    
+    mission_overview = session.exec(
+        select(models.MissionOverview).where(models.MissionOverview.mission_id == mission_id)
+    ).first()
+    
+    if not mission_overview:
+        logger.info(f"No existing MissionOverview for '{mission_id}'. Creating a new one for the report.")
+        mission_overview = models.MissionOverview(mission_id=mission_id)
+    
+    try:
+        # Load data sources
+        report_types = ["telemetry", "power", "ctd", "weather", "waves", "solar", "errors"]
+        data_results = await data_service.load_multiple(
+            report_types=report_types,
+            mission_id=mission_id,
+            current_user=current_user
+        )
+        
+        # Extract DataFrames
+        telemetry_df = data_results.get("telemetry", (pd.DataFrame(), "", None))[0]
+        power_df = data_results.get("power", (pd.DataFrame(), "", None))[0]
+        ctd_df = data_results.get("ctd", (pd.DataFrame(), "", None))[0]
+        weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
+        wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
+        solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
+        error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
+        
+        # Log data loading results
+        for data_type in report_types:
+            result = data_results.get(data_type, (pd.DataFrame(), "", None))
+            df, source_path, _ = result[0], result[1], result[2] if len(result) > 2 else None
+            
+            if result[1] == "Error":
+                logger.error(f"Error loading {data_type} data for mission '{mission_id}'")
+            elif df is None or df.empty:
+                logger.warning(f"No {data_type} data available for mission '{mission_id}' (source: {source_path})")
+            else:
+                logger.info(f"Loaded {len(df)} {data_type} records for mission '{mission_id}' from {source_path}")
+    
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
+    
+    # Fetch mission goals
+    goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
+    mission_goals = session.exec(goals_statement).all()
+    logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
+    
+    # Determine filename based on report type
+    if report_type == "end_of_mission":
+        custom_filename = f"End_of_Mission_Report_{mission_id}"
+        logger.info(f"Setting custom_filename for end_of_mission report: '{custom_filename}'")
+    else:
+        custom_filename = None
+        logger.info(f"Report type is '{report_type}' - no custom filename")
+    
+    # Generate report with all plot types included
+    plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
+    report_url = await generate_weekly_report(
+        mission_id=mission_id,
+        telemetry_df=telemetry_df,
+        power_df=power_df,
+        solar_df=solar_df,
+        ctd_df=ctd_df,
+        weather_df=weather_df,
+        wave_df=wave_df,
+        error_df=error_df,
+        mission_goals=mission_goals,
+        plots_to_include=plots_to_include,
+        custom_filename=custom_filename,
+        sensor_tracker_deployment=sensor_tracker_deployment,  # Pass Sensor Tracker metadata
+    )
+    
+    if save_to_overview:
+        if report_type == "end_of_mission":
+            mission_overview.end_of_mission_report_url = report_url
+            logger.info(f"Saving end of mission report to end_of_mission_report_url field for mission '{mission_id}': {report_url}")
+        else:
+            mission_overview.weekly_report_url = report_url
+            logger.info(f"Saving weekly report to weekly_report_url field for mission '{mission_id}': {report_url}")
+        session.add(mission_overview)
+        session.commit()
+        session.refresh(mission_overview)
+        logger.info(f"Successfully generated and saved {report_type} report for mission '{mission_id}'. URL: {report_url}")
+    else:
+        if report_type == "end_of_mission":
+            mission_overview.end_of_mission_report_url = report_url
+        else:
+            mission_overview.weekly_report_url = report_url
+        logger.info(f"Successfully generated {report_type} report for mission '{mission_id}'. URL: {report_url}. Not saved to overview.")
+    
+    return mission_overview

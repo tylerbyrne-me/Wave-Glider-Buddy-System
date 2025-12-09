@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlmodel import select
+from sqlalchemy import or_
 from ..core import models
 from ..core.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
@@ -41,10 +42,37 @@ async def _get_mission_info(mission_id: str, session: SQLModelSession) -> models
     goals = session.exec(goals_stmt).all()
     notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
     notes = session.exec(notes_stmt).all()
+    
+    # Get Sensor Tracker deployment data
+    # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")
+    mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+    sensor_tracker_deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base
+            )
+        )
+    ).first()
+    
+    # If we found a deployment, load its instruments
+    instruments = []
+    if sensor_tracker_deployment:
+        instruments = session.exec(
+            select(models.MissionInstrument).where(
+                or_(
+                    models.MissionInstrument.mission_id == mission_id,
+                    models.MissionInstrument.mission_id == mission_base
+                )
+            )
+        ).all()
+    
     return models.MissionInfoResponse(
         overview=overview,
         goals=goals,
-        notes=notes
+        notes=notes,
+        sensor_tracker_deployment=sensor_tracker_deployment,
+        sensor_tracker_instruments=instruments
     )
 
 # --- API Endpoints ---
@@ -297,4 +325,165 @@ async def get_available_missions(
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
-    return settings.active_realtime_missions 
+    """Get list of active real-time missions."""
+    # Filter out empty strings and None values
+    missions = [m for m in settings.active_realtime_missions if m and m.strip()]
+    return missions
+
+
+@router.get("/api/available_all_missions", response_model=Dict[str, List[str]])
+async def get_all_available_missions(
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    Get list of all missions (active + historical) for admin use.
+    Returns a dictionary with 'active' and 'historical' keys.
+    Only admins can access historical missions.
+    """
+    # Get active missions
+    active_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
+    
+    # Get historical missions (only for admins)
+    historical_missions = []
+    if current_user.role == models.UserRoleEnum.admin:
+        try:
+            historical_missions = await get_available_historical_missions(current_user, session)
+        except Exception as e:
+            logger.error(f"Error fetching historical missions for all missions endpoint: {e}")
+            historical_missions = []
+    
+    return {
+        "active": active_missions,
+        "historical": historical_missions
+    }
+
+
+@router.get("/api/available_historical_missions", response_model=List[str])
+async def get_available_historical_missions(
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session)
+):
+    """
+    Get list of historical/past missions by checking the remote server.
+    Only admins can access historical missions.
+    """
+    from ..core import models
+    from ..config import settings
+    import httpx
+    
+    # Only admins can access historical missions
+    if current_user.role != models.UserRoleEnum.admin:
+        return []
+    
+    # Check remote server for available past missions
+    base_remote_url = settings.remote_data_url.rstrip("/")
+    past_missions_url = f"{base_remote_url}/output_past_missions/"
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(past_missions_url)
+            logger.info(f"Historical missions URL: {past_missions_url}")
+            logger.info(f"Response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                # Parse HTML to extract mission folder names
+                # The directory listing format is: <m169-C34166NS/> or <m170-C34164NS/>
+                import re
+                
+                # Log first part of response for debugging
+                response_preview = response.text[:1000]
+                logger.info(f"Response preview (first 1000 chars): {response_preview}")
+                
+                # Pattern to match folder names in angle brackets like <m169-C34166NS/>
+                # The actual format from the server is: <m169-C34166NS/>
+                # Try multiple patterns to handle different HTML structures
+                patterns = [
+                    r'<([mM]\d+-[A-Z0-9]+)/?>',  # <m169-C34166NS/> - matches m###-C##### format
+                    r'<([mM]\d+-[^>]+)/?>',      # <m169-C34166NS/> - more general
+                    r'<([mM]\d+[^>]*)/?>',       # <m169...> - catch-all for mission folders
+                    r'href=["\']([mM]\d+[^"\']*)["\']',  # href="m169-C34166NS"
+                ]
+                
+                all_matches = set()
+                for pattern in patterns:
+                    matches = re.findall(pattern, response.text, re.IGNORECASE)
+                    all_matches.update(matches)
+                    logger.debug(f"Pattern {pattern} found {len(matches)} matches: {matches[:5]}")
+                
+                # Extract mission IDs from folder names and convert to "1071-m169" format
+                # Folder names are like "m169-C34166NS" - we want to extract "m169" and find "1071 m169" in mapping
+                mission_ids = set()
+                excluded = {'parent', 'directory', 'index', '..', '.', '', 'private'}
+                
+                logger.info(f"Total matches found: {len(all_matches)}, matches: {list(all_matches)[:10]}")
+                for match in all_matches:
+                    # Remove trailing slash if present
+                    folder_name = match.strip().rstrip('/')
+                    logger.info(f"Processing folder name: {folder_name}")
+                    
+                    # Skip excluded entries
+                    if folder_name.lower() in excluded:
+                        logger.info(f"Skipping excluded entry: {folder_name}")
+                        continue
+                    
+                    # Extract mission ID (m###) from folder name (m###-C#####)
+                    # Pattern: starts with 'm' followed by digits
+                    mission_match = re.match(r'^([mM]\d+)', folder_name, re.IGNORECASE)
+                    if mission_match:
+                        mission_base = mission_match.group(1).lower()  # e.g., "m169"
+                        
+                        # Find the mapping key that contains this mission (e.g., "1071 m169")
+                        # and convert to "1071-m169" format
+                        found_mapping = False
+                        for map_key, map_value in settings.remote_mission_folder_map.items():
+                            # Check if this mapping value matches the folder name
+                            # and if the key contains the mission base
+                            if (map_value == folder_name or 
+                                map_value.lower() == folder_name.lower() or
+                                f" {mission_base}" in map_key or
+                                map_key.endswith(mission_base)):
+                                # Extract project number from key (e.g., "1071" from "1071 m169")
+                                # Key format could be: "1071 m169", "1071-m169", "1071m169", etc.
+                                project_match = re.match(r'^(\d+)', map_key)
+                                if project_match:
+                                    project_num = project_match.group(1)
+                                    mission_id = f"{project_num}-{mission_base}"  # "1071-m169"
+                                    mission_ids.add(mission_id)
+                                    logger.info(f"Extracted mission ID: {mission_id} from folder {folder_name} via mapping key '{map_key}'")
+                                    found_mapping = True
+                                    break
+                        
+                        # Fallback: if no mapping found, use just the mission base (e.g., "m169")
+                        if not found_mapping:
+                            logger.warning(f"No mapping found for folder {folder_name}, using base mission ID: {mission_base}")
+                            mission_ids.add(mission_base)
+                    else:
+                        logger.info(f"No mission ID match for: {folder_name}")
+                
+                # Convert to sorted list (numerically by mission number)
+                # Sort by project number first, then mission number
+                def sort_key(x):
+                    if '-' in x:
+                        parts = x.split('-')
+                        if len(parts) == 2 and parts[1].startswith('m') and parts[1][1:].isdigit():
+                            return (int(parts[0]) if parts[0].isdigit() else 9999, int(parts[1][1:]))
+                    elif x.startswith('m') and x[1:].isdigit():
+                        return (9999, int(x[1:]))  # Unmapped missions go to end
+                    return (9999, 9999)
+                
+                filtered_missions = sorted(mission_ids, key=sort_key)
+                
+                logger.info(f"Found {len(filtered_missions)} historical missions: {filtered_missions}")
+                if len(filtered_missions) == 0:
+                    logger.warning(f"No missions found. Response length: {len(response.text)}, Preview: {response.text[:500]}")
+                return filtered_missions
+            else:
+                logger.warning(f"Failed to fetch historical missions: HTTP {response.status_code}, URL: {past_missions_url}")
+                return []
+    except httpx.RequestError as e:
+        logger.error(f"Network error fetching historical missions: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Error fetching historical missions: {e}", exc_info=True)
+        return [] 

@@ -309,7 +309,7 @@ def trim_data_to_range(
         df: DataFrame to trim
         start_date: Start date for trimming
         end_date: End date for trimming
-        hours_back: Hours back from now for trimming
+        hours_back: Hours back from the last recorded data point (not from now)
         
     Returns:
         Trimmed DataFrame
@@ -320,8 +320,25 @@ def trim_data_to_range(
     if start_date and end_date:
         return df[(df["Timestamp"] >= start_date) & (df["Timestamp"] <= end_date)]
     elif hours_back:
-        # Always use UTC - never local time
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+        # Use the last recorded data timestamp instead of current time
+        # This allows historical missions to display their last 24 hours of data
+        # even if that data is from days, weeks, or months ago
+        last_data_timestamp = df["Timestamp"].max()
+        
+        # Ensure last_data_timestamp is a datetime object
+        if hasattr(last_data_timestamp, 'to_pydatetime'):
+            last_data_timestamp = last_data_timestamp.to_pydatetime()
+        elif isinstance(last_data_timestamp, (int, float)):
+            last_data_timestamp = datetime.fromtimestamp(last_data_timestamp, tz=timezone.utc)
+        elif not isinstance(last_data_timestamp, datetime):
+            last_data_timestamp = pd.to_datetime(last_data_timestamp, utc=True)
+        
+        # Ensure timezone awareness
+        if last_data_timestamp.tzinfo is None:
+            last_data_timestamp = last_data_timestamp.replace(tzinfo=timezone.utc)
+        
+        # Calculate cutoff from the last data point, not from now
+        cutoff = last_data_timestamp - timedelta(hours=hours_back)
         return df[df["Timestamp"] >= cutoff]
     
     return df
@@ -441,7 +458,7 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
 
 async def _load_from_local_sources(
     report_type: str, mission_id: str, custom_local_path: Optional[str]
-) -> Tuple[Optional[pd.DataFrame], str]:
+) -> Tuple[Optional[pd.DataFrame], str, Optional[datetime]]:
     """
     Helper to attempt loading data from local sources (custom then default).
     
@@ -451,7 +468,7 @@ async def _load_from_local_sources(
         custom_local_path: Custom local path if specified
         
     Returns:
-        Tuple of (DataFrame or None, source_path_string)
+        Tuple of (DataFrame or None, source_path_string, file_modification_time)
     """
     df = None
     actual_source_path = "Data not loaded"
@@ -516,16 +533,58 @@ async def _load_from_remote_sources(
     """
     Helper to attempt loading data from remote sources based on user role.
     
+    NOTE: With local storage sync, this is now primarily a fallback.
+    Local storage should be checked first via _load_from_local_sources.
+    
     Args:
         report_type: Type of report to load
         mission_id: Mission identifier
         current_user: Current user for access control
         
     Returns:
-        Tuple of (DataFrame or None, source_path_string)
+        Tuple of (DataFrame or None, source_path_string, file_modification_time)
     """
     actual_source_path = "Data not loaded"
-    remote_mission_folder = settings.remote_mission_folder_map.get(mission_id, mission_id)
+    # Look up remote folder name
+    # Mission ID format is now "1071-m169" (project-mission)
+    # Mapping keys are "1071 m169" (project mission with space)
+    # Mapping values are "m169-C34166NS" (remote folder names)
+    
+    remote_mission_folder = None
+    
+    # Try exact match first (for backward compatibility)
+    remote_mission_folder = settings.remote_mission_folder_map.get(mission_id)
+    
+    if remote_mission_folder is None:
+        # Handle "1071-m169" format - convert to "1071 m169" for lookup
+        if '-' in mission_id:
+            # Convert "1071-m169" to "1071 m169" format
+            parts = mission_id.split('-', 1)
+            if len(parts) == 2:
+                lookup_key = f"{parts[0]} {parts[1]}"  # "1071 m169"
+                remote_mission_folder = settings.remote_mission_folder_map.get(lookup_key)
+                if remote_mission_folder:
+                    logger.info(f"Mapped mission {mission_id} to remote folder {remote_mission_folder} via key '{lookup_key}'")
+        
+        # Fallback: try fuzzy matching (for legacy "m169" format)
+        if remote_mission_folder is None:
+            # Extract mission base (e.g., "m169" from "1071-m169" or just "m169")
+            mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+            
+            for key, value in settings.remote_mission_folder_map.items():
+                if (key.endswith(f" {mission_base}") or 
+                    key.endswith(mission_base) or 
+                    key == mission_base or
+                    f" {mission_base}" in key or
+                    key.endswith(f"-{mission_base}")):
+                    remote_mission_folder = value
+                    logger.info(f"Mapped mission {mission_id} to remote folder {remote_mission_folder} via key '{key}' (fuzzy match)")
+                    break
+        
+        # Final fallback: use mission_id as-is
+        if remote_mission_folder is None:
+            remote_mission_folder = mission_id
+            logger.warning(f"No remote folder mapping found for {mission_id}, using mission_id as folder name. Available keys: {list(settings.remote_mission_folder_map.keys())[:5]}")
     base_remote_url = settings.remote_data_url.rstrip("/")
     remote_base_urls_to_try: List[str] = []
     user_role = current_user.role if current_user else models.UserRoleEnum.admin
@@ -533,14 +592,14 @@ async def _load_from_remote_sources(
     if user_role == models.UserRoleEnum.admin:
         remote_base_urls_to_try.extend([
             f"{base_remote_url}/output_realtime_missions",
-            # f"{base_remote_url}/output_past_missions",  # Commented out - focusing on active missions only
+            f"{base_remote_url}/output_past_missions",  # Enable for historical data access
         ])
     elif user_role == models.UserRoleEnum.pilot:
         if mission_id in settings.active_realtime_missions:
             remote_base_urls_to_try.append(f"{base_remote_url}/output_realtime_missions")
         else:
             logger.info(f"Pilot '{current_user.username if current_user else 'N/A'}' - Access to remote data for non-active mission '{mission_id}' restricted.")
-            return None, "Remote: Access Restricted"
+            return None, "Remote: Access Restricted", None
 
     last_accessed_remote_path_if_empty = None
     for constructed_base_url in remote_base_urls_to_try:
@@ -626,18 +685,28 @@ async def load_data_with_overlap(
     if source_preference == "local":  # Local-only preference
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
-    elif source_preference == "remote" or source_preference is None:
+    elif source_preference == "remote":
+        # Remote-only preference - try remote first
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_remote_sources(report_type, mission_id, current_user)
         if df is None:  # If remote failed, try local as fallback
-            logger.warning(f"Remote preference/attempt failed for {report_type} ({mission_id}). Falling back to default local.")
+            logger.warning(f"Remote preference failed for {report_type} ({mission_id}). Falling back to local.")
             df_fallback, path_fallback, file_mod_time_fallback = await _load_from_local_sources(report_type, mission_id, None)
             if df_fallback is not None:
                 df, actual_source_path, file_modification_time = df_fallback, path_fallback, file_mod_time_fallback
-            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path or "Remote: File Not Found" in actual_source_path:
+            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path:
                 if path_fallback and "Data not loaded" not in path_fallback:
                     actual_source_path = path_fallback
                     file_modification_time = file_mod_time_fallback
+    elif source_preference is None:
+        # No preference - try local first (preferred), then remote (fallback)
+        load_attempted = True
+        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
+        if df is None or df.empty:  # If local failed, try remote as fallback
+            logger.debug(f"Local load failed for {report_type} ({mission_id}). Trying remote.")
+            df_remote, path_remote, file_mod_time_remote = await _load_from_remote_sources(report_type, mission_id, current_user)
+            if df_remote is not None:
+                df, actual_source_path, file_modification_time = df_remote, path_remote, file_mod_time_remote
     
     if not load_attempted:
         logger.error(f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected.")
@@ -810,6 +879,11 @@ class DataService:
                         cache_strategy["overlap_hours"], source_preference, 
                         custom_local_path, current_user
                     )
+                    
+                    # Always update cache_timestamp to indicate a refresh attempt was made
+                    # This ensures frontend polling can detect refresh cycles even if no new data is found
+                    refresh_timestamp = datetime.now(timezone.utc)
+                    
                     # Update cache with new data and file modification time
                     if new_df is not None and not new_df.empty:
                         # Merge with existing cached data
@@ -847,9 +921,18 @@ class DataService:
                             updated_last_data_timestamp = last_data_timestamp
                         
                         # Update cache with merged data and new file modification time
+                        # Always update cache_timestamp to indicate a refresh attempt was made
                         data_cache[cache_key] = (
-                            combined_df, new_source_path, datetime.now(timezone.utc), updated_last_data_timestamp, new_file_mod_time or cached_file_mod_time
+                            combined_df, new_source_path, refresh_timestamp, updated_last_data_timestamp, new_file_mod_time or cached_file_mod_time
                         )
+                        logger.debug(f"Cache updated (incremental): {report_type} for {mission_id}, cache_timestamp={refresh_timestamp.isoformat()}, new_data=True")
+                    else:
+                        # No new data found, but still update cache_timestamp to indicate refresh attempt
+                        # This ensures frontend polling can detect that a refresh cycle occurred
+                        data_cache[cache_key] = (
+                            cached_df, cached_source_path, refresh_timestamp, last_data_timestamp, cached_file_mod_time
+                        )
+                        logger.debug(f"Cache timestamp updated (no new data): {report_type} for {mission_id}, cache_timestamp={refresh_timestamp.isoformat()}, new_data=False")
                     
                     return trim_data_to_range(combined_df if new_df is not None and not new_df.empty else cached_df, start_date, end_date, hours_back), new_source_path if new_df is not None else cached_source_path, new_file_mod_time if new_df is not None else cached_file_mod_time
                 else:
@@ -865,11 +948,25 @@ class DataService:
                     return trim_data_to_range(cached_df, start_date, end_date, hours_back), cached_source_path, cached_file_mod_time
         
         # Load data with overlap to prevent gaps
-        df, actual_source_path, file_modification_time = await load_data_with_overlap(
-            report_type, mission_id, start_date, end_date, hours_back,
-            cache_strategy["overlap_hours"], source_preference, 
-            custom_local_path, current_user
-        )
+        # Priority: local first (fastest), then remote (fallback)
+        # If source_preference is "local", only try local
+        # If source_preference is "remote" or None, try local first, then remote
+        df = None
+        actual_source_path = "Data not loaded"
+        file_modification_time = None
+        
+        # Try local first (preferred - faster and more reliable)
+        if source_preference != "remote":
+            df, actual_source_path, file_modification_time = await _load_from_local_sources(
+                report_type, mission_id, custom_local_path
+            )
+        
+        # Fall back to remote if local failed or source_preference is "remote"
+        if df is None or df.empty:
+            if source_preference != "local":
+                df, actual_source_path, file_modification_time = await _load_from_remote_sources(
+                    report_type, mission_id, current_user
+                )
         
         # Store in cache with enhanced structure
         if df is not None and not df.empty:

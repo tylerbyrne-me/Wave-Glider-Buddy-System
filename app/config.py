@@ -1,6 +1,6 @@
 # c:\Users\ty225269\Documents\Python Playground\Wave Glider Project\app\config.py
 import json
-from typing import Any # Import Any
+from typing import Any, Optional  # Import Any and Optional
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     # Feature Toggles - JSON string in .env, parsed here
     feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true}'
     
+    # --- Sensor Tracker Settings ---
+    sensor_tracker_host: str = "https://prod.ceotr.ca/sensor_tracker"
+    sensor_tracker_token: Optional[str] = "3c62f39804729f9e8aff90d0220c8aa07eed9e77" 
+    sensor_tracker_username: Optional[str] = "tylerbyrne"
+    sensor_tracker_password: Optional[str] = "sJdujK3P7bYMth8"
+    sensor_tracker_debug: bool = False
+    sensor_tracker_debug_host: str = "http://127.0.0.1:8000/"
     
     # Parsed values (not loaded directly from env)
     remote_mission_folder_map: dict[str, str] = {}

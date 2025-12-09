@@ -14,7 +14,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     const missionId = document.body.dataset.missionId;
     // console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
     const missionSelector = document.getElementById('missionSelector'); // Keep this
-    const isRealtimeMission = document.body.dataset.isRealtime === 'true';
+    const isHistorical = document.body.dataset.isHistorical === 'true';
+    const isRealtimeMission = !isHistorical && document.body.dataset.isRealtime === 'true';
     const urlParams = new URLSearchParams(window.location.search);
     
     // Get enabled sensors from backend configuration
@@ -254,21 +255,20 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     function startCountdownTimer() {
         const countdownElement = document.getElementById('refreshCountdown');
-        const countdownContainer = document.getElementById('refreshCountdownContainer');
-        if (!countdownElement || !countdownContainer) return;
+        if (!countdownElement) return;
         if (!autoRefreshEnabled) return; // Don't start if disabled
 
         let remainingSeconds = autoRefreshIntervalMinutes * 60;
-        countdownContainer.style.display = 'block'; // Show the container li element
 
         function updateCountdownDisplay() {
             const minutes = Math.floor(remainingSeconds / 60);
             const seconds = remainingSeconds % 60;
             const display = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            countdownElement.textContent = `Next refresh in ${display}`;
+            countdownElement.textContent = ` (Next refresh in ${display})`;
 
             if (remainingSeconds <= 0) {
                 clearInterval(countdownTimer); // Stop the countdown
+                countdownElement.textContent = ''; // Clear when done
             } else {
                 remainingSeconds--;
             }
@@ -321,15 +321,103 @@ document.addEventListener('DOMContentLoaded', async function() {
     // --- Auto-Refresh Toggle Logic ---
     const autoRefreshToggle = document.getElementById('autoRefreshToggleBanner');
 
+    // Cache polling for real-time missions
+    // Note: Background cache refresh runs every 10 minutes (configured in .env)
+    // Polling every 30 seconds ensures we detect updates within 30 seconds of cache refresh
+    let cachePollInterval = null;
+    const CACHE_POLL_INTERVAL_MS = 30000; // Poll every 30 seconds (cache refreshes every 10 min)
+
+    async function pollCacheStatus() {
+        // Debug logging
+        if (!isRealtimeMission) {
+            console.debug('Cache polling skipped: Not a real-time mission');
+            return;
+        }
+        if (!autoRefreshEnabled) {
+            console.debug('Cache polling skipped: Auto-refresh disabled');
+            return;
+        }
+
+        try {
+            console.debug(`Polling cache status for mission ${missionId}...`);
+            const cacheStatus = await apiRequest(`/api/cache-status/${missionId}`, 'GET');
+            console.debug('Cache status received:', cacheStatus);
+            
+            // Track if any cache has been updated
+            let cacheUpdated = false;
+            let updatedReportTypes = [];
+            
+            // Check each report type for updates
+            for (const [reportType, status] of Object.entries(cacheStatus)) {
+                const stored = cacheTimestamps.get(reportType);
+                
+                // If we have stored timestamps, compare with server
+                if (stored && status.cache_timestamp) {
+                    const storedTime = new Date(stored.cache_timestamp);
+                    const serverTime = new Date(status.cache_timestamp);
+                    
+                    // If server cache timestamp is newer, data has been updated
+                    if (serverTime > storedTime) {
+                        const timeDiff = (serverTime - storedTime) / 1000; // seconds
+                        console.log(`Cache updated for ${reportType}: stored=${stored.cache_timestamp}, server=${status.cache_timestamp}, diff=${timeDiff.toFixed(1)}s`);
+                        cacheUpdated = true;
+                        updatedReportTypes.push(reportType);
+                        // Update stored timestamp
+                        cacheTimestamps.set(reportType, {
+                            cache_timestamp: status.cache_timestamp,
+                            last_data_timestamp: status.last_data_timestamp
+                        });
+                    } else {
+                        console.debug(`Cache for ${reportType} unchanged: stored=${stored.cache_timestamp}, server=${status.cache_timestamp}`);
+                    }
+                } else if (status.cache_timestamp && !stored) {
+                    // First time seeing this report type with cache data
+                    console.debug(`Initializing cache timestamp for ${reportType}: ${status.cache_timestamp}`);
+                    cacheTimestamps.set(reportType, {
+                        cache_timestamp: status.cache_timestamp,
+                        last_data_timestamp: status.last_data_timestamp
+                    });
+                } else if (!status.cache_timestamp) {
+                    console.debug(`No cache timestamp available for ${reportType}`);
+                }
+            }
+            
+            // If any cache was updated, force a full page refresh
+            if (cacheUpdated) {
+                console.log(`Cache refresh detected for: ${updatedReportTypes.join(', ')}. Reloading page...`);
+                // Use window.location.reload(true) to force a hard refresh (bypass cache)
+                window.location.reload(true);
+            } else {
+                console.debug('No cache updates detected in this poll');
+            }
+        } catch (error) {
+            console.warn('Error polling cache status:', error);
+            // Don't show toast for polling errors to avoid spam
+        }
+    }
+
     function updateAutoRefreshState(isEnabled) {
         autoRefreshEnabled = isEnabled;
         localStorage.setItem('autoRefreshEnabled', isEnabled);
         if (isEnabled && isRealtimeMission) {
             startCountdownTimer(); // Restart countdown if enabled and on a real-time mission
+            // Start cache polling
+            if (!cachePollInterval) {
+                console.log(`Starting cache polling: interval=${CACHE_POLL_INTERVAL_MS}ms, mission=${missionId}, isRealtime=${isRealtimeMission}`);
+                cachePollInterval = setInterval(pollCacheStatus, CACHE_POLL_INTERVAL_MS);
+                // Do an initial poll immediately
+                pollCacheStatus();
+            }
         } else {
             clearInterval(countdownTimer);
-            const countdownContainer = document.getElementById('refreshCountdownContainer');
-            if (countdownContainer) countdownContainer.style.display = 'none';
+            // Stop cache polling
+            if (cachePollInterval) {
+                console.log('Stopping cache polling');
+                clearInterval(cachePollInterval);
+                cachePollInterval = null;
+            }
+            const countdownElement = document.getElementById('refreshCountdown');
+            if (countdownElement) countdownElement.textContent = ''; // Clear countdown display
         }
     }
 
@@ -345,10 +433,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // Legacy auto-refresh (full page reload) - keep as fallback for very long periods
+    // Cache polling will handle most refreshes, but this ensures we refresh even if polling fails
     if (isRealtimeMission) {
-
         setTimeout(function() {
-            if (autoRefreshEnabled && !document.querySelector('.modal.show')) { // Check autoRefreshEnabled
+            if (autoRefreshEnabled && !document.querySelector('.modal.show')) { 
+                // Fallback: refresh after the configured interval even if polling didn't detect changes
+                // This handles edge cases where cache timestamps might not change but data did
+                console.log('Fallback auto-refresh triggered after interval');
                 window.location.reload(true); 
             }
         }, autoRefreshIntervalMinutes * 60 * 1000);
@@ -367,6 +459,9 @@ document.addEventListener('DOMContentLoaded', async function() {
      * @param {number} hours - The number of hours back to fetch data for.
      * @returns {Promise<Array<Object>|null>} A promise that resolves with the chart data array or null if fetching fails.
      */
+    // Store cache timestamps for each report type
+    const cacheTimestamps = new Map(); // reportType -> { cache_timestamp, last_data_timestamp }
+
     async function fetchChartData(reportType, mission) {
         const chartCanvas = document.getElementById(`${reportType}Chart`); 
         const spinner = chartCanvas ? chartCanvas.parentElement.querySelector('.chart-spinner') : null;
@@ -411,7 +506,26 @@ document.addEventListener('DOMContentLoaded', async function() {
                 apiUrl += `&refresh=true`;
             }
             
-            const data = await apiRequest(apiUrl, 'GET');
+            const response = await apiRequest(apiUrl, 'GET');
+            
+            // Handle new response format with cache metadata
+            let data;
+            if (response && typeof response === 'object' && 'data' in response) {
+                // New format with cache_metadata
+                data = response.data;
+                // Store cache timestamps
+                if (response.cache_metadata) {
+                    cacheTimestamps.set(reportType, {
+                        cache_timestamp: response.cache_metadata.cache_timestamp,
+                        last_data_timestamp: response.cache_metadata.last_data_timestamp,
+                        file_modification_time: response.cache_metadata.file_modification_time
+                    });
+                }
+            } else {
+                // Legacy format (array directly) - backward compatibility
+                data = response;
+            }
+            
             return data;
         } catch (error) {
             showToast(`Error loading ${reportType} data: ${error.message}`, 'danger');
@@ -620,7 +734,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // If Navigation is the default active view, fetch telemetry data (only if enabled)
     if (isSensorEnabled('navigation')) {
         fetchChartData('telemetry', missionId).then(data => {
-            renderNavigationChart(data);
+            renderTelemetryChart(data);
             renderNavigationCurrentChart(data);
             renderNavigationHeadingDiffChart(data);
         });
@@ -805,6 +919,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Spinner management removed for forecast
             if (initialForecastArea) initialForecastArea.style.display = 'none'; // Ensure content area is hidden
 
+            // Check if this is a historical mission
+            const isHistorical = document.body.dataset.isHistorical === 'true';
+
             let forecastApiUrl = `/api/forecast/${mission}`;
             const forecastParams = new URLSearchParams();
             forecastParams.append('source', currentSource);
@@ -814,6 +931,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Pass refresh parameter to forecast API if present in main page URL
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
+            }
+            // Pass is_historical parameter
+            if (isHistorical) {
+                forecastParams.append('is_historical', 'true');
             }
             
             // Add date range parameters if date range is enabled for weather
@@ -1002,6 +1123,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             const initialMarineForecastArea = document.getElementById('marineForecastInitial');
             if (initialMarineForecastArea) initialMarineForecastArea.style.display = 'none';
 
+            // Check if this is a historical mission
+            const isHistorical = document.body.dataset.isHistorical === 'true';
+
             let marineForecastApiUrl = `/api/marine_forecast/${mission}`;
             const forecastParams = new URLSearchParams();
             // Marine forecast might need lat/lon explicitly if not inferred by backend for this specific endpoint
@@ -1016,6 +1140,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             if (urlParams.has('refresh') && urlParams.get('refresh') === 'true') {
                 forecastParams.append('refresh', 'true');
+            }
+            // Pass is_historical parameter
+            if (isHistorical) {
+                forecastParams.append('is_historical', 'true');
             }
             
             // Add date range parameters if date range is enabled for waves

@@ -21,6 +21,8 @@ from .database import (
     MissionOverview,
     MissionGoal,
     MissionNote,
+    SensorTrackerDeployment,
+    MissionInstrument,
 )
 
 
@@ -83,6 +85,7 @@ class ForecastParams(BaseModel):
     local_path: Optional[str] = Field(None, description="Custom local path for telemetry lookup if lat/lon are inferred.")
     refresh: bool = Field(False, description="Force refresh of telemetry data if used for lat/lon inference.")
     force_marine: Optional[bool] = Field(False, description="Legacy or specific flag, currently not used by primary forecast endpoints.")
+    is_historical: bool = Field(False, description="Whether this is a historical mission. Forecasts are not provided for historical missions.")
 
     @field_validator("local_path")
     def forecast_local_path_rules(cls, v, values):
@@ -472,6 +475,7 @@ class MissionOverviewUpdate(BaseModel):
     document_url: Optional[str] = None
     comments: Optional[str] = None
     weekly_report_url: Optional[str] = None
+    end_of_mission_report_url: Optional[str] = None
     enabled_sensor_cards: Optional[str] = None
 
 
@@ -496,6 +500,8 @@ class MissionInfoResponse(BaseModel):
     overview: Optional[MissionOverview] = None
     goals: List[MissionGoal] = []
     notes: List[MissionNote] = []
+    sensor_tracker_deployment: Optional["SensorTrackerDeployment"] = None  # Sensor Tracker metadata
+    sensor_tracker_instruments: List["MissionInstrument"] = []  # Sensor Tracker instruments
 
 
 # ============================================================================

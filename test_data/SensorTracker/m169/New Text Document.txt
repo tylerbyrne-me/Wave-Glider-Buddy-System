@@ -1,0 +1,94 @@
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System> python scripts/test_sensor_tracker.py 4022
+Initializing Sensor Tracker service...
+Failed to set token (may be library compatibility issue): _EventBundle.__init__() takes 1 positional argument but 2 were given
+
+Testing connection...
+  Host URL: https://prod.ceotr.ca/sensor_tracker/
+✓ Connection successful!
+
+Fetching deployment 4022...
+✓ Deployment 4022 fetched successfully
+✓ Raw deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4022_raw.json
+
+Parsing deployment data...
+Fetching platform 288 details...
+✓ Platform details fetched
+
+Fetching data loggers for platform...
+No sensors found for instrument 'AIS-Records' (ID: 235) at attached_time 2023-06-01
+No sensors found for instrument 'amps' (ID: 308) at attached_time 2023-06-01
+No sensors found for instrument 'iridium_sbd_modem' (ID: 319) at attached_time 2023-06-01
+No sensors found for instrument 'water_speed' (ID: 312) at attached_time 2023-06-01
+No sensors found for instrument 'vm4' (ID: 303) at attached_time 2023-06-01
+✓ Data loggers fetched
+✓ Parsed deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4022_parsed.json
+
+============================================================
+DEPLOYMENT SUMMARY
+============================================================
+Sensor Tracker Deployment ID: 4022
+Deployment Number: 169
+Mission ID: m169
+Title: Mobile tracking for ESRF Atlantic salmon with a wave glider
+
+Timing:
+  Start: 2023-06-01 13:44:00
+  End: 2023-08-14 23:41:00
+
+Location:
+  Deployment: (44.53040, -63.43526)
+  Recovery: (None, None)
+  Depth: 43.0 m
+
+Platform ID: 288
+Platform Name: SV3-1071 (C34166NS)
+Platform Type: 12
+
+Data Loggers: 2
+  1. FLIGHT Logger
+     Instruments: 5
+     Parameters: 0
+     Instrument Details:
+       - ID: 235, Identifier: AIS-Records, Serial: 009897, Name: AIS receiver, Sensors: 0
+       - ID: 308, Identifier: amps, Serial: 009897, Name: AMPS SV3, Sensors: 0
+       - ID: 319, Identifier: iridium_sbd_modem, Serial: 300434064028250, Name: Iridium SBD, Sensors: 0
+       - ID: 219, Identifier: Weather-Records, Serial: 60139906, Name: Airmar 200WX, Sensors: 7
+         └─ Sensor: ID: 289738, Identifier: Weather-Records_wind_speed, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289739, Identifier: Weather-Records_wind_gust_speed, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289740, Identifier: Weather-Records_wind_direction, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289741, Identifier: Weather-Records_pressure, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289742, Identifier: Weather-Records_latitude, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289743, Identifier: Weather-Records_longitude, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289737, Identifier: Weather-Records_temperature, Serial: N/A, Name: N/A
+       - ID: 312, Identifier: water_speed, Serial: 60252727, Name: platform attitude sensor, Sensors: 0
+  2. SCIENCE Logger
+     Instruments: 2
+     Parameters: 0
+     Instrument Details:
+       - ID: 243, Identifier: GPSWaves-Sensor, Serial: 9914, Name: gpswaves, Sensors: 7
+         └─ Sensor: ID: 351578, Identifier: GPSWaves-Sensor_hs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351579, Identifier: GPSWaves-Sensor_ta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351580, Identifier: GPSWaves-Sensor_tp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351581, Identifier: GPSWaves-Sensor_dp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351582, Identifier: GPSWaves-Sensor_samples, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351583, Identifier: GPSWaves-Sensor_fs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351584, Identifier: GPSWaves-Sensor_sample_gaps, Serial: N/A, Name: N/A
+       - ID: 303, Identifier: vm4, Serial: 250909, Name: hydrophone, Sensors: 0
+
+Program: CEOTR glider program
+
+Platform Instruments (direct attachment): 3
+  - ID: 305, Identifier: tracker, Serial: 0934, Name: Xeos Rover
+  - ID: 101, Identifier: vmt, Serial: 1272215, Name: vmt
+  - ID: 286, Identifier: vmt, Serial: 1360647, Name: vmt
+
+Total Instruments: 10
+  - On Data Loggers: 7
+  - Direct on Platform: 3
+Sensors: 14
+Sensor-Instrument Links: 14
+
+============================================================
+✓ Test completed successfully!
+
+Inspect the JSON files in test_data/ for full details.

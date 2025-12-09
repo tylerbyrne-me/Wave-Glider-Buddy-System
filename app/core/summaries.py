@@ -77,7 +77,7 @@ def _get_common_status_data(
     Returns: (result_shell, df_processed, last_row)
     """
     result_shell: Dict[str, Any] = {
-        "values": None,
+        "values": {},  # Always return empty dict instead of None to prevent template errors
         "latest_timestamp_str": "N/A",
         "time_ago_str": "N/A",
     }
@@ -340,7 +340,7 @@ def get_power_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_power_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_power_mini_trend(df_power: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -384,7 +384,7 @@ def get_fluorometer_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_fluorometer_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_fluorometer_mini_trend(
@@ -410,6 +410,9 @@ def get_ctd_status(
             df_ctd, preprocess_ctd_df, "CTD", last_update_timestamp
         )
         if last_row is None:
+            # Ensure values is always a dict, not None
+            if result_shell.get("values") is None:
+                result_shell["values"] = {}
             return result_shell
 
         # All subsequent logic for get_ctd_status should be at this indentation level:
@@ -446,7 +449,7 @@ def get_ctd_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_ctd_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_ctd_mini_trend(df_ctd: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -522,7 +525,7 @@ def get_weather_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_weather_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_weather_mini_trend(df_weather: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -614,7 +617,7 @@ def get_wave_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_wave_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_wave_mini_trend(df_waves: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -790,7 +793,7 @@ def get_vr2c_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_vr2c_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_vr2c_mini_trend(df_vr2c: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -815,6 +818,9 @@ def get_navigation_status(
             df_telemetry, preprocess_telemetry_df, "Navigation", last_update_timestamp
         )
         if last_row is None:
+            # Ensure values is always a dict, not None
+            if result_shell.get("values") is None:
+                result_shell["values"] = {}
             return result_shell
 
         # All subsequent logic for get_navigation_status should be at this indentation level:
@@ -882,7 +888,7 @@ def get_navigation_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_navigation_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_navigation_mini_trend(
@@ -927,7 +933,7 @@ def get_wg_vm4_status(
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_wg_vm4_status: {e}", exc_info=True)
-        return {"values": None, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
 
 
 def get_wg_vm4_mini_trend(df_wg_vm4: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:

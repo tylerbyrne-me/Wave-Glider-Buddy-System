@@ -1,0 +1,101 @@
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System> python scripts/test_sensor_tracker.py 4291
+Initializing Sensor Tracker service...
+Failed to set token (may be library compatibility issue): _EventBundle.__init__() takes 1 positional argument but 2 were given
+
+Testing connection...
+  Host URL: https://prod.ceotr.ca/sensor_tracker/
+✓ Connection successful!
+
+Fetching deployment 4291...
+✓ Deployment 4291 fetched successfully
+✓ Raw deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4291_raw.json
+
+Parsing deployment data...
+Fetching platform 287 details...
+✓ Platform details fetched
+
+Fetching data loggers for platform...
+No sensors found for instrument 'amps' (ID: 309) at attached_time 2025-10-10
+No sensors found for instrument 'iridium_sbd_modem' (ID: 318) at attached_time 2025-10-10
+No sensors found for instrument 'Weather-Records' (ID: 230) at attached_time 2025-10-10
+No sensors found for instrument 'water_speed' (ID: 313) at attached_time 2025-10-10
+No sensors found for instrument 'vm4' (ID: 302) at attached_time 2025-10-10
+No sensors found for instrument 'ADCP' (ID: 241) at attached_time 2025-10-10
+✓ Data loggers fetched
+✓ Parsed deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4291_parsed.json
+
+============================================================
+DEPLOYMENT SUMMARY
+============================================================
+Sensor Tracker Deployment ID: 4291
+Deployment Number: 216
+Mission ID: m216
+Title: OTN HFX Line Offloads
+
+Timing:
+  Start: 2025-10-10 12:41:34
+  End: 2025-11-07 13:36:19
+
+Location:
+  Deployment: (44.53285, -63.45028)
+  Recovery: (44.56274, -63.45665)
+  Depth: 40.0 m
+
+Platform ID: 287
+Platform Name: SV3-1070 (C34164NS)
+Platform Type: 12
+
+Data Loggers: 2
+  1. FLIGHT Logger
+     Instruments: 5
+     Parameters: 0
+     Instrument Details:
+       - ID: 234, Identifier: AIS-Records, Serial: 009883, Name: AIS receiver, Sensors: 9
+         └─ Sensor: ID: 289834, Identifier: AIS-Records_mmsi, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289835, Identifier: AIS-Records_ship_name, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289836, Identifier: AIS-Records_call_sign, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289837, Identifier: AIS-Records_cargo_type, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289838, Identifier: AIS-Records_destination, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289839, Identifier: AIS-Records_eta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289840, Identifier: AIS-Records_ais_class, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289841, Identifier: AIS-Records_latitude, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289851, Identifier: AIS-Records_longitude, Serial: N/A, Name: N/A
+       - ID: 309, Identifier: amps, Serial: 009883, Name: AMPS SV3, Sensors: 0
+       - ID: 318, Identifier: iridium_sbd_modem, Serial: 300434064026230, Name: Iridium SBD, Sensors: 0
+       - ID: 230, Identifier: Weather-Records, Serial: 60139910, Name: Airmar 200WX, Sensors: 0
+       - ID: 313, Identifier: water_speed, Serial: 60252740, Name: platform attitude sensor, Sensors: 0
+  2. SCIENCE Logger
+     Instruments: 4
+     Parameters: 0
+     Instrument Details:
+       - ID: 242, Identifier: GPSWaves-Sensor, Serial: 9915, Name: gpswaves, Sensors: 7
+         └─ Sensor: ID: 351585, Identifier: GPSWaves-Sensor_hs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351586, Identifier: GPSWaves-Sensor_ta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351587, Identifier: GPSWaves-Sensor_tp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351588, Identifier: GPSWaves-Sensor_dp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351589, Identifier: GPSWaves-Sensor_samples, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351590, Identifier: GPSWaves-Sensor_fs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351591, Identifier: GPSWaves-Sensor_sample_gaps, Serial: N/A, Name: N/A
+       - ID: 240, Identifier: CTD, Serial: 701-0328, Name: ctd, Sensors: 2
+         └─ Sensor: ID: 555980, Identifier: dissolved_oxygen - 3151, Serial: 43-3151, Name: N/A
+         └─ Sensor: ID: 561933, Identifier: ctd_pump, Serial: 05-10304, Name: N/A
+       - ID: 302, Identifier: vm4, Serial: 250791, Name: hydrophone, Sensors: 0
+       - ID: 241, Identifier: ADCP, Serial: 20736, Name: adcp, Sensors: 0
+
+Program: Ocean Tracking Network glider program
+
+Platform Instruments (direct attachment): 3
+  - ID: 306, Identifier: tracker, Serial: 0938, Name: Xeos Rover
+  - ID: 332, Identifier: vmt, Serial: 1540749, Name: vmt
+  - ID: 356, Identifier: Mobile RX, Serial: 407013, Name: Mobile RX
+
+Total Instruments: 12
+  - On Data Loggers: 9
+  - Direct on Platform: 3
+Sensors: 18
+Sensor-Instrument Links: 18
+
+============================================================
+✓ Test completed successfully!
+
+Inspect the JSON files in test_data/ for full details.

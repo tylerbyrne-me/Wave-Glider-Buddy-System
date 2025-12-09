@@ -40,6 +40,9 @@ from .database import (
     MissionOverview,
     MissionGoal,
     MissionNote,
+    SensorTrackerDeployment,
+    MissionInstrument,
+    MissionSensor,
     LiveKMLToken,
     SubmittedForm,
     Announcement,
@@ -123,6 +126,18 @@ from .schemas import (
     PicHandoffLinkInfo,
 )
 
+# Import error analysis models
+from .error_analysis import (
+    ErrorSeverityEnum,
+    ClassifiedError,
+    ErrorCategoryStats,
+    ErrorPattern,
+    ErrorClassificationResponse,
+    ErrorTrendData,
+    ErrorDashboardSummary,
+    ErrorCategoryEnum,
+)
+
 __all__ = [
     # Enums
     "ReportTypeEnum",
@@ -144,6 +159,9 @@ __all__ = [
     "MissionOverview",
     "MissionGoal",
     "MissionNote",
+    "SensorTrackerDeployment",
+    "MissionInstrument",
+    "MissionSensor",
     "LiveKMLToken",
     "SubmittedForm",
     "Announcement",

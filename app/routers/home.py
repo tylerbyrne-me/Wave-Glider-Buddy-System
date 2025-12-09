@@ -8,6 +8,7 @@ from app.core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
 from sqlmodel import select
+from sqlalchemy import or_
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,12 +39,43 @@ async def get_home_page(
         notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
         notes = session.exec(notes_stmt).all()
         
-        logger.info(f"Mission {mission_id} - Overview: {overview}, Goals: {len(goals)}, Notes: {len(notes)}")
+        # Get Sensor Tracker deployment data
+        # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")
+        mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        sensor_tracker_deployment = session.exec(
+            select(models.SensorTrackerDeployment).where(
+                or_(
+                    models.SensorTrackerDeployment.mission_id == mission_id,
+                    models.SensorTrackerDeployment.mission_id == mission_base
+                )
+            )
+        ).first()
+        
+        # Load instruments if we have a deployment
+        # Instruments are stored with the full mission_id (e.g., "1070-m216")
+        instruments = []
+        if sensor_tracker_deployment:
+            instruments = session.exec(
+                select(models.MissionInstrument).where(
+                    or_(
+                        models.MissionInstrument.mission_id == mission_id,
+                        models.MissionInstrument.mission_id == mission_base
+                    )
+                )
+            ).all()
+        
+        logger.info(f"Mission {mission_id} (base: {mission_base}) - Overview: {overview}, Goals: {len(goals)}, Notes: {len(notes)}, Sensor Tracker: {sensor_tracker_deployment is not None}, Instruments: {len(instruments)}")
+        if sensor_tracker_deployment:
+            logger.info(f"  Sensor Tracker Deployment found: mission_id={sensor_tracker_deployment.mission_id}, title={sensor_tracker_deployment.title}")
+        else:
+            logger.warning(f"  No Sensor Tracker Deployment found for mission_id={mission_id} or mission_base={mission_base}")
         
         active_mission_data[mission_id] = models.MissionInfoResponse(
             overview=overview,
             goals=goals,
-            notes=notes
+            notes=notes,
+            sensor_tracker_deployment=sensor_tracker_deployment,
+            sensor_tracker_instruments=instruments
         )
     
     template_context = get_template_context(

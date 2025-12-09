@@ -33,6 +33,33 @@
             <div id="overviewFormContainer" style="display: none;">
                 <h4 id="editingMissionTitle"></h4>
                 <form id="overviewForm">
+                    <!-- Mission Reports Section -->
+                    <div class="mb-3">
+                        <label class="form-label">Mission Reports</label>
+                        <div class="alert alert-info mb-2" style="font-size: 0.9em;">
+                            <i class="fas fa-info-circle"></i> Weekly reports are generated for ongoing missions. End of Mission reports are comprehensive reports generated when a mission is complete.
+                        </div>
+                        <div id="weeklyReportContainer" class="mb-2" style="display: none;">
+                            <p class="mb-1">
+                                <strong>Weekly Report:</strong> 
+                                <a href="#" id="weeklyReportLink" target="_blank" class="text-decoration-none">
+                                    <i class="fas fa-file-pdf text-danger"></i> <span id="weeklyReportFilename"></span>
+                                </a>
+                            </p>
+                        </div>
+                        <div id="endOfMissionReportContainer" class="mb-2" style="display: none;">
+                            <p class="mb-1">
+                                <strong>End of Mission Report:</strong> 
+                                <a href="#" id="endOfMissionReportLink" target="_blank" class="text-decoration-none">
+                                    <i class="fas fa-file-pdf text-danger"></i> <span id="endOfMissionReportFilename"></span>
+                                </a>
+                            </p>
+                        </div>
+                        <div id="noReportsContainer" class="text-muted small" style="display: none;">
+                            <i class="fas fa-info-circle"></i> No reports have been generated yet. Use the "Report Generation" section below to create reports.
+                        </div>
+                    </div>
+                    
                     <!-- New File Upload Section -->
                     <div class="mb-3">
                         <label class="form-label">Formal Plan Document</label>
@@ -50,6 +77,67 @@
                         </div>
                         <input type="hidden" id="documentUrlInput"> <!-- Hidden input to hold the URL for submission -->
                     </div>
+                    
+                    <!-- Sensor Tracker Metadata Section -->
+                    <div class="mb-3">
+                        <label class="form-label">Sensor Tracker Metadata</label>
+                        <div id="sensorTrackerMetadataContainer" style="display: none;">
+                            <div class="card border-info">
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <dl class="row mb-0">
+                                                <dt class="col-sm-5">Title:</dt>
+                                                <dd class="col-sm-7" id="stTitle">-</dd>
+                                                
+                                                <dt class="col-sm-5">Start:</dt>
+                                                <dd class="col-sm-7" id="stStart">-</dd>
+                                                
+                                                <dt class="col-sm-5">End:</dt>
+                                                <dd class="col-sm-7" id="stEnd">-</dd>
+                                                
+                                                <dt class="col-sm-5">Platform:</dt>
+                                                <dd class="col-sm-7" id="stPlatform">-</dd>
+                                                
+                                                <dt class="col-sm-5">Data Repository:</dt>
+                                                <dd class="col-sm-7" id="stDataRepo">-</dd>
+                                            </dl>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <dl class="row mb-0">
+                                                <dt class="col-sm-12 mb-2">Deployment Description:</dt>
+                                                <dd class="col-sm-12">
+                                                    <p class="text-muted small mb-0" id="stDescription" style="white-space: pre-wrap;">-</p>
+                                                </dd>
+                                            </dl>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Instruments Section -->
+                                    <div class="row mt-3" id="stInstrumentsContainer" style="display: none;">
+                                        <div class="col-md-6" id="stPlatformInstrumentsContainer" style="display: none;">
+                                            <h6 class="mb-2">Platform Direct Instruments</h6>
+                                            <ul class="list-unstyled small mb-0" id="stPlatformInstruments"></ul>
+                                        </div>
+                                        <div class="col-md-6" id="stScienceInstrumentsContainer" style="display: none;">
+                                            <h6 class="mb-2">Science Computer Instruments</h6>
+                                            <ul class="list-unstyled small mb-0" id="stScienceInstruments"></ul>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-2">
+                                        <small class="text-muted">
+                                            <i class="fas fa-info-circle"></i> This metadata is synced from Sensor Tracker when generating reports.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="sensorTrackerMetadataPlaceholder" class="text-muted small" style="display: none;">
+                            <i class="fas fa-info-circle"></i> No Sensor Tracker metadata available for this mission. Metadata will be synced when you generate a report.
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
                         <label for="comments" class="form-label">High-Level Comments</label>
                         <textarea class="form-control" id="comments" rows="6" placeholder="Enter high-level mission comments here..."></textarea>
@@ -134,6 +222,63 @@
                     <button type="submit" class="btn btn-primary" id="saveOverviewBtn">Save Overview</button>
                 </form>
                 <div id="saveStatus" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Generation Section -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Report Generation</h5>
+        </div>
+        <div class="card-body">
+            <div id="reportGenerationContainer" style="display: none;">
+                <p class="text-muted">Generate reports for the selected mission. Reports will include Sensor Tracker metadata.</p>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="reportTypeSelect" class="form-label">Report Type:</label>
+                        <select class="form-select" id="reportTypeSelect">
+                            <option value="weekly">Weekly Report</option>
+                            <option value="end_of_mission">End of Mission Report</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="forceRefreshSensorTracker" checked>
+                        <label class="form-check-label" for="forceRefreshSensorTracker">
+                            Force refresh Sensor Tracker data (recommended for end-of-mission reports)
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" class="btn btn-success" id="generateReportBtn">
+                        <i class="fas fa-file-pdf"></i> Generate Report
+                    </button>
+                    <span id="reportGenerationSpinner" class="ms-2" style="display: none;">
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <span class="ms-2">Generating report...</span>
+                    </span>
+                </div>
+
+                <div id="reportStatus" class="mt-3"></div>
+                
+                <div id="reportResult" class="mt-3" style="display: none;">
+                    <div class="alert alert-success">
+                        <strong>Report generated successfully!</strong>
+                        <div class="mt-2">
+                            <a href="#" id="reportDownloadLink" target="_blank" class="btn btn-sm btn-primary">
+                                <i class="fas fa-download"></i> Download Report
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="reportGenerationPlaceholder" class="text-muted">
+                Select a mission above to generate reports.
             </div>
         </div>
     </div>

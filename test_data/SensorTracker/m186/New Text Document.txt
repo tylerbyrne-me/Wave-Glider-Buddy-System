@@ -1,0 +1,70 @@
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System> python scripts/test_sensor_tracker.py 4039
+Initializing Sensor Tracker service...
+Failed to set token (may be library compatibility issue): _EventBundle.__init__() takes 1 positional argument but 2 were given
+
+Testing connection...
+  Host URL: https://prod.ceotr.ca/sensor_tracker/
+✓ Connection successful!
+
+Fetching deployment 4039...
+✓ Deployment 4039 fetched successfully
+✓ Raw deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4039_raw.json
+
+Parsing deployment data...
+Fetching platform 288 details...
+✓ Platform details fetched
+
+Fetching data loggers for platform...
+✓ Data loggers fetched
+✓ Parsed deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4039_parsed.json
+
+============================================================
+DEPLOYMENT SUMMARY
+============================================================
+Sensor Tracker Deployment ID: 4039
+Deployment Number: 186
+Mission ID: m186
+Title: Wave Glider gas measurements for BELS
+
+Timing:
+  Start: 2023-12-04 14:53:00
+  End: 2023-12-10 13:25:00
+
+Location:
+  Deployment: (56.55771, -52.79678)
+  Recovery: (56.67500, -51.84900)
+  Depth: None m
+
+Platform ID: 288
+Platform Name: SV3-1071 (C34166NS)
+Platform Type: 12
+
+Data Loggers: 1
+  1. SCIENCE Logger
+     Instruments: 1
+     Parameters: 0
+     Instrument Details:
+       - ID: 243, Identifier: GPSWaves-Sensor, Serial: 9914, Name: gpswaves, Sensors: 7
+         └─ Sensor: ID: 351578, Identifier: GPSWaves-Sensor_hs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351579, Identifier: GPSWaves-Sensor_ta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351580, Identifier: GPSWaves-Sensor_tp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351581, Identifier: GPSWaves-Sensor_dp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351582, Identifier: GPSWaves-Sensor_samples, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351583, Identifier: GPSWaves-Sensor_fs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351584, Identifier: GPSWaves-Sensor_sample_gaps, Serial: N/A, Name: N/A
+
+Program: CEOTR glider program
+
+Platform Instruments (direct attachment): 1
+  - ID: 305, Identifier: tracker, Serial: 0934, Name: Xeos Rover
+
+Total Instruments: 2
+  - On Data Loggers: 1
+  - Direct on Platform: 1
+Sensors: 7
+Sensor-Instrument Links: 7
+
+============================================================
+✓ Test completed successfully!
+
+Inspect the JSON files in test_data/ for full details.

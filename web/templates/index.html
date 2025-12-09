@@ -9,7 +9,8 @@
 {% block body_class %}container-fluid{% endblock %} {# Removed py-4. Body padding is handled by base.html for fixed-top navbar. #}
 
 {% block body_data_attributes %}
-  data-mission-id="{{ mission }}" {# data-is-realtime is now passed directly to _banner.html #}
+  data-mission-id="{{ mission }}"
+  data-is-historical="{{ 'true' if is_historical_mission else 'false' }}"
   data-enabled-sensors="{{ enabled_sensor_cards | join(',') }}"
 {% endblock %}
 

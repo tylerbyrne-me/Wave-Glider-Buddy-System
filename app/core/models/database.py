@@ -3,7 +3,7 @@ SQLModel database table definitions for the Wave Glider Buddy System.
 """
 
 from datetime import datetime, timezone, date
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, Dict
 
 from sqlmodel import JSON, Column, Text
 from sqlmodel import Field as SQLModelField
@@ -209,6 +209,7 @@ class MissionOverview(SQLModel, table=True):
     
     mission_id: str = SQLModelField(primary_key=True, description="The mission identifier, e.g., 'm203'.")
     weekly_report_url: Optional[str] = SQLModelField(default=None, description="URL to the latest generated weekly report PDF.")
+    end_of_mission_report_url: Optional[str] = SQLModelField(default=None, description="URL to the end of mission report PDF.")
     document_url: Optional[str] = SQLModelField(default=None, description="URL to the formal mission plan document (.doc, .pdf).")
     comments: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="High-level comments about the mission.")
     enabled_sensor_cards: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="JSON string of enabled sensor cards for this mission.")
@@ -243,6 +244,160 @@ class MissionNote(SQLModel, table=True):
     content: str = SQLModelField(sa_column=Column(Text), description="The content of the note.")
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# --- Sensor Tracker Deployment Database Model ---
+class SensorTrackerDeployment(SQLModel, table=True):
+    """Stores Sensor Tracker deployment metadata linked to missions."""
+    __tablename__ = "sensor_tracker_deployments"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, unique=True, description="Mission ID (e.g., 'm216')")
+    sensor_tracker_deployment_id: int = SQLModelField(index=True, description="Sensor Tracker internal ID")
+    deployment_number: int = SQLModelField(index=True, description="Mission/deployment number")
+    
+    # Deployment metadata
+    title: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    deployment_location_lat: Optional[float] = None
+    deployment_location_lon: Optional[float] = None
+    recovery_location_lat: Optional[float] = None
+    recovery_location_lon: Optional[float] = None
+    depth: Optional[float] = None
+    
+    # Platform info
+    platform_id: Optional[int] = None
+    platform_name: Optional[str] = None
+    platform_type: Optional[int] = None
+    
+    # Priority metadata fields (Phase 1A)
+    agencies: Optional[str] = SQLModelField(default=None, description="Funding/supporting agencies (comma-separated, order preserved)")
+    agencies_role: Optional[str] = SQLModelField(default=None, description="Role of agencies (e.g., 'Funding agency')")
+    deployment_comment: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="Long-form deployment description/comment")
+    acknowledgement: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="Acknowledgement text")
+    
+    # Additional metadata fields (Phase 1B)
+    # Deployment details
+    deployment_cruise: Optional[str] = SQLModelField(default=None, description="Vessel name for deployment")
+    recovery_cruise: Optional[str] = SQLModelField(default=None, description="Vessel name for recovery")
+    deployment_personnel: Optional[str] = SQLModelField(default=None, description="Personnel involved in deployment (comma-separated)")
+    recovery_personnel: Optional[str] = SQLModelField(default=None, description="Personnel involved in recovery (comma-separated)")
+    wmo_id: Optional[str] = SQLModelField(default=None, description="WMO identifier if applicable")
+    
+    # Publication and data access
+    data_repository_link: Optional[str] = SQLModelField(default=None, description="Link to data repository (e.g., ERDDAP)")
+    metadata_link: Optional[str] = SQLModelField(default=None, description="Link to metadata documentation")
+    publisher_name: Optional[str] = SQLModelField(default=None, description="Organization publishing the data")
+    publisher_email: Optional[str] = SQLModelField(default=None, description="Publisher contact email")
+    publisher_url: Optional[str] = SQLModelField(default=None, description="Publisher website")
+    publisher_country: Optional[str] = SQLModelField(default=None, description="Country of publisher")
+    
+    # Attribution
+    creator_name: Optional[str] = SQLModelField(default=None, description="Data creator name")
+    creator_email: Optional[str] = SQLModelField(default=None, description="Creator contact email")
+    creator_url: Optional[str] = SQLModelField(default=None, description="Creator website")
+    creator_sector: Optional[str] = SQLModelField(default=None, description="Creator sector (academic, government, etc.)")
+    contributor_name: Optional[str] = SQLModelField(default=None, description="Contributor names")
+    contributor_role: Optional[str] = SQLModelField(default=None, description="Role of contributors")
+    contributors_email: Optional[str] = SQLModelField(default=None, description="Contributor contact email")
+    
+    # Program information
+    program: Optional[str] = SQLModelField(default=None, description="Program name")
+    site: Optional[str] = SQLModelField(default=None, description="Site name")
+    sea_name: Optional[str] = SQLModelField(default=None, description="Geographic region/sea name")
+    
+    # Technical details
+    transmission_system: Optional[str] = SQLModelField(default=None, description="Communication systems (e.g., 'Iridium, Cellular')")
+    positioning_system: Optional[str] = SQLModelField(default=None, description="Navigation systems (e.g., 'GPS')")
+    references: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="Technical references")
+    
+    # Full parsed data (JSON for flexibility)
+    full_metadata: Optional[Dict] = SQLModelField(sa_column=Column(JSON), description="Complete parsed deployment data")
+    
+    # Sync metadata
+    last_synced_at: Optional[datetime] = None
+    sync_status: str = SQLModelField(default="pending", description="pending, synced, error")
+    sync_error: Optional[str] = None
+    
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+
+
+# --- Mission Instrument Database Model ---
+class MissionInstrument(SQLModel, table=True):
+    """Stores instrument metadata for missions."""
+    __tablename__ = "mission_instruments"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="Mission ID")
+    sensor_tracker_instrument_id: Optional[int] = SQLModelField(index=True, description="Sensor Tracker instrument ID")
+    
+    # Instrument details
+    instrument_identifier: str = SQLModelField(index=True, description="e.g., 'CTD', 'ADCP', 'GPSWaves-Sensor'")
+    instrument_short_name: Optional[str] = None
+    instrument_serial: Optional[str] = None
+    instrument_name: Optional[str] = None
+    
+    # Data logger association
+    data_logger_type: Optional[str] = None  # 'flight' or 'science'
+    data_logger_id: Optional[int] = None
+    data_logger_name: Optional[str] = None
+    data_logger_identifier: Optional[str] = None
+    is_platform_direct: bool = SQLModelField(default=False, description="True if attached directly to platform")
+    
+    # Timing
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    
+    # Validation
+    validated: bool = SQLModelField(default=False, description="Whether instrument data has been validated")
+    validation_notes: Optional[str] = None
+    
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    
+    # Relationship
+    sensors: List["MissionSensor"] = Relationship(back_populates="instrument")
+
+
+# --- Mission Sensor Database Model ---
+class MissionSensor(SQLModel, table=True):
+    """Stores sensor metadata for missions."""
+    __tablename__ = "mission_sensors"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="Mission ID")
+    instrument_id: int = SQLModelField(foreign_key="mission_instruments.id", description="Parent instrument")
+    sensor_tracker_sensor_id: Optional[int] = SQLModelField(index=True, description="Sensor Tracker sensor ID")
+    
+    # Sensor details
+    sensor_identifier: str = SQLModelField(index=True, description="e.g., 'dissolved_oxygen - 3151', 'ctd_pump'")
+    sensor_short_name: Optional[str] = None
+    sensor_serial: Optional[str] = None
+    
+    # Timing
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    
+    # Validation
+    validated: bool = SQLModelField(default=False)
+    validation_notes: Optional[str] = None
+    
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    
+    # Relationship
+    instrument: "MissionInstrument" = Relationship(back_populates="sensors")
 
 
 # --- Live KML Token Database Model ---

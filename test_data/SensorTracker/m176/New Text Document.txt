@@ -1,0 +1,115 @@
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System> python scripts/test_sensor_tracker.py 4029
+Initializing Sensor Tracker service...
+Failed to set token (may be library compatibility issue): _EventBundle.__init__() takes 1 positional argument but 2 were given
+
+Testing connection...
+  Host URL: https://prod.ceotr.ca/sensor_tracker/
+✓ Connection successful!
+
+Fetching deployment 4029...
+✓ Deployment 4029 fetched successfully
+✓ Raw deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4029_raw.json
+
+Parsing deployment data...
+Fetching platform 287 details...
+✓ Platform details fetched
+
+Fetching data loggers for platform...
+No sensors found for instrument 'amps' (ID: 309) at attached_time 2023-08-02
+No sensors found for instrument 'water_speed' (ID: 313) at attached_time 2023-08-02
+No sensors found for instrument 'iridium_sbd_modem' (ID: 318) at attached_time 2023-08-02
+No sensors found for instrument 'Weather-Records' (ID: 230) at attached_time 2023-08-02
+No sensors found for instrument 'vm4' (ID: 83) at attached_time 2023-08-02
+✓ Data loggers fetched
+✓ Parsed deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4029_parsed.json
+
+============================================================
+DEPLOYMENT SUMMARY
+============================================================
+Sensor Tracker Deployment ID: 4029
+Deployment Number: 176
+Mission ID: m176
+Title: 2023 NCAT VR4 Receiver Offloads
+
+Timing:
+  Start: 2023-08-02 18:08:40
+  End: 2023-10-19 15:00:00
+
+Location:
+  Deployment: (None, None)
+  Recovery: (None, None)
+  Depth: None m
+
+Platform ID: 287
+Platform Name: SV3-1070 (C34164NS)
+Platform Type: 12
+
+Data Loggers: 2
+  1. FLIGHT Logger
+     Instruments: 6
+     Parameters: 0
+     Instrument Details:
+       - ID: 234, Identifier: AIS-Records, Serial: 009883, Name: AIS receiver, Sensors: 9
+         └─ Sensor: ID: 289834, Identifier: AIS-Records_mmsi, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289835, Identifier: AIS-Records_ship_name, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289836, Identifier: AIS-Records_call_sign, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289837, Identifier: AIS-Records_cargo_type, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289838, Identifier: AIS-Records_destination, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289839, Identifier: AIS-Records_eta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289840, Identifier: AIS-Records_ais_class, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289841, Identifier: AIS-Records_latitude, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289851, Identifier: AIS-Records_longitude, Serial: N/A, Name: N/A
+       - ID: 309, Identifier: amps, Serial: 009883, Name: AMPS SV3, Sensors: 0
+       - ID: 313, Identifier: water_speed, Serial: 60252740, Name: platform attitude sensor, Sensors: 0
+       - ID: 318, Identifier: iridium_sbd_modem, Serial: 300434064026230, Name: Iridium SBD, Sensors: 0
+       - ID: 230, Identifier: Weather-Records, Serial: 60139910, Name: Airmar 200WX, Sensors: 0
+       - ID: 237, Identifier: SV3-1070-Telemetry, Serial: 009883, Name: telemetry, Sensors: 15
+         └─ Sensor: ID: 289875, Identifier: SV3-1070-Telemetry_ground_speed, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289876, Identifier: SV3-1070-Telemetry_target, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289877, Identifier: SV3-1070-Telemetry_desired_heading, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289878, Identifier: SV3-1070-Telemetry_sub_heading, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289879, Identifier: SV3-1070-Telemetry_pog, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289880, Identifier: SV3-1070-Telemetry_float_temp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289881, Identifier: SV3-1070-Telemetry_pressure_sensor_float, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289882, Identifier: SV3-1070-Telemetry_signal_strength, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289883, Identifier: SV3-1070-Telemetry_lat, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289884, Identifier: SV3-1070-Telemetry_lon, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289885, Identifier: SV3-1070-Telemetry_distance_over_ground, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289886, Identifier: SV3-1070-Telemetry_water_speed, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289887, Identifier: SV3-1070-Telemetry_water_direction, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289888, Identifier: SV3-1070-Telemetry_current_speed, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 289889, Identifier: SV3-1070-Telemetry_current_heading, Serial: N/A, Name: N/A
+  2. SCIENCE Logger
+     Instruments: 3
+     Parameters: 0
+     Instrument Details:
+       - ID: 85, Identifier: CTD, Serial: 0069, Name: ctd, Sensors: 2
+         └─ Sensor: ID: 288246, Identifier: dissolved_oxygen, Serial: 43-0207, Name: N/A
+         └─ Sensor: ID: 561934, Identifier: ctd_pump, Serial: 05-6853, Name: N/A
+       - ID: 83, Identifier: vm4, Serial: 250003, Name: hydrophone, Sensors: 0
+       - ID: 242, Identifier: GPSWaves-Sensor, Serial: 9915, Name: gpswaves, Sensors: 7
+         └─ Sensor: ID: 351585, Identifier: GPSWaves-Sensor_hs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351586, Identifier: GPSWaves-Sensor_ta, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351587, Identifier: GPSWaves-Sensor_tp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351588, Identifier: GPSWaves-Sensor_dp, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351589, Identifier: GPSWaves-Sensor_samples, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351590, Identifier: GPSWaves-Sensor_fs, Serial: N/A, Name: N/A
+         └─ Sensor: ID: 351591, Identifier: GPSWaves-Sensor_sample_gaps, Serial: N/A, Name: N/A
+
+Program: CEOTR glider program
+
+Platform Instruments (direct attachment): 3
+  - ID: 306, Identifier: tracker, Serial: 0938, Name: Xeos Rover
+  - ID: 334, Identifier: vmt, Serial: 1540745, Name: vmt
+  - ID: 333, Identifier: vmt, Serial: 1540747, Name: vmt
+
+Total Instruments: 12
+  - On Data Loggers: 9
+  - Direct on Platform: 3
+Sensors: 33
+Sensor-Instrument Links: 33
+
+============================================================
+✓ Test completed successfully!
+
+Inspect the JSON files in test_data/ for full details.

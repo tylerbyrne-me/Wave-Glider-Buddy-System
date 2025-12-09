@@ -1,7 +1,0 @@
-timeStamp,latitude,longitude,"payload Data"
-2025-01-17 17:02:10,44.1234,-63.5678,"Connecting to remote VR4-250545"
-2025-01-17 17:02:15,44.1235,-63.5679,"Connected to remote VR4-250545"
-2025-01-17 17:02:20,44.1236,-63.5680,"remote offload in progress: 0% complete, 20 errors, modem range: 559.6m, volume: 7.5MB, local_tx_pwr: 300, local_rx_pwr: 4, remote_tx_pwr: 300, remote_rx_pwr: 4, motor_range: 559.6m, motor_bearing: 0.00000"
-2025-01-17 17:02:25,44.1237,-63.5681,"remote offload in progress: 50% complete, 15 errors, modem range: 560.1m, volume: 15.0MB, local_tx_pwr: 300, local_rx_pwr: 4, remote_tx_pwr: 300, remote_rx_pwr: 4, motor_range: 560.1m, motor_bearing: 10.00000"
-2025-01-17 17:02:30,44.1238,-63.5682,"Completed remote offload: /home/smc/XDATA/VemcoVM4/remote/VR4-UWM_250545_20250717170210.vrl"
-2025-01-17 17:02:35,44.1239,-63.5683,"Station HFX027: range=1.68359km, bearing: 27.7586"

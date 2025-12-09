@@ -1,0 +1,70 @@
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System> python scripts/test_sensor_tracker.py 4232
+Initializing Sensor Tracker service...
+Failed to set token (may be library compatibility issue): _EventBundle.__init__() takes 1 positional argument but 2 were given
+
+Testing connection...
+  Host URL: https://prod.ceotr.ca/sensor_tracker/
+✓ Connection successful!
+
+Fetching deployment 4232...
+✓ Deployment 4232 fetched successfully
+✓ Raw deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4232_raw.json
+
+Parsing deployment data...
+Fetching platform 290 details...
+✓ Platform details fetched
+
+Fetching data loggers for platform...
+No sensors found for instrument 'AIS-Records' (ID: 304) at attached_time 2024-04-11
+No sensors found for instrument 'SV3-1121-Telemetry' (ID: 289) at attached_time 2024-04-11
+No sensors found for instrument 'amps' (ID: 310) at attached_time 2024-04-11
+No sensors found for instrument 'iridium_sbd_modem' (ID: 320) at attached_time 2024-04-11
+✓ Data loggers fetched
+✓ Parsed deployment data saved to: C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System\test_data\sensor_tracker_deployment_4232_parsed.json
+
+============================================================
+DEPLOYMENT SUMMARY
+============================================================
+Sensor Tracker Deployment ID: 4232
+Deployment Number: 189
+Mission ID: m189
+Title: Spring WG Survey 2024
+
+Timing:
+  Start: 2024-04-11 14:31:35
+  End: 2024-05-23 13:45:00
+
+Location:
+  Deployment: (None, None)
+  Recovery: (44.50719, -63.43764)
+  Depth: 55.0 m
+
+Platform ID: 290
+Platform Name: SV3-1121 (C34167NS)
+Platform Type: 12
+
+Data Loggers: 1
+  1. FLIGHT Logger
+     Instruments: 4
+     Parameters: 0
+     Instrument Details:
+       - ID: 304, Identifier: AIS-Records, Serial: 010796, Name: AIS receiver, Sensors: 0
+       - ID: 289, Identifier: SV3-1121-Telemetry, Serial: 1121, Name: telemetry, Sensors: 0
+       - ID: 310, Identifier: amps, Serial: 010796, Name: AMPS SV3, Sensors: 0
+       - ID: 320, Identifier: iridium_sbd_modem, Serial: 300434065385120, Name: Iridium SBD, Sensors: 0
+
+Platform Instruments (direct attachment): 2
+  - ID: 282, Identifier: vmt, Serial: 1360672, Name: vmt
+  - ID: 307, Identifier: tracker, Serial: 0223, Name: Xeos Rover
+
+Total Instruments: 6
+  - On Data Loggers: 4
+  - Direct on Platform: 2
+Sensors: 0
+Sensor-Instrument Links: 0
+
+============================================================
+✓ Test completed successfully!
+
+Inspect the JSON files in test_data/ for full details.
+(WorkPython) PS C:\Users\ty225269\Documents\Python Playground\Wave Glider Buddy System>
