@@ -110,7 +110,7 @@ MarkupSafe
 matplotlib==3.10.3
 mccabe==0.7.0
 mdurl
-mkl-service==2.4.0
+mkl-service==2.6.1
 mkl_fft
 mkl_random
 mmh3==5.2.0
