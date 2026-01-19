@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 
 logger = logging.getLogger(__name__)
+from ..config import settings
 
 try:
     import chromadb
@@ -145,7 +146,8 @@ class VectorSearchService:
                 pass  # May not exist if document was chunked
             
             # For large documents, use chunking for better precision
-            if use_chunking and len(content) > 2000:
+            should_chunk = use_chunking and settings.vector_chunking_enabled
+            if should_chunk and len(content) > settings.vector_chunking_min_chars:
                 self._add_document_chunked(doc_id, title, content, category, tags, file_type)
             else:
                 # Small document - store as single entry

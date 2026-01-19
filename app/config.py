@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     vector_search_enabled: bool = True  # Enable vector search (requires chromadb and sentence-transformers)
     vector_similarity_threshold: float = 0.35  # Minimum similarity for matches (0.0-1.0, 0.35 works well)
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model name
+    vector_chunking_enabled: bool = True  # Enable chunking for document vectorization
+    vector_chunking_min_chars: int = 2000  # Chunk documents longer than this
     
     # --- LLM Settings (Ollama) ---
     llm_enabled: bool = True  # Enable LLM for response synthesis
