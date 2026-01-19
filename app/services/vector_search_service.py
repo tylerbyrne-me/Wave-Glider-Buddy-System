@@ -366,7 +366,7 @@ class VectorSearchService:
             return matches[:limit]
             
         except Exception as e:
-            logger.error(f"Error searching FAQs: {e}")
+            logger.error(f"Error searching FAQs: {e}", exc_info=True)
             return []
     
     def search_documents(
@@ -426,7 +426,7 @@ class VectorSearchService:
             return matches[:limit]
             
         except Exception as e:
-            logger.error(f"Error searching documents: {e}")
+            logger.error(f"Error searching documents: {e}", exc_info=True)
             return []
     
     def search_tips(
@@ -484,7 +484,7 @@ class VectorSearchService:
             return matches[:limit]
             
         except Exception as e:
-            logger.error(f"Error searching tips: {e}")
+            logger.error(f"Error searching tips: {e}", exc_info=True)
             return []
     
     def delete_faq(self, faq_id: int):
