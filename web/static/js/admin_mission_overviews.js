@@ -37,6 +37,16 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         let selectedMissionId = null;
 
+        const escapeHtml = (value) => {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+
         // Report Generation Elements
         const reportGenerationContainer = document.getElementById('reportGenerationContainer');
         const reportGenerationPlaceholder = document.getElementById('reportGenerationPlaceholder');
@@ -47,6 +57,23 @@ document.addEventListener('DOMContentLoaded', async function() {
         const reportStatus = document.getElementById('reportStatus');
         const reportResult = document.getElementById('reportResult');
         const reportDownloadLink = document.getElementById('reportDownloadLink');
+
+        // Mission Media Elements
+        const mediaUploadForm = document.getElementById('mediaUploadForm');
+        const mediaFileInput = document.getElementById('mediaFileInput');
+        const mediaOperationSelect = document.getElementById('mediaOperationSelect');
+        const mediaCaptionInput = document.getElementById('mediaCaptionInput');
+        const mediaUploadBtn = document.getElementById('mediaUploadBtn');
+        const mediaUploadSpinner = document.getElementById('mediaUploadSpinner');
+        const missionMediaGallery = document.getElementById('missionMediaGallery');
+        const mediaEditModalElement = document.getElementById('mediaEditModal');
+        const mediaEditModal = mediaEditModalElement ? new bootstrap.Modal(mediaEditModalElement) : null;
+        const mediaEditId = document.getElementById('mediaEditId');
+        const mediaEditCaption = document.getElementById('mediaEditCaption');
+        const mediaEditOperation = document.getElementById('mediaEditOperation');
+        const mediaEditDisplayOrder = document.getElementById('mediaEditDisplayOrder');
+        const mediaEditFeatured = document.getElementById('mediaEditFeatured');
+        const mediaEditSaveBtn = document.getElementById('mediaEditSaveBtn');
 
         // Show/hide report generation based on mission selection
         function updateReportGenerationVisibility() {
@@ -292,6 +319,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             updateReportGenerationVisibility(); // Update report generation visibility
             if (!selectedMissionId) {
                 overviewFormContainer.style.display = 'none';
+                if (missionMediaGallery) {
+                    missionMediaGallery.innerHTML = '<div class="text-muted small">Select a mission to view uploaded media.</div>';
+                }
                 return;
             }
 
@@ -503,6 +533,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Update report generation visibility after mission is loaded
                 updateReportGenerationVisibility();
 
+                // Load mission media after mission is loaded
+                await loadMissionMedia();
+
             } catch (error) {
                 saveStatusDiv.innerHTML = `<div class="alert alert-danger">Error loading data: ${error.message}</div>`;
                 overviewFormContainer.style.display = 'none';
@@ -511,6 +544,218 @@ document.addEventListener('DOMContentLoaded', async function() {
                 missionSpinner.style.display = 'none';
             }
         });
+
+        function renderMediaEmpty(message) {
+            if (!missionMediaGallery) return;
+            missionMediaGallery.innerHTML = `<div class="text-muted small">${message}</div>`;
+        }
+
+        function renderMediaCard(media) {
+            const operation = media.operation_type ? media.operation_type : 'Unspecified';
+            const caption = media.caption ? media.caption : '';
+            const safeCaption = escapeHtml(caption);
+            const safeOperation = escapeHtml(operation);
+            const safeUploadedBy = escapeHtml(media.uploaded_by_username || 'Unknown');
+            const approvalStatus = media.approval_status || 'approved';
+            const statusBadge = approvalStatus === 'pending'
+                ? '<span class="badge bg-warning text-dark">Pending</span>'
+                : approvalStatus === 'rejected'
+                    ? '<span class="badge bg-danger">Rejected</span>'
+                    : '<span class="badge bg-success">Approved</span>';
+            const isVideo = media.media_type === 'video';
+            const mediaPreview = isVideo
+                ? `<video class="card-img-top" controls preload="metadata" style="height: 150px; object-fit: cover;">
+                        <source src="${media.file_url}">
+                   </video>`
+                : `<a href="${media.file_url}" target="_blank" rel="noopener noreferrer">
+                        <img src="${media.file_url}" class="card-img-top" alt="${safeCaption || 'Mission media'}" style="height: 150px; object-fit: cover;">
+                   </a>`;
+
+            return `
+                <div class="col-md-4 mission-media-item" data-media-id="${media.id}">
+                    <div class="card h-100">
+                        ${mediaPreview}
+                        <div class="card-body p-2">
+                            <div class="small text-muted mb-1">${safeOperation.charAt(0).toUpperCase() + safeOperation.slice(1)} • ${safeUploadedBy}</div>
+                            <div class="mb-1">${statusBadge}</div>
+                            ${safeCaption ? `<div class="small">${safeCaption}</div>` : ''}
+                            <div class="mt-2 d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary media-edit-btn"
+                                    data-media-id="${media.id}"
+                                    data-caption="${safeCaption}"
+                                    data-operation="${escapeHtml(media.operation_type || '')}"
+                                    data-display-order="${media.display_order}"
+                                    data-featured="${media.is_featured}">
+                                    Edit
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger media-delete-btn" data-media-id="${media.id}">
+                                    Delete
+                                </button>
+                                ${approvalStatus === 'pending' ? `
+                                    <button type="button" class="btn btn-sm btn-success media-approve-btn" data-media-id="${media.id}">Approve</button>
+                                    <button type="button" class="btn btn-sm btn-outline-warning media-reject-btn" data-media-id="${media.id}">Reject</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadMissionMedia() {
+            if (!missionMediaGallery) return;
+            if (!selectedMissionId) {
+                renderMediaEmpty('Select a mission to view uploaded media.');
+                return;
+            }
+
+            try {
+                const mediaItems = await apiRequest(`/api/missions/${selectedMissionId}/media?include_pending=true`, 'GET');
+                if (!mediaItems || mediaItems.length === 0) {
+                    renderMediaEmpty('No media uploaded for this mission yet.');
+                    return;
+                }
+                missionMediaGallery.innerHTML = mediaItems.map(renderMediaCard).join('');
+            } catch (error) {
+                renderMediaEmpty(`Failed to load media: ${error.message}`);
+            }
+        }
+
+        if (mediaUploadBtn) {
+            mediaUploadBtn.addEventListener('click', async function(event) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+
+                const fileToUpload = mediaFileInput ? mediaFileInput.files[0] : null;
+                if (!fileToUpload) {
+                    showToast('Please select a media file to upload.', 'warning');
+                    return;
+                }
+
+                mediaUploadBtn.disabled = true;
+                if (mediaUploadSpinner) mediaUploadSpinner.style.display = 'inline';
+
+                const formData = new FormData();
+                formData.append('file', fileToUpload);
+
+                const params = new URLSearchParams();
+                if (mediaCaptionInput && mediaCaptionInput.value.trim()) {
+                    params.append('caption', mediaCaptionInput.value.trim());
+                }
+                if (mediaOperationSelect && mediaOperationSelect.value) {
+                    params.append('operation_type', mediaOperationSelect.value);
+                }
+                const queryString = params.toString();
+                const uploadUrl = `/api/missions/${selectedMissionId}/media/upload${queryString ? `?${queryString}` : ''}`;
+
+                try {
+                    const uploadResponse = await fetchWithAuth(uploadUrl, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!uploadResponse.ok) {
+                        const err = await uploadResponse.json();
+                        throw new Error(err.detail || 'Media upload failed.');
+                    }
+                    showToast('Media uploaded successfully!', 'success');
+                    if (mediaFileInput) mediaFileInput.value = '';
+                    if (mediaCaptionInput) mediaCaptionInput.value = '';
+                    if (mediaOperationSelect) mediaOperationSelect.value = '';
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Upload failed: ${error.message}`, 'danger');
+                } finally {
+                    mediaUploadBtn.disabled = false;
+                    if (mediaUploadSpinner) mediaUploadSpinner.style.display = 'none';
+                }
+            });
+        }
+
+        document.body.addEventListener('click', async function(event) {
+            const editBtn = event.target.closest('.media-edit-btn');
+            if (editBtn) {
+                event.preventDefault();
+                if (!mediaEditModal) return;
+
+                mediaEditId.value = editBtn.dataset.mediaId;
+                mediaEditCaption.value = editBtn.dataset.caption || '';
+                mediaEditOperation.value = editBtn.dataset.operation || '';
+                mediaEditDisplayOrder.value = editBtn.dataset.displayOrder || 0;
+                mediaEditFeatured.checked = editBtn.dataset.featured === 'true';
+                mediaEditModal.show();
+                return;
+            }
+
+            const deleteBtn = event.target.closest('.media-delete-btn');
+            if (deleteBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const mediaId = deleteBtn.dataset.mediaId;
+                if (!mediaId) return;
+                if (!confirm('Delete this media item?')) return;
+
+                try {
+                    await apiRequest(`/api/missions/${selectedMissionId}/media/${mediaId}`, 'DELETE');
+                    showToast('Media deleted.', 'success');
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Delete failed: ${error.message}`, 'danger');
+                }
+            }
+
+            const approveBtn = event.target.closest('.media-approve-btn');
+            if (approveBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const mediaId = approveBtn.dataset.mediaId;
+                if (!mediaId) return;
+                try {
+                    await apiRequest(`/api/missions/${selectedMissionId}/media/${mediaId}/approve`, 'PUT');
+                    showToast('Media approved.', 'success');
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Approval failed: ${error.message}`, 'danger');
+                }
+            }
+
+            const rejectBtn = event.target.closest('.media-reject-btn');
+            if (rejectBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const mediaId = rejectBtn.dataset.mediaId;
+                if (!mediaId) return;
+                if (!confirm('Reject this media item?')) return;
+                try {
+                    await apiRequest(`/api/missions/${selectedMissionId}/media/${mediaId}/reject`, 'PUT');
+                    showToast('Media rejected.', 'success');
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Rejection failed: ${error.message}`, 'danger');
+                }
+            }
+        });
+
+        if (mediaEditSaveBtn) {
+            mediaEditSaveBtn.addEventListener('click', async function() {
+                if (!selectedMissionId || !mediaEditId.value) return;
+
+                const payload = {
+                    caption: mediaEditCaption.value.trim() || null,
+                    operation_type: mediaEditOperation.value || null,
+                    display_order: parseInt(mediaEditDisplayOrder.value || '0', 10),
+                    is_featured: mediaEditFeatured.checked
+                };
+
+                try {
+                    await apiRequest(`/api/missions/${selectedMissionId}/media/${mediaEditId.value}`, 'PUT', payload);
+                    showToast('Media updated.', 'success');
+                    if (mediaEditModal) mediaEditModal.hide();
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Update failed: ${error.message}`, 'danger');
+                }
+            });
+        }
 
         removePlanBtn.addEventListener('click', function() {
             if (confirm('Are you sure you want to remove the current mission plan document? This will be saved on the next "Save Overview" click.')) {

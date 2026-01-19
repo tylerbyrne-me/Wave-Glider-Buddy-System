@@ -38,6 +38,7 @@ from .database import (
     PayPeriod,
     Timesheet,
     MissionOverview,
+    MissionMedia,
     MissionGoal,
     MissionNote,
     SensorTrackerDeployment,
@@ -47,6 +48,14 @@ from .database import (
     SubmittedForm,
     Announcement,
     AnnouncementAcknowledgement,
+    KnowledgeDocument,
+    KnowledgeDocumentVersion,
+    UserNote,
+    SharedTip,
+    TipContribution,
+    TipComment,
+    FAQEntry,
+    ChatbotInteraction,
 )
 
 # Import Pydantic schemas
@@ -103,6 +112,8 @@ from .schemas import (
     
     # Mission info models
     MissionOverviewUpdate,
+    MissionMediaUpdate,
+    MissionMediaRead,
     MissionGoalCreate,
     MissionGoalUpdate,
     MissionNoteCreate,
@@ -124,6 +135,30 @@ from .schemas import (
     
     # Other models
     PicHandoffLinkInfo,
+    
+    # Knowledge base models
+    KnowledgeDocumentCreate,
+    KnowledgeDocumentUpdate,
+    KnowledgeDocumentRead,
+    KnowledgeDocumentUploadResponse,
+    UserNoteCreate,
+    UserNoteUpdate,
+    UserNoteRead,
+    SharedTipCreate,
+    SharedTipUpdate,
+    SharedTipRead,
+    TipCommentCreate,
+    TipCommentUpdate,
+    TipCommentRead,
+    CategoryInfo,
+    CategoriesResponse,
+    FAQEntryCreate,
+    FAQEntryUpdate,
+    FAQEntryRead,
+    ChatbotQueryRequest,
+    ChatbotResponse,
+    ChatbotFeedbackRequest,
+    RelatedResource,
 )
 
 # Import error analysis models
@@ -157,6 +192,7 @@ __all__ = [
     "PayPeriod",
     "Timesheet",
     "MissionOverview",
+    "MissionMedia",
     "MissionGoal",
     "MissionNote",
     "SensorTrackerDeployment",
@@ -167,6 +203,14 @@ __all__ = [
     "Announcement",
     "AnnouncementAcknowledgement",
     "OffloadLogBase",
+    "KnowledgeDocument",
+    "KnowledgeDocumentVersion",
+    "UserNote",
+    "SharedTip",
+    "TipContribution",
+    "TipComment",
+    "FAQEntry",
+    "ChatbotInteraction",
     
     # Pydantic schemas (add all schema names here)
     "ReportDataParams",
@@ -206,6 +250,8 @@ __all__ = [
     "TimesheetStatusForUser",
     "TimesheetRead",
     "MissionOverviewUpdate",
+    "MissionMediaUpdate",
+    "MissionMediaRead",
     "MissionGoalCreate",
     "MissionGoalUpdate",
     "MissionNoteCreate",
@@ -221,6 +267,28 @@ __all__ = [
     "JobTriggerInfo",
     "ScheduledJob",
     "PicHandoffLinkInfo",
+    "KnowledgeDocumentCreate",
+    "KnowledgeDocumentUpdate",
+    "KnowledgeDocumentRead",
+    "KnowledgeDocumentUploadResponse",
+    "UserNoteCreate",
+    "UserNoteUpdate",
+    "UserNoteRead",
+    "SharedTipCreate",
+    "SharedTipUpdate",
+    "SharedTipRead",
+    "TipCommentCreate",
+    "TipCommentUpdate",
+    "TipCommentRead",
+    "CategoryInfo",
+    "CategoriesResponse",
+    "FAQEntryCreate",
+    "FAQEntryUpdate",
+    "FAQEntryRead",
+    "ChatbotQueryRequest",
+    "ChatbotResponse",
+    "ChatbotFeedbackRequest",
+    "RelatedResource",
     
     # Error analysis models
     "ErrorSeverityEnum",

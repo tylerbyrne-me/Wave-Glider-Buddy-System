@@ -221,7 +221,12 @@ async def sync_all_realtime_missions() -> dict:
         Dictionary mapping mission_id to (successful, failed) sync counts
     """
     results = {}
-    active_missions = settings.active_realtime_missions
+    # Filter out empty strings and whitespace-only mission IDs
+    active_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
+    
+    if not active_missions:
+        logger.warning("SYNC: No valid active real-time missions found. Skipping sync.")
+        return results
     
     logger.info(f"SYNC: Syncing {len(active_missions)} real-time missions")
     

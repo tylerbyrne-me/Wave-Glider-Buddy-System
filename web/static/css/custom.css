@@ -205,6 +205,8 @@ h6 { font-weight: 500; }
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%); /* Precise centering */
+  z-index: 10; /* Ensure spinner appears above canvas */
+  /* Spinner is visible by default, hidden after data loads */
 }
 
 footer {

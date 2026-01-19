@@ -589,17 +589,11 @@ async def _load_from_remote_sources(
     remote_base_urls_to_try: List[str] = []
     user_role = current_user.role if current_user else models.UserRoleEnum.admin
 
-    if user_role == models.UserRoleEnum.admin:
+    if user_role in [models.UserRoleEnum.admin, models.UserRoleEnum.pilot]:
         remote_base_urls_to_try.extend([
             f"{base_remote_url}/output_realtime_missions",
-            f"{base_remote_url}/output_past_missions",  # Enable for historical data access
+            f"{base_remote_url}/output_past_missions",
         ])
-    elif user_role == models.UserRoleEnum.pilot:
-        if mission_id in settings.active_realtime_missions:
-            remote_base_urls_to_try.append(f"{base_remote_url}/output_realtime_missions")
-        else:
-            logger.info(f"Pilot '{current_user.username if current_user else 'N/A'}' - Access to remote data for non-active mission '{mission_id}' restricted.")
-            return None, "Remote: Access Restricted", None
 
     last_accessed_remote_path_if_empty = None
     for constructed_base_url in remote_base_urls_to_try:

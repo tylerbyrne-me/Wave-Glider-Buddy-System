@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Query
 from fastapi.responses import HTMLResponse
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
+import re
 from sqlmodel import select
 from sqlalchemy import or_
 from ..core import models
@@ -17,6 +19,100 @@ from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Missions"])
 logger = logging.getLogger(__name__)
+
+# Approval status constants
+APPROVAL_PENDING = "pending"
+APPROVAL_APPROVED = "approved"
+APPROVAL_REJECTED = "rejected"
+
+# --- Mission Media Helpers ---
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+ALLOWED_VIDEO_TYPES = {
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/x-msvideo": "avi",
+}
+
+
+def _sanitize_path_segment(value: str) -> str:
+    """Make a safe path segment for filesystem storage."""
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
+    return safe or "unknown"
+
+
+def _get_project_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _get_mission_media_root() -> Path:
+    configured_root = Path(settings.mission_media_root_path)
+    if configured_root.is_absolute():
+        return configured_root
+    return _get_project_root() / configured_root
+
+
+def _normalize_file_url(file_path: str) -> str:
+    """Normalize file path to URL for static file serving."""
+    normalized_path = file_path.replace(chr(92), "/")
+    if normalized_path.startswith("web/static/"):
+        normalized_path = normalized_path.replace("web/static/", "static/", 1)
+    elif normalized_path.startswith("web\\static\\"):
+        normalized_path = normalized_path.replace("web\\static\\", "static/", 1)
+    if not normalized_path.startswith("static/"):
+        return f"/{normalized_path}"
+    return f"/{normalized_path}"
+
+
+def _build_media_read(media: models.MissionMedia) -> models.MissionMediaRead:
+    file_url = _normalize_file_url(media.file_path)
+    thumbnail_url = _normalize_file_url(media.thumbnail_path) if media.thumbnail_path else None
+    return models.MissionMediaRead(
+        id=media.id,
+        mission_id=media.mission_id,
+        media_type=media.media_type,
+        file_name=media.file_name,
+        file_size=media.file_size,
+        mime_type=media.mime_type,
+        caption=media.caption,
+        operation_type=media.operation_type,
+        uploaded_by_username=media.uploaded_by_username,
+        uploaded_at_utc=media.uploaded_at_utc,
+        approval_status=media.approval_status,
+        approved_by_username=media.approved_by_username,
+        approved_at_utc=media.approved_at_utc,
+        thumbnail_url=thumbnail_url,
+        file_url=file_url,
+        display_order=media.display_order,
+        is_featured=media.is_featured,
+    )
+
+
+def _get_user_role_value(user: models.User) -> str:
+    return user.role.value if hasattr(user.role, "value") else str(user.role)
+
+
+def _create_announcement(
+    session: SQLModelSession,
+    content: str,
+    created_by_username: str,
+    target_roles: Optional[List[str]] = None,
+    target_usernames: Optional[List[str]] = None,
+    announcement_type: str = "system",
+) -> None:
+    db_announcement = models.Announcement(
+        content=content,
+        created_by_username=created_by_username,
+        announcement_type=announcement_type,
+        target_roles=",".join(target_roles) if target_roles else None,
+        target_usernames=",".join(target_usernames) if target_usernames else None,
+    )
+    session.add(db_announcement)
+    session.commit()
 
 # --- HTML/Admin Page ---
 @router.get("/admin/mission_overviews.html", response_class=HTMLResponse)
@@ -36,12 +132,28 @@ async def get_admin_mission_overviews_page(
     )
 
 # --- Helper ---
-async def _get_mission_info(mission_id: str, session: SQLModelSession) -> models.MissionInfoResponse:
+async def _get_mission_info(
+    mission_id: str,
+    session: SQLModelSession,
+    current_user: models.User,
+) -> models.MissionInfoResponse:
     overview = session.get(models.MissionOverview, mission_id)
     goals_stmt = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.id)
     goals = session.exec(goals_stmt).all()
     notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
     notes = session.exec(notes_stmt).all()
+
+    media_stmt = select(models.MissionMedia).where(models.MissionMedia.mission_id == mission_id)
+    if _get_user_role_value(current_user) != models.UserRoleEnum.admin.value:
+        media_stmt = media_stmt.where(models.MissionMedia.approval_status == APPROVAL_APPROVED)
+    else:
+        media_stmt = media_stmt.where(models.MissionMedia.approval_status.in_([APPROVAL_APPROVED, APPROVAL_PENDING]))
+    media_stmt = media_stmt.order_by(
+        models.MissionMedia.display_order.asc(),
+        models.MissionMedia.uploaded_at_utc.desc(),
+    )
+    media_items = session.exec(media_stmt).all()
+    media = [_build_media_read(item) for item in media_items]
     
     # Get Sensor Tracker deployment data
     # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")
@@ -72,7 +184,8 @@ async def _get_mission_info(mission_id: str, session: SQLModelSession) -> models
         goals=goals,
         notes=notes,
         sensor_tracker_deployment=sensor_tracker_deployment,
-        sensor_tracker_instruments=instruments
+        sensor_tracker_instruments=instruments,
+        media=media,
     )
 
 # --- API Endpoints ---
@@ -177,7 +290,298 @@ async def get_mission_info_api(
     session: SQLModelSession = Depends(get_db_session)
 ):
     logger.info(f"User '{current_user.username}' requesting info for mission '{mission_id}'.")
-    return await _get_mission_info(mission_id, session)
+    return await _get_mission_info(mission_id, session, current_user)
+
+
+@router.post("/api/missions/{mission_id}/media/upload", response_model=models.MissionMediaRead)
+async def upload_mission_media(
+    mission_id: str,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Query(None),
+    operation_type: Optional[str] = Query(None, description="deployment or recovery"),
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Upload mission media (photo/video). Pilots and admins allowed."""
+    logger.info(f"User '{current_user.username}' uploading media for mission '{mission_id}': {file.filename}")
+
+    if file.content_type in ALLOWED_IMAGE_TYPES:
+        media_type = "photo"
+        max_size = settings.mission_media_max_image_size_mb * 1024 * 1024
+    elif file.content_type in ALLOWED_VIDEO_TYPES:
+        media_type = "video"
+        max_size = settings.mission_media_max_video_size_mb * 1024 * 1024
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed images: {', '.join(ALLOWED_IMAGE_TYPES.keys())}; videos: {', '.join(ALLOWED_VIDEO_TYPES.keys())}",
+        )
+
+    content = await file.read()
+    file_size = len(content)
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is {max_size / 1024 / 1024:.0f}MB.",
+        )
+
+    safe_mission_id = _sanitize_path_segment(mission_id)
+    media_root = _get_mission_media_root()
+    subdir = "photos" if media_type == "photo" else "videos"
+    target_dir = media_root / safe_mission_id / subdir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    extension = Path(file.filename).suffix.lower()
+    if not extension:
+        extension = f".{(ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES).get(file.content_type, 'bin')}"
+
+    safe_filename = f"{uuid4().hex}_{int(datetime.now(timezone.utc).timestamp())}{extension}"
+    file_path = target_dir / safe_filename
+
+    try:
+        with file_path.open("wb") as buffer:
+            buffer.write(content)
+    except Exception as exc:
+        logger.error(f"Failed to save mission media file: {exc}", exc_info=True)
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail="Failed to save file.")
+    finally:
+        await file.close()
+
+    project_root = _get_project_root()
+    try:
+        relative_path = file_path.relative_to(project_root)
+        stored_path = str(relative_path).replace("\\", "/")
+    except ValueError:
+        stored_path = str(file_path)
+
+    approval_status = APPROVAL_APPROVED
+    approved_by_username = None
+    approved_at_utc = None
+    if _get_user_role_value(current_user) != models.UserRoleEnum.admin.value:
+        approval_status = APPROVAL_PENDING
+    else:
+        approved_by_username = current_user.username
+        approved_at_utc = datetime.now(timezone.utc)
+
+    media = models.MissionMedia(
+        mission_id=mission_id,
+        media_type=media_type,
+        file_path=stored_path,
+        file_name=file.filename,
+        file_size=file_size,
+        mime_type=file.content_type,
+        caption=caption,
+        operation_type=operation_type,
+        uploaded_by_username=current_user.username,
+        approval_status=approval_status,
+        approved_by_username=approved_by_username,
+        approved_at_utc=approved_at_utc,
+    )
+
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+
+    if approval_status == APPROVAL_PENDING:
+        _create_announcement(
+            session=session,
+            content=(
+                f"Media upload pending approval for mission '{mission_id}' "
+                f"by {current_user.username}: {file.filename}"
+            ),
+            created_by_username=current_user.username,
+            target_roles=[models.UserRoleEnum.admin.value],
+            target_usernames=[current_user.username],
+        )
+
+    return _build_media_read(media)
+
+
+@router.get("/api/missions/{mission_id}/media", response_model=List[models.MissionMediaRead])
+async def list_mission_media(
+    mission_id: str,
+    media_type: Optional[str] = Query(None, description="photo or video"),
+    operation_type: Optional[str] = Query(None, description="deployment or recovery"),
+    include_pending: bool = Query(False),
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """List mission media items. Pilots and admins allowed."""
+    statement = select(models.MissionMedia).where(models.MissionMedia.mission_id == mission_id)
+    if media_type:
+        statement = statement.where(models.MissionMedia.media_type == media_type)
+    if operation_type:
+        statement = statement.where(models.MissionMedia.operation_type == operation_type)
+    if _get_user_role_value(current_user) == models.UserRoleEnum.admin.value and include_pending:
+        statement = statement.where(models.MissionMedia.approval_status.in_([APPROVAL_APPROVED, APPROVAL_PENDING]))
+    else:
+        statement = statement.where(models.MissionMedia.approval_status == APPROVAL_APPROVED)
+    statement = statement.order_by(
+        models.MissionMedia.display_order.asc(),
+        models.MissionMedia.uploaded_at_utc.desc(),
+    )
+
+    media_items = session.exec(statement).all()
+    return [_build_media_read(item) for item in media_items]
+
+
+@router.get("/api/missions/{mission_id}/media/{media_id}", response_model=models.MissionMediaRead)
+async def get_mission_media(
+    mission_id: str,
+    media_id: int,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Get a single media item. Pilots and admins allowed."""
+    media = session.get(models.MissionMedia, media_id)
+    if not media or media.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="Mission media not found.")
+    if (
+        _get_user_role_value(current_user) != models.UserRoleEnum.admin.value
+        and media.approval_status != APPROVAL_APPROVED
+    ):
+        raise HTTPException(status_code=403, detail="Media is pending approval.")
+    return _build_media_read(media)
+
+
+@router.put("/api/missions/{mission_id}/media/{media_id}", response_model=models.MissionMediaRead)
+async def update_mission_media(
+    mission_id: str,
+    media_id: int,
+    update: models.MissionMediaUpdate,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Update mission media metadata. Pilots can edit own uploads; admins can edit any."""
+    media = session.get(models.MissionMedia, media_id)
+    if not media or media.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="Mission media not found.")
+
+    if current_user.role == models.UserRoleEnum.pilot and media.uploaded_by_username != current_user.username:
+        raise HTTPException(status_code=403, detail="Pilots can only edit their own uploads.")
+
+    update_data = update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(media, key, value)
+
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+    return _build_media_read(media)
+
+
+@router.put("/api/missions/{mission_id}/media/{media_id}/approve", response_model=models.MissionMediaRead)
+async def approve_mission_media(
+    mission_id: str,
+    media_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Approve mission media (admin only)."""
+    media = session.get(models.MissionMedia, media_id)
+    if not media or media.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="Mission media not found.")
+
+    media.approval_status = APPROVAL_APPROVED
+    media.approved_by_username = current_admin.username
+    media.approved_at_utc = datetime.now(timezone.utc)
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+
+    _create_announcement(
+        session=session,
+        content=(
+            f"Your media upload for mission '{mission_id}' "
+            f"was approved by {current_admin.username}: {media.file_name}"
+        ),
+        created_by_username=current_admin.username,
+        target_usernames=[media.uploaded_by_username],
+    )
+
+    return _build_media_read(media)
+
+
+@router.put("/api/missions/{mission_id}/media/{media_id}/reject", response_model=models.MissionMediaRead)
+async def reject_mission_media(
+    mission_id: str,
+    media_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Reject mission media (admin only)."""
+    media = session.get(models.MissionMedia, media_id)
+    if not media or media.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="Mission media not found.")
+
+    media.approval_status = APPROVAL_REJECTED
+    media.approved_by_username = current_admin.username
+    media.approved_at_utc = datetime.now(timezone.utc)
+    session.add(media)
+    session.commit()
+    session.refresh(media)
+
+    _create_announcement(
+        session=session,
+        content=(
+            f"Your media upload for mission '{mission_id}' "
+            f"was rejected by {current_admin.username}: {media.file_name}"
+        ),
+        created_by_username=current_admin.username,
+        target_usernames=[media.uploaded_by_username],
+    )
+
+    return _build_media_read(media)
+
+
+@router.delete("/api/missions/{mission_id}/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mission_media(
+    mission_id: str,
+    media_id: int,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Delete mission media. Pilots can delete own uploads; admins can delete any."""
+    media = session.get(models.MissionMedia, media_id)
+    if not media or media.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="Mission media not found.")
+
+    if current_user.role == models.UserRoleEnum.pilot and media.uploaded_by_username != current_user.username:
+        raise HTTPException(status_code=403, detail="Pilots can only delete their own uploads.")
+
+    project_root = _get_project_root()
+    media_root = _get_mission_media_root().resolve()
+    file_path = Path(media.file_path)
+    if not file_path.is_absolute():
+        file_path = (project_root / file_path).resolve()
+    else:
+        file_path = file_path.resolve()
+    thumbnail_path = None
+    if media.thumbnail_path:
+        thumbnail_path = Path(media.thumbnail_path)
+        if not thumbnail_path.is_absolute():
+            thumbnail_path = (project_root / thumbnail_path).resolve()
+        else:
+            thumbnail_path = thumbnail_path.resolve()
+
+    def _safe_delete(path: Path) -> None:
+        try:
+            path.relative_to(media_root)
+        except ValueError:
+            logger.warning(f"Skipping delete for file outside media root: {path}")
+            return
+        if path.exists():
+            path.unlink()
+
+    _safe_delete(file_path)
+    if thumbnail_path:
+        _safe_delete(thumbnail_path)
+
+    session.delete(media)
+    session.commit()
+    return
 
 @router.put("/api/missions/{mission_id}/overview", response_model=models.MissionOverview)
 async def create_or_update_mission_overview(
@@ -337,21 +741,19 @@ async def get_all_available_missions(
     session: SQLModelSession = Depends(get_db_session)
 ):
     """
-    Get list of all missions (active + historical) for admin use.
+    Get list of all missions (active + historical).
     Returns a dictionary with 'active' and 'historical' keys.
-    Only admins can access historical missions.
     """
     # Get active missions
     active_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
     
-    # Get historical missions (only for admins)
+    # Get historical missions
     historical_missions = []
-    if current_user.role == models.UserRoleEnum.admin:
-        try:
-            historical_missions = await get_available_historical_missions(current_user, session)
-        except Exception as e:
-            logger.error(f"Error fetching historical missions for all missions endpoint: {e}")
-            historical_missions = []
+    try:
+        historical_missions = await get_available_historical_missions(current_user, session)
+    except Exception as e:
+        logger.error(f"Error fetching historical missions for all missions endpoint: {e}")
+        historical_missions = []
     
     return {
         "active": active_missions,
@@ -366,15 +768,10 @@ async def get_available_historical_missions(
 ):
     """
     Get list of historical/past missions by checking the remote server.
-    Only admins can access historical missions.
     """
     from ..core import models
     from ..config import settings
     import httpx
-    
-    # Only admins can access historical missions
-    if current_user.role != models.UserRoleEnum.admin:
-        return []
     
     # Check remote server for available past missions
     base_remote_url = settings.remote_data_url.rstrip("/")

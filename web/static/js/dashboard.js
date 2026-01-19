@@ -16,6 +16,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     const missionSelector = document.getElementById('missionSelector'); // Keep this
     const isHistorical = document.body.dataset.isHistorical === 'true';
     const isRealtimeMission = !isHistorical && document.body.dataset.isRealtime === 'true';
+    const USER_ROLE = document.body.dataset.userRole || '';
+    const USERNAME = document.body.dataset.username || '';
     const urlParams = new URLSearchParams(window.location.search);
     
     // Get enabled sensors from backend configuration
@@ -26,6 +28,312 @@ document.addEventListener('DOMContentLoaded', async function() {
     function isSensorEnabled(sensorName) {
         return enabledSensors.length === 0 || enabledSensors.includes(sensorName);
     }
+
+    // --- Mission Media ---
+    const missionMediaForm = document.getElementById('missionMediaUploadForm');
+    const missionMediaFile = document.getElementById('missionMediaFile');
+    const missionMediaOperation = document.getElementById('missionMediaOperation');
+    const missionMediaCaption = document.getElementById('missionMediaCaption');
+    const missionMediaGallery = document.getElementById('missionMediaGallery');
+    const missionMediaUploadBtn = document.getElementById('missionMediaUploadBtn');
+    const missionMediaUploadSpinner = document.getElementById('missionMediaUploadSpinner');
+    const overviewPlanContainer = document.getElementById('overviewPlanContainer');
+    const overviewPlanLink = document.getElementById('overviewPlanLink');
+    const overviewPlanEmpty = document.getElementById('overviewPlanEmpty');
+    const overviewWeeklyReportContainer = document.getElementById('overviewWeeklyReportContainer');
+    const overviewWeeklyReportLink = document.getElementById('overviewWeeklyReportLink');
+    const overviewEndReportContainer = document.getElementById('overviewEndReportContainer');
+    const overviewEndReportLink = document.getElementById('overviewEndReportLink');
+    const overviewNoReports = document.getElementById('overviewNoReports');
+    const overviewSensorTrackerContainer = document.getElementById('overviewSensorTrackerContainer');
+    const overviewSensorTrackerEmpty = document.getElementById('overviewSensorTrackerEmpty');
+    const overviewStTitle = document.getElementById('overviewStTitle');
+    const overviewStStart = document.getElementById('overviewStStart');
+    const overviewStEnd = document.getElementById('overviewStEnd');
+    const overviewStPlatform = document.getElementById('overviewStPlatform');
+    const overviewStDataRepo = document.getElementById('overviewStDataRepo');
+    const overviewStDescription = document.getElementById('overviewStDescription');
+    const overviewStInstruments = document.getElementById('overviewStInstruments');
+    const overviewStInstrumentsList = document.getElementById('overviewStInstrumentsList');
+
+    const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+
+    const renderMediaEmpty = (message) => {
+        if (!missionMediaGallery) return;
+        missionMediaGallery.innerHTML = `<div class="text-muted small">${message}</div>`;
+    };
+
+    const renderMediaCard = (media, canDelete) => {
+        const col = document.createElement('div');
+        col.className = 'col-md-4 mission-media-item';
+        col.dataset.mediaId = media.id;
+
+        const caption = media.caption ? escapeHtml(media.caption) : '';
+        const operation = media.operation_type ? escapeHtml(media.operation_type) : 'Unspecified';
+        const uploadedBy = escapeHtml(media.uploaded_by_username || 'Unknown');
+        const isVideo = media.media_type === 'video';
+        const mediaPreview = isVideo
+            ? `<video class="card-img-top" controls preload="metadata" style="height: 150px; object-fit: cover;">
+                    <source src="${media.file_url}">
+               </video>`
+            : `<a href="${media.file_url}" target="_blank" rel="noopener noreferrer">
+                    <img src="${media.file_url}" class="card-img-top" alt="${caption || 'Mission media'}" style="height: 150px; object-fit: cover;">
+               </a>`;
+
+        const approvalStatus = media.approval_status || 'approved';
+        const statusBadge = approvalStatus === 'pending'
+            ? '<span class="badge bg-warning text-dark">Pending</span>'
+            : approvalStatus === 'rejected'
+                ? '<span class="badge bg-danger">Rejected</span>'
+                : '<span class="badge bg-success">Approved</span>';
+        const approveButtons = USER_ROLE === 'admin' && approvalStatus === 'pending'
+            ? `<button type="button" class="btn btn-sm btn-success mt-2 mission-media-approve-btn" data-media-id="${media.id}">Approve</button>
+               <button type="button" class="btn btn-sm btn-outline-warning mt-2 mission-media-reject-btn" data-media-id="${media.id}">Reject</button>`
+            : '';
+        const deleteButton = canDelete
+            ? `<button type="button" class="btn btn-sm btn-outline-danger mt-2 mission-media-delete-btn" data-media-id="${media.id}">Delete</button>`
+            : '';
+
+        col.innerHTML = `
+            <div class="card h-100">
+                ${mediaPreview}
+                <div class="card-body p-2">
+                    <div class="small text-muted mb-1">${operation.charAt(0).toUpperCase() + operation.slice(1)} • ${uploadedBy}</div>
+                    <div class="mb-1">${statusBadge}</div>
+                    ${caption ? `<div class="small">${caption}</div>` : ''}
+                    <div class="d-flex flex-wrap gap-2">
+                        ${approveButtons}
+                        ${deleteButton}
+                    </div>
+                </div>
+            </div>
+        `;
+        return col;
+    };
+
+    const loadMissionMedia = async () => {
+        if (!missionMediaGallery) return;
+        if (!missionId) {
+            renderMediaEmpty('No mission selected.');
+            return;
+        }
+        try {
+            const includePending = USER_ROLE === 'admin' ? 'true' : 'false';
+            const mediaItems = await apiRequest(`/api/missions/${missionId}/media?include_pending=${includePending}`, 'GET');
+            if (!mediaItems || mediaItems.length === 0) {
+                renderMediaEmpty('No media uploaded for this mission yet.');
+                return;
+            }
+            missionMediaGallery.innerHTML = '';
+            mediaItems.forEach((media) => {
+                const canDelete = USER_ROLE === 'admin' || (USERNAME && media.uploaded_by_username === USERNAME);
+                missionMediaGallery.appendChild(renderMediaCard(media, canDelete));
+            });
+        } catch (error) {
+            renderMediaEmpty(`Failed to load media: ${error.message}`);
+        }
+    };
+
+    if (missionMediaForm) {
+        missionMediaForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!missionId) return;
+            const fileToUpload = missionMediaFile ? missionMediaFile.files[0] : null;
+            if (!fileToUpload) {
+                showToast('Please select a media file to upload.', 'warning');
+                return;
+            }
+
+            if (missionMediaUploadBtn) missionMediaUploadBtn.disabled = true;
+            if (missionMediaUploadSpinner) missionMediaUploadSpinner.style.display = 'inline';
+
+            const formData = new FormData();
+            formData.append('file', fileToUpload);
+
+            const params = new URLSearchParams();
+            if (missionMediaCaption && missionMediaCaption.value.trim()) {
+                params.append('caption', missionMediaCaption.value.trim());
+            }
+            if (missionMediaOperation && missionMediaOperation.value) {
+                params.append('operation_type', missionMediaOperation.value);
+            }
+            const queryString = params.toString();
+            const uploadUrl = `/api/missions/${missionId}/media/upload${queryString ? `?${queryString}` : ''}`;
+
+            try {
+                const response = await fetchWithAuth(uploadUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Media upload failed.');
+                }
+                const media = await response.json();
+                if (media.approval_status === 'pending') {
+                    showToast('Media submitted for admin approval.', 'info');
+                } else {
+                    showToast('Media uploaded successfully!', 'success');
+                }
+                if (missionMediaFile) missionMediaFile.value = '';
+                if (missionMediaCaption) missionMediaCaption.value = '';
+                if (missionMediaOperation) missionMediaOperation.value = '';
+                await loadMissionMedia();
+            } catch (error) {
+                showToast(`Upload failed: ${error.message}`, 'danger');
+            } finally {
+                if (missionMediaUploadBtn) missionMediaUploadBtn.disabled = false;
+                if (missionMediaUploadSpinner) missionMediaUploadSpinner.style.display = 'none';
+            }
+        });
+    }
+
+    if (missionMediaGallery) {
+        missionMediaGallery.addEventListener('click', async (event) => {
+            const approveBtn = event.target.closest('.mission-media-approve-btn');
+            if (approveBtn && USER_ROLE === 'admin') {
+                const mediaId = approveBtn.dataset.mediaId;
+                if (!mediaId) return;
+                try {
+                    await apiRequest(`/api/missions/${missionId}/media/${mediaId}/approve`, 'PUT');
+                    showToast('Media approved.', 'success');
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Approval failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const rejectBtn = event.target.closest('.mission-media-reject-btn');
+            if (rejectBtn && USER_ROLE === 'admin') {
+                const mediaId = rejectBtn.dataset.mediaId;
+                if (!mediaId) return;
+                if (!confirm('Reject this media item?')) return;
+                try {
+                    await apiRequest(`/api/missions/${missionId}/media/${mediaId}/reject`, 'PUT');
+                    showToast('Media rejected.', 'success');
+                    await loadMissionMedia();
+                } catch (error) {
+                    showToast(`Rejection failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const deleteBtn = event.target.closest('.mission-media-delete-btn');
+            if (!deleteBtn || !missionId) return;
+            const mediaId = deleteBtn.dataset.mediaId;
+            if (!mediaId) return;
+            if (!confirm('Delete this media item?')) return;
+
+            try {
+                await apiRequest(`/api/missions/${missionId}/media/${mediaId}`, 'DELETE');
+                showToast('Media deleted.', 'success');
+                await loadMissionMedia();
+            } catch (error) {
+                showToast(`Delete failed: ${error.message}`, 'danger');
+            }
+        });
+    }
+
+    const loadMissionOverview = async () => {
+        if (!missionId) return;
+        try {
+            const missionInfo = await apiRequest(`/api/missions/${missionId}/info`, 'GET');
+            const overview = missionInfo?.overview || null;
+            const weeklyReportUrl = overview?.weekly_report_url || null;
+            const endReportUrl = overview?.end_of_mission_report_url || null;
+            const planUrl = overview?.document_url || null;
+
+            if (planUrl && overviewPlanLink && overviewPlanContainer && overviewPlanEmpty) {
+                overviewPlanLink.href = planUrl;
+                overviewPlanLink.textContent = planUrl.split('/').pop();
+                overviewPlanContainer.style.display = 'block';
+                overviewPlanEmpty.style.display = 'none';
+            } else if (overviewPlanEmpty && overviewPlanContainer) {
+                overviewPlanContainer.style.display = 'none';
+                overviewPlanEmpty.style.display = 'block';
+            }
+
+            let hasReports = false;
+            if (weeklyReportUrl && overviewWeeklyReportContainer && overviewWeeklyReportLink) {
+                overviewWeeklyReportLink.href = weeklyReportUrl;
+                overviewWeeklyReportLink.textContent = weeklyReportUrl.split('/').pop();
+                overviewWeeklyReportContainer.style.display = 'block';
+                hasReports = true;
+            } else if (overviewWeeklyReportContainer) {
+                overviewWeeklyReportContainer.style.display = 'none';
+            }
+            if (endReportUrl && overviewEndReportContainer && overviewEndReportLink) {
+                overviewEndReportLink.href = endReportUrl;
+                overviewEndReportLink.textContent = endReportUrl.split('/').pop();
+                overviewEndReportContainer.style.display = 'block';
+                hasReports = true;
+            } else if (overviewEndReportContainer) {
+                overviewEndReportContainer.style.display = 'none';
+            }
+            if (overviewNoReports) {
+                overviewNoReports.style.display = hasReports ? 'none' : 'block';
+            }
+
+            const deployment = missionInfo?.sensor_tracker_deployment || null;
+            const instruments = missionInfo?.sensor_tracker_instruments || [];
+            if (deployment && overviewSensorTrackerContainer && overviewSensorTrackerEmpty) {
+                overviewSensorTrackerContainer.style.display = 'block';
+                overviewSensorTrackerEmpty.style.display = 'none';
+                if (overviewStTitle) overviewStTitle.textContent = deployment.title || '-';
+                if (overviewStStart) overviewStStart.textContent = deployment.start_time ? new Date(deployment.start_time).toLocaleString() : '-';
+                if (overviewStEnd) overviewStEnd.textContent = deployment.end_time ? new Date(deployment.end_time).toLocaleString() : '-';
+                if (overviewStPlatform) overviewStPlatform.textContent = deployment.platform_name || '-';
+                if (overviewStDataRepo) {
+                    if (deployment.data_repository_link) {
+                        overviewStDataRepo.innerHTML = '';
+                        const link = document.createElement('a');
+                        link.href = deployment.data_repository_link;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        link.textContent = deployment.data_repository_link;
+                        overviewStDataRepo.appendChild(link);
+                    } else {
+                        overviewStDataRepo.textContent = '-';
+                    }
+                }
+                if (overviewStDescription) overviewStDescription.textContent = deployment.deployment_comment || '-';
+
+                if (overviewStInstruments && overviewStInstrumentsList) {
+                    overviewStInstrumentsList.innerHTML = '';
+                    if (instruments.length > 0) {
+                        instruments.forEach(inst => {
+                            const li = document.createElement('li');
+                            const name = inst.instrument_name || inst.instrument_identifier || 'Instrument';
+                            const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
+                            li.textContent = `${name}${serial}`;
+                            overviewStInstrumentsList.appendChild(li);
+                        });
+                        overviewStInstruments.style.display = 'block';
+                    } else {
+                        overviewStInstruments.style.display = 'none';
+                    }
+                }
+            } else if (overviewSensorTrackerContainer && overviewSensorTrackerEmpty) {
+                overviewSensorTrackerContainer.style.display = 'none';
+                overviewSensorTrackerEmpty.style.display = 'block';
+            }
+        } catch (error) {
+            if (overviewPlanEmpty) overviewPlanEmpty.textContent = 'Failed to load overview.';
+        }
+    };
+
+    // Initial media load
+    loadMissionMedia();
+    loadMissionOverview();
 
     let powerChartInstance = null;
     let ctdChartInstance = null;
@@ -57,6 +365,26 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initial call to set colors on page load
     updateChartColorVariables();
     const miniChartInstances = {};
+
+    // Helper function to show spinner with animation restart
+    function showChartSpinner(spinner) {
+        if (spinner) {
+            // Remove and re-add the spinner-border class to restart animation
+            spinner.classList.remove('spinner-border');
+            // Use requestAnimationFrame to ensure the class removal is processed
+            requestAnimationFrame(() => {
+                spinner.style.display = 'block';
+                spinner.classList.add('spinner-border');
+            });
+        }
+    }
+
+    // Helper function to hide spinner
+    function hideChartSpinner(spinner) {
+        if (spinner) {
+            spinner.style.display = 'none';
+        }
+    }
 
     // Centralized Chart Colors
     const CHART_COLORS = {
@@ -465,7 +793,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     async function fetchChartData(reportType, mission) {
         const chartCanvas = document.getElementById(`${reportType}Chart`); 
         const spinner = chartCanvas ? chartCanvas.parentElement.querySelector('.chart-spinner') : null;
-        if (spinner) spinner.style.display = 'block';
+        showChartSpinner(spinner);
 
         // Find controls specific to this report type, if they exist.
         const hoursInput = document.querySelector(`.hours-back-input[data-report-type="${reportType}"]`);
@@ -532,7 +860,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             displayGlobalError(`Network error while fetching ${reportType} chart data.`);
             return null;
         } finally {
-            if (spinner) spinner.style.display = 'none';
+            hideChartSpinner(spinner);
         }
     }
 
@@ -544,7 +872,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render Power Chart. Data received:', chartData);
         const ctx = document.getElementById('powerChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none'; // Hide spinner before rendering or showing "no data"
+        hideChartSpinner(spinner); // Hide spinner before rendering or showing "no data"
 
 
         if (!chartData || chartData.length === 0) {
@@ -628,7 +956,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render CTD Chart. Data received:', chartData);
         const ctx = document.getElementById('ctdChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for CTD Chart.');
@@ -752,7 +1080,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for CTD Profile Chart.');
@@ -825,7 +1153,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render Weather Chart. Data received:', chartData);
         const ctx = document.getElementById('weatherSensorChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for Weather Chart.');
@@ -1177,7 +1505,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render Wave Chart. Data received:', chartData);
         const ctx = document.getElementById('waveChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
                 if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for Wave Chart.');
@@ -1346,7 +1674,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render VR2C Chart. Data received:', chartData);
         const ctx = document.getElementById('vr2cChart').getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for VR2C Chart.');
@@ -1417,7 +1745,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
@@ -1506,7 +1834,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'block';
+        showChartSpinner(spinner);
 
         try {
             let apiUrl = `/api/wave_spectrum/${mission}`;
@@ -1537,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             displayGlobalError('Network error while fetching wave spectrum data.');
             renderWaveSpectrumChart(null); // Render empty chart
         } finally {
-            if (spinner) spinner.style.display = 'none';
+            hideChartSpinner(spinner);
         }
     }
 
@@ -1581,7 +1909,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
@@ -1661,7 +1989,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         // console.log('Attempting to render Solar Panel Chart. Data received:', chartData);
         const ctx = document.getElementById('solarPanelChart')?.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             // console.log('No data or empty data array for Solar Panel Chart.');
@@ -1759,7 +2087,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
@@ -1830,7 +2158,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
@@ -1901,7 +2229,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";
@@ -1976,7 +2304,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!canvas) { return; } // Canvas not found - silent fail (DOM issue)
         const ctx = canvas.getContext('2d');
         const spinner = ctx.canvas.parentElement.querySelector('.chart-spinner');
-        if (spinner) spinner.style.display = 'none';
+        hideChartSpinner(spinner);
 
         if (!chartData || chartData.length === 0) {
             ctx.font = "16px Arial"; ctx.fillStyle = "grey"; ctx.textAlign = "center";

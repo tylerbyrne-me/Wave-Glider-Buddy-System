@@ -10,7 +10,6 @@ from ..core.template_context import get_template_context
 from sqlmodel import select
 from sqlalchemy import or_
 import logging
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Home"])
@@ -30,6 +29,16 @@ async def get_home_page(
     
     # Load mission data for each active mission
     active_mission_data: Dict[str, models.MissionInfoResponse] = {}
+
+    def _normalize_file_url(file_path: str) -> str:
+        normalized_path = file_path.replace(chr(92), "/")
+        if normalized_path.startswith("web/static/"):
+            normalized_path = normalized_path.replace("web/static/", "static/", 1)
+        elif normalized_path.startswith("web\\static\\"):
+            normalized_path = normalized_path.replace("web\\static\\", "static/", 1)
+        if not normalized_path.startswith("static/"):
+            return f"/{normalized_path}"
+        return f"/{normalized_path}"
     
     for mission_id in active_missions:
         # Get mission overview, goals, and notes
@@ -64,6 +73,37 @@ async def get_home_page(
                 )
             ).all()
         
+        media_stmt = (
+            select(models.MissionMedia)
+            .where(models.MissionMedia.mission_id == mission_id)
+            .where(models.MissionMedia.approval_status == "approved")
+            .order_by(models.MissionMedia.display_order.asc(), models.MissionMedia.uploaded_at_utc.desc())
+        )
+        media_items = session.exec(media_stmt).all()
+        media = []
+        for item in media_items:
+            file_url = _normalize_file_url(item.file_path)
+            thumbnail_url = _normalize_file_url(item.thumbnail_path) if item.thumbnail_path else None
+            media.append(models.MissionMediaRead(
+                id=item.id,
+                mission_id=item.mission_id,
+                media_type=item.media_type,
+                file_name=item.file_name,
+                file_size=item.file_size,
+                mime_type=item.mime_type,
+                caption=item.caption,
+                operation_type=item.operation_type,
+                uploaded_by_username=item.uploaded_by_username,
+                uploaded_at_utc=item.uploaded_at_utc,
+                approval_status=item.approval_status,
+                approved_by_username=item.approved_by_username,
+                approved_at_utc=item.approved_at_utc,
+                thumbnail_url=thumbnail_url,
+                file_url=file_url,
+                display_order=item.display_order,
+                is_featured=item.is_featured,
+            ))
+
         logger.info(f"Mission {mission_id} (base: {mission_base}) - Overview: {overview}, Goals: {len(goals)}, Notes: {len(notes)}, Sensor Tracker: {sensor_tracker_deployment is not None}, Instruments: {len(instruments)}")
         if sensor_tracker_deployment:
             logger.info(f"  Sensor Tracker Deployment found: mission_id={sensor_tracker_deployment.mission_id}, title={sensor_tracker_deployment.title}")
@@ -75,7 +115,8 @@ async def get_home_page(
             goals=goals,
             notes=notes,
             sensor_tracker_deployment=sensor_tracker_deployment,
-            sensor_tracker_instruments=instruments
+            sensor_tracker_instruments=instruments,
+            media=media,
         )
     
     template_context = get_template_context(

@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const container = document.querySelector('.container[data-user-role]');
     const USER_ROLE = container ? container.dataset.userRole : '';
     const USER_ID = container ? parseInt(container.dataset.userId, 10) : null;
+    const USERNAME = document.body ? document.body.dataset.username : '';
 
     // --- UTILITY FUNCTIONS ---
     // Simple HTML escape function to prevent XSS
@@ -31,23 +32,168 @@ document.addEventListener('DOMContentLoaded', function() {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     };
 
+    const updatePendingApprovals = async (missionSection) => {
+        if (USER_ROLE !== 'admin') return;
+        if (!missionSection) return;
+        const missionId = missionSection.dataset.missionId;
+        const alertEl = missionSection.querySelector('.mission-media-pending-alert');
+        if (!missionId || !alertEl) return;
+
+        try {
+            const mediaItems = await apiRequest(`/api/missions/${missionId}/media?include_pending=true`, 'GET');
+            const pendingCount = (mediaItems || []).filter(item => item.approval_status === 'pending').length;
+            const countEl = alertEl.querySelector('.pending-count');
+            if (countEl) countEl.textContent = pendingCount;
+            alertEl.style.display = pendingCount > 0 ? 'block' : 'none';
+        } catch (error) {
+            alertEl.style.display = 'none';
+        }
+    };
+
+    const ensureMediaPlaceholder = (gallery) => {
+        if (!gallery) return;
+        const hasItems = gallery.querySelectorAll('.mission-media-item').length > 0;
+        const placeholder = gallery.querySelector('.mission-media-empty');
+        if (!hasItems && !placeholder) {
+            const empty = document.createElement('div');
+            empty.className = 'col-12 text-muted small mission-media-empty';
+            empty.textContent = 'No media uploaded yet.';
+            gallery.appendChild(empty);
+        } else if (hasItems && placeholder) {
+            placeholder.remove();
+        }
+    };
+
+    const renderMissionMediaCard = (media, canDelete) => {
+        const col = document.createElement('div');
+        col.className = 'col-6 col-md-4 mission-media-item';
+        col.dataset.mediaId = media.id;
+
+        const caption = media.caption ? escapeHTML(media.caption) : '';
+        const operation = media.operation_type ? escapeHTML(media.operation_type) : 'Unspecified';
+        const uploadedBy = media.uploaded_by_username ? escapeHTML(media.uploaded_by_username) : 'Unknown';
+        const mediaHtml = media.media_type === 'photo'
+            ? `<a href="${media.file_url}" target="_blank" rel="noopener noreferrer">
+                    <img src="${media.file_url}" class="card-img-top" alt="${caption || 'Mission media'}" style="object-fit: cover; height: 140px;">
+               </a>`
+            : `<video class="card-img-top" controls preload="metadata" style="height: 140px; object-fit: cover;">
+                    <source src="${media.file_url}">
+               </video>`;
+
+        const deleteButton = canDelete
+            ? `<button type="button" class="btn btn-sm btn-outline-danger mt-2 mission-media-delete-btn" data-media-id="${media.id}">Delete</button>`
+            : '';
+
+        col.innerHTML = `
+            <div class="card h-100">
+                ${mediaHtml}
+                <div class="card-body p-2">
+                    <div class="small text-muted mb-1">${operation.charAt(0).toUpperCase() + operation.slice(1)} • ${uploadedBy}</div>
+                    ${caption ? `<div class="small">${caption}</div>` : ''}
+                    ${deleteButton}
+                </div>
+            </div>
+        `;
+        return col;
+    };
+
     // --- DATA LOADING FUNCTIONS ---
     const loadAnnouncements = async () => {
         const panel = document.getElementById('announcementsPanel');
+        if (!panel) return;
         try {
             const announcements = await apiRequest('/api/announcements/active', 'GET');
-            const converter = new showdown.Converter();
-            if (announcements.length > 0) {
-                panel.innerHTML = announcements.map(a => `
-                    <div class="alert alert-info" role="alert" 
-                         data-user-role="${USER_ROLE}" 
-                         data-user-id="${USER_ID}">
-                        <h5 class="alert-heading">Announcement</h5>
-                        ${converter.makeHtml(a.content)}
-                        <hr>
-                        <p class="mb-0 small text-muted">Posted by ${a.created_by_username} on ${new Date(a.created_at_utc).toLocaleDateString()}</p>
-                    </div>
-                `).join('');
+            const converter = (typeof showdown !== 'undefined') ? new showdown.Converter() : null;
+            
+            // Filter out already acknowledged announcements
+            const unacknowledgedAnnouncements = announcements.filter(a => !a.is_acknowledged_by_user);
+            
+            if (unacknowledgedAnnouncements.length > 0) {
+                // Group announcements by type
+                const grouped = {};
+                unacknowledgedAnnouncements.forEach(a => {
+                    const type = a.announcement_type || 'general';
+                    if (!grouped[type]) {
+                        grouped[type] = [];
+                    }
+                    grouped[type].push(a);
+                });
+                
+                // Define type configurations
+                const typeConfig = {
+                    'question': {
+                        title: 'Questions Requiring Attention',
+                        icon: 'fa-question-circle',
+                        alertClass: 'alert-warning',
+                        badgeClass: 'bg-warning'
+                    },
+                    'system': {
+                        title: 'System Notifications',
+                        icon: 'fa-bell',
+                        alertClass: 'alert-info',
+                        badgeClass: 'bg-info'
+                    },
+                    'general': {
+                        title: 'General Announcements',
+                        icon: 'fa-bullhorn',
+                        alertClass: 'alert-primary',
+                        badgeClass: 'bg-primary'
+                    }
+                };
+                
+                // Render grouped announcements
+                // Sort types by priority: question first (requires attention), then system, then general
+                const typePriority = { 'question': 1, 'system': 2, 'general': 3 };
+                const sortedTypes = Object.keys(grouped).sort((a, b) => {
+                    const priorityA = typePriority[a] || 99;
+                    const priorityB = typePriority[b] || 99;
+                    return priorityA - priorityB;
+                });
+                
+                let html = '';
+                sortedTypes.forEach(type => {
+                    const config = typeConfig[type] || typeConfig['general'];
+                    const typeAnnouncements = grouped[type];
+                    
+                    html += `
+                        <div class="card mb-3">
+                            <div class="card-header ${config.alertClass}">
+                                <h5 class="mb-0">
+                                    <i class="fas ${config.icon}"></i> ${config.title}
+                                    <span class="badge ${config.badgeClass} ms-2">${typeAnnouncements.length}</span>
+                                </h5>
+                            </div>
+                            <div class="card-body p-0">
+                                ${typeAnnouncements.map(a => {
+                                    const contentHtml = converter ? converter.makeHtml(a.content) : escapeHTML(a.content);
+                                    return `
+                                    <div class="alert ${config.alertClass} mb-0 border-0 border-bottom" role="alert" 
+                                         data-user-role="${USER_ROLE}" 
+                                         data-user-id="${USER_ID}"
+                                         data-announcement-id="${a.id}">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                ${contentHtml}
+                                            </div>
+                                            <div class="ms-3">
+                                                <button class="btn btn-sm btn-light text-dark acknowledge-announcement-btn" data-announcement-id="${a.id}" title="Mark as read and clear from view">
+                                                    <i class="fas fa-check"></i> Mark as Read
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <hr class="my-2">
+                                        <p class="mb-0 small text-muted">
+                                            Posted by ${a.created_by_username} on ${new Date(a.created_at_utc).toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                panel.innerHTML = html;
             } else {
                 panel.innerHTML = '<div class="alert alert-light">No active announcements.</div>';
             }
@@ -538,7 +684,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- GLOBAL EVENT LISTENER (EVENT DELEGATION) ---
-    document.body.addEventListener('click', (e) => {
+    document.body.addEventListener('click', async (e) => {
         const target = e.target;
 
         // Goal buttons
@@ -573,6 +719,99 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             handleGenerateReport();
         }
+        // Mission media delete buttons
+        else if (target.closest('.mission-media-delete-btn')) {
+            e.preventDefault();
+            const button = target.closest('.mission-media-delete-btn');
+            const context = getMissionContext(button);
+            const mediaId = button.dataset.mediaId;
+            if (!context || !mediaId) return;
+            if (!confirm('Delete this media item?')) return;
+
+            try {
+                await apiRequest(`/api/missions/${context.missionId}/media/${mediaId}`, 'DELETE');
+                showToast('Media deleted.', 'success');
+                const mediaItem = button.closest('.mission-media-item');
+                const gallery = context.missionSection.querySelector('.mission-media-gallery');
+                if (mediaItem) {
+                    mediaItem.remove();
+                }
+                ensureMediaPlaceholder(gallery);
+                if (USER_ROLE === 'admin') {
+                    updatePendingApprovals(context.missionSection);
+                }
+            } catch (error) {
+                showToast('Failed to delete media.', 'danger');
+            }
+        }
+    });
+
+    document.body.addEventListener('submit', async (e) => {
+        const form = e.target.closest('.mission-media-upload-form');
+        if (!form) return;
+        e.preventDefault();
+
+        const context = getMissionContext(form);
+        if (!context) return;
+
+        const fileInput = form.querySelector('.mission-media-file');
+        const operationSelect = form.querySelector('.mission-media-operation');
+        const captionInput = form.querySelector('.mission-media-caption');
+        const file = fileInput ? fileInput.files[0] : null;
+
+        if (!file) {
+            showToast('Please select a file to upload.', 'warning');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const params = new URLSearchParams();
+        if (captionInput && captionInput.value.trim()) {
+            params.append('caption', captionInput.value.trim());
+        }
+        if (operationSelect && operationSelect.value) {
+            params.append('operation_type', operationSelect.value);
+        }
+        const queryString = params.toString();
+        const url = `/api/missions/${context.missionId}/media/upload${queryString ? `?${queryString}` : ''}`;
+
+        try {
+            const response = await fetchWithAuth(url, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Upload failed.');
+            }
+            const media = await response.json();
+            const gallery = context.missionSection.querySelector('.mission-media-gallery');
+            if (media.approval_status === 'pending') {
+                showToast('Media submitted for admin approval.', 'info');
+                if (USER_ROLE === 'admin') {
+                    updatePendingApprovals(context.missionSection);
+                }
+            } else {
+                const canDelete = USER_ROLE === 'admin' || (USERNAME && media.uploaded_by_username === USERNAME);
+                const card = renderMissionMediaCard(media, canDelete);
+                if (gallery) {
+                    gallery.appendChild(card);
+                    ensureMediaPlaceholder(gallery);
+                }
+            }
+
+            if (fileInput) fileInput.value = '';
+            if (captionInput) captionInput.value = '';
+            if (operationSelect) operationSelect.value = '';
+            if (media.approval_status !== 'pending') {
+                showToast('Media uploaded.', 'success');
+            }
+        } catch (error) {
+            showToast(`Upload failed: ${error.message}`, 'danger');
+        }
     });
 
     // Separate listener for checkbox changes
@@ -580,6 +819,80 @@ document.addEventListener('DOMContentLoaded', function() {
         const target = e.target;
         if (target.matches('.mission-goal-checkbox')) {
             handleToggleGoal(target);
+        }
+    });
+
+    // Handle announcement acknowledgement
+    const handleAcknowledgeAnnouncement = async (button) => {
+        const announcementId = button.dataset.announcementId;
+        if (!announcementId) return;
+
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            await apiRequest(`/api/announcements/${announcementId}/ack`, 'POST');
+            
+            // Find the announcement alert and remove it (hide from view)
+            const announcementAlert = button.closest('.alert[data-announcement-id]');
+            if (announcementAlert) {
+                // Find the card and check remaining alerts BEFORE removal
+                const card = announcementAlert.closest('.card');
+                const cardBody = card ? card.querySelector('.card-body') : null;
+                const remainingAlerts = cardBody ? cardBody.querySelectorAll('.alert[data-announcement-id]') : [];
+                const isLastInCard = remainingAlerts.length === 1; // Current alert is the only one
+                
+                // Remove the announcement from view
+                announcementAlert.style.transition = 'opacity 0.3s';
+                announcementAlert.style.opacity = '0';
+                setTimeout(() => {
+                    announcementAlert.remove();
+                    
+                    if (isLastInCard && card) {
+                        // If this was the last announcement in this card, remove the entire card
+                        card.style.transition = 'opacity 0.3s';
+                        card.style.opacity = '0';
+                        setTimeout(() => {
+                            card.remove();
+                            
+                            // Check if no announcements left at all
+                            const panel = document.getElementById('announcementsPanel');
+                            const allCards = panel.querySelectorAll('.card');
+                            if (allCards.length === 0) {
+                                panel.innerHTML = '<div class="alert alert-light">No active announcements.</div>';
+                            }
+                        }, 300);
+                    } else if (card) {
+                        // Update the badge count in the header
+                        const badge = card.querySelector('.card-header .badge');
+                        if (badge) {
+                            const currentCount = parseInt(badge.textContent) || 0;
+                            const newCount = Math.max(0, currentCount - 1);
+                            if (newCount > 0) {
+                                badge.textContent = newCount;
+                            } else {
+                                // Shouldn't happen, but just in case
+                                card.remove();
+                            }
+                        }
+                    }
+                }, 300);
+            }
+            
+            showToast('Announcement cleared', 'success');
+        } catch (error) {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            showToast('Error acknowledging announcement: ' + (error.message || 'Unknown error'), 'danger');
+        }
+    };
+
+    // Add event listener for acknowledge buttons
+    document.body.addEventListener('click', (e) => {
+        if (e.target.closest('.acknowledge-announcement-btn')) {
+            e.preventDefault();
+            handleAcknowledgeAnnouncement(e.target.closest('.acknowledge-announcement-btn'));
         }
     });
 
@@ -607,6 +920,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const missionId = missionSection.dataset.missionId;
             if (missionId) {
                 addVehicleNameToMissionHeader(missionSection, missionId);
+                if (USER_ROLE === 'admin') {
+                    updatePendingApprovals(missionSection);
+                }
             }
         });
 
@@ -622,5 +938,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    initializePage();
+    try {
+        initializePage();
+    } catch (error) {
+        const panel = document.getElementById('announcementsPanel');
+        if (panel) {
+            panel.innerHTML = '<div class="alert alert-warning">Could not load announcements.</div>';
+        }
+        console.error('Home page initialization failed:', error);
+    }
 });

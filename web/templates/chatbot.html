@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Chatbot - Wave Glider Buddy{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-10 col-xl-8">
+            <h1><i class="fas fa-robot"></i> Help & FAQ Chatbot</h1>
+            <p class="text-muted">Ask questions and get instant answers from our knowledge base</p>
+            
+            <!-- Chat Interface -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div id="chatMessages" class="mb-3" style="min-height: 400px; max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 1rem; background-color: #f8f9fa;">
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-comments fa-3x mb-3"></i>
+                            <p>Start a conversation by asking a question below</p>
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="chatInput" placeholder="Type your question here..." autocomplete="off">
+                        <button class="btn btn-primary" id="sendButton" type="button">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </div>
+                    <small class="text-muted d-block mt-2">
+                        <i class="fas fa-info-circle"></i> Try asking about procedures, troubleshooting, or general questions
+                    </small>
+                </div>
+            </div>
+            
+            <!-- Quick Questions -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-bolt"></i> Quick Questions</h5>
+                </div>
+                <div class="card-body">
+                    <div id="quickQuestions" class="d-flex flex-wrap gap-2">
+                        <!-- Quick question buttons will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+<script src="{{ url_for('static', path='js/chatbot.js') }}?v=2.0" type="module"></script>
+{% endblock %}

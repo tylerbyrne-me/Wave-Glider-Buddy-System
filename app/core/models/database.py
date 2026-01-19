@@ -220,6 +220,38 @@ class MissionOverview(SQLModel, table=True):
     )
 
 
+# --- Mission Media Database Model ---
+class MissionMedia(SQLModel, table=True):
+    """Mission media (photos/videos) database table."""
+    __tablename__ = "mission_media"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="Mission identifier")
+    media_type: str = SQLModelField(description="photo or video")
+    file_path: str = SQLModelField(description="Relative path to file in static directory")
+    file_name: str = SQLModelField(description="Original filename")
+    file_size: int = SQLModelField(description="File size in bytes")
+    mime_type: str = SQLModelField(description="MIME type (e.g., image/jpeg, video/mp4)")
+
+    # Metadata
+    caption: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
+    operation_type: Optional[str] = SQLModelField(default=None, description="deployment or recovery")
+    uploaded_by_username: str = SQLModelField(index=True)
+    uploaded_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+    # For videos: thumbnail path (optional)
+    thumbnail_path: Optional[str] = SQLModelField(default=None)
+
+    # Approval workflow
+    approval_status: str = SQLModelField(default="approved", description="pending, approved, rejected")
+    approved_by_username: Optional[str] = SQLModelField(default=None)
+    approved_at_utc: Optional[datetime] = SQLModelField(default=None)
+
+    # Ordering/display
+    display_order: int = SQLModelField(default=0, description="Order for display in gallery")
+    is_featured: bool = SQLModelField(default=False, description="Featured image for mission overview")
+
+
 # --- Mission Goal Database Model ---
 class MissionGoal(SQLModel, table=True):
     """Mission goal database table."""
@@ -435,6 +467,9 @@ class Announcement(SQLModel, table=True):
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = SQLModelField(default=True)
+    announcement_type: Optional[str] = SQLModelField(default="general", index=True, description="Type: general, question, system, etc.")
+    target_roles: Optional[str] = SQLModelField(default=None, description="Comma-separated roles (optional)")
+    target_usernames: Optional[str] = SQLModelField(default=None, description="Comma-separated usernames (optional)")
     acknowledgements: List["AnnouncementAcknowledgement"] = Relationship(back_populates="announcement")
 
 
@@ -446,3 +481,183 @@ class AnnouncementAcknowledgement(SQLModel, table=True):
     acknowledged_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     announcement: "Announcement" = Relationship(back_populates="acknowledgements")
 
+
+# --- Knowledge Base Database Models ---
+class KnowledgeDocument(SQLModel, table=True):
+    """Knowledge base document database table."""
+    __tablename__ = "knowledge_documents"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True, description="Unique database identifier")
+    title: str = SQLModelField(index=True, description="Document title")
+    description: Optional[str] = SQLModelField(default=None, description="Document description")
+    file_path: str = SQLModelField(description="Path to stored file (relative to project root)")
+    file_name: str = SQLModelField(description="Original filename")
+    file_type: str = SQLModelField(index=True, description="File type: pdf, docx, pptx")
+    file_size: int = SQLModelField(description="File size in bytes")
+    category: Optional[str] = SQLModelField(default=None, index=True, description="Document category")
+    tags: Optional[str] = SQLModelField(default=None, description="Comma-separated tags")
+    access_level: str = SQLModelField(default="pilot", index=True, description="Access level: public, pilot, admin")
+    
+    # Full-text search content (extracted text)
+    searchable_content: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="Extracted text for searching")
+    
+    # Metadata
+    uploaded_by_username: str = SQLModelField(index=True, description="Username who uploaded")
+    uploaded_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Upload timestamp"
+    )
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
+        description="Last update timestamp"
+    )
+    version: int = SQLModelField(default=1, description="Current version number")
+    is_active: bool = SQLModelField(default=True, index=True, description="Whether document is active")
+    
+    # Relationships
+    document_versions: List["KnowledgeDocumentVersion"] = Relationship(back_populates="document")
+
+
+class KnowledgeDocumentVersion(SQLModel, table=True):
+    """Document version history."""
+    __tablename__ = "knowledge_document_versions"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    document_id: int = SQLModelField(foreign_key="knowledge_documents.id", index=True)
+    file_path: str = SQLModelField(description="Path to version file")
+    version: int = SQLModelField(description="Version number")
+    uploaded_by_username: str = SQLModelField(description="Username who uploaded this version")
+    uploaded_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    change_notes: Optional[str] = SQLModelField(default=None, description="Notes about changes")
+    
+    document: "KnowledgeDocument" = Relationship(back_populates="document_versions")
+
+
+# --- User Notes Database Models ---
+class UserNote(SQLModel, table=True):
+    """User personal notes database table."""
+    __tablename__ = "user_notes"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    user_id: int = SQLModelField(foreign_key="users.id", index=True, description="User who owns this note")
+    title: str = SQLModelField(index=True, description="Note title")
+    content: str = SQLModelField(sa_column=Column(Text), description="Note content (rich text)")
+    category: Optional[str] = SQLModelField(default=None, index=True, description="User-defined category")
+    tags: Optional[str] = SQLModelField(default=None, description="Comma-separated tags")
+    is_pinned: bool = SQLModelField(default=False, index=True, description="Whether note is pinned")
+    
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    
+    # Relationships
+    user: "UserInDB" = Relationship()
+
+
+# --- Shared Tips Database Models ---
+class SharedTip(SQLModel, table=True):
+    """Shared tips and tricks database table."""
+    __tablename__ = "shared_tips"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    title: str = SQLModelField(index=True, description="Tip title")
+    content: str = SQLModelField(sa_column=Column(Text), description="Tip content")
+    category: Optional[str] = SQLModelField(default=None, index=True, description="Tip category")
+    tags: Optional[str] = SQLModelField(default=None, description="Comma-separated tags")
+    
+    # Collaboration
+    created_by_username: str = SQLModelField(index=True, description="Username who created")
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    last_edited_by_username: Optional[str] = SQLModelField(default=None, description="Username who last edited")
+    
+    # Engagement metrics
+    helpful_count: int = SQLModelField(default=0, description="Number of helpful votes")
+    view_count: int = SQLModelField(default=0, description="Number of views")
+    is_pinned: bool = SQLModelField(default=False, index=True, description="Whether tip is pinned")
+    is_archived: bool = SQLModelField(default=False, index=True, description="Whether tip is archived")
+    
+    # Relationships
+    tip_contributions: List["TipContribution"] = Relationship(back_populates="tip")
+    tip_comments: List["TipComment"] = Relationship(back_populates="tip")
+
+
+class TipContribution(SQLModel, table=True):
+    """Tip contribution/edit history."""
+    __tablename__ = "tip_contributions"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    tip_id: int = SQLModelField(foreign_key="shared_tips.id", index=True)
+    contributed_by_username: str = SQLModelField(description="Username who contributed")
+    contribution_type: str = SQLModelField(description="Type: edit, comment, rating")
+    content: Optional[str] = SQLModelField(default=None, sa_column=Column(Text), description="Contribution content")
+    contributed_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    
+    tip: "SharedTip" = Relationship(back_populates="tip_contributions")
+
+
+class TipComment(SQLModel, table=True):
+    """Comments on shared tips."""
+    __tablename__ = "tip_comments"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    tip_id: int = SQLModelField(foreign_key="shared_tips.id", index=True, description="Tip this comment belongs to")
+    commented_by_username: str = SQLModelField(index=True, description="Username who posted the comment")
+    content: str = SQLModelField(sa_column=Column(Text), description="Comment content")
+    is_question: bool = SQLModelField(default=False, index=True, description="Whether this is a question")
+    is_resolved: bool = SQLModelField(default=False, description="Whether question is resolved")
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    
+    # Relationships
+    tip: "SharedTip" = Relationship(back_populates="tip_comments")
+
+
+# --- FAQ and Chatbot Database Models ---
+class FAQEntry(SQLModel, table=True):
+    """FAQ entry database table."""
+    __tablename__ = "faq_entries"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    question: str = SQLModelField(index=True, description="FAQ question")
+    answer: str = SQLModelField(sa_column=Column(Text), description="FAQ answer")
+    keywords: Optional[str] = SQLModelField(default=None, description="Comma-separated keywords for matching")
+    category: Optional[str] = SQLModelField(default=None, index=True, description="FAQ category")
+    tags: Optional[str] = SQLModelField(default=None, description="Comma-separated tags")
+    
+    # Related resources
+    related_document_ids: Optional[str] = SQLModelField(default=None, description="Comma-separated knowledge document IDs")
+    related_tip_ids: Optional[str] = SQLModelField(default=None, description="Comma-separated shared tip IDs")
+    
+    # Metadata
+    created_by_username: str = SQLModelField(index=True, description="Username who created")
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
+    view_count: int = SQLModelField(default=0, description="Number of times this FAQ was viewed")
+    helpful_count: int = SQLModelField(default=0, description="Number of helpful votes")
+    is_active: bool = SQLModelField(default=True, index=True, description="Whether FAQ is active")
+
+
+class ChatbotInteraction(SQLModel, table=True):
+    """Chatbot interaction tracking for analytics."""
+    __tablename__ = "chatbot_interactions"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    user_id: Optional[int] = SQLModelField(default=None, foreign_key="users.id", index=True, description="User who made the query")
+    query: str = SQLModelField(description="User's query text")
+    matched_faq_ids: Optional[str] = SQLModelField(default=None, description="Comma-separated FAQ IDs that matched")
+    selected_faq_id: Optional[int] = SQLModelField(default=None, foreign_key="faq_entries.id", description="FAQ that user selected")
+    was_helpful: Optional[bool] = SQLModelField(default=None, description="Whether the response was helpful")
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc), index=True)

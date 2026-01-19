@@ -23,6 +23,7 @@ from .database import (
     MissionNote,
     SensorTrackerDeployment,
     MissionInstrument,
+    MissionMedia,
 )
 
 
@@ -495,6 +496,38 @@ class MissionNoteCreate(BaseModel):
     content: str
 
 
+class MissionMediaUpdate(BaseModel):
+    """Model for updating mission media metadata."""
+    caption: Optional[str] = None
+    operation_type: Optional[str] = None
+    display_order: Optional[int] = None
+    is_featured: Optional[bool] = None
+
+
+class MissionMediaRead(BaseModel):
+    """Model for reading mission media."""
+    id: int
+    mission_id: str
+    media_type: str
+    file_name: str
+    file_size: int
+    mime_type: str
+    caption: Optional[str] = None
+    operation_type: Optional[str] = None
+    uploaded_by_username: str
+    uploaded_at_utc: datetime
+    approval_status: str
+    approved_by_username: Optional[str] = None
+    approved_at_utc: Optional[datetime] = None
+    thumbnail_url: Optional[str] = None
+    file_url: str
+    display_order: int
+    is_featured: bool
+
+    class Config:
+        from_attributes = True
+
+
 class MissionInfoResponse(BaseModel):
     """Response model for mission info."""
     overview: Optional[MissionOverview] = None
@@ -502,6 +535,7 @@ class MissionInfoResponse(BaseModel):
     notes: List[MissionNote] = []
     sensor_tracker_deployment: Optional["SensorTrackerDeployment"] = None  # Sensor Tracker metadata
     sensor_tracker_instruments: List["MissionInstrument"] = []  # Sensor Tracker instruments
+    media: List["MissionMediaRead"] = []
 
 
 # ============================================================================
@@ -511,6 +545,7 @@ class MissionInfoResponse(BaseModel):
 class AnnouncementCreate(SQLModel):
     """Model for creating an announcement."""
     content: str
+    announcement_type: Optional[str] = "general"
 
 
 class AnnouncementRead(SQLModel):
@@ -520,6 +555,7 @@ class AnnouncementRead(SQLModel):
     created_by_username: str
     created_at_utc: datetime
     is_active: bool
+    announcement_type: Optional[str] = "general"
 
 
 class AnnouncementReadForUser(AnnouncementRead):
@@ -575,3 +611,262 @@ class ScheduledJob(BaseModel):
     next_run_time: Optional[datetime] = None
     status: JobStatusEnum = Field(description="The current health status of the job.")
 
+
+# ============================================================================
+# Knowledge Base Models
+# ============================================================================
+
+class KnowledgeDocumentCreate(BaseModel):
+    """Model for creating a knowledge document."""
+    title: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    access_level: str = Field(default="pilot", description="Access level: public, pilot, admin")
+
+
+class KnowledgeDocumentUpdate(BaseModel):
+    """Model for updating a knowledge document."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    access_level: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class KnowledgeDocumentRead(BaseModel):
+    """Model for reading a knowledge document."""
+    id: int
+    title: str
+    description: Optional[str] = None
+    file_name: str
+    file_type: str
+    file_size: int
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    access_level: str
+    file_url: str
+    uploaded_by_username: str
+    uploaded_at_utc: datetime
+    updated_at_utc: datetime
+    version: int
+    
+    class Config:
+        from_attributes = True
+
+
+class KnowledgeDocumentUploadResponse(BaseModel):
+    """Response model for document upload."""
+    id: int
+    title: str
+    file_url: str
+    message: str
+
+
+# ============================================================================
+# User Notes Models
+# ============================================================================
+
+class UserNoteCreate(BaseModel):
+    """Model for creating a user note."""
+    title: str
+    content: str
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: bool = False
+
+
+class UserNoteUpdate(BaseModel):
+    """Model for updating a user note."""
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: Optional[bool] = None
+
+
+class UserNoteRead(BaseModel):
+    """Model for reading a user note."""
+    id: int
+    user_id: int
+    title: str
+    content: str
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: bool
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# Shared Tips Models
+# ============================================================================
+
+class SharedTipCreate(BaseModel):
+    """Model for creating a shared tip."""
+    title: str
+    content: str
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: bool = False
+
+
+class SharedTipUpdate(BaseModel):
+    """Model for updating a shared tip."""
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: Optional[bool] = None
+
+
+class SharedTipRead(BaseModel):
+    """Model for reading a shared tip."""
+    id: int
+    title: str
+    content: str
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    created_by_username: str
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    last_edited_by_username: Optional[str] = None
+    helpful_count: int
+    view_count: int
+    is_pinned: bool
+    is_archived: bool
+    comment_count: int = 0
+    question_count: int = 0
+    unresolved_question_count: int = 0
+    
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# Tip Comments Models
+# ============================================================================
+
+class TipCommentCreate(BaseModel):
+    """Model for creating a tip comment."""
+    content: str
+    is_question: bool = False
+
+
+class TipCommentUpdate(BaseModel):
+    """Model for updating a tip comment."""
+    content: Optional[str] = None
+    is_resolved: Optional[bool] = None
+
+
+class TipCommentRead(BaseModel):
+    """Model for reading a tip comment."""
+    id: int
+    tip_id: int
+    commented_by_username: str
+    content: str
+    is_question: bool
+    is_resolved: bool
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class CategoryInfo(BaseModel):
+    """Model for category information."""
+    name: str
+    count: int
+
+
+class CategoriesResponse(BaseModel):
+    """Response model for categories endpoints."""
+    categories: List[CategoryInfo]
+
+
+# ============================================================================
+# FAQ and Chatbot Models
+# ============================================================================
+
+class FAQEntryCreate(BaseModel):
+    """Model for creating an FAQ entry."""
+    question: str
+    answer: str
+    keywords: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    related_document_ids: Optional[str] = None
+    related_tip_ids: Optional[str] = None
+
+
+class FAQEntryUpdate(BaseModel):
+    """Model for updating an FAQ entry."""
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    keywords: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    related_document_ids: Optional[str] = None
+    related_tip_ids: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class FAQEntryRead(BaseModel):
+    """Model for reading an FAQ entry."""
+    id: int
+    question: str
+    answer: str
+    keywords: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    related_document_ids: Optional[str] = None
+    related_tip_ids: Optional[str] = None
+    created_by_username: str
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    view_count: int
+    helpful_count: int
+    is_active: bool
+    
+    class Config:
+        from_attributes = True
+
+
+class ChatbotQueryRequest(BaseModel):
+    """Model for chatbot query request."""
+    query: str
+
+
+class RelatedResource(BaseModel):
+    """Model for related resource in chatbot response."""
+    type: str  # "document" or "tip"
+    id: int
+    title: str
+    url: str
+
+
+class ChatbotResponse(BaseModel):
+    """Model for chatbot query response."""
+    matched_faqs: List[FAQEntryRead]
+    related_documents: List[RelatedResource] = []
+    related_tips: List[RelatedResource] = []
+    interaction_id: Optional[int] = None
+    # LLM-synthesized response fields
+    synthesized_response: Optional[str] = None  # LLM-generated answer
+    sources_used: List[str] = []  # References to sources used in synthesis
+    llm_used: bool = False  # Whether LLM was used for this response
+    llm_model: Optional[str] = None  # Model name used for LLM generation (e.g., "mistral:7b")
+
+
+class ChatbotFeedbackRequest(BaseModel):
+    """Model for chatbot feedback."""
+    interaction_id: int
+    was_helpful: bool
+    selected_faq_id: Optional[int] = None

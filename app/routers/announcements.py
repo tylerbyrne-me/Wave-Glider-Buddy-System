@@ -53,7 +53,8 @@ async def create_announcement(
         raise HTTPException(status_code=400, detail="Announcement content cannot be empty.")
     db_announcement = Announcement(
         content=announcement_in.content,
-        created_by_username=current_admin.username
+        created_by_username=current_admin.username,
+        announcement_type=announcement_in.announcement_type or "general"
     )
     session.add(db_announcement)
     session.commit()
@@ -65,19 +66,36 @@ async def get_active_announcements(
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
-    active_announcements_stmt = select(Announcement).where(Announcement.is_active == True).order_by(Announcement.created_at_utc.desc())
-    active_announcements = session.exec(active_announcements_stmt).all()
-    user_in_db = auth.get_user_from_db(session, current_user.username)
-    if not user_in_db:
-        raise HTTPException(status_code=404, detail="Current user not found in database.")
-    user_acks_stmt = select(AnnouncementAcknowledgement.announcement_id).where(AnnouncementAcknowledgement.user_id == user_in_db.id)
-    user_acked_ids = set(session.exec(user_acks_stmt).all())
-    response_list = []
-    for ann in active_announcements:
-        ann_data = AnnouncementReadForUser.model_validate(ann)
-        ann_data.is_acknowledged_by_user = ann.id in user_acked_ids
-        response_list.append(ann_data)
-    return response_list
+    try:
+        active_announcements_stmt = select(Announcement).where(Announcement.is_active == True).order_by(Announcement.created_at_utc.desc())
+        active_announcements = session.exec(active_announcements_stmt).all()
+        user_in_db = auth.get_user_from_db(session, current_user.username)
+        if not user_in_db:
+            raise HTTPException(status_code=404, detail="Current user not found in database.")
+        user_acks_stmt = select(AnnouncementAcknowledgement.announcement_id).where(AnnouncementAcknowledgement.user_id == user_in_db.id)
+        user_acked_ids = set(session.exec(user_acks_stmt).all())
+        response_list = []
+        if hasattr(current_user.role, "value"):
+            user_role_value = str(current_user.role.value).lower()
+        else:
+            user_role_value = str(current_user.role).lower().replace("userroleenum.", "")
+        username_value = current_user.username.lower()
+        for ann in active_announcements:
+            target_roles = [r.strip().lower() for r in (ann.target_roles or "").split(",") if r.strip()]
+            target_usernames = [u.strip().lower() for u in (ann.target_usernames or "").split(",") if u.strip()]
+            if target_roles or target_usernames:
+                if user_role_value not in target_roles and username_value not in target_usernames:
+                    continue
+            # Ensure announcement_type has a default value if None
+            if ann.announcement_type is None:
+                ann.announcement_type = "general"
+            ann_data = AnnouncementReadForUser.model_validate(ann)
+            ann_data.is_acknowledged_by_user = ann.id in user_acked_ids
+            response_list.append(ann_data)
+        return response_list
+    except Exception as e:
+        logger.error(f"Error loading active announcements: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error loading announcements: {str(e)}")
 
 @router.post("/api/announcements/{announcement_id}/ack", status_code=status.HTTP_204_NO_CONTENT)
 async def acknowledge_announcement(
@@ -109,18 +127,30 @@ async def admin_get_all_announcements(
     current_admin: models.User = Depends(get_current_admin_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
-    all_announcements = session.exec(select(Announcement).order_by(Announcement.created_at_utc.desc())).all()
-    response_list = []
-    for ann in all_announcements:
-        ann_data = AnnouncementReadWithAcks.model_validate(ann)
-        ack_list = []
-        for ack in ann.acknowledgements:
-            user = session.get(models.UserInDB, ack.user_id)
-            if user:
-                ack_list.append(AcknowledgedByInfo(username=user.username, acknowledged_at_utc=ack.acknowledged_at_utc))
-        ann_data.acknowledged_by = sorted(ack_list, key=lambda x: x.acknowledged_at_utc)
-        response_list.append(ann_data)
-    return response_list
+    try:
+        all_announcements = session.exec(select(Announcement).order_by(Announcement.created_at_utc.desc())).all()
+        response_list = []
+        for ann in all_announcements:
+            # Ensure announcement_type has a default value if None
+            if ann.announcement_type is None:
+                ann.announcement_type = "general"
+            ann_data = AnnouncementReadWithAcks.model_validate(ann)
+            ack_list = []
+            # Explicitly query acknowledgements instead of using relationship
+            ack_stmt = select(AnnouncementAcknowledgement).where(
+                AnnouncementAcknowledgement.announcement_id == ann.id
+            )
+            acknowledgements = session.exec(ack_stmt).all()
+            for ack in acknowledgements:
+                user = session.get(models.UserInDB, ack.user_id)
+                if user:
+                    ack_list.append(AcknowledgedByInfo(username=user.username, acknowledged_at_utc=ack.acknowledged_at_utc))
+            ann_data.acknowledged_by = sorted(ack_list, key=lambda x: x.acknowledged_at_utc)
+            response_list.append(ann_data)
+        return response_list
+    except Exception as e:
+        logger.error(f"Error loading all announcements: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error loading announcements: {str(e)}")
 
 @router.delete("/api/admin/announcements/{announcement_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_announcement(
@@ -151,6 +181,8 @@ async def edit_announcement(
     if not announcement_update.content.strip():
         raise HTTPException(status_code=400, detail="Announcement content cannot be empty.")
     db_announcement.content = announcement_update.content
+    if announcement_update.announcement_type:
+        db_announcement.announcement_type = announcement_update.announcement_type
     session.add(db_announcement)
     session.commit()
     session.refresh(db_announcement)

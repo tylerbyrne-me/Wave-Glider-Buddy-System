@@ -64,8 +64,35 @@ export const apiRequest = async (url, method, body = null) => {
     }
 
     if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'An unknown error occurred.' }));
-        throw new Error(errorData.detail || `HTTP error! Status: ${response.status}`);
+        let errorMessage = `HTTP error! Status: ${response.status}`;
+        try {
+            const errorData = await response.json();
+            console.error('API Error Response:', errorData);
+            // Handle different error response formats
+            if (typeof errorData === 'string') {
+                errorMessage = errorData;
+            } else if (errorData && typeof errorData === 'object') {
+                // FastAPI validation errors have a specific structure
+                if (Array.isArray(errorData.detail)) {
+                    // Validation errors
+                    const validationErrors = errorData.detail.map(err => 
+                        `${err.loc?.join('.')}: ${err.msg}`
+                    ).join('; ');
+                    errorMessage = `Validation error: ${validationErrors}`;
+                } else {
+                    errorMessage = errorData.detail || errorData.message || errorData.error || JSON.stringify(errorData);
+                }
+            }
+        } catch (e) {
+            // If JSON parsing fails, try to get text
+            try {
+                const text = await response.text();
+                errorMessage = text || errorMessage;
+            } catch (textError) {
+                // Use default error message
+            }
+        }
+        throw new Error(errorMessage);
     }
 
     return response.status === 204 ? null : await response.json();

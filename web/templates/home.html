@@ -59,6 +59,73 @@
                                             {% endif %}
                                         </div>
 
+                                        <!-- Mission Media Section -->
+                                        <div class="mission-media-section mt-4">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <h5 class="mb-0">Deployment & Recovery Media</h5>
+                                            </div>
+                                            {% if current_user and current_user.role == 'admin' %}
+                                            <div class="alert alert-warning small mission-media-pending-alert" style="display: none;">
+                                                Pending media approvals: <span class="pending-count">0</span>
+                                            </div>
+                                            {% endif %}
+                                            {% if current_user %}
+                                            <form class="mission-media-upload-form mb-3">
+                                                <div class="row g-2">
+                                                    <div class="col-md-5">
+                                                        <input type="file" class="form-control form-control-sm mission-media-file" accept="image/*,video/*" required>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <select class="form-select form-select-sm mission-media-operation">
+                                                            <option value="">Operation type</option>
+                                                            <option value="deployment">Deployment</option>
+                                                            <option value="recovery">Recovery</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <input type="text" class="form-control form-control-sm mission-media-caption" placeholder="Caption (optional)">
+                                                    </div>
+                                                </div>
+                                                <div class="mt-2 d-flex align-items-center gap-2">
+                                                    <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+                                                    <small class="text-muted">Images up to 10MB, videos up to 50MB.</small>
+                                                </div>
+                                            </form>
+                                            {% endif %}
+                                            <div class="row g-2 mission-media-gallery" data-mission-id="{{ mission_id }}">
+                                                {% if mission_info.media %}
+                                                    {% for media in mission_info.media %}
+                                                    <div class="col-6 col-md-4 mission-media-item" data-media-id="{{ media.id }}">
+                                                        <div class="card h-100">
+                                                            {% if media.media_type == 'photo' %}
+                                                            <a href="{{ media.file_url }}" target="_blank" rel="noopener noreferrer">
+                                                                <img src="{{ media.file_url }}" class="card-img-top" alt="{{ media.caption or 'Mission media' }}" style="object-fit: cover; height: 140px;">
+                                                            </a>
+                                                            {% else %}
+                                                            <video class="card-img-top" controls preload="metadata" style="height: 140px; object-fit: cover;">
+                                                                <source src="{{ media.file_url }}">
+                                                            </video>
+                                                            {% endif %}
+                                                            <div class="card-body p-2">
+                                                                <div class="small text-muted mb-1">
+                                                                    {{ (media.operation_type or 'Unspecified')|title }} • {{ media.uploaded_by_username }}
+                                                                </div>
+                                                                {% if media.caption %}
+                                                                <div class="small">{{ media.caption }}</div>
+                                                                {% endif %}
+                                                                {% if current_user and (current_user.role == 'admin' or current_user.username == media.uploaded_by_username) %}
+                                                                <button type="button" class="btn btn-sm btn-outline-danger mt-2 mission-media-delete-btn" data-media-id="{{ media.id }}">Delete</button>
+                                                                {% endif %}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    {% endfor %}
+                                                {% else %}
+                                                    <div class="col-12 text-muted small mission-media-empty">No media uploaded yet.</div>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+
                                         <!-- Sensor Tracker Metadata Section -->
                                         {% if mission_info.sensor_tracker_deployment %}
                                         <hr>

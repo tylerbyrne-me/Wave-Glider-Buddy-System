@@ -103,6 +103,10 @@ from .routers import admin as admin_router
 from .routers import error_analysis as error_analysis_router
 from .routers import sensor_csv as sensor_csv_router
 from .routers import map_router, live_kml_router
+from .routers import knowledge_base as knowledge_base_router
+from .routers import user_notes as user_notes_router
+from .routers import shared_tips as shared_tips_router
+from .routers import chatbot as chatbot_router
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -192,6 +196,10 @@ app.include_router(error_analysis_router.router)
 app.include_router(sensor_csv_router.router)
 app.include_router(map_router.router)
 app.include_router(live_kml_router.router)
+app.include_router(knowledge_base_router.router)
+app.include_router(user_notes_router.router)
+app.include_router(shared_tips_router.router)
+app.include_router(chatbot_router.router)
 
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
@@ -235,8 +243,11 @@ async def initialize_startup_cache():
     """
     logger.info("STARTUP: Initializing comprehensive data cache...")
     
-    # Get all active missions
-    active_missions = settings.active_realtime_missions
+    # Get all active missions, filtering out empty strings
+    active_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
+    if not active_missions:
+        logger.warning("STARTUP: No valid active real-time missions found. Skipping cache initialization.")
+        return 0
     logger.info(f"STARTUP: Caching data for {len(active_missions)} active missions: {active_missions}")
     
     # Get all incremental report types
@@ -289,7 +300,8 @@ async def initialize_startup_cache():
                     total_cached += 1
                     logger.debug(f"STARTUP: Cached {report_type} for {mission_id} ({len(df)} records)")
                 else:
-                    logger.warning(f"STARTUP: No data found for {report_type} on {mission_id}")
+                    # Only log at debug level - missing data is expected for some missions/report types
+                    logger.debug(f"STARTUP: No data found for {report_type} on {mission_id}")
                     
             except Exception as e:
                 logger.error(f"STARTUP: Error caching {report_type} for {mission_id}: {e}")
@@ -690,17 +702,11 @@ async def _load_from_remote_sources(
     remote_base_urls_to_try: List[str] = []
     user_role = current_user.role if current_user else models.UserRoleEnum.admin
 
-    if user_role == models.UserRoleEnum.admin:
+    if user_role in [models.UserRoleEnum.admin, models.UserRoleEnum.pilot]:
         remote_base_urls_to_try.extend([
             f"{base_remote_url}/output_realtime_missions",
-            # f"{base_remote_url}/output_past_missions",  # Commented out - focusing on active missions only
+            f"{base_remote_url}/output_past_missions",
         ])
-    elif user_role == models.UserRoleEnum.pilot:
-        if mission_id in settings.active_realtime_missions:
-            remote_base_urls_to_try.append(f"{base_remote_url}/output_realtime_missions")
-        else:
-            logger.info(f"Pilot '{current_user.username if current_user else 'N/A'}' - Access to remote data for non-active mission '{mission_id}' restricted.")
-            return None, "Remote: Access Restricted", None
 
     last_accessed_remote_path_if_empty = None
     for constructed_base_url in remote_base_urls_to_try:
@@ -933,17 +939,13 @@ async def load_data_with_overlap(
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
     elif source_preference == "remote" or source_preference is None:
+        # Default behavior: remote-only (no local fallback)
+        # Local fallback can be explicitly requested via source_preference="local" or custom_local_path
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_remote_sources(report_type, mission_id, current_user)
-        if df is None:  # If remote failed, try local as fallback
-            logger.warning(f"Remote preference/attempt failed for {report_type} ({mission_id}). Falling back to default local.")
-            df_fallback, path_fallback, file_mod_time_fallback = await _load_from_local_sources(report_type, mission_id, None)
-            if df_fallback is not None:
-                df, actual_source_path, file_modification_time = df_fallback, path_fallback, file_mod_time_fallback
-            elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path or "Remote: File Not Found" in actual_source_path:
-                if path_fallback and "Data not loaded" not in path_fallback:
-                    actual_source_path = path_fallback
-                    file_modification_time = file_mod_time_fallback
+        if df is None:
+            # Only log at debug level to reduce noise - remote failures are expected when data isn't available
+            logger.debug(f"Remote load failed for {report_type} ({mission_id}). No local fallback (remote-only mode).")
     
     if not load_attempted:
         logger.error(f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected.")
@@ -1974,15 +1976,9 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
 @app.get("/historical", include_in_schema=False)
 async def historical_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
     """Historical mission dashboard - same as root but for past missions without cache refresh."""
-    from fastapi import HTTPException
-    
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/home.html")
-    
-    # Check if user is admin (only admins can access historical missions)
-    if current_user.role != models.UserRoleEnum.admin:
-        raise HTTPException(status_code=403, detail="Only administrators can access historical missions")
     
     # Reuse the same logic as root endpoint but mark as historical
     return await _render_dashboard(request, mission, current_user, session, is_historical=True)

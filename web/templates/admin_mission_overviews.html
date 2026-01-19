@@ -33,6 +33,49 @@
             <div id="overviewFormContainer" style="display: none;">
                 <h4 id="editingMissionTitle"></h4>
                 <form id="overviewForm">
+                    <!-- Mission Media Management -->
+                    <div class="mb-4">
+                        <label class="form-label">Deployment & Recovery Media</label>
+                        <div class="alert alert-info mb-2" style="font-size: 0.9em;">
+                            <i class="fas fa-info-circle"></i> Upload and manage photos or short videos for this mission.
+                        </div>
+                        <div id="mediaUploadForm" class="card mb-3">
+                            <div class="card-body">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-5">
+                                        <label for="mediaFileInput" class="form-label small">Select File</label>
+                                        <input type="file" class="form-control" id="mediaFileInput" accept="image/*,video/*">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="mediaOperationSelect" class="form-label small">Operation Type</label>
+                                        <select class="form-select" id="mediaOperationSelect">
+                                            <option value="">Not specified</option>
+                                            <option value="deployment">Deployment</option>
+                                            <option value="recovery">Recovery</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="mediaCaptionInput" class="form-label small">Caption</label>
+                                        <input type="text" class="form-control" id="mediaCaptionInput" placeholder="Optional caption">
+                                    </div>
+                                </div>
+                                <div class="mt-3 d-flex align-items-center gap-2">
+                                    <button type="button" class="btn btn-primary btn-sm" id="mediaUploadBtn">
+                                        <i class="fas fa-upload"></i> Upload Media
+                                    </button>
+                                    <span id="mediaUploadSpinner" class="text-muted small" style="display: none;">
+                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        Uploading...
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="missionMediaGallery" class="row g-3">
+                            <div class="text-muted small">Select a mission to view uploaded media.</div>
+                        </div>
+                    </div>
+
                     <!-- Mission Reports Section -->
                     <div class="mb-3">
                         <label class="form-label">Mission Reports</label>
@@ -218,7 +261,7 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllSensors">Deselect All</button>
                         </div>
                     </div>
-                    
+
                     <button type="submit" class="btn btn-primary" id="saveOverviewBtn">Save Overview</button>
                 </form>
                 <div id="saveStatus" class="mt-3"></div>
@@ -282,6 +325,45 @@
             </div>
         </div>
     </div>
+    <!-- Media Edit Modal -->
+<div class="modal fade" id="mediaEditModal" tabindex="-1" aria-labelledby="mediaEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mediaEditModalLabel">Edit Media</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="mediaEditId">
+                <div class="mb-3">
+                    <label for="mediaEditCaption" class="form-label">Caption</label>
+                    <input type="text" class="form-control" id="mediaEditCaption">
+                </div>
+                <div class="mb-3">
+                    <label for="mediaEditOperation" class="form-label">Operation Type</label>
+                    <select class="form-select" id="mediaEditOperation">
+                        <option value="">Not specified</option>
+                        <option value="deployment">Deployment</option>
+                        <option value="recovery">Recovery</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="mediaEditDisplayOrder" class="form-label">Display Order</label>
+                    <input type="number" class="form-control" id="mediaEditDisplayOrder" min="0" step="1">
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="mediaEditFeatured">
+                    <label class="form-check-label" for="mediaEditFeatured">Featured</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="mediaEditSaveBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 </div>
 {% endblock %}
 

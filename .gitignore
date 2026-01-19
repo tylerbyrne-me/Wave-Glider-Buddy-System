@@ -69,3 +69,15 @@ secrets/
 *.shp 
 *.dbf 
 *.shx 
+
+
+*.json
+*.txt
+*.png
+
+# test scripts and markdowns
+**/scripts/
+**/docs/
+*.md
+*.db
+**/data_store/

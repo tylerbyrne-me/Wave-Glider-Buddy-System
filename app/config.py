@@ -69,6 +69,30 @@ class Settings(BaseSettings):
     sensor_tracker_debug: bool = False
     sensor_tracker_debug_host: str = "http://127.0.0.1:8000/"
     
+    # --- Knowledge Base Settings ---
+    knowledge_base_max_upload_size_mb: int = 50  # Maximum file upload size in MB
+
+    # --- Mission Media Settings ---
+    mission_media_root_path: str = "web/static/mission_media"
+    mission_media_max_image_size_mb: int = 10
+    mission_media_max_video_size_mb: int = 50
+    mission_media_max_files_per_upload: int = 10
+    
+    # --- Chatbot Vector Search Settings ---
+    vector_search_enabled: bool = True  # Enable vector search (requires chromadb and sentence-transformers)
+    vector_similarity_threshold: float = 0.35  # Minimum similarity for matches (0.0-1.0, 0.35 works well)
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model name
+    
+    # --- LLM Settings (Ollama) ---
+    llm_enabled: bool = True  # Enable LLM for response synthesis
+    llm_host: str = "http://localhost:11434"  # Ollama server URL
+    llm_model: str = "mistral:7b"  # Model to use (mistral:7b recommended for quality + context)
+    llm_temperature: float = 0.3  # Lower temperature for more factual/consistent answers
+    llm_max_tokens: int = 512  # Max response length (increased for detailed answers)
+    llm_timeout: int = 180  # Timeout in seconds (increased for larger context)
+    llm_fallback_to_search: bool = True  # Fall back to search results if LLM unavailable
+    llm_max_context_chars: int = 6000  # Max context to send to LLM (Mistral supports ~8k tokens)
+    
     # Parsed values (not loaded directly from env)
     remote_mission_folder_map: dict[str, str] = {}
     feature_toggles: dict[str, bool] = {}

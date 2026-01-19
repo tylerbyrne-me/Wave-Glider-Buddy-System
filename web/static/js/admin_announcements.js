@@ -21,8 +21,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     const editAnnouncementModal = new bootstrap.Modal(document.getElementById('editAnnouncementModal'));
     const editAnnouncementIdInput = document.getElementById('editAnnouncementId');
     const editAnnouncementContentInput = document.getElementById('editAnnouncementContent');
+    const editAnnouncementTypeInput = document.getElementById('editAnnouncementType');
     const saveChangesBtn = document.getElementById('saveAnnouncementChangesBtn');
     const editStatusDiv = document.getElementById('editStatus');
+    const announcementTypeInput = document.getElementById('announcementType');
 
     const markdownConverter = new showdown.Converter();
 
@@ -87,13 +89,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         e.preventDefault();
         createStatusDiv.innerHTML = '';
         const content = contentInput.value.trim();
+        const announcementType = announcementTypeInput.value || 'general';
         if (!content) return;
 
         try {
-            await apiRequest('/api/admin/announcements', 'POST', { content: content });
+            await apiRequest('/api/admin/announcements', 'POST', { 
+                content: content,
+                announcement_type: announcementType
+            });
             showToast('Announcement posted successfully', 'success');
             createStatusDiv.innerHTML = '<div class="alert alert-success">Announcement posted successfully.</div>';
             contentInput.value = '';
+            announcementTypeInput.value = 'general';
             loadAnnouncements(); // Refresh the list
         } catch (error) {
             showToast(`Error posting announcement: ${error.message}`, 'danger');
@@ -104,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     saveChangesBtn.addEventListener('click', async function() {
         const annId = editAnnouncementIdInput.value;
         const newContent = editAnnouncementContentInput.value.trim();
+        const newType = editAnnouncementTypeInput.value || 'general';
         editStatusDiv.innerHTML = '';
 
         if (!newContent) {
@@ -112,7 +120,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         try {
-            await apiRequest(`/api/admin/announcements/${annId}`, 'PUT', { content: newContent });
+            await apiRequest(`/api/admin/announcements/${annId}`, 'PUT', { 
+                content: newContent,
+                announcement_type: newType
+            });
             showToast('Announcement updated successfully', 'success');
             editAnnouncementModal.hide();
             loadAnnouncements(); // Refresh the list to show changes
@@ -143,6 +154,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 editStatusDiv.innerHTML = ''; // Clear previous status messages
                 editAnnouncementIdInput.value = annId;
                 editAnnouncementContentInput.value = announcement.content;
+                editAnnouncementTypeInput.value = announcement.announcement_type || 'general';
                 editAnnouncementModal.show();
             }
         }

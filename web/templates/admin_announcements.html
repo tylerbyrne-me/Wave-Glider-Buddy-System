@@ -18,6 +18,15 @@
                     <label for="announcementContent" class="form-label">Announcement Text (Markdown is supported)</label>
                     <textarea class="form-control" id="announcementContent" rows="3" required></textarea>
                 </div>
+                <div class="mb-3">
+                    <label for="announcementType" class="form-label">Announcement Type</label>
+                    <select class="form-select" id="announcementType">
+                        <option value="general">General Announcement</option>
+                        <option value="question">Question/Requires Attention</option>
+                        <option value="system">System Notification</option>
+                    </select>
+                    <small class="form-text text-muted">Choose the type of announcement. This helps organize announcements on the home page.</small>
+                </div>
                 <button type="submit" class="btn btn-primary">Post Announcement</button>
             </form>
             <div id="createStatus" class="mt-3"></div>
@@ -55,6 +64,14 @@
             <div class="mb-3">
                 <label for="editAnnouncementContent" class="form-label">Announcement Text (Markdown is supported)</label>
                 <textarea class="form-control" id="editAnnouncementContent" rows="5" required></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="editAnnouncementType" class="form-label">Announcement Type</label>
+                <select class="form-select" id="editAnnouncementType">
+                    <option value="general">General Announcement</option>
+                    <option value="question">Question/Requires Attention</option>
+                    <option value="system">System Notification</option>
+                </select>
             </div>
             <div id="editStatus" class="mt-3"></div>
         </form>

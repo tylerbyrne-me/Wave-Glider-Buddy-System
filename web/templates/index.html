@@ -64,12 +64,35 @@
   </div>
 
     <!-- New Two-Column Layout for Dashboard Content -->
+  {% set nav_values = navigation_info['values'] if navigation_info and navigation_info['values'] else {} %}
+  {% set power_values = power_info['values'] if power_info and power_info['values'] else {} %}
+  {% set ctd_values = ctd_info['values'] if ctd_info and ctd_info['values'] else {} %}
+  {% set weather_values = weather_info['values'] if weather_info and weather_info['values'] else {} %}
+  {% set wave_values = wave_info['values'] if wave_info and wave_info['values'] else {} %}
+  {% set vr2c_values = vr2c_info['values'] if vr2c_info and vr2c_info['values'] else {} %}
+  {% set fluorometer_values = fluorometer_info['values'] if fluorometer_info and fluorometer_info['values'] else {} %}
+  {% set wg_vm4_values = wg_vm4_info['values'] if wg_vm4_info and wg_vm4_info['values'] else {} %}
   <div class="row mt-3" id="dashboard-main-content"> {# Added mt-3 for spacing below new banner #}
     <!-- Left Navigation Panel (Summary Cards) -->
     <div class="col-md-3" id="left-nav-panel">
+      <!-- Overview Summary Card -->
+      <div class="summary-card active-card" data-category="overview">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>Overview</h5>
+            <div class="mini-summary">
+              Mission summary and media
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ mission }}
+        </div>
+      </div>
+
       <!-- Navigation Summary Card -->
       {% if "navigation" in enabled_sensor_cards %}
-      <div class="summary-card active-card" data-category="navigation" data-mini-trend='{{ navigation_info.mini_trend | tojson | safe if navigation_info and "mini_trend" in navigation_info and navigation_info.mini_trend is not none else "[]" }}'>
+      <div class="summary-card" data-category="navigation" data-mini-trend='{{ navigation_info.mini_trend | tojson | safe if navigation_info and "mini_trend" in navigation_info and navigation_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
             <canvas id="miniNavigationChart"></canvas>
@@ -77,9 +100,9 @@
           <div class="summary-card-text-content">
             <h5>Navigation</h5>
             <div class="mini-summary">
-              {% if navigation_info and navigation_info['values'] is not none %}
-                SOG: {{ "%.1f kn"|format(navigation_info['values']['SpeedOverGround']) if navigation_info['values']['SpeedOverGround'] is not none else 'N/A' }}<br>
-                POG: {{ "%.0f °"|format(navigation_info['values']['GliderHeading']) if navigation_info['values']['GliderHeading'] is not none else 'N/A' }}
+              {% if navigation_info and nav_values %}
+                SOG: {{ "%.1f kn"|format(nav_values.get('SpeedOverGround')) if nav_values.get('SpeedOverGround') is not none else 'N/A' }}<br>
+                POG: {{ "%.0f °"|format(nav_values.get('GliderHeading')) if nav_values.get('GliderHeading') is not none else 'N/A' }}
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -100,9 +123,9 @@
           <div class="summary-card-text-content">
             <h5>Power</h5>
             <div class="mini-summary">
-              {% if power_info and power_info['values'] is not none %}
-                Batt: {{ "%.0f"|format(power_info['values'].get('BatteryPercentage')) if power_info['values'].get('BatteryPercentage') is not none else 'N/A' }}%<br>
-                Net: {{ "%.1f"|format(power_info['values'].get('BatteryChargeRateW')) if power_info['values'].get('BatteryChargeRateW') is not none else 'N/A' }} W
+              {% if power_info and power_values %}
+                Batt: {{ "%.0f"|format(power_values.get('BatteryPercentage')) if power_values.get('BatteryPercentage') is not none else 'N/A' }}%<br>
+                Net: {{ "%.1f"|format(power_values.get('BatteryChargeRateW')) if power_values.get('BatteryChargeRateW') is not none else 'N/A' }} W
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -123,9 +146,9 @@
           <div class="summary-card-text-content">
             <h5>CTD</h5>
             <div class="mini-summary">
-              {% if ctd_info and ctd_info['values'] is not none %}
-                Temp: {{ "%.1f"|format(ctd_info['values']['WaterTemperature']) if ctd_info['values']['WaterTemperature'] is not none else 'N/A' }} °C<br>
-                Sal: {{ "%.1f"|format(ctd_info['values']['Salinity']) if ctd_info['values']['Salinity'] is not none else 'N/A' }} PSU
+              {% if ctd_info and ctd_values %}
+                Temp: {{ "%.1f"|format(ctd_values.get('WaterTemperature')) if ctd_values.get('WaterTemperature') is not none else 'N/A' }} °C<br>
+                Sal: {{ "%.1f"|format(ctd_values.get('Salinity')) if ctd_values.get('Salinity') is not none else 'N/A' }} PSU
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -146,9 +169,9 @@
           <div class="summary-card-text-content">
             <h5>Weather</h5>
             <div class="mini-summary">
-              {% if weather_info and weather_info['values'] is not none %}
-                Air: {{ "%.1f"|format(weather_info['values']['AirTemperature']) if weather_info['values']['AirTemperature'] is not none else 'N/A' }} °C<br>
-                Wind: {{ "%.1f"|format(weather_info['values']['WindSpeed']) if weather_info['values']['WindSpeed'] is not none else 'N/A' }} kt
+              {% if weather_info and weather_values %}
+                Air: {{ "%.1f"|format(weather_values.get('AirTemperature')) if weather_values.get('AirTemperature') is not none else 'N/A' }} °C<br>
+                Wind: {{ "%.1f"|format(weather_values.get('WindSpeed')) if weather_values.get('WindSpeed') is not none else 'N/A' }} kt
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -169,12 +192,12 @@
           <div class="summary-card-text-content">
             <h5>Waves</h5>
             <div class="mini-summary">
-              {% if wave_info and wave_info['values'] is not none %}
-                Hs: {{ "%.1f"|format(wave_info['values']['SignificantWaveHeight']) if wave_info['values']['SignificantWaveHeight'] is not none else 'N/A' }} m<br>
-                Dp: <span {% if wave_info['values']['MeanDirectionStatus'] == 'outlier' %}
+              {% if wave_info and wave_values %}
+                Hs: {{ "%.1f"|format(wave_values.get('SignificantWaveHeight')) if wave_values.get('SignificantWaveHeight') is not none else 'N/A' }} m<br>
+                Dp: <span {% if wave_values.get('MeanDirectionStatus') == 'outlier' %}
                           title="Latest data point was an invalid outlier (e.g., 9999)."
                           class="text-warning"
-                         {% endif %}>{{ wave_info['values']['MeanDirectionDisplay'] }}</span>
+                         {% endif %}>{{ wave_values.get('MeanDirectionDisplay', 'N/A') }}</span>
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -195,9 +218,9 @@
           <div class="summary-card-text-content">
             <h5>VR2C-MRx</h5>
             <div class="mini-summary">
-              {% if vr2c_info and vr2c_info['values'] is not none %}
-                DC: {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else 'N/A' }}<br>
-                PC: {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else 'N/A' }}
+              {% if vr2c_info and vr2c_values %}
+                DC: {{ vr2c_values.get('DetectionCount') if vr2c_values.get('DetectionCount') is not none else 'N/A' }}<br>
+                PC: {{ vr2c_values.get('PingCount') if vr2c_values.get('PingCount') is not none else 'N/A' }}
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -218,9 +241,9 @@
           <div class="summary-card-text-content">
             <h5>Fluorometer</h5>
             <div class="mini-summary">
-              {% if fluorometer_info and fluorometer_info['values'] is not none and fluorometer_info['values'] %}
-                C1: {{ "%.1f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values'].get('C1_Avg') is not none else 'N/A' }}<br>
-                Temp: {{ "%.1f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values'].get('Temperature_Fluor') is not none else 'N/A' }} °C
+              {% if fluorometer_info and fluorometer_values %}
+                C1: {{ "%.1f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else 'N/A' }}<br>
+                Temp: {{ "%.1f"|format(fluorometer_values.get('Temperature_Fluor')) if fluorometer_values.get('Temperature_Fluor') is not none else 'N/A' }} °C
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -241,9 +264,9 @@
           <div class="summary-card-text-content">
             <h5>WG-VM4</h5>
             <div class="mini-summary">
-              {% if wg_vm4_info and wg_vm4_info['values'] is not none %}
-                SN: {{ wg_vm4_info['values']['SerialNumber'] if wg_vm4_info['values']['SerialNumber'] is not none else 'N/A' }}<br>
-                Ch0 DC: {{ wg_vm4_info['values']['Channel0DetectionCount'] if wg_vm4_info['values']['Channel0DetectionCount'] is not none else 'N/A' }}
+              {% if wg_vm4_info and wg_vm4_values %}
+                SN: {{ wg_vm4_values.get('SerialNumber') if wg_vm4_values.get('SerialNumber') is not none else 'N/A' }}<br>
+                Ch0 DC: {{ wg_vm4_values.get('Channel0DetectionCount') if wg_vm4_values.get('Channel0DetectionCount') is not none else 'N/A' }}
               {% else %} N/A {% endif %}
             </div>
           </div>
@@ -340,6 +363,110 @@
 
     <!-- Right Main Display Area -->
     <div class="col-md-9" id="main-display-area">
+      <div class="category-detail-view card mb-4" id="detail-overview" style="display: block;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <div>
+            <h2 class="mb-0">Mission Overview</h2>
+            {% if is_historical_mission %}
+              <span class="badge bg-secondary">Historical Mission</span>
+            {% else %}
+              <span class="badge bg-success">Active Mission</span>
+            {% endif %}
+          </div>
+          {% if current_user %}
+          <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#missionMediaUploadCollapse" aria-expanded="false" aria-controls="missionMediaUploadCollapse">
+            <i class="fas fa-camera"></i> Add Media
+          </button>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <div class="mb-3">
+            <h5>Formal Plan Document</h5>
+            <div id="overviewPlanContainer" style="display: none;">
+              <a href="#" id="overviewPlanLink" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+            <div id="overviewPlanEmpty" class="text-muted small">No formal plan document uploaded.</div>
+          </div>
+
+          <div class="mb-3">
+            <h5>Mission Reports</h5>
+            <div id="overviewWeeklyReportContainer" style="display: none;">
+              <strong>Weekly Report:</strong>
+              <a href="#" id="overviewWeeklyReportLink" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+            <div id="overviewEndReportContainer" style="display: none;">
+              <strong>End of Mission Report:</strong>
+              <a href="#" id="overviewEndReportLink" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+            <div id="overviewNoReports" class="text-muted small">No reports available yet.</div>
+          </div>
+
+          <div class="mb-3">
+            <h5>Sensor Tracker Metadata</h5>
+            <div id="overviewSensorTrackerContainer" style="display: none;">
+              <dl class="row mb-0">
+                <dt class="col-sm-4">Title:</dt>
+                <dd class="col-sm-8" id="overviewStTitle">-</dd>
+                <dt class="col-sm-4">Start:</dt>
+                <dd class="col-sm-8" id="overviewStStart">-</dd>
+                <dt class="col-sm-4">End:</dt>
+                <dd class="col-sm-8" id="overviewStEnd">-</dd>
+                <dt class="col-sm-4">Platform:</dt>
+                <dd class="col-sm-8" id="overviewStPlatform">-</dd>
+                <dt class="col-sm-4">Data Repository:</dt>
+                <dd class="col-sm-8" id="overviewStDataRepo">-</dd>
+              </dl>
+              <div class="mt-2">
+                <strong>Deployment Description:</strong>
+                <p class="text-muted small mb-0" id="overviewStDescription" style="white-space: pre-wrap;">-</p>
+              </div>
+              <div class="mt-3" id="overviewStInstruments" style="display: none;">
+                <h6 class="mb-2">Instruments</h6>
+                <ul class="list-unstyled small mb-0" id="overviewStInstrumentsList"></ul>
+              </div>
+            </div>
+            <div id="overviewSensorTrackerEmpty" class="text-muted small">No Sensor Tracker metadata available.</div>
+          </div>
+
+          {% if current_user %}
+          <div class="collapse mb-3" id="missionMediaUploadCollapse">
+            <form id="missionMediaUploadForm">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                  <label for="missionMediaFile" class="form-label small">Select File</label>
+                  <input type="file" class="form-control form-control-sm" id="missionMediaFile" accept="image/*,video/*" required>
+                </div>
+                <div class="col-md-3">
+                  <label for="missionMediaOperation" class="form-label small">Operation Type</label>
+                  <select class="form-select form-select-sm" id="missionMediaOperation">
+                    <option value="">Not specified</option>
+                    <option value="deployment">Deployment</option>
+                    <option value="recovery">Recovery</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label for="missionMediaCaption" class="form-label small">Caption</label>
+                  <input type="text" class="form-control form-control-sm" id="missionMediaCaption" placeholder="Optional caption">
+                </div>
+              </div>
+              <div class="mt-2 d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-sm btn-primary" id="missionMediaUploadBtn">
+                  <i class="fas fa-upload"></i> Upload
+                </button>
+                <span id="missionMediaUploadSpinner" class="text-muted small" style="display: none;">
+                  <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                  Uploading...
+                </span>
+              </div>
+            </form>
+          </div>
+          {% endif %}
+          <div id="missionMediaGallery" class="row g-3">
+            <div class="text-muted small">Loading media...</div>
+          </div>
+        </div>
+      </div>
+
       <div class="category-detail-view card mb-4" id="detail-ais" style="display: none;">
         <div class="card">
           <div class="card-header d-flex justify-content-between align-items-center">
@@ -763,8 +890,8 @@
           </div>
         </div>
       </div>
-      <!-- Navigation Detail View (Initially Displayed or as per JS logic) -->
-      <div class="category-detail-view card mb-4" id="detail-navigation" style="display: block;"> <!-- Default visible -->
+      <!-- Navigation Detail View -->
+      <div class="category-detail-view card mb-4" id="detail-navigation" style="display: none;">
         <div class="card h-100">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h2 class="mb-0">{{ mission }} - Navigation</h2>
@@ -811,7 +938,7 @@
           </div>
           <div class="card-body">
             <div class="summary-content-area">
-              {% if navigation_info and navigation_info['values'] %}
+            {% if navigation_info and nav_values %}
               <div class="power-task-manager-summary detail-summary-box mb-3">
                   <div class="row">
                       <!-- Column 1: Position & Waypoint -->
@@ -819,13 +946,13 @@
                           <div class="text-center">
                               <div class="power-summary-header">Latitude</div>
                               <div class="power-summary-value-large" id="nav-latitude">
-                                  {{ "%.5f"|format(navigation_info['values'].Latitude) if navigation_info['values'].Latitude is not none else 'N/A' }}
+                                  {{ "%.5f"|format(nav_values.get('Latitude')) if nav_values.get('Latitude') is not none else 'N/A' }}
                               </div>
                           </div>
                           <div class="text-center mt-3">
                               <div class="power-summary-header">Longitude</div>
                               <div class="power-summary-value-large" id="nav-longitude">
-                                  {{ "%.5f"|format(navigation_info['values'].Longitude) if navigation_info['values'].Longitude is not none else 'N/A' }}
+                                  {{ "%.5f"|format(nav_values.get('Longitude')) if nav_values.get('Longitude') is not none else 'N/A' }}
                               </div>
                           </div>
                           <!-- Target Waypoint and last segment distance removed from Column 1 display -->
@@ -835,29 +962,29 @@
                           <div class="text-center">
                               <div class="power-summary-header">Glider Heading</div>
                               <div class="power-summary-value-large" id="nav-heading">
-                                  {{ "%.0f °"|format(navigation_info['values'].GliderHeading) if navigation_info['values'].GliderHeading is not none else 'N/A' }}
+                                  {{ "%.0f °"|format(nav_values.get('GliderHeading')) if nav_values.get('GliderHeading') is not none else 'N/A' }}
                               </div>
                           </div>
                           <div class="text-center mt-3">
                               <div class="power-summary-header">Glider Speed (SOG)</div>
                               <div class="power-summary-value-large" id="nav-speed">
-                                  {{ "%.1f kn"|format(navigation_info['values'].SpeedOverGround) if navigation_info['values'].SpeedOverGround is not none else 'N/A' }}
+                                  {{ "%.1f kn"|format(nav_values.get('SpeedOverGround')) if nav_values.get('SpeedOverGround') is not none else 'N/A' }}
                               </div>
                           </div>
                            <div class="text-center mt-3">
                               <div class="power-summary-header">Avg SOG (24h)</div>
                               <div class="power-summary-value-large" id="nav-avg-sog-24h">
-                                  {{ "%.1f kn"|format(navigation_info['values'].AvgSpeedOverGround24h) if navigation_info['values'].AvgSpeedOverGround24h is not none else 'N/A' }}
+                                  {{ "%.1f kn"|format(nav_values.get('AvgSpeedOverGround24h')) if nav_values.get('AvgSpeedOverGround24h') is not none else 'N/A' }}
                               </div>
                           </div>
                       </div>
                       <!-- Column 3: Distance Traveled & Current -->
                       <div class="col-md-4 power-summary-column">
                           <ul class="list-unstyled power-summary-details-list">
-                              <li><span class="power-summary-label">Total Dist. Traveled (Mission):</span><span class="power-summary-value-right" id="nav-total-dist-mission">{{ "%.1f NM"|format(navigation_info['values'].TotalDistanceTraveledMissionNM) if navigation_info['values'].TotalDistanceTraveledMissionNM is not none else 'N/A' }}</span></li>
-                              <li><span class="power-summary-label">Dist. Traveled (24h):</span><span class="power-summary-value-right" id="nav-dist-24h">{{ "%.1f NM"|format(navigation_info['values'].DistanceTraveled24hNM) if navigation_info['values'].DistanceTraveled24hNM is not none else 'N/A' }}</span></li>
-                              <li><span class="power-summary-label">Ocean Current Speed:</span><span class="power-summary-value-right" id="nav-current-speed">{{ "%.1f kn"|format(navigation_info['values'].OceanCurrentSpeed) if navigation_info['values'].OceanCurrentSpeed is not none else 'N/A' }}</span></li>
-                              <li><span class="power-summary-label">Ocean Current Dir:</span><span class="power-summary-value-right" id="nav-current-dir">{{ "%.0f °"|format(navigation_info['values'].OceanCurrentDirection) if navigation_info['values'].OceanCurrentDirection is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Total Dist. Traveled (Mission):</span><span class="power-summary-value-right" id="nav-total-dist-mission">{{ "%.1f NM"|format(nav_values.get('TotalDistanceTraveledMissionNM')) if nav_values.get('TotalDistanceTraveledMissionNM') is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Dist. Traveled (24h):</span><span class="power-summary-value-right" id="nav-dist-24h">{{ "%.1f NM"|format(nav_values.get('DistanceTraveled24hNM')) if nav_values.get('DistanceTraveled24hNM') is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Ocean Current Speed:</span><span class="power-summary-value-right" id="nav-current-speed">{{ "%.1f kn"|format(nav_values.get('OceanCurrentSpeed')) if nav_values.get('OceanCurrentSpeed') is not none else 'N/A' }}</span></li>
+                              <li><span class="power-summary-label">Ocean Current Dir:</span><span class="power-summary-value-right" id="nav-current-dir">{{ "%.0f °"|format(nav_values.get('OceanCurrentDirection')) if nav_values.get('OceanCurrentDirection') is not none else 'N/A' }}</span></li>
                           </ul>
                       </div>
                   </div>
@@ -952,7 +1079,7 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if power_info and power_info['values'] %} {# Use bracket notation for checking the item #}
+            {% if power_info and power_values %} {# Use bracket notation for checking the item #}
             <div class="power-task-manager-summary detail-summary-box mb-3"> {# Added mb-3 for spacing before chart #}
                 <div class="row">
                     <!-- Column 1 -->
@@ -960,19 +1087,19 @@
                         <div class="text-center">
                             <div class="power-summary-header">Battery</div>
                             <div class="power-summary-value-large" id="power-battery-soc">
-                                {{ "%.1f%%"|format(power_info['values'].BatteryPercentage) if power_info['values'].BatteryPercentage is not none else 'N/A' }}
+                                {{ "%.1f%%"|format(power_values.get('BatteryPercentage')) if power_values.get('BatteryPercentage') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Charge Rate</div>
                             <div class="power-summary-value-large" id="power-battery-charge-rate">
-                                {{ "%.1f W"|format(power_info['values'].BatteryChargeRateW) if power_info['values'].BatteryChargeRateW is not none else 'N/A' }}
+                                {{ "%.1f W"|format(power_values.get('BatteryChargeRateW')) if power_values.get('BatteryChargeRateW') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Time to Full</div>
-                            <div class="power-summary-value-large {% if power_info['values'].TimeToChargeStr == 'Fully Charged' %}status-text-success{% elif 'Discharging' in power_info['values'].TimeToChargeStr or 'Stalled' in power_info['values'].TimeToChargeStr %}status-text-warning{% elif 'h' not in power_info['values'].TimeToChargeStr and 'm' not in power_info['values'].TimeToChargeStr and power_info['values'].TimeToChargeStr != 'N/A' %}status-text-info{% endif %}" id="power-time-to-charge">
-                                {{ power_info['values'].TimeToChargeStr if power_info['values'].TimeToChargeStr is not none else 'N/A' }}
+                            <div class="power-summary-value-large {% if power_values.get('TimeToChargeStr') == 'Fully Charged' %}status-text-success{% elif 'Discharging' in (power_values.get('TimeToChargeStr') or '') or 'Stalled' in (power_values.get('TimeToChargeStr') or '') %}status-text-warning{% elif 'h' not in (power_values.get('TimeToChargeStr') or '') and 'm' not in (power_values.get('TimeToChargeStr') or '') and power_values.get('TimeToChargeStr') != 'N/A' %}status-text-info{% endif %}" id="power-time-to-charge">
+                                {{ power_values.get('TimeToChargeStr') if power_values.get('TimeToChargeStr') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -982,13 +1109,13 @@
                         <div class="text-center">
                             <div class="power-summary-header">Capacity</div>
                             <div class="power-summary-value-large" id="power-battery-wh">
-                                {{ "%.0f Wh"|format(power_info['values'].BatteryWattHours) if power_info['values'].BatteryWattHours is not none else 'N/A' }}
+                                {{ "%.0f Wh"|format(power_values.get('BatteryWattHours')) if power_values.get('BatteryWattHours') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Avg Output (24h)</div>
                             <div class="power-summary-value-large" id="power-avg-output">
-                                {{ "%.1f W"|format(power_info['values'].AvgOutputPortPower24hrW) if power_info['values'].AvgOutputPortPower24hrW is not none else 'N/A' }}
+                                {{ "%.1f W"|format(power_values.get('AvgOutputPortPower24hrW')) if power_values.get('AvgOutputPortPower24hrW') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -996,11 +1123,11 @@
                     <!-- Column 3 -->
                     <div class="col-md-5 power-summary-column">
                         <ul class="list-unstyled power-summary-details-list">
-                            <li><span class="power-summary-label">Solar (Now):</span><span class="power-summary-value-right" id="power-solar-now">{{ "%.1f W"|format(power_info['values'].SolarInputWatts) if power_info['values'].SolarInputWatts is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Solar (Avg 24h):</span><span class="power-summary-value-right" id="power-solar-avg-24h">{{ "%.1f W"|format(power_info['values'].AvgSolarInput24hrW) if power_info['values'].AvgSolarInput24hrW is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Panel 1:</span><span class="power-summary-value-right" id="power-panel1">{{ "%.1f W"|format(power_info['values'].Panel1Power) if power_info['values'].Panel1Power is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Panel 2:</span><span class="power-summary-value-right" id="power-panel2">{{ "%.1f W"|format(power_info['values'].Panel2Power) if power_info['values'].Panel2Power is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Panel 3:</span><span class="power-summary-value-right" id="power-panel3">{{ "%.1f W"|format(power_info['values'].Panel4Power) if power_info['values'].Panel4Power is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Solar (Now):</span><span class="power-summary-value-right" id="power-solar-now">{{ "%.1f W"|format(power_values.get('SolarInputWatts')) if power_values.get('SolarInputWatts') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Solar (Avg 24h):</span><span class="power-summary-value-right" id="power-solar-avg-24h">{{ "%.1f W"|format(power_values.get('AvgSolarInput24hrW')) if power_values.get('AvgSolarInput24hrW') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 1:</span><span class="power-summary-value-right" id="power-panel1">{{ "%.1f W"|format(power_values.get('Panel1Power')) if power_values.get('Panel1Power') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 2:</span><span class="power-summary-value-right" id="power-panel2">{{ "%.1f W"|format(power_values.get('Panel2Power')) if power_values.get('Panel2Power') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Panel 3:</span><span class="power-summary-value-right" id="power-panel3">{{ "%.1f W"|format(power_values.get('Panel4Power')) if power_values.get('Panel4Power') is not none else 'N/A' }}</span></li>
                         </ul>
                     </div>
                 </div>
@@ -1087,7 +1214,7 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if ctd_info and ctd_info['values'] %} {# Use bracket notation for checking the item #}
+            {% if ctd_info and ctd_values %} {# Use bracket notation for checking the item #}
             <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Water Temp, Conductivity, Salinity -->
@@ -1095,19 +1222,19 @@
                         <div class="text-center">
                             <div class="power-summary-header">Water Temperature</div>
                             <div class="power-summary-value-large" id="ctd-water-temp">
-                                {{ "%.2f °C"|format(ctd_info['values'].WaterTemperature) if ctd_info['values'].WaterTemperature is not none else 'N/A' }}
+                                {{ "%.2f °C"|format(ctd_values.get('WaterTemperature')) if ctd_values.get('WaterTemperature') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Conductivity</div>
                             <div class="power-summary-value-large" id="ctd-conductivity">
-                                {{ "%.3f S/m"|format(ctd_info['values'].Conductivity) if ctd_info['values'].Conductivity is not none else 'N/A' }}
+                                {{ "%.3f S/m"|format(ctd_values.get('Conductivity')) if ctd_values.get('Conductivity') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Salinity</div>
                             <div class="power-summary-value-large" id="ctd-salinity">
-                                {{ "%.2f PSU"|format(ctd_info['values'].Salinity) if ctd_info['values'].Salinity is not none else 'N/A' }}
+                                {{ "%.2f PSU"|format(ctd_values.get('Salinity')) if ctd_values.get('Salinity') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -1115,10 +1242,10 @@
                     <!-- Column 2: Dissolved Oxygen, Hi/Lo Temp, Pressure -->
                     <div class="col-md-6 power-summary-column"> {# Adjust col-md-X as needed #}
                         <ul class="list-unstyled power-summary-details-list">
-                            <li><span class="power-summary-label">Dissolved Oxygen:</span><span class="power-summary-value-right" id="ctd-do">{{ "%.1f Hz"|format(ctd_info['values'].DissolvedOxygen) if ctd_info['values'].DissolvedOxygen is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Highest Temp (24h):</span><span class="power-summary-value-right" id="ctd-hi-temp">{{ "%.2f °C"|format(ctd_info['values'].HighestWaterTemperature24h) if ctd_info['values'].HighestWaterTemperature24h is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Lowest Temp (24h):</span><span class="power-summary-value-right" id="ctd-lo-temp">{{ "%.2f °C"|format(ctd_info['values'].LowestWaterTemperature24h) if ctd_info['values'].LowestWaterTemperature24h is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Pressure:</span><span class="power-summary-value-right" id="ctd-pressure">{{ "%.1f dbar"|format(ctd_info['values'].Pressure) if ctd_info['values'].Pressure is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Dissolved Oxygen:</span><span class="power-summary-value-right" id="ctd-do">{{ "%.1f Hz"|format(ctd_values.get('DissolvedOxygen')) if ctd_values.get('DissolvedOxygen') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Highest Temp (24h):</span><span class="power-summary-value-right" id="ctd-hi-temp">{{ "%.2f °C"|format(ctd_values.get('HighestWaterTemperature24h')) if ctd_values.get('HighestWaterTemperature24h') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Lowest Temp (24h):</span><span class="power-summary-value-right" id="ctd-lo-temp">{{ "%.2f °C"|format(ctd_values.get('LowestWaterTemperature24h')) if ctd_values.get('LowestWaterTemperature24h') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure:</span><span class="power-summary-value-right" id="ctd-pressure">{{ "%.1f dbar"|format(ctd_values.get('Pressure')) if ctd_values.get('Pressure') is not none else 'N/A' }}</span></li>
                         </ul>
                     </div>
                 </div>
@@ -1204,7 +1331,7 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if weather_info and weather_info['values'] %}
+            {% if weather_info and weather_values %}
             <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Wind Speed, Wind Direction -->
@@ -1212,13 +1339,13 @@
                         <div class="text-center">
                             <div class="power-summary-header">Wind Speed</div>
                             <div class="power-summary-value-large" id="weather-wind-speed">
-                                {{ "%.1f kt"|format(weather_info['values'].WindSpeed) if weather_info['values'].WindSpeed is not none else 'N/A' }}
+                                {{ "%.1f kt"|format(weather_values.get('WindSpeed')) if weather_values.get('WindSpeed') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Wind Direction</div>
                             <div class="power-summary-value-large" id="weather-wind-dir">
-                                {{ "%.0f °"|format(weather_info['values'].WindDirection) if weather_info['values'].WindDirection is not none else 'N/A' }}
+                                {{ "%.0f °"|format(weather_values.get('WindDirection')) if weather_values.get('WindDirection') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -1228,13 +1355,13 @@
                         <div class="text-center">
                             <div class="power-summary-header">Gust Speed</div>
                             <div class="power-summary-value-large" id="weather-gust-speed">
-                                {{ "%.1f kt"|format(weather_info['values'].WindGust) if weather_info['values'].WindGust is not none else 'N/A' }}
+                                {{ "%.1f kt"|format(weather_values.get('WindGust')) if weather_values.get('WindGust') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Gust Direction</div>
                             <div class="power-summary-value-large" id="weather-gust-dir">
-                                {{ "%.0f °"|format(weather_info['values'].GustDirection) if weather_info['values'].GustDirection is not none else 'N/A' }}
+                                {{ "%.0f °"|format(weather_values.get('GustDirection')) if weather_values.get('GustDirection') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -1242,12 +1369,12 @@
                     <!-- Column 3: Air Temp & Pressure Details -->
                     <div class="col-md-4 power-summary-column">
                         <ul class="list-unstyled power-summary-details-list">
-                            <li><span class="power-summary-label">Air Temp (Now):</span><span class="power-summary-value-right" id="weather-air-temp-now">{{ "%.1f °C"|format(weather_info['values'].AirTemperature) if weather_info['values'].AirTemperature is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Air Temp High (24h):</span><span class="power-summary-value-right" id="weather-air-temp-high">{{ "%.1f °C"|format(weather_info['values'].AirTemperatureHigh24h) if weather_info['values'].AirTemperatureHigh24h is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Air Temp Low (24h):</span><span class="power-summary-value-right" id="weather-air-temp-low">{{ "%.1f °C"|format(weather_info['values'].AirTemperatureLow24h) if weather_info['values'].AirTemperatureLow24h is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Pressure (Now):</span><span class="power-summary-value-right" id="weather-pressure-now">{{ "%.1f mbar"|format(weather_info['values'].BarometricPressure) if weather_info['values'].BarometricPressure is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Pressure High (24h):</span><span class="power-summary-value-right" id="weather-pressure-high">{{ "%.1f mbar"|format(weather_info['values'].PressureHigh24h) if weather_info['values'].PressureHigh24h is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Pressure Low (24h):</span><span class="power-summary-value-right" id="weather-pressure-low">{{ "%.1f mbar"|format(weather_info['values'].PressureLow24h) if weather_info['values'].PressureLow24h is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Air Temp (Now):</span><span class="power-summary-value-right" id="weather-air-temp-now">{{ "%.1f °C"|format(weather_values.get('AirTemperature')) if weather_values.get('AirTemperature') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Air Temp High (24h):</span><span class="power-summary-value-right" id="weather-air-temp-high">{{ "%.1f °C"|format(weather_values.get('AirTemperatureHigh24h')) if weather_values.get('AirTemperatureHigh24h') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Air Temp Low (24h):</span><span class="power-summary-value-right" id="weather-air-temp-low">{{ "%.1f °C"|format(weather_values.get('AirTemperatureLow24h')) if weather_values.get('AirTemperatureLow24h') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure (Now):</span><span class="power-summary-value-right" id="weather-pressure-now">{{ "%.1f mbar"|format(weather_values.get('BarometricPressure')) if weather_values.get('BarometricPressure') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure High (24h):</span><span class="power-summary-value-right" id="weather-pressure-high">{{ "%.1f mbar"|format(weather_values.get('PressureHigh24h')) if weather_values.get('PressureHigh24h') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Pressure Low (24h):</span><span class="power-summary-value-right" id="weather-pressure-low">{{ "%.1f mbar"|format(weather_values.get('PressureLow24h')) if weather_values.get('PressureLow24h') is not none else 'N/A' }}</span></li>
                         </ul>
                     </div>
                 </div>
@@ -1344,7 +1471,7 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if wave_info and wave_info['values'] %}
+            {% if wave_info and wave_values %}
             <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Wave Height, Wave Height 24hr Avg -->
@@ -1352,13 +1479,13 @@
                         <div class="text-center">
                             <div class="power-summary-header">Wave Height (Hs)</div>
                             <div class="power-summary-value-large" id="wave-height-now">
-                                {{ "%.2f m"|format(wave_info['values'].SignificantWaveHeight) if wave_info['values'].SignificantWaveHeight is not none else 'N/A' }}
+                                {{ "%.2f m"|format(wave_values.get('SignificantWaveHeight')) if wave_values.get('SignificantWaveHeight') is not none else 'N/A' }}
                             </div>
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Avg Hs (24h)</div>
                             <div class="power-summary-value-large" id="wave-height-avg-24h">
-                                {{ "%.2f m"|format(wave_info['values'].SignificantWaveHeightAvg24h) if wave_info['values'].SignificantWaveHeightAvg24h is not none else 'N/A' }}
+                                {{ "%.2f m"|format(wave_values.get('SignificantWaveHeightAvg24h')) if wave_values.get('SignificantWaveHeightAvg24h') is not none else 'N/A' }}
                             </div>
                         </div>
                     </div>
@@ -1368,15 +1495,15 @@
                         <div class="text-center">
                             <div class="power-summary-header">Wave Direction (Dp)</div>
                             <div class="power-summary-value-large" id="wave-direction"> {# Use MeanDirectionDisplay for the text #}
-                                <span {% if wave_info['values']['MeanDirectionStatus'] == 'outlier' %}
+                                <span {% if wave_values.get('MeanDirectionStatus') == 'outlier' %}
                                       title="Latest data point was an invalid outlier (e.g., 9999)."
                                       class="text-warning"
-                                     {% endif %}>{{ wave_info['values']['MeanDirectionDisplay'] }}</span>
+                                     {% endif %}>{{ wave_values.get('MeanDirectionDisplay', 'N/A') }}</span>
                             </div>
-                            {% if wave_info['values'].MeanDirectionNumeric is not none and wave_info['values'].MeanDirectionStatus == 'valid' %}
+                            {% if wave_values.get('MeanDirectionNumeric') is not none and wave_values.get('MeanDirectionStatus') == 'valid' %}
                             <div class="wave-propagation-arrow-container">
                                 <span class="wave-propagation-arrow" 
-                                      style="transform: rotate({{ (wave_info['values'].MeanDirectionNumeric + 180) % 360 }}deg);">
+                                      style="transform: rotate({{ (wave_values.get('MeanDirectionNumeric') + 180) % 360 }}deg);">
                                     &uarr; {# Unicode for upward arrow #}
                                 </span>
                             </div>
@@ -1387,9 +1514,9 @@
                     <!-- Column 3: Amplitude, Period, Sample Gaps -->
                     <div class="col-md-4 power-summary-column">
                         <ul class="list-unstyled power-summary-details-list">
-                            <li><span class="power-summary-label">Amplitude (A):</span><span class="power-summary-value-right" id="wave-amplitude">{{ "%.2f m"|format(wave_info['values'].WaveAmplitude) if wave_info['values'].WaveAmplitude is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Period (Tp):</span><span class="power-summary-value-right" id="wave-period">{{ "%.1f s"|format(wave_info['values'].WavePeriod) if wave_info['values'].WavePeriod is not none else 'N/A' }}</span></li>
-                            <li><span class="power-summary-label">Sample Gaps:</span><span class="power-summary-value-right {% if wave_info['values'].SampleGaps is not none and wave_info['values'].SampleGaps > 10 %}text-danger fw-bold{% elif wave_info['values'].SampleGaps is not none and wave_info['values'].SampleGaps > 2 %}text-warning{% endif %}" id="wave-sample-gaps">{{ "%.0f"|format(wave_info['values'].SampleGaps) if wave_info['values'].SampleGaps is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Amplitude (A):</span><span class="power-summary-value-right" id="wave-amplitude">{{ "%.2f m"|format(wave_values.get('WaveAmplitude')) if wave_values.get('WaveAmplitude') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Period (Tp):</span><span class="power-summary-value-right" id="wave-period">{{ "%.1f s"|format(wave_values.get('WavePeriod')) if wave_values.get('WavePeriod') is not none else 'N/A' }}</span></li>
+                            <li><span class="power-summary-label">Sample Gaps:</span><span class="power-summary-value-right {% if wave_values.get('SampleGaps') is not none and wave_values.get('SampleGaps') > 10 %}text-danger fw-bold{% elif wave_values.get('SampleGaps') is not none and wave_values.get('SampleGaps') > 2 %}text-warning{% endif %}" id="wave-sample-gaps">{{ "%.0f"|format(wave_values.get('SampleGaps')) if wave_values.get('SampleGaps') is not none else 'N/A' }}</span></li>
                         </ul>
                     </div>
                 </div>
@@ -1506,17 +1633,17 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if vr2c_info and vr2c_info['values'] is not none %}
+            {% if vr2c_info and vr2c_values %}
             <div class="detail-summary-box mb-3">
               <ul class="list-unstyled">
                 <li>
-                  Serial Number: {{ vr2c_info['values']['SerialNumber'] if vr2c_info['values']['SerialNumber'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  Serial Number: {{ vr2c_values.get('SerialNumber') if vr2c_values.get('SerialNumber') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  Detection Count (DC): {{ vr2c_info['values']['DetectionCount'] if vr2c_info['values']['DetectionCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  Detection Count (DC): {{ vr2c_values.get('DetectionCount') if vr2c_values.get('DetectionCount') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  Ping Count (PC): {{ vr2c_info['values']['PingCount'] if vr2c_info['values']['PingCount'] is not none else '<span class="na-value">N/A</span>' | safe }}
+                  Ping Count (PC): {{ vr2c_values.get('PingCount') if vr2c_values.get('PingCount') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
               </ul>
             </div>
@@ -1592,20 +1719,20 @@
         </div>
         <div class="card-body">
           <div class="summary-content-area">
-            {% if fluorometer_info and fluorometer_info['values'] is not none %}
+            {% if fluorometer_info and fluorometer_values %}
             <div class="detail-summary-box mb-3">
               <ul class="list-unstyled">
                 <li>
-                  C1 Avg: {{ "%.2f"|format(fluorometer_info['values']['C1_Avg']) if fluorometer_info['values'].get('C1_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C1 Avg: {{ "%.2f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C2 Avg: {{ "%.2f"|format(fluorometer_info['values']['C2_Avg']) if fluorometer_info['values'].get('C2_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C2 Avg: {{ "%.2f"|format(fluorometer_values.get('C2_Avg')) if fluorometer_values.get('C2_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C3 Avg: {{ "%.2f"|format(fluorometer_info['values']['C3_Avg']) if fluorometer_info['values'].get('C3_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  C3 Avg: {{ "%.2f"|format(fluorometer_values.get('C3_Avg')) if fluorometer_values.get('C3_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  Temperature (°C): {{ "%.2f"|format(fluorometer_info['values']['Temperature_Fluor']) if fluorometer_info['values'].get('Temperature_Fluor') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  Temperature (°C): {{ "%.2f"|format(fluorometer_values.get('Temperature_Fluor')) if fluorometer_values.get('Temperature_Fluor') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
               </ul>
             </div>
@@ -1682,13 +1809,13 @@
         <div class="card-body">
           <!-- WG-VM4 Health Summary (existing) -->
           <div class="summary-content-area detail-summary-box mb-3">
-            {% if wg_vm4_info and wg_vm4_info['values'] is not none %}
+            {% if wg_vm4_info and wg_vm4_values %}
             <div>
               <h5>VM4 Health Summary</h5>
               <ul class="list-unstyled">
-                <li>Serial Number: {{ wg_vm4_info['values']['SerialNumber'] if wg_vm4_info['values']['SerialNumber'] is not none else 'N/A' }}</li>
-                <li>Channel 0 Detections: {{ wg_vm4_info['values']['Channel0DetectionCount'] if wg_vm4_info['values']['Channel0DetectionCount'] is not none else 'N/A' }}</li>
-                <li>Channel 1 Detections: {{ wg_vm4_info['values']['Channel1DetectionCount'] if wg_vm4_info['values']['Channel1DetectionCount'] is not none else 'N/A' }}</li>
+                <li>Serial Number: {{ wg_vm4_values.get('SerialNumber') if wg_vm4_values.get('SerialNumber') is not none else 'N/A' }}</li>
+                <li>Channel 0 Detections: {{ wg_vm4_values.get('Channel0DetectionCount') if wg_vm4_values.get('Channel0DetectionCount') is not none else 'N/A' }}</li>
+                <li>Channel 1 Detections: {{ wg_vm4_values.get('Channel1DetectionCount') if wg_vm4_values.get('Channel1DetectionCount') is not none else 'N/A' }}</li>
               </ul>
             </div>
             {% elif wg_vm4_info and wg_vm4_info.latest_timestamp_str == "N/A" %}
