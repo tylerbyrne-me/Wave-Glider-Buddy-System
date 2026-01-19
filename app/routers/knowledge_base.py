@@ -475,6 +475,43 @@ async def delete_document(
     document = session.get(models.KnowledgeDocument, doc_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # Remove stored files from disk (if present)
+    try:
+        project_root = Path(__file__).resolve().parent.parent.parent
+        file_path = project_root / document.file_path.replace("/", "\\" if "\\" in str(project_root) else "/")
+        resolved_file_path = file_path.resolve()
+        resolved_docs_root = KB_DOCUMENTS_DIR.resolve()
+
+        try:
+            resolved_file_path.relative_to(resolved_docs_root)
+        except ValueError:
+            logger.warning(
+                "Skipping file deletion for document %s: path outside docs root (%s)",
+                doc_id,
+                resolved_file_path
+            )
+        else:
+            if resolved_file_path.exists():
+                try:
+                    resolved_file_path.unlink()
+                    logger.info("Deleted knowledge document file: %s", resolved_file_path)
+                except Exception as e:
+                    logger.warning("Failed to delete knowledge document file %s: %s", resolved_file_path, e)
+            else:
+                logger.info("Knowledge document file already missing: %s", resolved_file_path)
+
+            # Remove version folder and document folder if empty
+            doc_folder = resolved_file_path.parent.parent if resolved_file_path.parent.name.startswith("v") else resolved_file_path.parent
+            for path in [resolved_file_path.parent, doc_folder]:
+                try:
+                    if path.exists() and path.is_dir():
+                        path.rmdir()
+                except Exception:
+                    # Folder may not be empty; ignore
+                    pass
+    except Exception as e:
+        logger.warning("Failed to remove document files for %s: %s", doc_id, e)
     
     # Remove from vector store (inactive documents shouldn't be searchable)
     try:
