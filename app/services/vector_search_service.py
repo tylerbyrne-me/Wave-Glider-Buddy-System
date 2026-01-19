@@ -31,6 +31,15 @@ class VectorSearchService:
             self.enabled = False
             logger.warning("Vector search disabled - dependencies not installed")
             return
+
+        # Disable MKLDNN in-process to avoid CPU kernel crashes.
+        try:
+            import torch
+            torch.backends.mkldnn.enabled = False
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        except Exception as e:
+            logger.warning(f"Failed to set torch CPU knobs: {e}")
         
         self.enabled = True
         self.storage_path = storage_path or Path("data_store/chroma_db")
