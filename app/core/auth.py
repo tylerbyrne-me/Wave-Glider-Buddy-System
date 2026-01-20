@@ -220,7 +220,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     # Convert UserInDB to User (excluding hashed_password for API responses)
-    user_data = user_in_db.model_dump(exclude={"hashed_password"})
+    user_data = user_in_db.model_dump(exclude={"hashed_password", "sensor_tracker_token"})
     return User(**user_data)
 
 
@@ -292,6 +292,6 @@ async def get_optional_current_user(
     if not user_in_db or user_in_db.disabled:  # Check if user is disabled
         return None
 
-    user_data = user_in_db.model_dump(exclude={"hashed_password"})
+    user_data = user_in_db.model_dump(exclude={"hashed_password", "sensor_tracker_token"})
     return User(**user_data)
 

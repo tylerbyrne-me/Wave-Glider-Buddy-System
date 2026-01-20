@@ -40,7 +40,13 @@ class SensorTrackerService:
     Service for interacting with Sensor Tracker API and parsing deployment data.
     """
     
-    def __init__(self, skip_auth: bool = False):
+    def __init__(
+        self,
+        skip_auth: bool = False,
+        token_override: Optional[str] = None,
+        username_override: Optional[str] = None,
+        password_override: Optional[str] = None,
+    ):
         """
         Initialize the Sensor Tracker service and configure client.
         
@@ -52,6 +58,9 @@ class SensorTrackerService:
             raise ImportError("sensor_tracker_client is not installed")
         
         self.skip_auth = skip_auth
+        self.token_override = token_override
+        self.username_override = username_override
+        self.password_override = password_override
         self._configure_client()
     
     def _configure_client(self):
@@ -71,28 +80,32 @@ class SensorTrackerService:
             auth_configured = False
             
             if not self.skip_auth:
-                if settings.sensor_tracker_token:
+                token_value = self.token_override or settings.sensor_tracker_token
+                username_value = self.username_override or settings.sensor_tracker_username
+                password_value = self.password_override or settings.sensor_tracker_password
+
+                if token_value:
                     try:
-                        stc.authentication.token = settings.sensor_tracker_token
+                        stc.authentication.token = token_value
                         auth_configured = True
                         logger.info("Sensor Tracker token configured")
                     except Exception as e:
                         logger.warning(f"Failed to set token (may be library compatibility issue): {e}")
                         logger.info("Will try username/password authentication instead")
                         # Try username/password as fallback
-                        if settings.sensor_tracker_username and settings.sensor_tracker_password:
+                        if username_value and password_value:
                             try:
-                                stc.authentication.username = settings.sensor_tracker_username
-                                stc.authentication.password = settings.sensor_tracker_password
+                                stc.authentication.username = username_value
+                                stc.authentication.password = password_value
                                 auth_configured = True
                                 logger.info("Sensor Tracker username/password configured")
                             except Exception as e2:
                                 logger.warning(f"Failed to set username/password: {e2}")
                 
-                elif settings.sensor_tracker_username and settings.sensor_tracker_password:
+                elif username_value and password_value:
                     try:
-                        stc.authentication.username = settings.sensor_tracker_username
-                        stc.authentication.password = settings.sensor_tracker_password
+                        stc.authentication.username = username_value
+                        stc.authentication.password = password_value
                         auth_configured = True
                         logger.info("Sensor Tracker username/password configured")
                     except Exception as e:

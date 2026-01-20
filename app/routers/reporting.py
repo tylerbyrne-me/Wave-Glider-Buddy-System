@@ -216,7 +216,16 @@ async def generate_report_with_sensor_tracker(
             
             logger.info(f"Syncing Sensor Tracker data for mission '{mission_id}' (force_refresh={force_refresh_sensor_tracker})")
             
-            sync_service = SensorTrackerSyncService()
+            admin_token = None
+            admin_in_db = session.exec(
+                select(models.UserInDB).where(
+                    models.UserInDB.username == current_user.username
+                )
+            ).first()
+            if admin_in_db:
+                admin_token = admin_in_db.sensor_tracker_token
+
+            sync_service = SensorTrackerSyncService(token_override=admin_token)
             sensor_tracker_deployment = await sync_service.get_or_sync_mission(
                 mission_id=mission_id,
                 force_refresh=force_refresh_sensor_tracker,

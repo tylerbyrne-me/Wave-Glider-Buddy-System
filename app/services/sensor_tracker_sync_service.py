@@ -30,11 +30,24 @@ class SensorTrackerSyncService:
     Service for syncing Sensor Tracker metadata to the database.
     """
     
-    def __init__(self):
+    def __init__(
+        self,
+        token_override: Optional[str] = None,
+        username_override: Optional[str] = None,
+        password_override: Optional[str] = None,
+    ):
         """Initialize the sync service."""
         if not SENSOR_TRACKER_AVAILABLE:
             logger.warning("Sensor Tracker service not available. Sync operations will fail.")
-        self.sensor_tracker_service = SensorTrackerService() if SENSOR_TRACKER_AVAILABLE else None
+        self.sensor_tracker_service = (
+            SensorTrackerService(
+                token_override=token_override,
+                username_override=username_override,
+                password_override=password_override,
+            )
+            if SENSOR_TRACKER_AVAILABLE
+            else None
+        )
     
     async def get_or_sync_mission(
         self,

@@ -38,6 +38,11 @@ class UserInDB(SQLModel, table=True):
         default=None, description="User's assigned color for UI elements."
     )
     disabled: Optional[bool] = SQLModelField(default=False, description="Whether the user account is disabled.")
+    sensor_tracker_token: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="Personal Sensor Tracker API token for admin sync actions.",
+    )
 
     # Relationships
     shift_assignments: List["ShiftAssignment"] = Relationship(back_populates="user")

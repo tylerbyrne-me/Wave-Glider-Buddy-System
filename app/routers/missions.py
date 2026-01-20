@@ -17,6 +17,7 @@ import logging
 from app.core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
+import httpx
 
 
 router = APIRouter(tags=["Missions"])
@@ -31,6 +32,8 @@ APPROVAL_REJECTED = "rejected"
 OUTBOX_PENDING = "pending_review"
 OUTBOX_APPROVED = "approved"
 OUTBOX_REJECTED = "rejected"
+OUTBOX_SYNCED = "synced"
+OUTBOX_FAILED = "failed"
 
 # --- Mission Media Helpers ---
 ALLOWED_IMAGE_TYPES = {
@@ -129,6 +132,56 @@ def _sanitize_payload(value):
     if isinstance(value, list):
         return [_sanitize_payload(v) for v in value]
     return value
+
+
+def _build_sensor_tracker_headers(token_override: Optional[str] = None) -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    token_value = token_override or settings.sensor_tracker_token
+    if token_value:
+        headers["Authorization"] = f"Token {token_value}"
+    return headers
+
+
+def _get_user_sensor_tracker_token(
+    session: SQLModelSession,
+    username: str,
+) -> Optional[str]:
+    user_in_db = session.exec(
+        select(models.UserInDB).where(models.UserInDB.username == username)
+    ).first()
+    return user_in_db.sensor_tracker_token if user_in_db else None
+
+
+async def _sync_deployment_comment_to_sensor_tracker(
+    deployment_id: int,
+    mission_id: str,
+    payload: Dict,
+    existing_comment: Optional[str],
+    token_override: Optional[str] = None,
+) -> str:
+    comment_text = payload.get("comment") or ""
+    event_time = payload.get("event_time") or datetime.now(timezone.utc).isoformat()
+    stamped_comment = f"[{event_time}] {comment_text}".strip()
+    if not stamped_comment:
+        raise HTTPException(status_code=400, detail="No comment content available to sync.")
+
+    if existing_comment:
+        combined_comment = f"{existing_comment}\n\n{stamped_comment}"
+    else:
+        combined_comment = stamped_comment
+
+    base_url = settings.sensor_tracker_host.rstrip("/")
+    url = f"{base_url}/api/deployment/{deployment_id}/"
+    headers = _build_sensor_tracker_headers(token_override=token_override)
+    auth = None
+    if not settings.sensor_tracker_token and settings.sensor_tracker_username and settings.sensor_tracker_password:
+        auth = (settings.sensor_tracker_username, settings.sensor_tracker_password)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.patch(url, json={"comment": combined_comment}, headers=headers, auth=auth)
+        response.raise_for_status()
+
+    return combined_comment
 
 
 def _create_outbox_item(
@@ -903,7 +956,8 @@ async def sync_sensor_tracker_metadata(
     )
     from ..services.sensor_tracker_sync_service import SensorTrackerSyncService
 
-    sync_service = SensorTrackerSyncService()
+    admin_token = _get_user_sensor_tracker_token(session, current_admin.username)
+    sync_service = SensorTrackerSyncService(token_override=admin_token)
     await sync_service.get_or_sync_mission(
         mission_id=mission_id,
         force_refresh=force_refresh,
@@ -979,6 +1033,137 @@ async def resubmit_sensortracker_outbox(
     session.commit()
     session.refresh(item)
     return item
+
+
+@router.put("/api/sensortracker/outbox/{outbox_id}/sync", response_model=models.SensorTrackerOutboxRead)
+async def sync_sensortracker_outbox_item(
+    outbox_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    item = session.get(models.SensorTrackerOutbox, outbox_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Outbox item not found.")
+
+    if item.entity_type != "deployment_comment":
+        raise HTTPException(
+            status_code=400,
+            detail="Only deployment comments are supported for manual sync.",
+        )
+
+    mission_base = item.mission_id.split("-")[-1] if "-" in item.mission_id else item.mission_id
+    deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == item.mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    if not deployment or not deployment.sensor_tracker_deployment_id:
+        item.status = OUTBOX_FAILED
+        item.error_message = "Sensor Tracker deployment not found for mission."
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+
+    admin_token = _get_user_sensor_tracker_token(session, current_admin.username)
+    try:
+        combined_comment = await _sync_deployment_comment_to_sensor_tracker(
+            deployment_id=deployment.sensor_tracker_deployment_id,
+            mission_id=item.mission_id,
+            payload=item.payload or {},
+            existing_comment=deployment.deployment_comment,
+            token_override=admin_token,
+        )
+        deployment.deployment_comment = combined_comment
+        deployment.last_synced_at = datetime.now(timezone.utc)
+        deployment.sync_status = "synced"
+        deployment.sync_error = None
+
+        item.status = OUTBOX_SYNCED
+        item.sensor_tracker_id = str(deployment.sensor_tracker_deployment_id)
+        item.last_attempt_at_utc = datetime.now(timezone.utc)
+        item.error_message = None
+
+        session.add(deployment)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+    except httpx.HTTPError as exc:
+        item.status = OUTBOX_FAILED
+        item.last_attempt_at_utc = datetime.now(timezone.utc)
+        item.error_message = str(exc)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+
+
+@router.put("/api/sensortracker/outbox/sync-approved", response_model=dict)
+async def sync_all_approved_outbox_items(
+    mission_id: str = Query(..., description="Mission identifier"),
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    statement = (
+        select(models.SensorTrackerOutbox)
+        .where(
+            models.SensorTrackerOutbox.mission_id == mission_id,
+            models.SensorTrackerOutbox.entity_type == "deployment_comment",
+            models.SensorTrackerOutbox.status == OUTBOX_APPROVED,
+        )
+        .order_by(models.SensorTrackerOutbox.created_at_utc.asc())
+    )
+    items = session.exec(statement).all()
+    if not items:
+        return {"synced": 0}
+
+    mission_base = mission_id.split("-")[-1] if "-" in mission_id else mission_id
+    deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    if not deployment or not deployment.sensor_tracker_deployment_id:
+        return {"synced": 0, "error": "Sensor Tracker deployment not found for mission."}
+
+    admin_token = _get_user_sensor_tracker_token(session, current_admin.username)
+    synced_count = 0
+    combined_comment = deployment.deployment_comment
+    for item in items:
+        try:
+            combined_comment = await _sync_deployment_comment_to_sensor_tracker(
+                deployment_id=deployment.sensor_tracker_deployment_id,
+                mission_id=item.mission_id,
+                payload=item.payload or {},
+                existing_comment=combined_comment,
+                token_override=admin_token,
+            )
+            item.status = OUTBOX_SYNCED
+            item.sensor_tracker_id = str(deployment.sensor_tracker_deployment_id)
+            item.last_attempt_at_utc = datetime.now(timezone.utc)
+            item.error_message = None
+            synced_count += 1
+        except httpx.HTTPError as exc:
+            item.status = OUTBOX_FAILED
+            item.last_attempt_at_utc = datetime.now(timezone.utc)
+            item.error_message = str(exc)
+        session.add(item)
+
+    deployment.deployment_comment = combined_comment
+    deployment.last_synced_at = datetime.now(timezone.utc)
+    deployment.sync_status = "synced" if synced_count > 0 else deployment.sync_status
+    deployment.sync_error = None if synced_count > 0 else deployment.sync_error
+
+    session.add(deployment)
+    session.commit()
+    return {"synced": synced_count}
 
 @router.get("/api/available_missions", response_model=List[str])
 async def get_available_missions(

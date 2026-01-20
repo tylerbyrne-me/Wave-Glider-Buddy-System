@@ -41,10 +41,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         const outboxHistoryBody = document.getElementById('sensorTrackerOutboxHistory');
         const refreshOutboxBtn = document.getElementById('refreshOutboxBtn');
         const toggleOutboxHistoryBtn = document.getElementById('toggleOutboxHistoryBtn');
+        const syncAllApprovedBtn = document.getElementById('syncAllApprovedBtn');
+        const pendingOutboxToggleBtn = document.getElementById('pendingOutboxToggleBtn');
+        const historyOutboxToggleBtn = document.getElementById('historyOutboxToggleBtn');
         const weeklyReportSelect = document.getElementById('weeklyReportSelect');
         const weeklyReportBadge = document.getElementById('weeklyReportBadge');
         const endOfMissionReportBadge = document.getElementById('endOfMissionReportBadge');
         const missionNotesList = document.getElementById('adminMissionNotesList');
+        const missionNotesToggleBtn = document.getElementById('missionNotesToggleBtn');
         const missionGoalsList = document.getElementById('adminMissionGoalsList');
         const goalModalElement = document.getElementById('goalModal');
         const goalModal = goalModalElement ? new bootstrap.Modal(goalModalElement) : null;
@@ -180,6 +184,64 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (toggleOutboxHistoryBtn) {
             toggleOutboxHistoryBtn.addEventListener('click', async function() {
                 await loadOutboxTables();
+            });
+        }
+
+        if (syncAllApprovedBtn) {
+            syncAllApprovedBtn.addEventListener('click', async function() {
+                if (!selectedMissionId) {
+                    showToast('Please select a mission first', 'warning');
+                    return;
+                }
+                syncAllApprovedBtn.disabled = true;
+                try {
+                    const result = await apiRequest(
+                        `/api/sensortracker/outbox/sync-approved?mission_id=${selectedMissionId}`,
+                        'PUT'
+                    );
+                    await loadOutboxTables();
+                    showToast(`Synced ${result.synced || 0} approved item(s).`, 'success');
+                } catch (error) {
+                    showToast(`Bulk sync failed: ${error.message}`, 'danger');
+                } finally {
+                    syncAllApprovedBtn.disabled = false;
+                }
+            });
+        }
+
+        if (pendingOutboxToggleBtn) {
+            pendingOutboxToggleBtn.addEventListener('click', () => {
+                const rows = Array.from(outboxPendingBody.querySelectorAll('tr[data-outbox-id]'));
+                const isExpanded = pendingOutboxToggleBtn.dataset.expanded === 'true';
+                rows.forEach((row, idx) => {
+                    row.classList.toggle('d-none', !isExpanded && idx >= 5);
+                });
+                pendingOutboxToggleBtn.dataset.expanded = (!isExpanded).toString();
+                pendingOutboxToggleBtn.textContent = isExpanded ? 'View All' : 'Show Less';
+            });
+        }
+
+        if (historyOutboxToggleBtn) {
+            historyOutboxToggleBtn.addEventListener('click', () => {
+                const rows = Array.from(outboxHistoryBody.querySelectorAll('tr[data-outbox-id]'));
+                const isExpanded = historyOutboxToggleBtn.dataset.expanded === 'true';
+                rows.forEach((row, idx) => {
+                    row.classList.toggle('d-none', !isExpanded && idx >= 5);
+                });
+                historyOutboxToggleBtn.dataset.expanded = (!isExpanded).toString();
+                historyOutboxToggleBtn.textContent = isExpanded ? 'View All' : 'Show Less';
+            });
+        }
+
+        if (missionNotesToggleBtn) {
+            missionNotesToggleBtn.addEventListener('click', () => {
+                const items = Array.from(missionNotesList.querySelectorAll('li[data-note-id]'));
+                const isExpanded = missionNotesToggleBtn.dataset.expanded === 'true';
+                items.forEach((item, idx) => {
+                    item.classList.toggle('d-none', !isExpanded && idx >= 5);
+                });
+                missionNotesToggleBtn.dataset.expanded = (!isExpanded).toString();
+                missionNotesToggleBtn.textContent = isExpanded ? 'View All' : 'Show Less';
             });
         }
 
@@ -412,8 +474,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (!missionNotesList) return;
             if (!notes || notes.length === 0) {
                 missionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
+                if (missionNotesToggleBtn) missionNotesToggleBtn.style.display = 'none';
                 return;
             }
+            const maxVisible = 5;
             missionNotesList.innerHTML = notes.map(note => `
                 <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
                     <div>
@@ -427,6 +491,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                     </button>
                 </li>
             `).join('');
+
+            const noteItems = Array.from(missionNotesList.querySelectorAll('li[data-note-id]'));
+            const hasOverflow = noteItems.length > maxVisible;
+            noteItems.forEach((item, idx) => {
+                item.classList.toggle('d-none', hasOverflow && idx >= maxVisible);
+            });
+            if (missionNotesToggleBtn) {
+                missionNotesToggleBtn.style.display = hasOverflow ? 'inline-block' : 'none';
+                missionNotesToggleBtn.textContent = 'View All';
+                missionNotesToggleBtn.dataset.expanded = 'false';
+            }
         }
 
         function renderMissionGoals(goals) {
@@ -474,7 +549,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const rawContent = payload.comment || payload.description || payload.caption || '';
                 const contentText = escapeHtml(rawContent);
                 const contentDisplay = contentText
-                    ? `<span title="${contentText}">${contentText.length > 80 ? `${contentText.slice(0, 80)}…` : contentText}</span>`
+                    ? `<span class="d-inline-block text-truncate" style="max-width: 260px;" title="${contentText}">${contentText}</span>`
                     : '-';
                 let actions = '';
 
@@ -506,6 +581,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                     `;
                 }
 
+                if (item.status === 'approved' || item.status === 'failed') {
+                    actions = `
+                        <button class="btn btn-sm btn-outline-primary outbox-sync-btn" data-outbox-id="${item.id}">
+                            ${item.status === 'failed' ? 'Retry Sync' : 'Sync'}
+                        </button>
+                    `;
+                } else if (item.status === 'synced') {
+                    actions = '<span class="text-muted small">Synced</span>';
+                }
+
                 return `
                     <tr data-outbox-id="${item.id}">
                         <td>${typeLabel}</td>
@@ -518,11 +603,26 @@ document.addEventListener('DOMContentLoaded', async function() {
             }).join('');
         }
 
+        function applyRowLimit(targetBody, limit, toggleBtn) {
+            if (!targetBody) return;
+            const rows = Array.from(targetBody.querySelectorAll('tr[data-outbox-id]'));
+            const hasOverflow = rows.length > limit;
+            rows.forEach((row, idx) => {
+                row.classList.toggle('d-none', hasOverflow && idx >= limit);
+            });
+            if (toggleBtn) {
+                toggleBtn.style.display = hasOverflow ? 'inline-block' : 'none';
+                toggleBtn.textContent = 'View All';
+                toggleBtn.dataset.expanded = 'false';
+            }
+        }
+
         async function loadOutboxTables() {
             if (!selectedMissionId) return;
             try {
                 const pending = await apiRequest(`/api/sensortracker/outbox?status_filter=pending_review&mission_id=${selectedMissionId}`, 'GET');
                 renderOutboxRows(pending, outboxPendingBody, true);
+                applyRowLimit(outboxPendingBody, 5, pendingOutboxToggleBtn);
             } catch (error) {
                 if (outboxPendingBody) {
                     outboxPendingBody.innerHTML = `<tr><td colspan="5" class="text-danger small">Failed to load pending items: ${escapeHtml(error.message)}</td></tr>`;
@@ -532,6 +632,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             try {
                 const history = await apiRequest(`/api/sensortracker/outbox?mission_id=${selectedMissionId}`, 'GET');
                 renderOutboxRows(history, outboxHistoryBody, false);
+                applyRowLimit(outboxHistoryBody, 5, historyOutboxToggleBtn);
             } catch (error) {
                 if (outboxHistoryBody) {
                     outboxHistoryBody.innerHTML = `<tr><td colspan="5" class="text-danger small">Failed to load history: ${escapeHtml(error.message)}</td></tr>`;
@@ -728,6 +829,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (outboxHistoryBody) {
                     outboxHistoryBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Select a mission to load sync history.</td></tr>';
                 }
+                if (pendingOutboxToggleBtn) pendingOutboxToggleBtn.style.display = 'none';
+                if (historyOutboxToggleBtn) historyOutboxToggleBtn.style.display = 'none';
                 if (weeklyReportSelect) {
                     weeklyReportSelect.innerHTML = '<option value="">Select a mission to load reports</option>';
                     weeklyReportSelect.disabled = true;
@@ -1064,6 +1167,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                     await loadOutboxTables();
                 } catch (error) {
                     showToast(`Resubmit failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const outboxSyncBtn = event.target.closest('.outbox-sync-btn');
+            if (outboxSyncBtn) {
+                event.preventDefault();
+                const outboxId = outboxSyncBtn.dataset.outboxId;
+                if (!outboxId) return;
+                try {
+                    await apiRequest(`/api/sensortracker/outbox/${outboxId}/sync`, 'PUT');
+                    await loadOutboxTables();
+                    showToast('Synced to Sensor Tracker.', 'success');
+                } catch (error) {
+                    showToast(`Sync failed: ${error.message}`, 'danger');
                 }
                 return;
             }

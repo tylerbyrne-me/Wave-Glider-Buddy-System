@@ -95,8 +95,23 @@ class UserSettings {
                 email: document.getElementById('email').value.trim() || null
             };
 
+            const tokenInput = document.getElementById('sensorTrackerToken');
+            const clearTokenCheckbox = document.getElementById('clearSensorTrackerToken');
+            if (tokenInput && clearTokenCheckbox) {
+                if (clearTokenCheckbox.checked) {
+                    formData.sensor_tracker_token = null;
+                } else {
+                    const tokenValue = tokenInput.value.trim();
+                    if (tokenValue) {
+                        formData.sensor_tracker_token = tokenValue;
+                    }
+                }
+            }
+
             const updatedUser = await apiRequest('/api/users/me', 'PUT', formData);
             this.populateUserData(updatedUser);
+            if (tokenInput) tokenInput.value = '';
+            if (clearTokenCheckbox) clearTokenCheckbox.checked = false;
             showToast('User information updated successfully!', 'success');
 
         } catch (error) {

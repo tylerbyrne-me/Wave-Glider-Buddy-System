@@ -144,13 +144,23 @@
                                 </table>
                             </div>
                         </div>
+                        <div class="card-footer text-end">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="pendingOutboxToggleBtn" style="display: none;">
+                                View All
+                            </button>
+                        </div>
                     </div>
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span>Sync Change Log</span>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleOutboxHistoryBtn">
-                                <i class="fas fa-clock-rotate-left"></i> View History
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="syncAllApprovedBtn">
+                                    <i class="fas fa-cloud-upload-alt"></i> Sync All Approved
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleOutboxHistoryBtn">
+                                    <i class="fas fa-clock-rotate-left"></i> View History
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive">
@@ -171,6 +181,11 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+                        <div class="card-footer text-end">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="historyOutboxToggleBtn" style="display: none;">
+                                View All
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -295,6 +310,11 @@
                                 <ul class="list-group mission-notes-list" id="adminMissionNotesList">
                                     <li class="list-group-item text-muted no-mission-notes-placeholder">Select a mission to view comments.</li>
                                 </ul>
+                                <div class="text-end mt-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="missionNotesToggleBtn" style="display: none;">
+                                        View All
+                                    </button>
+                                </div>
                                 <div class="card mt-3">
                                     <div class="card-body p-2">
                                         <textarea class="form-control new-mission-note-content" rows="2" placeholder="Add a new mission comment..."></textarea>

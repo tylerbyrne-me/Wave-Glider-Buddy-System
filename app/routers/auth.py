@@ -217,6 +217,10 @@ class UserSelfUpdate(BaseModel):
     """Model for users to update their own information."""
     full_name: Optional[str] = None
     email: Optional[str] = Field(None, description="New email for the user. Must be unique if changed.")
+    sensor_tracker_token: Optional[str] = Field(
+        None,
+        description="Admin-only Sensor Tracker API token.",
+    )
 
 
 class UserPasswordChange(BaseModel):
@@ -236,10 +240,12 @@ async def update_current_user(
         f"User '{current_user.username}' updating their own information: {user_update.model_dump(exclude_unset=True)}"
     )
     
+    update_data = user_update.model_dump(exclude_unset=True)
+
     # Convert UserSelfUpdate to UserUpdateForAdmin for the existing function
     admin_update = models.UserUpdateForAdmin(
         full_name=user_update.full_name,
-        email=user_update.email
+        email=user_update.email,
     )
     
     updated_user_in_db = auth.update_user_details_in_db(
@@ -255,8 +261,19 @@ async def update_current_user(
             detail="Failed to update user information"
         )
     
+    if "sensor_tracker_token" in update_data:
+        if current_user.role != models.UserRoleEnum.admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can update Sensor Tracker credentials.",
+            )
+        updated_user_in_db.sensor_tracker_token = update_data["sensor_tracker_token"] or None
+        session.add(updated_user_in_db)
+        session.commit()
+        session.refresh(updated_user_in_db)
+
     # Convert UserInDB to User for the response
-    return models.User.model_validate(updated_user_in_db.model_dump())
+    return models.User.model_validate(updated_user_in_db.model_dump(exclude={"sensor_tracker_token"}))
 
 
 @router.put("/api/users/me/password")
