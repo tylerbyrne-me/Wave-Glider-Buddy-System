@@ -268,11 +268,17 @@ function initializeChatbot() {
         let resourcesHtml = `<div class="${bgClass} p-3 rounded border"><strong><i class="fas fa-link"></i> ${headerText}</strong><ul class="mb-0 mt-2">`;
         
         documents.forEach(doc => {
-            resourcesHtml += `<li><a href="${doc.url}" target="_blank">📄 ${escapeHtml(doc.title)}</a></li>`;
+            const snippetHtml = doc.snippet
+                ? `<div class="small text-muted mt-1">${escapeHtml(doc.snippet)}</div>`
+                : '';
+            resourcesHtml += `<li><a href="${doc.url}" target="_blank">📄 ${escapeHtml(doc.title)}</a>${snippetHtml}</li>`;
         });
         
         tips.forEach(tip => {
-            resourcesHtml += `<li><a href="${tip.url}" target="_blank">💡 ${escapeHtml(tip.title)}</a></li>`;
+            const snippetHtml = tip.snippet
+                ? `<div class="small text-muted mt-1">${escapeHtml(tip.snippet)}</div>`
+                : '';
+            resourcesHtml += `<li><a href="${tip.url}" target="_blank">💡 ${escapeHtml(tip.title)}</a>${snippetHtml}</li>`;
         });
         
         resourcesHtml += '</ul></div>';

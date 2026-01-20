@@ -73,9 +73,12 @@ secrets/
 
 *.json
 *.txt
+!requirements.txt
 *.png
 *.jpg
-
+*.pdf
+*.pptx
+*.docx
 
 # test scripts and markdowns
 **/scripts/

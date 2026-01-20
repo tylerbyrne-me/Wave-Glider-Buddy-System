@@ -850,6 +850,9 @@ class RelatedResource(BaseModel):
     id: int
     title: str
     url: str
+    snippet: Optional[str] = None
+    similarity: Optional[float] = None
+    chunk_index: Optional[int] = None
 
 
 class ChatbotResponse(BaseModel):

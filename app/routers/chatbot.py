@@ -128,6 +128,12 @@ async def query_chatbot(
                 tip_ids = [int(id.strip()) for id in faq.related_tip_ids.split(',') if id.strip().isdigit()]
                 all_related_tip_ids.update(tip_ids)
         
+        def _build_snippet(text: str, max_len: int = 240) -> str:
+            snippet = " ".join((text or "").split())
+            if len(snippet) <= max_len:
+                return snippet
+            return snippet[:max_len].rstrip() + "..."
+
         # Vector search for documents
         # If troubleshooting query, prioritize troubleshooting documents
         category_filter = "troubleshooting" if intent['troubleshooting'] else None
@@ -144,12 +150,19 @@ async def query_chatbot(
         
         logger.debug(f"Vector doc results: {len(vector_doc_results)} matches")
         
+        doc_snippets = {}
         # Add vector search document results
         for metadata, similarity, content in vector_doc_results:
             doc_id = int(metadata.get('doc_id', 0))
             logger.debug(f"  Doc match: id={doc_id}, sim={similarity:.3f}, title={metadata.get('title', 'N/A')[:30]}")
             if doc_id and doc_id not in all_related_doc_ids:
                 all_related_doc_ids.add(doc_id)
+            if doc_id and doc_id not in doc_snippets:
+                doc_snippets[doc_id] = {
+                    "snippet": _build_snippet(content),
+                    "similarity": similarity,
+                    "chunk_index": int(metadata.get("chunk_index", 0)) if metadata.get("chunk_index") is not None else None,
+                }
         
         # Vector search for tips
         vector_tip_results = chatbot_service.search_tips(
@@ -161,12 +174,19 @@ async def query_chatbot(
         
         logger.debug(f"Vector tip results: {len(vector_tip_results)} matches")
         
+        tip_snippets = {}
         # Add vector search tip results
         for metadata, similarity, content in vector_tip_results:
             tip_id = int(metadata.get('tip_id', 0))
             logger.debug(f"  Tip match: id={tip_id}, sim={similarity:.3f}, title={metadata.get('title', 'N/A')[:30]}")
             if tip_id and tip_id not in all_related_tip_ids:
                 all_related_tip_ids.add(tip_id)
+            if tip_id and tip_id not in tip_snippets:
+                tip_snippets[tip_id] = {
+                    "snippet": _build_snippet(content),
+                    "similarity": similarity,
+                    "chunk_index": None,
+                }
         
         # Fetch related documents from database
         related_documents = []
@@ -178,11 +198,15 @@ async def query_chatbot(
             )
             docs = session.exec(doc_stmt).all()
             for doc in docs:
+                snippet_meta = doc_snippets.get(doc.id, {})
                 related_documents.append(models.RelatedResource(
                     type="document",
                     id=doc.id,
                     title=doc.title,
-                    url=f"/knowledge_base.html#document-{doc.id}"
+                    url=f"/knowledge_base.html#document-{doc.id}",
+                    snippet=snippet_meta.get("snippet"),
+                    similarity=snippet_meta.get("similarity"),
+                    chunk_index=snippet_meta.get("chunk_index"),
                 ))
                 # Prepare context for LLM
                 docs_for_context.append(doc)
@@ -197,11 +221,15 @@ async def query_chatbot(
             )
             tips = session.exec(tip_stmt).all()
             for tip in tips:
+                snippet_meta = tip_snippets.get(tip.id, {})
                 related_tips.append(models.RelatedResource(
                     type="tip",
                     id=tip.id,
                     title=tip.title,
-                    url=f"/shared_tips.html?tip_id={tip.id}"
+                    url=f"/shared_tips.html?tip_id={tip.id}",
+                    snippet=snippet_meta.get("snippet"),
+                    similarity=snippet_meta.get("similarity"),
+                    chunk_index=snippet_meta.get("chunk_index"),
                 ))
                 # Prepare context for LLM
                 tips_for_context.append(tip)
