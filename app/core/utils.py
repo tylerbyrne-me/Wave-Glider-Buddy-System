@@ -10,6 +10,18 @@ logger = logging.getLogger(__name__)
 # Minimum valid date for timestamps (filters out epoch dates from parsing failures)
 MIN_VALID_TIMESTAMP = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
+def sanitize_path_segment(value: str) -> str:
+    """Make a safe path segment for filesystem storage."""
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
+    return safe or "unknown"
+
+
+def mission_storage_dir_name(mission_id: str, suffix: str) -> str:
+    """Build a mission-specific folder name with a suffix."""
+    safe_mission_id = sanitize_path_segment(mission_id)
+    safe_suffix = sanitize_path_segment(suffix)
+    return f"{safe_mission_id}_{safe_suffix}" if safe_suffix else safe_mission_id
+
 
 def _ensure_utc(ts: pd.Timestamp) -> pd.Timestamp:
     """

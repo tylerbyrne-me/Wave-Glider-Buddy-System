@@ -23,9 +23,9 @@ from .processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weathe
 
 logger = logging.getLogger(__name__)
 
-# Define the output directory for reports
-REPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_reports"
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+# Define the base output directory for reports
+REPORTS_ROOT = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_reports"
+REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Define the path to the company logo. **Please update 'your_logo_name.png' to your actual logo file name.**
 LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "images" / "otn_logo.png"
@@ -211,6 +211,10 @@ async def generate_weekly_report(
         The URL path to the generated PDF report.
     """
     report_timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H%M%S")
+    safe_mission_id = utils.sanitize_path_segment(mission_id)
+    report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
+    report_dir = REPORTS_ROOT / report_dir_name
+    report_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info(f"Generating report for mission '{mission_id}' with custom_filename: '{custom_filename}'")
     
@@ -231,15 +235,18 @@ async def generate_weekly_report(
             title_for_pdf = f"Mission Report: {safe_base_name.replace('_', ' ').title()}"
             logger.info(f"Using generic title: '{title_for_pdf}'")
         
-        filename = f"{safe_base_name.replace(' ', '_')}_{report_timestamp}.pdf"
+        base_name = safe_base_name.replace(' ', '_')
+        if safe_mission_id not in base_name:
+            base_name = f"{base_name}_{safe_mission_id}"
+        filename = f"{base_name}_{report_timestamp}.pdf"
         logger.info(f"Generated filename: '{filename}'")
     else:
         title_for_pdf = "Weekly Mission Report"
-        filename = f"weekly_report_{mission_id}_{report_timestamp}.pdf"
+        filename = f"weekly_report_{safe_mission_id}_{report_timestamp}.pdf"
         logger.info(f"No custom_filename provided - using default weekly report. Filename: '{filename}'")
 
-    file_path = REPORTS_DIR / filename
-    url_path = f"/static/mission_reports/{filename}"
+    file_path = report_dir / filename
+    url_path = f"/static/mission_reports/{report_dir_name}/{filename}"
 
     if plots_to_include is None:
         plots_to_include = ["telemetry", "power"]

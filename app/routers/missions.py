@@ -7,7 +7,7 @@ from uuid import uuid4
 import re
 from sqlmodel import select
 from sqlalchemy import or_
-from ..core import models
+from ..core import models, utils
 from ..core.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import shutil
@@ -37,12 +37,6 @@ ALLOWED_VIDEO_TYPES = {
     "video/quicktime": "mov",
     "video/x-msvideo": "avi",
 }
-
-
-def _sanitize_path_segment(value: str) -> str:
-    """Make a safe path segment for filesystem storage."""
-    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
-    return safe or "unknown"
 
 
 def _get_project_root() -> Path:
@@ -205,15 +199,19 @@ async def upload_mission_plan_file(
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF, DOC, and DOCX are allowed.")
     
     file_extension = Path(file.filename).suffix
-    safe_filename = f"{mission_id}_plan{file_extension}"
+    safe_mission_id = utils.sanitize_path_segment(mission_id)
+    safe_filename = f"{safe_mission_id}_plan{file_extension}"
     # Fix path calculation - go up two levels from app/routers/ to project root, then to web/static/mission_plans
     mission_plans_dir = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_plans"
+    mission_forms_dir = mission_plans_dir / utils.mission_storage_dir_name(mission_id, "forms")
+    safe_mission_id = utils.sanitize_path_segment(mission_id)
+    mission_forms_dir = mission_plans_dir / utils.mission_storage_dir_name(mission_id, "forms")
     
     # Create the directory if it doesn't exist
-    mission_plans_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Mission plans directory: {mission_plans_dir}")
+    mission_forms_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Mission plans directory: {mission_forms_dir}")
     
-    file_path = mission_plans_dir / safe_filename
+    file_path = mission_forms_dir / safe_filename
     logger.info(f"Attempting to save file to: {file_path}")
     
     try:
@@ -246,7 +244,7 @@ async def upload_mission_plan_file(
         # Ensure file is closed
         await file.close()
     
-    file_url = f"/static/mission_plans/{safe_filename}"
+    file_url = f"/static/mission_plans/{mission_forms_dir.name}/{safe_filename}"
     logger.info(f"Mission plan for '{mission_id}' saved successfully. URL: {file_url}")
     return {"file_url": file_url}
 
@@ -264,21 +262,24 @@ async def check_mission_plan_upload_status(
     found_files = []
     
     for ext in extensions:
-        file_path = mission_plans_dir / f"{mission_id}_plan{ext}"
-        if file_path.exists():
-            stat = file_path.stat()
+        file_path = mission_forms_dir / f"{safe_mission_id}_plan{ext}"
+        legacy_path = mission_plans_dir / f"{mission_id}_plan{ext}"
+        if file_path.exists() or legacy_path.exists():
+            resolved_path = file_path if file_path.exists() else legacy_path
+            stat = resolved_path.stat()
             found_files.append({
-                "filename": file_path.name,
-                "path": str(file_path),
+                "filename": resolved_path.name,
+                "path": str(resolved_path),
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
-                "extension": ext
+                "extension": ext,
+                "legacy_path": resolved_path == legacy_path
             })
     
     return {
         "mission_id": mission_id,
-        "directory": str(mission_plans_dir),
-        "directory_exists": mission_plans_dir.exists(),
+        "directory": str(mission_forms_dir),
+        "directory_exists": mission_forms_dir.exists(),
         "files_found": found_files,
         "total_files": len(found_files)
     }
@@ -325,10 +326,11 @@ async def upload_mission_media(
             detail=f"File too large. Maximum size is {max_size / 1024 / 1024:.0f}MB.",
         )
 
-    safe_mission_id = _sanitize_path_segment(mission_id)
+    safe_mission_id = utils.sanitize_path_segment(mission_id)
     media_root = _get_mission_media_root()
     subdir = "photos" if media_type == "photo" else "videos"
-    target_dir = media_root / safe_mission_id / subdir
+    media_dir_name = utils.mission_storage_dir_name(mission_id, "media")
+    target_dir = media_root / media_dir_name / subdir
     target_dir.mkdir(parents=True, exist_ok=True)
 
     extension = Path(file.filename).suffix.lower()
