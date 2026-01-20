@@ -55,6 +55,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const overviewStDescription = document.getElementById('overviewStDescription');
     const overviewStInstruments = document.getElementById('overviewStInstruments');
     const overviewStInstrumentsList = document.getElementById('overviewStInstrumentsList');
+    const dashboardMissionNotesList = document.getElementById('dashboardMissionNotesList');
+    const dashboardMissionGoalsList = document.getElementById('dashboardMissionGoalsList');
+    const goalModalElement = document.getElementById('goalModal');
+    const goalModal = goalModalElement ? new bootstrap.Modal(goalModalElement) : null;
+    const goalModalLabel = document.getElementById('goalModalLabel');
+    const goalForm = document.getElementById('goalForm');
+    const goalIdInput = document.getElementById('goalIdInput');
+    const goalDescriptionInput = document.getElementById('goalDescriptionInput');
+    const saveGoalBtn = document.getElementById('saveGoalBtn');
 
     const escapeHtml = (value) => {
         if (value === null || value === undefined) return '';
@@ -64,6 +73,20 @@ document.addEventListener('DOMContentLoaded', async function() {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    };
+
+    const formatTimestamp = (value) => {
+        if (!value) return '-';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '-';
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
     };
 
     const renderMediaEmpty = (message) => {
@@ -117,6 +140,69 @@ document.addEventListener('DOMContentLoaded', async function() {
             </div>
         `;
         return col;
+    };
+
+    const renderMissionNotes = (notes) => {
+        if (!dashboardMissionNotesList) return;
+        if (!notes || notes.length === 0) {
+            dashboardMissionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
+            return;
+        }
+        dashboardMissionNotesList.innerHTML = notes.map(note => {
+            const canDelete = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
+            return `
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
+                    <div>
+                        <p class="mb-1">${escapeHtml(note.content)}</p>
+                        <small class="text-muted">
+                            &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
+                        </small>
+                    </div>
+                    ${canDelete ? `
+                        <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    ` : ''}
+                </li>
+            `;
+        }).join('');
+    };
+
+    const renderMissionGoals = (goals) => {
+        if (!dashboardMissionGoalsList) return;
+        if (!goals || goals.length === 0) {
+            dashboardMissionGoalsList.innerHTML = '<li class="list-group-item text-muted no-mission-goals-placeholder">No mission goals have been defined.</li>';
+            return;
+        }
+        dashboardMissionGoalsList.innerHTML = goals.map(goal => {
+            const adminControls = USER_ROLE === 'admin'
+                ? `
+                    <button class="btn btn-sm btn-link p-0 ms-2 edit-goal-btn" title="Edit Goal" data-goal-id="${goal.id}" data-description="${escapeHtml(goal.description)}">
+                        <i class="fas fa-pencil-alt"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-2 text-danger delete-goal-btn" title="Delete Goal" data-goal-id="${goal.id}">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `
+                : '';
+            const completedBadge = goal.is_completed
+                ? `<span class="badge bg-success rounded-pill small ms-2" title="Completed at ${formatTimestamp(goal.completed_at_utc)}">
+                        By: ${escapeHtml(goal.completed_by_username || '')}
+                   </span>`
+                : '';
+            return `
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-goal-id="${goal.id}">
+                    <div class="form-check flex-grow-1">
+                        <input class="form-check-input mission-goal-checkbox" type="checkbox" id="goal-${goal.id}" data-goal-id="${goal.id}" ${goal.is_completed ? 'checked' : ''}>
+                        <label class="form-check-label ${goal.is_completed ? 'text-decoration-line-through text-muted' : ''}" for="goal-${goal.id}">
+                            ${escapeHtml(goal.description)}
+                        </label>
+                        ${adminControls}
+                    </div>
+                    ${completedBadge}
+                </li>
+            `;
+        }).join('');
     };
 
     const loadMissionMedia = async () => {
@@ -243,6 +329,132 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    document.body.addEventListener('click', async (event) => {
+        const addNoteBtn = event.target.closest('.add-mission-note-btn');
+        if (addNoteBtn) {
+            event.preventDefault();
+            if (!missionId) return;
+            const textarea = document.querySelector('.new-mission-note-content');
+            const content = textarea ? textarea.value.trim() : '';
+            if (!content) {
+                showToast('Comment cannot be empty.', 'danger');
+                return;
+            }
+            try {
+                await apiRequest(`/api/missions/${missionId}/notes`, 'POST', { content });
+                if (USER_ROLE === 'admin') {
+                    showToast('Comment added successfully.', 'success');
+                } else {
+                    showToast('Comment submitted for admin approval.', 'success');
+                }
+                if (textarea) textarea.value = '';
+                await loadMissionOverview();
+            } catch (error) {
+                showToast(`Failed to add comment: ${error.message}`, 'danger');
+            }
+            return;
+        }
+
+        const deleteNoteBtn = event.target.closest('.delete-note-btn');
+        if (deleteNoteBtn) {
+            event.preventDefault();
+            if (!missionId) return;
+            const noteId = deleteNoteBtn.dataset.noteId;
+            if (!noteId) return;
+            if (!confirm('Delete this comment?')) return;
+            try {
+                await apiRequest(`/api/missions/notes/${noteId}`, 'DELETE');
+                showToast('Comment deleted.', 'success');
+                await loadMissionOverview();
+            } catch (error) {
+                showToast(`Failed to delete comment: ${error.message}`, 'danger');
+            }
+            return;
+        }
+
+        const addGoalBtn = event.target.closest('.add-goal-btn');
+        if (addGoalBtn) {
+            event.preventDefault();
+            if (USER_ROLE !== 'admin' || !goalModal) return;
+            goalForm.reset();
+            goalIdInput.value = '';
+            goalModalLabel.textContent = `Add Goal for Mission ${missionId}`;
+            goalForm.dataset.missionId = missionId;
+            goalModal.show();
+            return;
+        }
+
+        const editGoalBtn = event.target.closest('.edit-goal-btn');
+        if (editGoalBtn) {
+            event.preventDefault();
+            if (USER_ROLE !== 'admin' || !goalModal) return;
+            const goalId = editGoalBtn.dataset.goalId;
+            const description = editGoalBtn.dataset.description || '';
+            goalForm.reset();
+            goalIdInput.value = goalId;
+            goalDescriptionInput.value = description;
+            goalModalLabel.textContent = `Edit Goal for Mission ${missionId}`;
+            goalForm.dataset.missionId = missionId;
+            goalModal.show();
+            return;
+        }
+
+        const deleteGoalBtn = event.target.closest('.delete-goal-btn');
+        if (deleteGoalBtn) {
+            event.preventDefault();
+            if (USER_ROLE !== 'admin') return;
+            const goalId = deleteGoalBtn.dataset.goalId;
+            if (!goalId) return;
+            if (!confirm('Delete this goal?')) return;
+            try {
+                await apiRequest(`/api/missions/goals/${goalId}`, 'DELETE');
+                showToast('Goal deleted.', 'success');
+                await loadMissionOverview();
+            } catch (error) {
+                showToast(`Failed to delete goal: ${error.message}`, 'danger');
+            }
+            return;
+        }
+    });
+
+    document.body.addEventListener('change', async (event) => {
+        const goalCheckbox = event.target.closest('.mission-goal-checkbox');
+        if (!goalCheckbox) return;
+        if (!missionId) return;
+        const goalId = goalCheckbox.dataset.goalId;
+        if (!goalId) return;
+        const isCompleted = goalCheckbox.checked;
+        try {
+            await apiRequest(`/api/missions/${missionId}/goals/${goalId}/toggle`, 'POST', { is_completed: isCompleted });
+            await loadMissionOverview();
+        } catch (error) {
+            goalCheckbox.checked = !isCompleted;
+            showToast(`Failed to update goal: ${error.message}`, 'danger');
+        }
+    });
+
+    if (saveGoalBtn) {
+        saveGoalBtn.addEventListener('click', async () => {
+            if (USER_ROLE !== 'admin') return;
+            const goalId = goalIdInput.value;
+            const description = goalDescriptionInput.value.trim();
+            if (!description) {
+                showToast('Goal description cannot be empty.', 'danger');
+                return;
+            }
+            const isEditing = !!goalId;
+            const url = isEditing ? `/api/missions/goals/${goalId}` : `/api/missions/${missionId}/goals`;
+            const method = isEditing ? 'PUT' : 'POST';
+            try {
+                await apiRequest(url, method, { description });
+                if (goalModal) goalModal.hide();
+                await loadMissionOverview();
+            } catch (error) {
+                showToast(`Failed to save goal: ${error.message}`, 'danger');
+            }
+        });
+    }
+
     const loadMissionOverview = async () => {
         if (!missionId) return;
         try {
@@ -326,6 +538,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 overviewSensorTrackerContainer.style.display = 'none';
                 overviewSensorTrackerEmpty.style.display = 'block';
             }
+
+            renderMissionNotes(missionInfo?.notes || []);
+            renderMissionGoals(missionInfo?.goals || []);
         } catch (error) {
             if (overviewPlanEmpty) overviewPlanEmpty.textContent = 'Failed to load overview.';
         }

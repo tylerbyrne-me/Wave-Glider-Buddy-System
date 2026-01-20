@@ -47,6 +47,27 @@ async def get_home_page(
         goals = session.exec(goals_stmt).all()
         notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
         notes = session.exec(notes_stmt).all()
+
+        role_value = (
+            current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+        )
+        if role_value != models.UserRoleEnum.admin.value:
+            outbox_items = session.exec(
+                select(models.SensorTrackerOutbox).where(
+                    models.SensorTrackerOutbox.mission_id == mission_id,
+                    models.SensorTrackerOutbox.entity_type.in_(["goal", "deployment_comment"]),
+                )
+            ).all()
+            status_by_id = {item.local_id: item.status for item in outbox_items}
+            allowed_statuses = {"approved", "synced"}
+            goals = [
+                goal for goal in goals
+                if status_by_id.get(goal.id) in allowed_statuses or status_by_id.get(goal.id) is None
+            ]
+            notes = [
+                note for note in notes
+                if status_by_id.get(note.id) in allowed_statuses or status_by_id.get(note.id) is None
+            ]
         
         # Get Sensor Tracker deployment data
         # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")

@@ -239,6 +239,13 @@ class MissionMedia(SQLModel, table=True):
     uploaded_by_username: str = SQLModelField(index=True)
     uploaded_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
 
+    # Source tracking (e.g., Sensor Tracker sync)
+    source_system: Optional[str] = SQLModelField(default=None, index=True, description="Origin system for synced media")
+    source_url: Optional[str] = SQLModelField(default=None, index=True, description="Origin URL for synced media")
+    source_external_id: Optional[str] = SQLModelField(
+        default=None, index=True, description="Origin system record identifier"
+    )
+
     # For videos: thumbnail path (optional)
     thumbnail_path: Optional[str] = SQLModelField(default=None)
 
@@ -276,6 +283,37 @@ class MissionNote(SQLModel, table=True):
     content: str = SQLModelField(sa_column=Column(Text), description="The content of the note.")
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# --- Sensor Tracker Outbox Database Model ---
+class SensorTrackerOutbox(SQLModel, table=True):
+    """Queue for outbound Sensor Tracker sync items."""
+    __tablename__ = "sensor_tracker_outbox"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="Mission identifier")
+    entity_type: str = SQLModelField(index=True, description="deployment_comment, goal, media")
+    local_id: int = SQLModelField(index=True, description="Local entity ID")
+
+    payload: Optional[Dict] = SQLModelField(sa_column=Column(JSON), description="Payload for sync")
+    payload_hash: Optional[str] = SQLModelField(default=None, index=True, description="Hash of payload")
+
+    status: str = SQLModelField(default="pending_review", index=True, description="pending_review, approved, rejected, synced, failed, remote_deleted")
+    approved_by_username: Optional[str] = SQLModelField(default=None, index=True)
+    approved_at_utc: Optional[datetime] = SQLModelField(default=None)
+    rejected_by_username: Optional[str] = SQLModelField(default=None, index=True)
+    rejected_at_utc: Optional[datetime] = SQLModelField(default=None)
+    rejection_reason: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
+
+    sensor_tracker_id: Optional[str] = SQLModelField(default=None, index=True, description="Remote record ID")
+    last_attempt_at_utc: Optional[datetime] = SQLModelField(default=None)
+    error_message: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
+
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
+    )
 
 
 # --- Sensor Tracker Deployment Database Model ---

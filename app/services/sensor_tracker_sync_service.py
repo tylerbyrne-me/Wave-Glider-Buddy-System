@@ -8,12 +8,18 @@ for use in mission reports.
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Dict, Any, List
+from uuid import uuid4
+
+import httpx
 from sqlmodel import Session as SQLModelSession, select
 import pandas as pd
 
 from ..core import models
+from ..core import utils
 from ..core.db import get_db_session
+from ..config import settings
 from .sensor_tracker_service import SensorTrackerService, SENSOR_TRACKER_AVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -247,6 +253,9 @@ class SensorTrackerSyncService:
             
             # Sync instruments and sensors (using mission_id, not deployment_id)
             await self._sync_instruments_and_sensors(deployment.mission_id, parsed_deployment, session)
+
+            # Sync deployment images from Sensor Tracker
+            await self._sync_deployment_images(deployment, session)
             
             logger.info(f"Successfully synced Sensor Tracker data for mission '{mission_id}' (deployment ID: {deployment.sensor_tracker_deployment_id})")
             return deployment
@@ -458,4 +467,125 @@ class SensorTrackerSyncService:
                 return None
         
         return None
+
+    def _get_project_root(self) -> Path:
+        return Path(__file__).resolve().parent.parent.parent
+
+    def _get_mission_media_root(self) -> Path:
+        configured_root = Path(settings.mission_media_root_path)
+        if configured_root.is_absolute():
+            return configured_root
+        return self._get_project_root() / configured_root
+
+    def _build_media_storage_path(self, mission_id: str, filename: str) -> Path:
+        media_root = self._get_mission_media_root()
+        media_dir_name = utils.mission_storage_dir_name(mission_id, "media")
+        target_dir = media_root / media_dir_name / "sensortracker"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return target_dir / filename
+
+    def _derive_extension(self, url_value: str, content_type: Optional[str]) -> str:
+        if content_type and content_type.startswith("image/"):
+            clean_type = content_type.split(";", 1)[0]
+            return f".{clean_type.split('/')[-1]}"
+        url_path = url_value.split("?")[0]
+        if "." in url_path:
+            return f".{url_path.rsplit('.', 1)[-1]}"
+        return ".jpg"
+
+    async def _sync_deployment_images(
+        self,
+        deployment: models.SensorTrackerDeployment,
+        session: SQLModelSession
+    ) -> None:
+        """
+        Sync Sensor Tracker deployment images to local mission media storage.
+        """
+        if not self.sensor_tracker_service:
+            return
+
+        deployment_id = deployment.sensor_tracker_deployment_id
+        if not deployment_id:
+            logger.warning(f"No Sensor Tracker deployment ID for mission '{deployment.mission_id}', skipping image sync")
+            return
+
+        images = await self.sensor_tracker_service.fetch_deployment_images(deployment_id)
+        if not images:
+            logger.info(f"No Sensor Tracker images found for deployment {deployment_id}")
+            return
+
+        for image in images:
+            image_id = image.get("id") or image.get("pk")
+            source_url = (
+                image.get("picture")
+                or image.get("image")
+                or image.get("file")
+                or image.get("url")
+            )
+            source_url = self.sensor_tracker_service.build_media_url(source_url)
+            if not source_url:
+                logger.debug(f"Skipping image without URL (ID: {image_id})")
+                continue
+
+            existing = session.exec(
+                select(models.MissionMedia).where(
+                    models.MissionMedia.mission_id == deployment.mission_id,
+                    models.MissionMedia.source_system == "sensortracker",
+                    models.MissionMedia.source_url == source_url
+                )
+            ).first()
+            if existing:
+                continue
+
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(source_url)
+                    response.raise_for_status()
+                    content = response.content
+                    content_type = response.headers.get("Content-Type", "image/jpeg")
+
+                max_size = settings.mission_media_max_image_size_mb * 1024 * 1024
+                if len(content) > max_size:
+                    logger.warning(
+                        f"Skipping Sensor Tracker image (too large) for mission '{deployment.mission_id}': {source_url}"
+                    )
+                    continue
+
+                extension = self._derive_extension(source_url, content_type)
+                safe_filename = f"{uuid4().hex}_{int(datetime.now(timezone.utc).timestamp())}{extension}"
+                file_path = self._build_media_storage_path(deployment.mission_id, safe_filename)
+
+                with file_path.open("wb") as buffer:
+                    buffer.write(content)
+
+                project_root = self._get_project_root()
+                try:
+                    relative_path = file_path.relative_to(project_root)
+                    stored_path = str(relative_path).replace("\\", "/")
+                except ValueError:
+                    stored_path = str(file_path)
+
+                media = models.MissionMedia(
+                    mission_id=deployment.mission_id,
+                    media_type="photo",
+                    file_path=stored_path,
+                    file_name=safe_filename,
+                    file_size=len(content),
+                    mime_type=content_type,
+                    caption=image.get("title"),
+                    operation_type=None,
+                    uploaded_by_username="sensortracker_sync",
+                    approval_status="approved",
+                    approved_by_username="sensortracker_sync",
+                    approved_at_utc=datetime.now(timezone.utc),
+                    source_system="sensortracker",
+                    source_url=source_url,
+                    source_external_id=str(image_id) if image_id is not None else None,
+                )
+                session.add(media)
+                session.commit()
+                session.refresh(media)
+            except Exception as e:
+                logger.error(f"Failed to sync Sensor Tracker image {source_url}: {e}", exc_info=True)
+                session.rollback()
 

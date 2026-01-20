@@ -345,6 +345,67 @@ class SensorTrackerService:
         except Exception as e:
             logger.error(f"Error fetching deployment by mission_id {mission_id}: {e}")
             raise
+
+    async def fetch_deployment_images(self, deployment_id: Optional[int]) -> List[Dict[str, Any]]:
+        """
+        Fetch images linked to a platform deployment.
+
+        Args:
+            deployment_id: Sensor Tracker deployment ID
+
+        Returns:
+            List of image dictionaries
+        """
+        if not deployment_id:
+            return []
+
+        filters = {"platform_deployment": deployment_id}
+
+        # Try sensor_tracker_client first if image endpoint exists
+        try:
+            if hasattr(stc, "image"):
+                response = stc.image.get(filters)
+                if response and hasattr(response, "dict"):
+                    data = response.dict
+                    return self._normalize_api_results(data)
+        except Exception as e:
+            logger.debug(f"sensor_tracker_client image.get failed, using direct API: {e}")
+
+        # Fallback to direct API call
+        base_url = stc.HOST.rstrip("/")
+        url = f"{base_url}/apiimage/"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=filters)
+            if response.status_code == 404:
+                # Some deployments may use different filter key
+                response = await client.get(url, params={"deployment": deployment_id})
+            response.raise_for_status()
+            data = response.json()
+            return self._normalize_api_results(data)
+
+    def build_media_url(self, url_value: Optional[str]) -> Optional[str]:
+        """Return an absolute URL for media if provided value is relative."""
+        if not url_value:
+            return None
+        if url_value.startswith("http://") or url_value.startswith("https://"):
+            return url_value
+        base_url = stc.HOST.rstrip("/")
+        if url_value.startswith("/"):
+            return f"{base_url}{url_value}"
+        return f"{base_url}/{url_value}"
+
+    def _normalize_api_results(self, data: Any) -> List[Dict[str, Any]]:
+        """Normalize API results into a list of dicts."""
+        if not data:
+            return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            if "results" in data and isinstance(data["results"], list):
+                return data["results"]
+            return [data]
+        return []
     
     async def list_all_deployments(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """

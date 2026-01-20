@@ -29,11 +29,30 @@ document.addEventListener('DOMContentLoaded', async function() {
         const currentPlanContainer = document.getElementById('currentPlanContainer');
         const currentPlanLink = document.getElementById('currentPlanLink');
         const removePlanBtn = document.getElementById('removePlanBtn');
-        const commentsTextarea = document.getElementById('comments');
         const saveStatusDiv = document.getElementById('saveStatus');
         const saveBtn = document.getElementById('saveOverviewBtn');
         const selectAllSensorsBtn = document.getElementById('selectAllSensors');
         const deselectAllSensorsBtn = document.getElementById('deselectAllSensors');
+        const syncSensorTrackerBtn = document.getElementById('syncSensorTrackerBtn');
+        const forceMetadataSyncCheckbox = document.getElementById('forceMetadataSync');
+        const sensorTrackerSyncStatus = document.getElementById('sensorTrackerSyncStatus');
+        const sensorTrackerLastSync = document.getElementById('sensorTrackerLastSync');
+        const outboxPendingBody = document.getElementById('sensorTrackerOutboxPending');
+        const outboxHistoryBody = document.getElementById('sensorTrackerOutboxHistory');
+        const refreshOutboxBtn = document.getElementById('refreshOutboxBtn');
+        const toggleOutboxHistoryBtn = document.getElementById('toggleOutboxHistoryBtn');
+        const weeklyReportSelect = document.getElementById('weeklyReportSelect');
+        const weeklyReportBadge = document.getElementById('weeklyReportBadge');
+        const endOfMissionReportBadge = document.getElementById('endOfMissionReportBadge');
+        const missionNotesList = document.getElementById('adminMissionNotesList');
+        const missionGoalsList = document.getElementById('adminMissionGoalsList');
+        const goalModalElement = document.getElementById('goalModal');
+        const goalModal = goalModalElement ? new bootstrap.Modal(goalModalElement) : null;
+        const goalModalLabel = document.getElementById('goalModalLabel');
+        const goalForm = document.getElementById('goalForm');
+        const goalIdInput = document.getElementById('goalIdInput');
+        const goalDescriptionInput = document.getElementById('goalDescriptionInput');
+        const saveGoalBtn = document.getElementById('saveGoalBtn');
 
         let selectedMissionId = null;
 
@@ -45,6 +64,20 @@ document.addEventListener('DOMContentLoaded', async function() {
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
+        };
+
+        const formatTimestamp = (value) => {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZoneName: 'short'
+            });
         };
 
         // Report Generation Elements
@@ -102,6 +135,54 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
 
+        if (weeklyReportSelect) {
+            weeklyReportSelect.addEventListener('change', function() {
+                updateWeeklyReportDisplay();
+            });
+        }
+
+        if (syncSensorTrackerBtn) {
+            syncSensorTrackerBtn.addEventListener('click', async function() {
+                if (!selectedMissionId) {
+                    showToast('Please select a mission first', 'warning');
+                    return;
+                }
+                syncSensorTrackerBtn.disabled = true;
+                if (sensorTrackerSyncStatus) {
+                    sensorTrackerSyncStatus.textContent = 'Syncing...';
+                }
+                try {
+                    const forceRefresh = forceMetadataSyncCheckbox ? forceMetadataSyncCheckbox.checked : false;
+                    const missionInfo = await apiRequest(
+                        `/api/missions/${selectedMissionId}/sensor-tracker/sync?force_refresh=${forceRefresh}`,
+                        'POST'
+                    );
+                    renderSensorTrackerMetadata(missionInfo);
+                    await loadOutboxTables();
+                    showToast('Sensor Tracker metadata synced.', 'success');
+                } catch (error) {
+                    showToast(`Sync failed: ${error.message}`, 'danger');
+                } finally {
+                    if (sensorTrackerSyncStatus) {
+                        sensorTrackerSyncStatus.textContent = '';
+                    }
+                    syncSensorTrackerBtn.disabled = false;
+                }
+            });
+        }
+
+        if (refreshOutboxBtn) {
+            refreshOutboxBtn.addEventListener('click', async function() {
+                await loadOutboxTables();
+            });
+        }
+
+        if (toggleOutboxHistoryBtn) {
+            toggleOutboxHistoryBtn.addEventListener('click', async function() {
+                await loadOutboxTables();
+            });
+        }
+
         // Generate report handler
         if (generateReportBtn) {
             generateReportBtn.addEventListener('click', async function() {
@@ -152,52 +233,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                         }
                         showToast('Report generated successfully!', 'success');
                         
-                        // Reload mission info to update report links
                         const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
-                        if (missionInfo.overview) {
-                            // Update report containers
-                            const weeklyReportContainer = document.getElementById('weeklyReportContainer');
-                            const weeklyReportLink = document.getElementById('weeklyReportLink');
-                            const endOfMissionReportContainer = document.getElementById('endOfMissionReportContainer');
-                            const endOfMissionReportLink = document.getElementById('endOfMissionReportLink');
-                            const noReportsContainer = document.getElementById('noReportsContainer');
-                            
-                            let hasReports = false;
-                            
-                            // Update weekly report display
-                            const weeklyReportFilename = document.getElementById('weeklyReportFilename');
-                            if (missionInfo.overview.weekly_report_url) {
-                                const weeklyFilename = missionInfo.overview.weekly_report_url.split('/').pop();
-                                weeklyReportLink.href = missionInfo.overview.weekly_report_url;
-                                if (weeklyReportFilename) {
-                                    weeklyReportFilename.textContent = weeklyFilename;
-                                } else {
-                                    weeklyReportLink.textContent = weeklyFilename;
-                                }
-                                weeklyReportContainer.style.display = 'block';
-                                hasReports = true;
-                            } else {
-                                weeklyReportContainer.style.display = 'none';
-                            }
-                            
-                            // Update end of mission report display
-                            const endOfMissionReportFilename = document.getElementById('endOfMissionReportFilename');
-                            if (missionInfo.overview.end_of_mission_report_url) {
-                                const eomFilename = missionInfo.overview.end_of_mission_report_url.split('/').pop();
-                                endOfMissionReportLink.href = missionInfo.overview.end_of_mission_report_url;
-                                if (endOfMissionReportFilename) {
-                                    endOfMissionReportFilename.textContent = eomFilename;
-                                } else {
-                                    endOfMissionReportLink.textContent = eomFilename;
-                                }
-                                endOfMissionReportContainer.style.display = 'block';
-                                hasReports = true;
-                            } else {
-                                endOfMissionReportContainer.style.display = 'none';
-                            }
-                            
-                            noReportsContainer.style.display = hasReports ? 'none' : 'block';
-                        }
+                        renderReportSummary(missionInfo);
+                        await loadReportList(missionInfo);
+                        renderSensorTrackerMetadata(missionInfo);
                     } else {
                         throw new Error('Report generation completed but no URL was returned');
                     }
@@ -249,6 +288,361 @@ document.addEventListener('DOMContentLoaded', async function() {
             } else {
                 setEnabledSensorCards(['navigation', 'power', 'ctd', 'weather', 'waves', 'vr2c', 'fluorometer', 'wg_vm4', 'ais', 'errors']);
             }
+        }
+
+        function renderSensorTrackerMetadata(missionInfo) {
+            const sensorTrackerContainer = document.getElementById('sensorTrackerMetadataContainer');
+            const sensorTrackerPlaceholder = document.getElementById('sensorTrackerMetadataPlaceholder');
+
+            if (missionInfo.sensor_tracker_deployment) {
+                const deployment = missionInfo.sensor_tracker_deployment;
+                const instruments = missionInfo.sensor_tracker_instruments || [];
+                const lastSynced = deployment.last_synced_at ? formatTimestamp(deployment.last_synced_at) : '--';
+                if (sensorTrackerLastSync) {
+                    sensorTrackerLastSync.textContent = `Last synced: ${lastSynced}`;
+                }
+
+                document.getElementById('stTitle').textContent = deployment.title || '-';
+
+                if (deployment.start_time) {
+                    const startDate = new Date(deployment.start_time);
+                    document.getElementById('stStart').textContent = startDate.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                } else {
+                    document.getElementById('stStart').textContent = '-';
+                }
+
+                if (deployment.end_time) {
+                    const endDate = new Date(deployment.end_time);
+                    document.getElementById('stEnd').textContent = endDate.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                } else {
+                    document.getElementById('stEnd').textContent = '-';
+                }
+
+                document.getElementById('stPlatform').textContent = deployment.platform_name || '-';
+
+                if (deployment.data_repository_link) {
+                    const repoLink = document.createElement('a');
+                    repoLink.href = deployment.data_repository_link;
+                    repoLink.target = '_blank';
+                    repoLink.rel = 'noopener noreferrer';
+                    repoLink.textContent = deployment.data_repository_link;
+                    repoLink.className = 'text-break';
+                    document.getElementById('stDataRepo').innerHTML = '';
+                    document.getElementById('stDataRepo').appendChild(repoLink);
+                } else {
+                    document.getElementById('stDataRepo').textContent = '-';
+                }
+
+                if (deployment.deployment_comment) {
+                    document.getElementById('stDescription').textContent = deployment.deployment_comment;
+                } else {
+                    document.getElementById('stDescription').textContent = '-';
+                }
+
+                const platformInstruments = instruments.filter(inst => inst.is_platform_direct);
+                const scienceInstruments = instruments.filter(inst => inst.data_logger_type === 'science');
+
+                const platformContainer = document.getElementById('stPlatformInstrumentsContainer');
+                const platformList = document.getElementById('stPlatformInstruments');
+                if (platformInstruments.length > 0) {
+                    platformList.innerHTML = '';
+                    platformInstruments.forEach(inst => {
+                        const li = document.createElement('li');
+                        li.className = 'mb-1';
+                        const name = inst.instrument_name || inst.instrument_identifier;
+                        const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
+                        li.innerHTML = `<strong>${escapeHtml(name)}</strong>${escapeHtml(serial)}`;
+                        platformList.appendChild(li);
+                    });
+                    platformContainer.style.display = 'block';
+                } else {
+                    platformContainer.style.display = 'none';
+                }
+
+                const scienceContainer = document.getElementById('stScienceInstrumentsContainer');
+                const scienceList = document.getElementById('stScienceInstruments');
+                if (scienceInstruments.length > 0) {
+                    scienceList.innerHTML = '';
+                    scienceInstruments.forEach(inst => {
+                        const li = document.createElement('li');
+                        li.className = 'mb-1';
+                        const name = inst.instrument_name || inst.instrument_identifier;
+                        const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
+                        li.innerHTML = `<strong>${escapeHtml(name)}</strong>${escapeHtml(serial)}`;
+                        scienceList.appendChild(li);
+                    });
+                    scienceContainer.style.display = 'block';
+                } else {
+                    scienceContainer.style.display = 'none';
+                }
+
+                const instrumentsContainer = document.getElementById('stInstrumentsContainer');
+                if (platformInstruments.length > 0 || scienceInstruments.length > 0) {
+                    instrumentsContainer.style.display = 'block';
+                } else {
+                    instrumentsContainer.style.display = 'none';
+                }
+
+                if (sensorTrackerContainer) sensorTrackerContainer.style.display = 'block';
+                if (sensorTrackerPlaceholder) sensorTrackerPlaceholder.style.display = 'none';
+            } else {
+                if (sensorTrackerLastSync) {
+                    sensorTrackerLastSync.textContent = 'Last synced: --';
+                }
+                if (sensorTrackerContainer) sensorTrackerContainer.style.display = 'none';
+                if (sensorTrackerPlaceholder) sensorTrackerPlaceholder.style.display = 'block';
+            }
+        }
+
+        function renderMissionNotes(notes) {
+            if (!missionNotesList) return;
+            if (!notes || notes.length === 0) {
+                missionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
+                return;
+            }
+            missionNotesList.innerHTML = notes.map(note => `
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
+                    <div>
+                        <p class="mb-1">${escapeHtml(note.content)}</p>
+                        <small class="text-muted">
+                            &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
+                        </small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </li>
+            `).join('');
+        }
+
+        function renderMissionGoals(goals) {
+            if (!missionGoalsList) return;
+            if (!goals || goals.length === 0) {
+                missionGoalsList.innerHTML = '<li class="list-group-item text-muted no-mission-goals-placeholder">No mission goals have been defined.</li>';
+                return;
+            }
+            missionGoalsList.innerHTML = goals.map(goal => `
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-goal-id="${goal.id}">
+                    <div class="form-check flex-grow-1">
+                        <input class="form-check-input mission-goal-checkbox" type="checkbox" id="goal-${goal.id}" data-goal-id="${goal.id}" ${goal.is_completed ? 'checked' : ''}>
+                        <label class="form-check-label ${goal.is_completed ? 'text-decoration-line-through text-muted' : ''}" for="goal-${goal.id}">
+                            ${escapeHtml(goal.description)}
+                        </label>
+                        <button class="btn btn-sm btn-link p-0 ms-2 edit-goal-btn" title="Edit Goal" data-goal-id="${goal.id}" data-description="${escapeHtml(goal.description)}">
+                            <i class="fas fa-pencil-alt"></i>
+                        </button>
+                        <button class="btn btn-sm btn-link p-0 ms-2 text-danger delete-goal-btn" title="Delete Goal" data-goal-id="${goal.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                    ${goal.is_completed ? `
+                        <span class="badge bg-success rounded-pill small ms-2" title="Completed at ${formatTimestamp(goal.completed_at_utc)}">
+                            By: ${escapeHtml(goal.completed_by_username || '')}
+                        </span>
+                    ` : ''}
+                </li>
+            `).join('');
+        }
+
+        function renderOutboxRows(items, targetBody, includeActions) {
+            if (!targetBody) return;
+            if (!items || items.length === 0) {
+                const colspan = includeActions ? 5 : 5;
+                targetBody.innerHTML = `<tr><td colspan="${colspan}" class="text-muted small">No records found.</td></tr>`;
+                return;
+            }
+            targetBody.innerHTML = items.map(item => {
+                const statusLabel = escapeHtml(item.status || '-');
+                const reviewer = escapeHtml(item.approved_by_username || item.rejected_by_username || '-');
+                const updatedAt = formatTimestamp(item.updated_at_utc || item.created_at_utc);
+                const typeLabel = escapeHtml(item.entity_type || '-');
+                const payload = item.payload || {};
+                const rawContent = payload.comment || payload.description || payload.caption || '';
+                const contentText = escapeHtml(rawContent);
+                const contentDisplay = contentText
+                    ? `<span title="${contentText}">${contentText.length > 80 ? `${contentText.slice(0, 80)}…` : contentText}</span>`
+                    : '-';
+                let actions = '';
+
+                if (item.status === 'pending_review') {
+                    actions = `
+                        <button class="btn btn-sm btn-success outbox-approve-btn" data-outbox-id="${item.id}">Approve</button>
+                        <button class="btn btn-sm btn-outline-warning outbox-reject-btn" data-outbox-id="${item.id}">Reject</button>
+                    `;
+                } else if (item.status === 'rejected') {
+                    actions = `
+                        <button class="btn btn-sm btn-outline-primary outbox-resubmit-btn" data-outbox-id="${item.id}">Resubmit</button>
+                        <button class="btn btn-sm btn-success outbox-approve-btn" data-outbox-id="${item.id}">Approve</button>
+                    `;
+                } else if (item.status === 'approved') {
+                    actions = `
+                        <button class="btn btn-sm btn-outline-warning outbox-reject-btn" data-outbox-id="${item.id}">Reject</button>
+                    `;
+                }
+
+                if (includeActions) {
+                    return `
+                        <tr data-outbox-id="${item.id}">
+                            <td>${typeLabel}</td>
+                            <td>${updatedAt}</td>
+                            <td>${contentDisplay}</td>
+                            <td>${statusLabel}</td>
+                            <td>${actions || '-'}</td>
+                        </tr>
+                    `;
+                }
+
+                return `
+                    <tr data-outbox-id="${item.id}">
+                        <td>${typeLabel}</td>
+                        <td>${updatedAt}</td>
+                        <td>${statusLabel}</td>
+                        <td>${reviewer}</td>
+                        <td>${actions || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function loadOutboxTables() {
+            if (!selectedMissionId) return;
+            try {
+                const pending = await apiRequest(`/api/sensortracker/outbox?status_filter=pending_review&mission_id=${selectedMissionId}`, 'GET');
+                renderOutboxRows(pending, outboxPendingBody, true);
+            } catch (error) {
+                if (outboxPendingBody) {
+                    outboxPendingBody.innerHTML = `<tr><td colspan="5" class="text-danger small">Failed to load pending items: ${escapeHtml(error.message)}</td></tr>`;
+                }
+            }
+
+            try {
+                const history = await apiRequest(`/api/sensortracker/outbox?mission_id=${selectedMissionId}`, 'GET');
+                renderOutboxRows(history, outboxHistoryBody, false);
+            } catch (error) {
+                if (outboxHistoryBody) {
+                    outboxHistoryBody.innerHTML = `<tr><td colspan="5" class="text-danger small">Failed to load history: ${escapeHtml(error.message)}</td></tr>`;
+                }
+            }
+        }
+
+        async function loadReportList(missionInfo) {
+            if (!selectedMissionId) return;
+            if (!weeklyReportSelect) return;
+            try {
+                const reportData = await apiRequest(`/api/reporting/missions/${selectedMissionId}/reports`, 'GET');
+                const weeklyReports = reportData.weekly_reports || [];
+                const weeklyReportContainer = document.getElementById('weeklyReportContainer');
+                const noReportsContainer = document.getElementById('noReportsContainer');
+                weeklyReportSelect.innerHTML = '';
+
+                if (weeklyReports.length === 0) {
+                    weeklyReportSelect.innerHTML = '<option value="">No weekly reports found</option>';
+                    if (weeklyReportBadge) weeklyReportBadge.style.display = 'none';
+                    if (weeklyReportSelect) weeklyReportSelect.disabled = true;
+                    if (weeklyReportContainer) weeklyReportContainer.style.display = 'none';
+                } else {
+                    weeklyReports.forEach((report, index) => {
+                        const option = document.createElement('option');
+                        const tsLabel = report.timestamp ? formatTimestamp(report.timestamp) : 'Unknown time';
+                        option.value = report.url;
+                        option.textContent = `${report.filename} (${tsLabel})`;
+                        option.dataset.isLatest = index === 0 ? 'true' : 'false';
+                        weeklyReportSelect.appendChild(option);
+                    });
+                    weeklyReportSelect.disabled = false;
+                    weeklyReportSelect.selectedIndex = 0;
+                    if (weeklyReportContainer) weeklyReportContainer.style.display = 'block';
+                }
+
+                updateWeeklyReportDisplay();
+                updateReportBadges(missionInfo);
+                if (noReportsContainer) {
+                    const hasEom = missionInfo.overview && missionInfo.overview.end_of_mission_report_url;
+                    noReportsContainer.style.display = (weeklyReports.length > 0 || hasEom) ? 'none' : 'block';
+                }
+            } catch (error) {
+                weeklyReportSelect.innerHTML = `<option value="">Failed to load weekly reports</option>`;
+                weeklyReportSelect.disabled = true;
+                if (weeklyReportBadge) weeklyReportBadge.style.display = 'none';
+            }
+        }
+
+        function updateWeeklyReportDisplay() {
+            if (!weeklyReportSelect) return;
+            const selectedOption = weeklyReportSelect.options[weeklyReportSelect.selectedIndex];
+            const weeklyReportLink = document.getElementById('weeklyReportLink');
+            const weeklyReportFilename = document.getElementById('weeklyReportFilename');
+            if (!selectedOption || !selectedOption.value) {
+                if (weeklyReportLink) weeklyReportLink.href = '#';
+                if (weeklyReportFilename) weeklyReportFilename.textContent = '';
+                if (weeklyReportBadge) weeklyReportBadge.style.display = 'none';
+                return;
+            }
+            weeklyReportLink.href = selectedOption.value;
+            weeklyReportFilename.textContent = selectedOption.textContent.split(' (')[0];
+            if (weeklyReportBadge) {
+                weeklyReportBadge.style.display = selectedOption.dataset.isLatest === 'true' ? 'inline-block' : 'none';
+            }
+        }
+
+        function updateReportBadges(missionInfo) {
+            if (endOfMissionReportBadge) {
+                endOfMissionReportBadge.style.display = (missionInfo.overview && missionInfo.overview.end_of_mission_report_url) ? 'inline-block' : 'none';
+            }
+        }
+
+        function renderReportSummary(missionInfo) {
+            const weeklyReportContainer = document.getElementById('weeklyReportContainer');
+            const weeklyReportLink = document.getElementById('weeklyReportLink');
+            const endOfMissionReportContainer = document.getElementById('endOfMissionReportContainer');
+            const endOfMissionReportLink = document.getElementById('endOfMissionReportLink');
+            const weeklyReportFilename = document.getElementById('weeklyReportFilename');
+            const endOfMissionReportFilename = document.getElementById('endOfMissionReportFilename');
+            const noReportsContainer = document.getElementById('noReportsContainer');
+
+            let hasReports = false;
+
+            if (missionInfo.overview && missionInfo.overview.weekly_report_url) {
+                weeklyReportLink.href = missionInfo.overview.weekly_report_url;
+                if (weeklyReportFilename) {
+                    weeklyReportFilename.textContent = missionInfo.overview.weekly_report_url.split('/').pop();
+                }
+                if (weeklyReportContainer) weeklyReportContainer.style.display = 'block';
+                hasReports = true;
+            } else if (weeklyReportContainer) {
+                weeklyReportContainer.style.display = 'none';
+            }
+
+            if (missionInfo.overview && missionInfo.overview.end_of_mission_report_url) {
+                endOfMissionReportLink.href = missionInfo.overview.end_of_mission_report_url;
+                if (endOfMissionReportFilename) {
+                    endOfMissionReportFilename.textContent = missionInfo.overview.end_of_mission_report_url.split('/').pop();
+                }
+                if (endOfMissionReportContainer) endOfMissionReportContainer.style.display = 'block';
+                hasReports = true;
+            } else if (endOfMissionReportContainer) {
+                endOfMissionReportContainer.style.display = 'none';
+            }
+
+            if (noReportsContainer) {
+                noReportsContainer.style.display = hasReports ? 'none' : 'block';
+            }
+
+            updateReportBadges(missionInfo);
         }
 
         // Event listeners for sensor card buttons
@@ -322,11 +716,30 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (missionMediaGallery) {
                     missionMediaGallery.innerHTML = '<div class="text-muted small">Select a mission to view uploaded media.</div>';
                 }
+                if (missionNotesList) {
+                    missionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">Select a mission to view comments.</li>';
+                }
+                if (missionGoalsList) {
+                    missionGoalsList.innerHTML = '<li class="list-group-item text-muted no-mission-goals-placeholder">Select a mission to view goals.</li>';
+                }
+                if (outboxPendingBody) {
+                    outboxPendingBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Select a mission to load pending requests.</td></tr>';
+                }
+                if (outboxHistoryBody) {
+                    outboxHistoryBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Select a mission to load sync history.</td></tr>';
+                }
+                if (weeklyReportSelect) {
+                    weeklyReportSelect.innerHTML = '<option value="">Select a mission to load reports</option>';
+                    weeklyReportSelect.disabled = true;
+                }
                 return;
             }
 
             missionSpinner.style.display = 'inline-block';
             saveStatusDiv.innerHTML = '';
+            if (overviewFormContainer) {
+                overviewFormContainer.style.display = 'block';
+            }
 
             try {
                 const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
@@ -350,172 +763,22 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (endOfMissionReportContainer) endOfMissionReportContainer.style.display = 'none';
                 if (noReportsContainer) noReportsContainer.style.display = 'none';
 
-                if (missionInfo.overview) {
-                    commentsTextarea.value = missionInfo.overview.comments || '';
-                    
-                    // Display mission reports
-                    
-                    let hasReports = false;
-                    
-                    // Display weekly report
-                    const weeklyReportFilename = document.getElementById('weeklyReportFilename');
-                    if (missionInfo.overview.weekly_report_url) {
-                        const weeklyFilename = missionInfo.overview.weekly_report_url.split('/').pop();
-                        weeklyReportLink.href = missionInfo.overview.weekly_report_url;
-                        if (weeklyReportFilename) {
-                            weeklyReportFilename.textContent = weeklyFilename;
-                        } else {
-                            weeklyReportLink.textContent = weeklyFilename;
-                        }
-                        weeklyReportContainer.style.display = 'block';
-                        hasReports = true;
-                    } else {
-                        weeklyReportContainer.style.display = 'none';
-                    }
-                    
-                    // Display end of mission report
-                    const endOfMissionReportFilename = document.getElementById('endOfMissionReportFilename');
-                    if (missionInfo.overview.end_of_mission_report_url) {
-                        const eomFilename = missionInfo.overview.end_of_mission_report_url.split('/').pop();
-                        endOfMissionReportLink.href = missionInfo.overview.end_of_mission_report_url;
-                        if (endOfMissionReportFilename) {
-                            endOfMissionReportFilename.textContent = eomFilename;
-                        } else {
-                            endOfMissionReportLink.textContent = eomFilename;
-                        }
-                        endOfMissionReportContainer.style.display = 'block';
-                        hasReports = true;
-                    } else {
-                        endOfMissionReportContainer.style.display = 'none';
-                    }
-                    
-                    noReportsContainer.style.display = hasReports ? 'none' : 'block';
-                    
-                    // Display mission plan
-                    if (missionInfo.overview.document_url) {
-                        currentPlanLink.href = missionInfo.overview.document_url;
-                        currentPlanLink.textContent = missionInfo.overview.document_url.split('/').pop();
-                        currentPlanContainer.style.display = 'block';
-                        documentUrlInput.value = missionInfo.overview.document_url; // Store current URL
-                    }
-                }
-                
-                // Display Sensor Tracker metadata
-                const sensorTrackerContainer = document.getElementById('sensorTrackerMetadataContainer');
-                const sensorTrackerPlaceholder = document.getElementById('sensorTrackerMetadataPlaceholder');
-                
-                if (missionInfo.sensor_tracker_deployment) {
-                    const deployment = missionInfo.sensor_tracker_deployment;
-                    const instruments = missionInfo.sensor_tracker_instruments || [];
-                    
-                    // Populate basic fields
-                    document.getElementById('stTitle').textContent = deployment.title || '-';
-                    
-                    if (deployment.start_time) {
-                        const startDate = new Date(deployment.start_time);
-                        document.getElementById('stStart').textContent = startDate.toLocaleString('en-US', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZoneName: 'short'
-                        });
-                    } else {
-                        document.getElementById('stStart').textContent = '-';
-                    }
-                    
-                    if (deployment.end_time) {
-                        const endDate = new Date(deployment.end_time);
-                        document.getElementById('stEnd').textContent = endDate.toLocaleString('en-US', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZoneName: 'short'
-                        });
-                    } else {
-                        document.getElementById('stEnd').textContent = '-';
-                    }
-                    
-                    document.getElementById('stPlatform').textContent = deployment.platform_name || '-';
-                    
-                    if (deployment.data_repository_link) {
-                        const repoLink = document.createElement('a');
-                        repoLink.href = deployment.data_repository_link;
-                        repoLink.target = '_blank';
-                        repoLink.rel = 'noopener noreferrer';
-                        repoLink.textContent = deployment.data_repository_link;
-                        repoLink.className = 'text-break';
-                        document.getElementById('stDataRepo').innerHTML = '';
-                        document.getElementById('stDataRepo').appendChild(repoLink);
-                    } else {
-                        document.getElementById('stDataRepo').textContent = '-';
-                    }
-                    
-                    if (deployment.deployment_comment) {
-                        document.getElementById('stDescription').textContent = deployment.deployment_comment;
-                    } else {
-                        document.getElementById('stDescription').textContent = '-';
-                    }
-                    
-                    // Group instruments
-                    const platformInstruments = instruments.filter(inst => inst.is_platform_direct);
-                    const scienceInstruments = instruments.filter(inst => inst.data_logger_type === 'science');
-                    
-                    // Display platform instruments
-                    const platformContainer = document.getElementById('stPlatformInstrumentsContainer');
-                    const platformList = document.getElementById('stPlatformInstruments');
-                    if (platformInstruments.length > 0) {
-                        platformList.innerHTML = '';
-                        platformInstruments.forEach(inst => {
-                            const li = document.createElement('li');
-                            li.className = 'mb-1';
-                            const name = inst.instrument_name || inst.instrument_identifier;
-                            const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
-                            li.innerHTML = `<strong>${name}</strong>${serial}`;
-                            platformList.appendChild(li);
-                        });
-                        platformContainer.style.display = 'block';
-                    } else {
-                        platformContainer.style.display = 'none';
-                    }
-                    
-                    // Display science instruments
-                    const scienceContainer = document.getElementById('stScienceInstrumentsContainer');
-                    const scienceList = document.getElementById('stScienceInstruments');
-                    if (scienceInstruments.length > 0) {
-                        scienceList.innerHTML = '';
-                        scienceInstruments.forEach(inst => {
-                            const li = document.createElement('li');
-                            li.className = 'mb-1';
-                            const name = inst.instrument_name || inst.instrument_identifier;
-                            const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
-                            li.innerHTML = `<strong>${name}</strong>${serial}`;
-                            scienceList.appendChild(li);
-                        });
-                        scienceContainer.style.display = 'block';
-                    } else {
-                        scienceContainer.style.display = 'none';
-                    }
-                    
-                    // Show instruments container if we have any instruments
-                    const instrumentsContainer = document.getElementById('stInstrumentsContainer');
-                    if (platformInstruments.length > 0 || scienceInstruments.length > 0) {
-                        instrumentsContainer.style.display = 'block';
-                    } else {
-                        instrumentsContainer.style.display = 'none';
-                    }
-                    
-                    // Show the metadata container
-                    if (sensorTrackerContainer) sensorTrackerContainer.style.display = 'block';
-                    if (sensorTrackerPlaceholder) sensorTrackerPlaceholder.style.display = 'none';
+                renderReportSummary(missionInfo);
+
+                if (missionInfo.overview && missionInfo.overview.document_url) {
+                    currentPlanLink.href = missionInfo.overview.document_url;
+                    currentPlanLink.textContent = missionInfo.overview.document_url.split('/').pop();
+                    currentPlanContainer.style.display = 'block';
+                    documentUrlInput.value = missionInfo.overview.document_url;
                 } else {
-                    // No Sensor Tracker data available
-                    if (sensorTrackerContainer) sensorTrackerContainer.style.display = 'none';
-                    if (sensorTrackerPlaceholder) sensorTrackerPlaceholder.style.display = 'block';
+                    currentPlanContainer.style.display = 'none';
+                    documentUrlInput.value = '';
                 }
+                
+                renderSensorTrackerMetadata(missionInfo);
+
+                renderMissionNotes(missionInfo.notes || []);
+                renderMissionGoals(missionInfo.goals || []);
                 
                 // Load sensor card configuration AFTER form reset
                 // Use setTimeout to ensure DOM is fully updated
@@ -533,12 +796,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Update report generation visibility after mission is loaded
                 updateReportGenerationVisibility();
 
+                await loadReportList(missionInfo);
+                await loadOutboxTables();
+
                 // Load mission media after mission is loaded
                 await loadMissionMedia();
 
             } catch (error) {
+                showToast(`Error loading mission data: ${error.message}`, 'danger');
                 saveStatusDiv.innerHTML = `<div class="alert alert-danger">Error loading data: ${error.message}</div>`;
-                overviewFormContainer.style.display = 'none';
                 updateReportGenerationVisibility(); // Hide report section on error too
             } finally {
                 missionSpinner.style.display = 'none';
@@ -672,6 +938,136 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         document.body.addEventListener('click', async function(event) {
+            const addNoteBtn = event.target.closest('.add-mission-note-btn');
+            if (addNoteBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const textarea = document.querySelector('.new-mission-note-content');
+                const content = textarea ? textarea.value.trim() : '';
+                if (!content) {
+                    showToast('Comment cannot be empty.', 'danger');
+                    return;
+                }
+                try {
+                    await apiRequest(`/api/missions/${selectedMissionId}/notes`, 'POST', { content });
+                    const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                    renderMissionNotes(missionInfo.notes || []);
+                    if (textarea) textarea.value = '';
+                } catch (error) {
+                    showToast(`Failed to add comment: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const deleteNoteBtn = event.target.closest('.delete-note-btn');
+            if (deleteNoteBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const noteId = deleteNoteBtn.dataset.noteId;
+                if (!noteId) return;
+                if (!confirm('Delete this comment?')) return;
+                try {
+                    await apiRequest(`/api/missions/notes/${noteId}`, 'DELETE');
+                    const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                    renderMissionNotes(missionInfo.notes || []);
+                } catch (error) {
+                    showToast(`Failed to delete comment: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const addGoalButton = event.target.closest('.add-goal-btn');
+            if (addGoalButton) {
+                event.preventDefault();
+                if (!goalModal) return;
+                if (!selectedMissionId) {
+                    showToast('Select a mission before adding a goal.', 'warning');
+                    return;
+                }
+                goalForm.reset();
+                goalIdInput.value = '';
+                goalModalLabel.textContent = `Add Goal for Mission ${selectedMissionId}`;
+                goalForm.dataset.missionId = selectedMissionId;
+                goalModal.show();
+                return;
+            }
+
+            const editGoalBtn = event.target.closest('.edit-goal-btn');
+            if (editGoalBtn) {
+                event.preventDefault();
+                if (!goalModal) return;
+                const goalId = editGoalBtn.dataset.goalId;
+                const description = editGoalBtn.dataset.description || '';
+                if (!goalId || !selectedMissionId) return;
+                goalForm.reset();
+                goalIdInput.value = goalId;
+                goalDescriptionInput.value = description;
+                goalModalLabel.textContent = `Edit Goal for Mission ${selectedMissionId}`;
+                goalForm.dataset.missionId = selectedMissionId;
+                goalModal.show();
+                return;
+            }
+
+            const deleteGoalBtn = event.target.closest('.delete-goal-btn');
+            if (deleteGoalBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const goalId = deleteGoalBtn.dataset.goalId;
+                if (!goalId) return;
+                if (!confirm('Delete this goal?')) return;
+                try {
+                    await apiRequest(`/api/missions/goals/${goalId}`, 'DELETE');
+                    const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                    renderMissionGoals(missionInfo.goals || []);
+                } catch (error) {
+                    showToast(`Failed to delete goal: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const outboxApproveBtn = event.target.closest('.outbox-approve-btn');
+            if (outboxApproveBtn) {
+                event.preventDefault();
+                const outboxId = outboxApproveBtn.dataset.outboxId;
+                if (!outboxId) return;
+                try {
+                    await apiRequest(`/api/sensortracker/outbox/${outboxId}/approve`, 'PUT');
+                    await loadOutboxTables();
+                } catch (error) {
+                    showToast(`Approval failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const outboxRejectBtn = event.target.closest('.outbox-reject-btn');
+            if (outboxRejectBtn) {
+                event.preventDefault();
+                const outboxId = outboxRejectBtn.dataset.outboxId;
+                if (!outboxId) return;
+                const reason = prompt('Rejection reason (optional):') || null;
+                try {
+                    await apiRequest(`/api/sensortracker/outbox/${outboxId}/reject`, 'PUT', { rejection_reason: reason });
+                    await loadOutboxTables();
+                } catch (error) {
+                    showToast(`Rejection failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const outboxResubmitBtn = event.target.closest('.outbox-resubmit-btn');
+            if (outboxResubmitBtn) {
+                event.preventDefault();
+                const outboxId = outboxResubmitBtn.dataset.outboxId;
+                if (!outboxId) return;
+                try {
+                    await apiRequest(`/api/sensortracker/outbox/${outboxId}/resubmit`, 'PUT');
+                    await loadOutboxTables();
+                } catch (error) {
+                    showToast(`Resubmit failed: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
             const editBtn = event.target.closest('.media-edit-btn');
             if (editBtn) {
                 event.preventDefault();
@@ -735,6 +1131,23 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
 
+        document.body.addEventListener('change', async function(event) {
+            const goalCheckbox = event.target.closest('.mission-goal-checkbox');
+            if (!goalCheckbox) return;
+            if (!selectedMissionId) return;
+            const goalId = goalCheckbox.dataset.goalId;
+            if (!goalId) return;
+            const isCompleted = goalCheckbox.checked;
+            try {
+                await apiRequest(`/api/missions/${selectedMissionId}/goals/${goalId}/toggle`, 'POST', { is_completed: isCompleted });
+                const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                renderMissionGoals(missionInfo.goals || []);
+            } catch (error) {
+                goalCheckbox.checked = !isCompleted;
+                showToast(`Failed to update goal: ${error.message}`, 'danger');
+            }
+        });
+
         if (mediaEditSaveBtn) {
             mediaEditSaveBtn.addEventListener('click', async function() {
                 if (!selectedMissionId || !mediaEditId.value) return;
@@ -753,6 +1166,32 @@ document.addEventListener('DOMContentLoaded', async function() {
                     await loadMissionMedia();
                 } catch (error) {
                     showToast(`Update failed: ${error.message}`, 'danger');
+                }
+            });
+        }
+
+        if (saveGoalBtn) {
+            saveGoalBtn.addEventListener('click', async function() {
+                const missionId = goalForm.dataset.missionId || selectedMissionId;
+                const goalId = goalIdInput.value;
+                const description = goalDescriptionInput.value.trim();
+                if (!missionId) return;
+                if (!description) {
+                    showToast('Goal description cannot be empty.', 'danger');
+                    return;
+                }
+
+                const isEditing = !!goalId;
+                const url = isEditing ? `/api/missions/goals/${goalId}` : `/api/missions/${missionId}/goals`;
+                const method = isEditing ? 'PUT' : 'POST';
+
+                try {
+                    await apiRequest(url, method, { description });
+                    const missionInfo = await apiRequest(`/api/missions/${missionId}/info`, 'GET');
+                    renderMissionGoals(missionInfo.goals || []);
+                    if (goalModal) goalModal.hide();
+                } catch (error) {
+                    showToast(`Failed to save goal: ${error.message}`, 'danger');
                 }
             });
         }
@@ -803,12 +1242,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
             }
 
-            // Step 2: Save the overview with the (potentially new) URL, comments, and sensor cards
+            // Step 2: Save the overview with the (potentially new) URL and sensor cards
             const enabledSensorCards = getEnabledSensorCards();
             
             const payload = {
                 document_url: fileUrl || null, // Use the final URL, or null if removed
-                comments: commentsTextarea.value.trim() || null,
                 enabled_sensor_cards: enabledSensorCards.length > 0 ? JSON.stringify(enabledSensorCards) : null
             };
 

@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFi
 from fastapi.responses import HTMLResponse
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 from uuid import uuid4
 import re
@@ -24,6 +26,11 @@ logger = logging.getLogger(__name__)
 APPROVAL_PENDING = "pending"
 APPROVAL_APPROVED = "approved"
 APPROVAL_REJECTED = "rejected"
+
+# Sensor Tracker outbox status constants
+OUTBOX_PENDING = "pending_review"
+OUTBOX_APPROVED = "approved"
+OUTBOX_REJECTED = "rejected"
 
 # --- Mission Media Helpers ---
 ALLOWED_IMAGE_TYPES = {
@@ -108,6 +115,74 @@ def _create_announcement(
     session.add(db_announcement)
     session.commit()
 
+
+def _hash_payload(payload: Dict) -> str:
+    payload_json = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+def _sanitize_payload(value):
+    """Convert payload values to JSON-serializable forms."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _sanitize_payload(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_payload(v) for v in value]
+    return value
+
+
+def _create_outbox_item(
+    session: SQLModelSession,
+    mission_id: str,
+    entity_type: str,
+    local_id: int,
+    payload: Dict,
+    created_by: models.User,
+    auto_approve: bool = False,
+) -> Optional[models.SensorTrackerOutbox]:
+    existing = session.exec(
+        select(models.SensorTrackerOutbox).where(
+            models.SensorTrackerOutbox.mission_id == mission_id,
+            models.SensorTrackerOutbox.entity_type == entity_type,
+            models.SensorTrackerOutbox.local_id == local_id,
+        )
+    ).first()
+    if existing:
+        return existing
+
+    now = datetime.now(timezone.utc)
+    status_value = OUTBOX_APPROVED if auto_approve else OUTBOX_PENDING
+    sanitized_payload = _sanitize_payload(payload)
+    payload_hash = _hash_payload(sanitized_payload)
+
+    outbox_item = models.SensorTrackerOutbox(
+        mission_id=mission_id,
+        entity_type=entity_type,
+        local_id=local_id,
+        payload=sanitized_payload,
+        payload_hash=payload_hash,
+        status=status_value,
+        approved_by_username=created_by.username if auto_approve else None,
+        approved_at_utc=now if auto_approve else None,
+    )
+    session.add(outbox_item)
+    session.commit()
+    session.refresh(outbox_item)
+
+    if status_value == OUTBOX_PENDING:
+        _create_announcement(
+            session=session,
+            content=(
+                f"Sensor Tracker sync pending review for mission '{mission_id}' "
+                f"({entity_type} #{local_id}) created by {created_by.username}"
+            ),
+            created_by_username=created_by.username,
+            target_roles=[models.UserRoleEnum.admin.value],
+            target_usernames=[created_by.username],
+        )
+
+    return outbox_item
+
 # --- HTML/Admin Page ---
 @router.get("/admin/mission_overviews.html", response_class=HTMLResponse)
 async def get_admin_mission_overviews_page(
@@ -136,6 +211,26 @@ async def _get_mission_info(
     goals = session.exec(goals_stmt).all()
     notes_stmt = select(models.MissionNote).where(models.MissionNote.mission_id == mission_id).order_by(models.MissionNote.created_at_utc.desc())
     notes = session.exec(notes_stmt).all()
+
+    def _filter_by_outbox_status(items, entity_type: str):
+        role_value = _get_user_role_value(current_user)
+        if role_value == models.UserRoleEnum.admin.value:
+            return items
+        outbox_items = session.exec(
+            select(models.SensorTrackerOutbox).where(
+                models.SensorTrackerOutbox.mission_id == mission_id,
+                models.SensorTrackerOutbox.entity_type == entity_type,
+            )
+        ).all()
+        status_by_id = {item.local_id: item.status for item in outbox_items}
+        allowed_statuses = {OUTBOX_APPROVED, "synced"}
+        return [
+            item for item in items
+            if status_by_id.get(item.id) in allowed_statuses or status_by_id.get(item.id) is None
+        ]
+
+    goals = _filter_by_outbox_status(goals, "goal")
+    notes = _filter_by_outbox_status(notes, "deployment_comment")
 
     media_stmt = select(models.MissionMedia).where(models.MissionMedia.mission_id == mission_id)
     if _get_user_role_value(current_user) != models.UserRoleEnum.admin.value:
@@ -493,6 +588,23 @@ async def approve_mission_media(
     session.commit()
     session.refresh(media)
 
+    payload = {
+        "file_name": media.file_name,
+        "file_url": _normalize_file_url(media.file_path),
+        "caption": media.caption,
+        "mime_type": media.mime_type,
+        "uploaded_at_utc": media.uploaded_at_utc,
+    }
+    _create_outbox_item(
+        session=session,
+        mission_id=mission_id,
+        entity_type="media",
+        local_id=media.id,
+        payload=payload,
+        created_by=current_admin,
+        auto_approve=True,
+    )
+
     _create_announcement(
         session=session,
         content=(
@@ -620,6 +732,22 @@ async def create_mission_goal(
     session.add(db_goal)
     session.commit()
     session.refresh(db_goal)
+    payload = {
+        "description": db_goal.description,
+        "is_completed": db_goal.is_completed,
+        "completed_at_utc": db_goal.completed_at_utc,
+        "created_at_utc": db_goal.created_at_utc,
+    }
+    is_admin = _get_user_role_value(current_user) == models.UserRoleEnum.admin.value
+    _create_outbox_item(
+        session=session,
+        mission_id=mission_id,
+        entity_type="goal",
+        local_id=db_goal.id,
+        payload=payload,
+        created_by=current_user,
+        auto_approve=is_admin,
+    )
     return db_goal
 
 @router.put("/api/missions/goals/{goal_id}", response_model=models.MissionGoal)
@@ -710,6 +838,20 @@ async def create_mission_note(
     session.add(db_note)
     session.commit()
     session.refresh(db_note)
+    payload = {
+        "event_time": db_note.created_at_utc,
+        "comment": db_note.content,
+    }
+    is_admin = _get_user_role_value(current_user) == models.UserRoleEnum.admin.value
+    _create_outbox_item(
+        session=session,
+        mission_id=mission_id,
+        entity_type="deployment_comment",
+        local_id=db_note.id,
+        payload=payload,
+        created_by=current_user,
+        auto_approve=is_admin,
+    )
     return db_note
 
 @router.delete("/api/missions/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -725,6 +867,118 @@ async def delete_mission_note(
     session.commit()
     logger.info(f"Admin '{current_admin.username}' deleted note ID {note_id}.")
     return 
+
+
+@router.get("/api/sensortracker/outbox", response_model=List[models.SensorTrackerOutboxRead])
+async def list_sensortracker_outbox(
+    status_filter: Optional[str] = Query(None, description="Filter by status"),
+    mission_id: Optional[str] = Query(None, description="Filter by mission id"),
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    statement = select(models.SensorTrackerOutbox)
+    if status_filter:
+        statement = statement.where(models.SensorTrackerOutbox.status == status_filter)
+    if mission_id:
+        statement = statement.where(models.SensorTrackerOutbox.mission_id == mission_id)
+    statement = statement.order_by(models.SensorTrackerOutbox.created_at_utc.desc())
+    items = session.exec(statement).all()
+    return items
+
+
+@router.post(
+    "/api/missions/{mission_id}/sensor-tracker/sync",
+    response_model=models.MissionInfoResponse,
+)
+async def sync_sensor_tracker_metadata(
+    mission_id: str,
+    force_refresh: bool = Query(False, description="Force refresh Sensor Tracker metadata"),
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Sync Sensor Tracker metadata without generating a report."""
+    logger.info(
+        f"Admin '{current_admin.username}' syncing Sensor Tracker metadata for mission '{mission_id}' "
+        f"(force_refresh={force_refresh})."
+    )
+    from ..services.sensor_tracker_sync_service import SensorTrackerSyncService
+
+    sync_service = SensorTrackerSyncService()
+    await sync_service.get_or_sync_mission(
+        mission_id=mission_id,
+        force_refresh=force_refresh,
+        session=session,
+    )
+
+    return await _get_mission_info(mission_id, session, current_admin)
+
+
+@router.put("/api/sensortracker/outbox/{outbox_id}/approve", response_model=models.SensorTrackerOutboxRead)
+async def approve_sensortracker_outbox(
+    outbox_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    item = session.get(models.SensorTrackerOutbox, outbox_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Outbox item not found.")
+
+    item.status = OUTBOX_APPROVED
+    item.approved_by_username = current_admin.username
+    item.approved_at_utc = datetime.now(timezone.utc)
+    item.rejected_by_username = None
+    item.rejected_at_utc = None
+    item.rejection_reason = None
+
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.put("/api/sensortracker/outbox/{outbox_id}/reject", response_model=models.SensorTrackerOutboxRead)
+async def reject_sensortracker_outbox(
+    outbox_id: int,
+    reject_in: models.SensorTrackerOutboxReject,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    item = session.get(models.SensorTrackerOutbox, outbox_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Outbox item not found.")
+
+    item.status = OUTBOX_REJECTED
+    item.rejected_by_username = current_admin.username
+    item.rejected_at_utc = datetime.now(timezone.utc)
+    item.rejection_reason = reject_in.rejection_reason
+
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.put("/api/sensortracker/outbox/{outbox_id}/resubmit", response_model=models.SensorTrackerOutboxRead)
+async def resubmit_sensortracker_outbox(
+    outbox_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    item = session.get(models.SensorTrackerOutbox, outbox_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Outbox item not found.")
+
+    item.status = OUTBOX_PENDING
+    item.approved_by_username = None
+    item.approved_at_utc = None
+    item.rejected_by_username = None
+    item.rejected_at_utc = None
+    item.rejection_reason = None
+
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
 
 @router.get("/api/available_missions", response_model=List[str])
 async def get_available_missions(

@@ -377,13 +377,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             const newNote = await apiRequest(`/api/missions/${context.missionId}/notes`, 'POST', { content });
-            if (newNote) {
-                showToast('Note added successfully.');
-                // Add the new note to the list
-                addNoteToList(context.missionSection, newNote);
+            if (USER_ROLE === 'admin') {
+                if (newNote) {
+                    showToast('Note added successfully.');
+                    addNoteToList(context.missionSection, newNote);
+                } else {
+                    window.location.reload();
+                }
             } else {
-                // Fallback if API doesn't return the new note
-                window.location.reload();
+                showToast('Note submitted for admin approval.', 'success');
             }
             textarea.value = ''; // Clear textarea after adding
 

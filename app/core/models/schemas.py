@@ -122,6 +122,20 @@ class ReportGenerationOptions(BaseModel):
     custom_filename: Optional[str] = Field(default=None, max_length=100, description="A custom name for the report file, used when not saving to overview.")
 
 
+class MissionReportFile(BaseModel):
+    """Metadata for a generated mission report file."""
+    filename: str
+    url: str
+    timestamp: Optional[datetime] = None
+    report_type: str
+
+
+class MissionReportListResponse(BaseModel):
+    """Report files available for a mission."""
+    weekly_reports: List[MissionReportFile] = []
+    end_of_mission_reports: List[MissionReportFile] = []
+
+
 # ============================================================================
 # User Models
 # ============================================================================
@@ -536,6 +550,35 @@ class MissionInfoResponse(BaseModel):
     sensor_tracker_deployment: Optional["SensorTrackerDeployment"] = None  # Sensor Tracker metadata
     sensor_tracker_instruments: List["MissionInstrument"] = []  # Sensor Tracker instruments
     media: List["MissionMediaRead"] = []
+
+
+class SensorTrackerOutboxRead(BaseModel):
+    """Model for reading Sensor Tracker outbox items."""
+    id: int
+    mission_id: str
+    entity_type: str
+    local_id: int
+    payload: Optional[dict] = None
+    payload_hash: Optional[str] = None
+    status: str
+    approved_by_username: Optional[str] = None
+    approved_at_utc: Optional[datetime] = None
+    rejected_by_username: Optional[str] = None
+    rejected_at_utc: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    sensor_tracker_id: Optional[str] = None
+    last_attempt_at_utc: Optional[datetime] = None
+    error_message: Optional[str] = None
+    created_at_utc: datetime
+    updated_at_utc: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SensorTrackerOutboxReject(BaseModel):
+    """Model for rejecting a Sensor Tracker outbox item."""
+    rejection_reason: Optional[str] = None
 
 
 # ============================================================================

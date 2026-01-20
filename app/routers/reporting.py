@@ -3,11 +3,15 @@ import logging
 
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from typing import List, Optional
+from datetime import datetime
+from pathlib import Path
+import re
 from sqlmodel import Session as SQLModelSession
 from sqlmodel import select
 
 from ..core.auth import get_current_admin_user
-from ..core import models
+from ..core import models, utils
 from ..core.data_service import get_data_service
 from ..core.db import get_db_session
 from ..core.reporting import generate_weekly_report
@@ -19,6 +23,73 @@ router = APIRouter(
     tags=["Reporting"],
     dependencies=[Depends(get_current_admin_user)],
 )
+
+
+def _parse_report_timestamp(filename: str) -> Optional[datetime]:
+    match = re.search(r"_(\d{4}-\d{2}-\d{2}_\d{6})\.pdf$", filename)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def _classify_report_type(filename: str) -> str:
+    name = filename.lower()
+    if "end_of_mission" in name or "endofmission" in name:
+        return "end_of_mission"
+    if "weekly" in name:
+        return "weekly"
+    return "other"
+
+
+@router.get(
+    "/missions/{mission_id}/reports",
+    response_model=models.MissionReportListResponse,
+    summary="List generated reports for a mission.",
+)
+async def list_mission_reports(
+    mission_id: str,
+    session: SQLModelSession = Depends(get_db_session),
+    current_user: models.User = Depends(get_current_admin_user),
+):
+    """
+    Returns a list of weekly and end-of-mission reports for the given mission.
+    """
+    report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
+    report_dir = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "mission_reports" / report_dir_name
+    _ = session
+
+    weekly_reports: List[models.MissionReportFile] = []
+    end_of_mission_reports: List[models.MissionReportFile] = []
+
+    if report_dir.exists() and report_dir.is_dir():
+        for file_path in report_dir.glob("*.pdf"):
+            filename = file_path.name
+            report_type = _classify_report_type(filename)
+            timestamp = _parse_report_timestamp(filename)
+            if timestamp is None:
+                timestamp = datetime.utcfromtimestamp(file_path.stat().st_mtime)
+            url = f"/static/mission_reports/{report_dir_name}/{filename}"
+            report_file = models.MissionReportFile(
+                filename=filename,
+                url=url,
+                timestamp=timestamp,
+                report_type=report_type,
+            )
+            if report_type == "end_of_mission":
+                end_of_mission_reports.append(report_file)
+            elif report_type == "weekly":
+                weekly_reports.append(report_file)
+
+    weekly_reports.sort(key=lambda r: r.timestamp or datetime.min, reverse=True)
+    end_of_mission_reports.sort(key=lambda r: r.timestamp or datetime.min, reverse=True)
+
+    return models.MissionReportListResponse(
+        weekly_reports=weekly_reports,
+        end_of_mission_reports=end_of_mission_reports,
+    )
 
 
 @router.post(
