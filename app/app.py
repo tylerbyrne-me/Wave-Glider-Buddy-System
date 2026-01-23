@@ -631,7 +631,13 @@ def _initialize_database_and_users():
                     user_create_model = models.UserCreate(**user_data_dict)
                     auth.add_user_to_db(session, user_create_model)
                 else:
-                    logger.info(f"Default user '{username}' already exists. Skipping.")
+                    logger.info(f"Default user '{username}' already exists.")
+                    # Update password if it's set in .env (allows syncing .env passwords to existing users)
+                    if password:
+                        logger.info(f"Updating password for existing default user '{username}' from .env configuration.")
+                        auth.update_user_password_in_db(session, username, password)
+                    else:
+                        logger.info(f"Skipping password update for '{username}' - no password set in .env.")
 
             # Reset the color index based on all users, to avoid re-assigning colors on restart
             all_users_statement = select(models.UserInDB)
