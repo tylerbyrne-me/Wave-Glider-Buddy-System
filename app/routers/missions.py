@@ -34,6 +34,7 @@ OUTBOX_APPROVED = "approved"
 OUTBOX_REJECTED = "rejected"
 OUTBOX_SYNCED = "synced"
 OUTBOX_FAILED = "failed"
+OUTBOX_REMOTE_DELETED = "remote_deleted"
 
 # --- Mission Media Helpers ---
 ALLOWED_IMAGE_TYPES = {
@@ -182,6 +183,46 @@ async def _sync_deployment_comment_to_sensor_tracker(
         response.raise_for_status()
 
     return combined_comment
+
+
+async def _fetch_remote_deployment_comment(
+    deployment_id: int,
+    token_override: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Fetch the current deployment comment from Sensor Tracker.
+    
+    Returns the comment string or None if not found/error.
+    """
+    base_url = settings.sensor_tracker_host.rstrip("/")
+    url = f"{base_url}/api/deployment/{deployment_id}/"
+    headers = _build_sensor_tracker_headers(token_override=token_override)
+    auth = None
+    if not settings.sensor_tracker_token and settings.sensor_tracker_username and settings.sensor_tracker_password:
+        auth = (settings.sensor_tracker_username, settings.sensor_tracker_password)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, auth=auth)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("comment")
+    except httpx.HTTPError as exc:
+        logger.error(f"Failed to fetch remote deployment {deployment_id}: {exc}")
+        return None
+
+
+def _extract_synced_comment_signature(payload: Dict) -> str:
+    """
+    Extract a unique signature from the outbox payload to match against remote comment.
+    
+    The signature is the timestamped comment format: [timestamp] comment
+    """
+    comment_text = payload.get("comment") or ""
+    event_time = payload.get("event_time") or ""
+    if event_time:
+        return f"[{event_time}] {comment_text}".strip()
+    return comment_text.strip()
 
 
 def _create_outbox_item(
@@ -1018,6 +1059,13 @@ async def resubmit_sensortracker_outbox(
     current_admin: models.User = Depends(get_current_admin_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
+    """
+    Resubmit an outbox item for approval.
+    
+    Use this for rejected items that need to go through the approval flow again.
+    For remote_deleted items that were previously synced, consider using the
+    /resync endpoint instead to directly resync without re-approval.
+    """
     item = session.get(models.SensorTrackerOutbox, outbox_id)
     if not item:
         raise HTTPException(status_code=404, detail="Outbox item not found.")
@@ -1033,6 +1081,91 @@ async def resubmit_sensortracker_outbox(
     session.commit()
     session.refresh(item)
     return item
+
+
+@router.put("/api/sensortracker/outbox/{outbox_id}/resync", response_model=models.SensorTrackerOutboxRead)
+async def resync_remote_deleted_outbox_item(
+    outbox_id: int,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """
+    Resync a remote_deleted or failed outbox item directly.
+    
+    This bypasses the approval flow since the item was previously approved and synced.
+    Use this when a comment was deleted on Sensor Tracker and you want to resync it.
+    """
+    item = session.get(models.SensorTrackerOutbox, outbox_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Outbox item not found.")
+
+    if item.status not in (OUTBOX_REMOTE_DELETED, OUTBOX_FAILED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only resync items with status 'remote_deleted' or 'failed'. Current status: {item.status}",
+        )
+
+    if item.entity_type != "deployment_comment":
+        raise HTTPException(
+            status_code=400,
+            detail="Only deployment comments are supported for resync.",
+        )
+
+    mission_base = item.mission_id.split("-")[-1] if "-" in item.mission_id else item.mission_id
+    deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == item.mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    if not deployment or not deployment.sensor_tracker_deployment_id:
+        item.status = OUTBOX_FAILED
+        item.error_message = "Sensor Tracker deployment not found for mission."
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+
+    # Fetch fresh remote comment to avoid overwriting recent changes
+    admin_token = _get_user_sensor_tracker_token(session, current_admin.username)
+    remote_comment = await _fetch_remote_deployment_comment(
+        deployment_id=deployment.sensor_tracker_deployment_id,
+        token_override=admin_token,
+    )
+
+    try:
+        combined_comment = await _sync_deployment_comment_to_sensor_tracker(
+            deployment_id=deployment.sensor_tracker_deployment_id,
+            mission_id=item.mission_id,
+            payload=item.payload or {},
+            existing_comment=remote_comment,
+            token_override=admin_token,
+        )
+        deployment.deployment_comment = combined_comment
+        deployment.last_synced_at = datetime.now(timezone.utc)
+        deployment.sync_status = "synced"
+        deployment.sync_error = None
+
+        item.status = OUTBOX_SYNCED
+        item.sensor_tracker_id = str(deployment.sensor_tracker_deployment_id)
+        item.last_attempt_at_utc = datetime.now(timezone.utc)
+        item.error_message = None
+
+        session.add(deployment)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+    except httpx.HTTPError as exc:
+        item.status = OUTBOX_FAILED
+        item.last_attempt_at_utc = datetime.now(timezone.utc)
+        item.error_message = str(exc)
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
 
 
 @router.put("/api/sensortracker/outbox/{outbox_id}/sync", response_model=models.SensorTrackerOutboxRead)
@@ -1164,6 +1297,110 @@ async def sync_all_approved_outbox_items(
     session.add(deployment)
     session.commit()
     return {"synced": synced_count}
+
+
+@router.post("/api/sensortracker/outbox/reconcile", response_model=dict)
+async def reconcile_sensortracker_outbox(
+    mission_id: str = Query(..., description="Mission identifier"),
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """
+    Reconcile synced outbox items against Sensor Tracker.
+    
+    Checks if comments that were synced to Sensor Tracker still exist in the
+    remote deployment comment field. If a synced comment is no longer present,
+    marks the outbox item as 'remote_deleted'.
+    
+    This helps detect when comments are manually removed from Sensor Tracker.
+    """
+    # Get all synced deployment_comment items for this mission
+    statement = (
+        select(models.SensorTrackerOutbox)
+        .where(
+            models.SensorTrackerOutbox.mission_id == mission_id,
+            models.SensorTrackerOutbox.entity_type == "deployment_comment",
+            models.SensorTrackerOutbox.status == OUTBOX_SYNCED,
+        )
+        .order_by(models.SensorTrackerOutbox.created_at_utc.asc())
+    )
+    synced_items = session.exec(statement).all()
+    
+    if not synced_items:
+        return {"reconciled": 0, "remote_deleted": 0, "message": "No synced items to reconcile."}
+    
+    # Get the deployment record
+    mission_base = mission_id.split("-")[-1] if "-" in mission_id else mission_id
+    deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    
+    if not deployment or not deployment.sensor_tracker_deployment_id:
+        return {
+            "reconciled": 0,
+            "remote_deleted": 0,
+            "error": "Sensor Tracker deployment not found for mission.",
+        }
+    
+    # Fetch the current remote comment
+    admin_token = _get_user_sensor_tracker_token(session, current_admin.username)
+    remote_comment = await _fetch_remote_deployment_comment(
+        deployment_id=deployment.sensor_tracker_deployment_id,
+        token_override=admin_token,
+    )
+    
+    if remote_comment is None:
+        return {
+            "reconciled": 0,
+            "remote_deleted": 0,
+            "error": "Failed to fetch remote deployment comment.",
+        }
+    
+    # Update local deployment comment to match remote (source of truth)
+    if deployment.deployment_comment != remote_comment:
+        deployment.deployment_comment = remote_comment
+        deployment.last_synced_at = datetime.now(timezone.utc)
+        session.add(deployment)
+    
+    # Check each synced item against the remote comment
+    reconciled_count = 0
+    remote_deleted_count = 0
+    
+    for item in synced_items:
+        signature = _extract_synced_comment_signature(item.payload or {})
+        
+        if not signature:
+            # Can't verify without a signature, skip
+            continue
+        
+        reconciled_count += 1
+        
+        # Check if the signature exists in the remote comment
+        if signature not in (remote_comment or ""):
+            # Comment was deleted on Sensor Tracker
+            item.status = OUTBOX_REMOTE_DELETED
+            item.last_attempt_at_utc = datetime.now(timezone.utc)
+            item.error_message = "Comment no longer present on Sensor Tracker."
+            session.add(item)
+            remote_deleted_count += 1
+            logger.info(
+                f"Outbox item {item.id} marked as remote_deleted: "
+                f"comment signature not found in remote deployment."
+            )
+    
+    session.commit()
+    
+    return {
+        "reconciled": reconciled_count,
+        "remote_deleted": remote_deleted_count,
+        "message": f"Checked {reconciled_count} synced items, {remote_deleted_count} marked as remote_deleted.",
+    }
+
 
 @router.get("/api/available_missions", response_model=List[str])
 async def get_available_missions(

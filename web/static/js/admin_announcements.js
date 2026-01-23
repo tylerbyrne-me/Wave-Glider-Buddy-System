@@ -46,43 +46,129 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
 
+    const MAX_VISIBLE_ANNOUNCEMENTS = 5;
+
+    /**
+     * Render a single announcement item
+     */
+    function renderAnnouncementItem(ann) {
+        const contentHtml = markdownConverter.makeHtml(ann.content);
+        const ackCount = ann.acknowledged_by.length;
+        const statusBadge = ann.is_active 
+            ? '<span class="badge bg-success">Active</span>' 
+            : '<span class="badge bg-secondary">Archived</span>';
+
+        return `
+            <div class="list-group-item list-group-item-action flex-column align-items-start">
+                <div class="d-flex w-100 justify-content-between">
+                    <div class="mb-1">${contentHtml}</div>
+                    <div>${statusBadge}</div>
+                </div>
+                <p class="mb-1 small text-muted">
+                    Posted by ${ann.created_by_username} on ${new Date(ann.created_at_utc).toLocaleDateString()}
+                </p>
+                <div class="d-flex justify-content-between align-items-center">
+                    <button class="btn btn-sm btn-outline-info view-acks-btn" data-acks='${JSON.stringify(ann.acknowledged_by)}' title="View who has acknowledged this announcement">
+                        ${ackCount} Acknowledgement(s)
+                    </button>
+                    <div>
+                        ${ann.is_active ? `<button class="btn btn-sm btn-outline-secondary me-2 edit-btn" data-id="${ann.id}" title="Edit this announcement">Edit</button>` : ''}
+                        ${ann.is_active ? `<button class="btn btn-sm btn-outline-warning archive-btn" data-id="${ann.id}" title="Archive this announcement">Archive</button>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render a section of announcements with collapsible overflow
+     */
+    function renderAnnouncementSection(announcements, sectionId, sectionTitle, badgeClass) {
+        if (announcements.length === 0) {
+            return `
+                <div class="mb-4">
+                    <h6 class="text-muted">${sectionTitle}</h6>
+                    <p class="text-muted small">No ${sectionTitle.toLowerCase()}.</p>
+                </div>
+            `;
+        }
+
+        const visibleAnnouncements = announcements.slice(0, MAX_VISIBLE_ANNOUNCEMENTS);
+        const hiddenAnnouncements = announcements.slice(MAX_VISIBLE_ANNOUNCEMENTS);
+        const hasHidden = hiddenAnnouncements.length > 0;
+
+        let html = `
+            <div class="mb-4">
+                <h6 class="d-flex align-items-center">
+                    <span class="badge ${badgeClass} me-2">${announcements.length}</span>
+                    ${sectionTitle}
+                </h6>
+                <div class="list-group">
+        `;
+
+        // Render visible announcements
+        visibleAnnouncements.forEach(ann => {
+            html += renderAnnouncementItem(ann);
+        });
+
+        html += '</div>';
+
+        // Render collapsible section for hidden announcements
+        if (hasHidden) {
+            html += `
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-secondary w-100" type="button" data-bs-toggle="collapse" data-bs-target="#${sectionId}Collapse" aria-expanded="false" aria-controls="${sectionId}Collapse">
+                        <i class="fas fa-chevron-down me-1"></i>
+                        Show ${hiddenAnnouncements.length} more ${sectionTitle.toLowerCase()}
+                    </button>
+                    <div class="collapse mt-2" id="${sectionId}Collapse">
+                        <div class="list-group">
+            `;
+            hiddenAnnouncements.forEach(ann => {
+                html += renderAnnouncementItem(ann);
+            });
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
     function renderAnnouncements(announcements) {
         if (announcements.length === 0) {
             listContainer.innerHTML = '<p class="text-muted">No announcements have been posted.</p>';
             return;
         }
 
-        let html = '<div class="list-group">';
-        announcements.forEach(ann => {
-            const contentHtml = markdownConverter.makeHtml(ann.content);
-            const ackCount = ann.acknowledged_by.length;
-            const statusBadge = ann.is_active 
-                ? '<span class="badge bg-success">Active</span>' 
-                : '<span class="badge bg-secondary">Archived</span>';
+        // Separate active and archived announcements
+        const activeAnnouncements = announcements.filter(ann => ann.is_active);
+        const archivedAnnouncements = announcements.filter(ann => !ann.is_active);
 
-            html += `
-                <div class="list-group-item list-group-item-action flex-column align-items-start">
-                    <div class="d-flex w-100 justify-content-between">
-                        <div class="mb-1">${contentHtml}</div>
-                        <div>${statusBadge}</div>
-                    </div>
-                    <p class="mb-1 small text-muted">
-                        Posted by ${ann.created_by_username} on ${new Date(ann.created_at_utc).toLocaleDateString()}
-                    </p>
-                    <div class="d-flex justify-content-between align-items-center">
-                        <button class="btn btn-sm btn-outline-info view-acks-btn" data-acks='${JSON.stringify(ann.acknowledged_by)}' title="View who has acknowledged this announcement">
-                            ${ackCount} Acknowledgement(s)
-                        </button>
-                        <div>
-                            ${ann.is_active ? `<button class="btn btn-sm btn-outline-secondary me-2 edit-btn" data-id="${ann.id}" title="Edit this announcement">Edit</button>` : ''}
-                            ${ann.is_active ? `<button class="btn btn-sm btn-outline-warning archive-btn" data-id="${ann.id}" title="Archive this announcement">Archive</button>` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
+        let html = '';
+        html += renderAnnouncementSection(activeAnnouncements, 'active', 'Active Announcements', 'bg-success');
+        html += renderAnnouncementSection(archivedAnnouncements, 'archived', 'Archived Announcements', 'bg-secondary');
+
         listContainer.innerHTML = html;
+
+        // Update collapse button text on toggle
+        document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(btn => {
+            const targetId = btn.getAttribute('data-bs-target');
+            const collapseEl = document.querySelector(targetId);
+            if (collapseEl) {
+                collapseEl.addEventListener('show.bs.collapse', () => {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = originalText.replace('Show', 'Hide').replace('fa-chevron-down', 'fa-chevron-up');
+                });
+                collapseEl.addEventListener('hide.bs.collapse', () => {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = originalText.replace('Hide', 'Show').replace('fa-chevron-up', 'fa-chevron-down');
+                });
+            }
+        });
     }
 
     createForm.addEventListener('submit', async function(e) {

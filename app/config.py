@@ -16,10 +16,7 @@ class Settings(BaseSettings):
     # Store as JSON string in .env, parse here
     remote_mission_folder_map_json: str = "{}"
     # Store as JSON string in .env, parse here
-    active_realtime_missions: list[str] = [
-        "m209",
-        "m211"
-    ]
+    active_realtime_missions: list[str] = []
     # Example: List of mission IDs considered active
     # In a real scenario, this list might be managed dynamically or via
     # another config source.
@@ -49,12 +46,13 @@ class Settings(BaseSettings):
     sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
 
     # --- Email Settings for Timesheet Notifications ---
-    # Replace these with your actual SMTP server details, preferably in a .env file.
-    MAIL_USERNAME: str = "your-email@example.com"
-    MAIL_PASSWORD: str = "your-email-password"
-    MAIL_FROM: str = "no-reply@wgbuddy.com"
+    # SECURITY: All email settings MUST be configured in .env file
+    # These defaults are placeholders and will cause email functionality to fail if not overridden
+    MAIL_USERNAME: Optional[str] = None
+    MAIL_PASSWORD: Optional[str] = None
+    MAIL_FROM: Optional[str] = None
     MAIL_PORT: int = 587
-    MAIL_SERVER: str = "smtp.example.com"
+    MAIL_SERVER: Optional[str] = None
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
 
@@ -62,15 +60,36 @@ class Settings(BaseSettings):
     feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true}'
     
     # --- Sensor Tracker Settings ---
+    # SECURITY: Credentials MUST be configured in .env file
     sensor_tracker_host: str = "https://prod.ceotr.ca/sensor_tracker"
-    sensor_tracker_token: Optional[str] = "3c62f39804729f9e8aff90d0220c8aa07eed9e77" 
-    sensor_tracker_username: Optional[str] = "tylerbyrne"
-    sensor_tracker_password: Optional[str] = "sJdujK3P7bYMth8"
+    sensor_tracker_token: Optional[str] = None  # Must be set in .env
+    sensor_tracker_username: Optional[str] = None  # Must be set in .env
+    sensor_tracker_password: Optional[str] = None  # Must be set in .env
     sensor_tracker_debug: bool = False
     sensor_tracker_debug_host: str = "http://127.0.0.1:8000/"
     
     # --- Knowledge Base Settings ---
     knowledge_base_max_upload_size_mb: int = 50  # Maximum file upload size in MB
+    
+    # --- OpenWeatherMap API Settings ---
+    # SECURITY: API key MUST be configured in .env file
+    openweathermap_api_key: Optional[str] = None  # Must be set in .env
+    
+    # --- Default User Accounts (Seed Users) ---
+    # SECURITY: Passwords MUST be set in .env file - no defaults for security
+    # Usernames can have defaults for convenience, but passwords must be configured
+    default_admin_username: str = "adminuser"
+    default_admin_password: Optional[str] = None  # MUST be set in .env
+    default_admin_email: str = "admin@example.com"
+    default_pilot_username: str = "pilotuser"
+    default_pilot_password: Optional[str] = None  # MUST be set in .env
+    default_pilot_email: str = "pilot@example.com"
+    default_pilot_rt_username: str = "pilot_rt_only"
+    default_pilot_rt_password: Optional[str] = None  # MUST be set in .env
+    default_pilot_rt_email: str = "pilot_rt@example.com"
+    default_lri_pilot_username: str = "LRI_PILOT"
+    default_lri_pilot_password: Optional[str] = None  # Password doesn't matter (user is disabled), but set in .env for consistency
+    default_lri_pilot_email: str = "lri@example.com"
 
     # --- Mission Media Settings ---
     mission_media_root_path: str = "web/static/mission_media"
@@ -108,6 +127,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         env_prefix = "" # Ensure no prefix is added to env var names
+        extra = "ignore"  # Ignore extra environment variables (like CLI_ADMIN_* for CLI tools)
 
 
 settings = Settings()

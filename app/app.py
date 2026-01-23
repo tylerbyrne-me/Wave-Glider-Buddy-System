@@ -570,40 +570,41 @@ def _initialize_database_and_users():
             
             # Use a local index for default user colors to ensure they get specific ones
             # from the USER_COLORS palette in auth.
+            # SECURITY: Default user credentials are now loaded from .env via settings
             default_user_color_idx = 0
             default_users_data = [
                 {
-                    "username": "adminuser",
+                    "username": settings.default_admin_username,
                     "full_name": "Admin User",
-                    "email": "admin@example.com",
-                    "password": "adminpass",
+                    "email": settings.default_admin_email,
+                    "password": settings.default_admin_password,
                     "role": models.UserRoleEnum.admin,
                     "color": auth.USER_COLORS[default_user_color_idx % len(auth.USER_COLORS)],
                     "disabled": False,
                 },
                 {
-                    "username": "pilotuser",
+                    "username": settings.default_pilot_username,
                     "full_name": "Pilot User",
-                    "email": "pilot@example.com",
-                    "password": "pilotpass",
+                    "email": settings.default_pilot_email,
+                    "password": settings.default_pilot_password,
                     "role": models.UserRoleEnum.pilot,
                     "color": auth.USER_COLORS[(default_user_color_idx + 1) % len(auth.USER_COLORS)],
                     "disabled": False,
                 },
                 {
-                    "username": "pilot_rt_only",
+                    "username": settings.default_pilot_rt_username,
                     "full_name": "Realtime Pilot",
-                    "email": "pilot_rt@example.com",
-                    "password": "pilotrtpass",
+                    "email": settings.default_pilot_rt_email,
+                    "password": settings.default_pilot_rt_password,
                     "role": models.UserRoleEnum.pilot,
                     "color": auth.USER_COLORS[(default_user_color_idx + 2) % len(auth.USER_COLORS)],
                     "disabled": False,
                 },
                 {
-                    "username": "LRI_PILOT", # Special user for LRI-blocked shifts
+                    "username": settings.default_lri_pilot_username, # Special user for LRI-blocked shifts
                     "full_name": "LRI Piloting Block",
-                    "email": "lri@example.com",
-                    "password": "lripass", # Password doesn't matter as user is disabled
+                    "email": settings.default_lri_pilot_email,
+                    "password": settings.default_lri_pilot_password, # Password doesn't matter as user is disabled
                     "role": models.UserRoleEnum.pilot, # Can be pilot or a new 'lri' role if needed
                     "color": "#ADD8E6", # Light Blue for LRI blocks
                     "disabled": True, # LRI_PILOT cannot log in
@@ -611,14 +612,26 @@ def _initialize_database_and_users():
             ]
 
             # Check for each default user and create if missing
+            # SECURITY: Validate that passwords are set in .env before creating users
             for user_data_dict in default_users_data:
-                existing_user = auth.get_user_from_db(session, user_data_dict["username"])
+                username = user_data_dict["username"]
+                password = user_data_dict["password"]
+                
+                # Skip LRI_PILOT password check since it's disabled anyway
+                if username != settings.default_lri_pilot_username and not password:
+                    logger.warning(
+                        f"SECURITY WARNING: Password for default user '{username}' not set in .env. "
+                        f"Skipping creation of this user. Set DEFAULT_{username.upper()}_PASSWORD in .env file."
+                    )
+                    continue
+                
+                existing_user = auth.get_user_from_db(session, username)
                 if not existing_user:
-                    logger.info(f"Default user '{user_data_dict['username']}' not found. Creating...")
+                    logger.info(f"Default user '{username}' not found. Creating...")
                     user_create_model = models.UserCreate(**user_data_dict)
                     auth.add_user_to_db(session, user_create_model)
                 else:
-                    logger.info(f"Default user '{user_data_dict['username']}' already exists. Skipping.")
+                    logger.info(f"Default user '{username}' already exists. Skipping.")
 
             # Reset the color index based on all users, to avoid re-assigning colors on restart
             all_users_statement = select(models.UserInDB)

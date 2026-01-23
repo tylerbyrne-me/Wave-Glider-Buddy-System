@@ -1,5 +1,6 @@
 # app/cli/cli.py
 import json
+import os
 from pathlib import Path
 
 import httpx  # For making API calls to our own app
@@ -9,16 +10,13 @@ from rich.console import Console
 from rich.table import Table
 from typing_extensions import Annotated
 
-# Assuming your FastAPI app runs on localhost:8000 for CLI interaction
-# You'll need to adjust this if it's different, or make it configurable.
-BASE_API_URL = "http://localhost:8000/api"  # Ensure this matches your running app
+# --- SECURITY: All credentials and URLs must come from environment variables ---
+# Base API URL - can be overridden via CLI_ADMIN_API_URL environment variable
+BASE_API_URL = os.getenv("CLI_ADMIN_API_URL", "http://localhost:8000/api")
 
-# --- IMPORTANT: Secure Credential Handling ---
-# For a real application, do NOT hardcode credentials.
-# Use environment variables, a secrets manager, or prompt the user.
-# This is a simplified example.
-ADMIN_USERNAME = "adminuser"  # Replace with your actual admin username
-ADMIN_PASSWORD = "adminpass"  # Replace with your actual admin password
+# Admin credentials - MUST be set in environment variables
+ADMIN_USERNAME = os.getenv("CLI_ADMIN_USERNAME")
+ADMIN_PASSWORD = os.getenv("CLI_ADMIN_PASSWORD")
 
 app_cli = typer.Typer(help="Wave Glider Buddy System Command Line Interface.")
 console = Console()
@@ -27,8 +25,17 @@ console = Console()
 def get_admin_token():
     """
     Helper to get an admin token.
-    WARNING: This is a simplified example. Secure token retrieval in production.
+    SECURITY: Credentials must be provided via environment variables.
     """
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        console.print(
+            "[bold red]Error: CLI_ADMIN_USERNAME and CLI_ADMIN_PASSWORD environment variables must be set.[/bold red]"
+        )
+        console.print(
+            "[yellow]Please set these in your .env file or environment before running CLI commands.[/yellow]"
+        )
+        return None
+    
     try:
         token_url = BASE_API_URL.replace(
             "/api", "/token"
