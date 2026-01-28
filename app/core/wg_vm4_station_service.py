@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 import math
 
+import pandas as pd
 from sqlmodel import select
 from .db import SQLModelSession
 from . import models
@@ -131,7 +132,8 @@ class WgVm4StationService:
     def process_wg_vm4_events(
         self, 
         events: List[OffloadEvent], 
-        mission_id: str
+        mission_id: str,
+        field_season_year: Optional[int] = None
     ) -> Dict[str, int]:
         """
         Process WG-VM4 events and create offload logs
@@ -139,6 +141,7 @@ class WgVm4StationService:
         Args:
             events: List of parsed OffloadEvent objects
             mission_id: Mission identifier
+            field_season_year: Optional field season year to assign to offload logs (overrides station's season)
             
         Returns:
             Dictionary with processing statistics
@@ -178,7 +181,7 @@ class WgVm4StationService:
                 
                 for i, session in enumerate(sessions):
                     logger.debug(f"Session {i+1} for station {station.station_id}: status={session['status']}, serial={session['serial_number']}")
-                    if self._create_offload_log_from_session(session, station, mission_id):
+                    if self._create_offload_log_from_session(session, station, mission_id, field_season_year):
                         stats['offload_logs_created'] += 1
                         stats['stations_updated'] += 1
                         
@@ -203,7 +206,8 @@ class WgVm4StationService:
         self, 
         session: Dict, 
         station: models.StationMetadata, 
-        mission_id: str
+        mission_id: str,
+        override_field_season_year: Optional[int] = None
     ) -> bool:
         """
         Create an offload log from a parsed session
@@ -212,6 +216,7 @@ class WgVm4StationService:
             session: Parsed offload session dictionary
             station: Station metadata object
             mission_id: Mission identifier
+            override_field_season_year: Optional field season year to override station's season
             
         Returns:
             True if log was created successfully
@@ -247,6 +252,19 @@ class WgVm4StationService:
             # Determine if offload was successful
             was_offloaded = session['status'] == 'completed'
             
+            # Determine field_season_year with priority:
+            # 1. Override parameter (explicitly specified for historical processing)
+            # 2. Station's field_season_year (if set)
+            # 3. Active season (fallback)
+            if override_field_season_year is not None:
+                field_season_year = override_field_season_year
+            elif station.field_season_year is not None:
+                field_season_year = station.field_season_year
+            else:
+                from ...services.station_season_service import StationSeasonService
+                active_season = StationSeasonService.get_active_season(self.session)
+                field_season_year = active_season.year if active_season else None
+            
             # Create offload log
             offload_log_data = {
                 'station_id': station.station_id,
@@ -259,7 +277,8 @@ class WgVm4StationService:
                 'was_offloaded': was_offloaded,
                 'vrl_file_name': session.get('vrl_file_name'),
                 'offload_notes_file_size': f"Auto-generated from WG-VM4 data. VRL: {session.get('vrl_file_name', 'N/A')}",
-                'logged_by_username': 'wg_vm4_auto'
+                'logged_by_username': 'wg_vm4_auto',
+                'field_season_year': field_season_year
             }
             
             # Create the offload log
@@ -315,7 +334,8 @@ class WgVm4StationService:
     def process_wg_vm4_dataframe(
         self, 
         df, 
-        mission_id: str
+        mission_id: str,
+        field_season_year: Optional[int] = None
     ) -> Dict[str, int]:
         """
         Process a WG-VM4 info DataFrame and create offload logs
@@ -323,6 +343,7 @@ class WgVm4StationService:
         Args:
             df: WG-VM4 info DataFrame
             mission_id: Mission identifier
+            field_season_year: Optional field season year to assign to offload logs (overrides station's season)
             
         Returns:
             Processing statistics
@@ -345,7 +366,7 @@ class WgVm4StationService:
             logger.info(f"Offload complete events with serial numbers: {len(offload_complete_serials)} - {offload_complete_serials[:10]}")
             
             # Process events and create logs
-            stats = self.process_wg_vm4_events(events, mission_id)
+            stats = self.process_wg_vm4_events(events, mission_id, field_season_year)
             
             # Debug: Show session statistics
             all_sessions = []
@@ -371,7 +392,8 @@ class WgVm4StationService:
 def process_wg_vm4_info_for_mission(
     session: SQLModelSession, 
     df, 
-    mission_id: str
+    mission_id: str,
+    field_season_year: Optional[int] = None
 ) -> Dict[str, int]:
     """
     Process WG-VM4 info data for a mission and create offload logs
@@ -380,9 +402,113 @@ def process_wg_vm4_info_for_mission(
         session: Database session
         df: WG-VM4 info DataFrame
         mission_id: Mission identifier
+        field_season_year: Optional field season year to assign to offload logs (overrides station's season)
         
     Returns:
         Processing statistics
     """
     service = WgVm4StationService(session)
-    return service.process_wg_vm4_dataframe(df, mission_id)
+    return service.process_wg_vm4_dataframe(df, mission_id, field_season_year)
+
+
+def attach_remote_health_to_offload_logs(
+    session: SQLModelSession,
+    remote_health_df,
+    time_window_minutes: int = 30,
+) -> Dict[str, int]:
+    """
+    Match Vemco VM4 Remote Health rows to offload logs by serial number and timestamp,
+    and update logs with model_id, serial_number, modem_address, temperature_c, tilt_rad, humidity.
+    
+    Args:
+        session: Database session
+        remote_health_df: Preprocessed DataFrame from Vemco VM4 Remote Health.csv
+        time_window_minutes: Match health row to offload log if within ± this many minutes
+        
+    Returns:
+        Dict with keys: rows_processed, logs_updated, stations_matched, no_station, no_matching_log
+    """
+    if remote_health_df is None or remote_health_df.empty:
+        return {"rows_processed": 0, "logs_updated": 0, "stations_matched": 0, "no_station": 0, "no_matching_log": 0}
+    
+    stats = {"rows_processed": 0, "logs_updated": 0, "stations_matched": 0, "no_station": 0, "no_matching_log": 0}
+    
+    # Required columns (after preprocessing)
+    required = ["serial_number", "timestamp"]
+    optional = ["model_id", "modem_address", "temperature_c", "tilt_rad", "humidity"]
+    for c in required:
+        if c not in remote_health_df.columns:
+            logger.warning(f"attach_remote_health_to_offload_logs: missing column '{c}' in remote health DataFrame")
+            return stats
+    
+    service = WgVm4StationService(session)
+    
+    for _, row in remote_health_df.iterrows():
+        stats["rows_processed"] += 1
+        serial = str(row["serial_number"]).strip() if pd.notna(row["serial_number"]) else None
+        ts = row["timestamp"]
+        if not serial or pd.isna(ts):
+            continue
+        if hasattr(ts, "to_pydatetime"):
+            ts = ts.to_pydatetime()
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        
+        station = service.find_station_by_serial(serial)
+        if not station:
+            stats["no_station"] += 1
+            continue
+        stats["stations_matched"] += 1
+        
+        start_window = ts - timedelta(minutes=time_window_minutes)
+        end_window = ts + timedelta(minutes=time_window_minutes)
+        
+        stmt = select(models.OffloadLog).where(
+            models.OffloadLog.station_id == station.station_id,
+            models.OffloadLog.offload_start_time_utc.isnot(None),
+            models.OffloadLog.offload_start_time_utc >= start_window,
+            models.OffloadLog.offload_start_time_utc <= end_window,
+        ).order_by(models.OffloadLog.offload_start_time_utc.desc())
+        
+        log = session.exec(stmt).first()
+        if not log:
+            stmt2 = select(models.OffloadLog).where(
+                models.OffloadLog.station_id == station.station_id,
+                models.OffloadLog.time_first_command_sent_utc.isnot(None),
+                models.OffloadLog.time_first_command_sent_utc >= start_window,
+                models.OffloadLog.time_first_command_sent_utc <= end_window,
+            ).order_by(models.OffloadLog.time_first_command_sent_utc.desc())
+            log = session.exec(stmt2).first()
+        
+        if not log:
+            stats["no_matching_log"] += 1
+            continue
+        
+        updated = False
+        if "model_id" in row and pd.notna(row.get("model_id")):
+            log.remote_health_model_id = str(int(row["model_id"])) if isinstance(row["model_id"], (int, float)) else str(row["model_id"])
+            updated = True
+        if "serial_number" in row and pd.notna(row.get("serial_number")):
+            log.remote_health_serial_number = str(row["serial_number"]).strip()
+            updated = True
+        if "modem_address" in row and pd.notna(row.get("modem_address")):
+            log.remote_health_modem_address = int(row["modem_address"])
+            updated = True
+        if "temperature_c" in row and pd.notna(row.get("temperature_c")):
+            log.remote_health_temperature_c = float(row["temperature_c"])
+            updated = True
+        if "tilt_rad" in row and pd.notna(row.get("tilt_rad")):
+            log.remote_health_tilt_rad = float(row["tilt_rad"])
+            updated = True
+        if "humidity" in row and pd.notna(row.get("humidity")):
+            val = row["humidity"]
+            log.remote_health_humidity = int(val) if isinstance(val, (int, float)) else None
+            updated = True
+        
+        if updated:
+            session.add(log)
+            stats["logs_updated"] += 1
+    
+    if stats["logs_updated"] > 0:
+        session.commit()
+    return stats

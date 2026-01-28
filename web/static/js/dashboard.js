@@ -65,6 +65,18 @@ document.addEventListener('DOMContentLoaded', async function() {
     const goalDescriptionInput = document.getElementById('goalDescriptionInput');
     const saveGoalBtn = document.getElementById('saveGoalBtn');
 
+    // --- PIC Handoffs (Mission-linked) ---
+    const dashboardPicHandoffsSpinner = document.getElementById('dashboardPicHandoffsSpinner');
+    const dashboardPicHandoffsRefreshBtn = document.getElementById('dashboardPicHandoffsRefreshBtn');
+    const dashboardPicHandoffsLatest = document.getElementById('dashboardPicHandoffsLatest');
+    const dashboardPicHandoffsTableBody = document.getElementById('dashboardPicHandoffsTableBody');
+    const dashboardPicHandoffsEmpty = document.getElementById('dashboardPicHandoffsEmpty');
+
+    const dashboardPicModalElement = document.getElementById('dashboardPicHandoffsFormDetailsModal');
+    const dashboardPicModalTitle = document.getElementById('dashboardPicHandoffsFormDetailsModalLabel');
+    const dashboardPicModalBody = document.getElementById('dashboardPicHandoffsFormDetailsContent');
+    const dashboardPicDetailsModal = dashboardPicModalElement ? new bootstrap.Modal(dashboardPicModalElement) : null;
+
     const escapeHtml = (value) => {
         if (value === null || value === undefined) return '';
         return String(value)
@@ -205,6 +217,157 @@ document.addEventListener('DOMContentLoaded', async function() {
         }).join('');
     };
 
+    const formatUtcTimestampForTable = (timestampValue) => {
+        if (!timestampValue) return 'N/A';
+        const submissionTimestampStr = String(timestampValue).endsWith('Z')
+            ? String(timestampValue)
+            : `${timestampValue}Z`;
+        const submissionDate = new Date(submissionTimestampStr);
+        if (Number.isNaN(submissionDate.getTime())) return 'N/A';
+        const datePart = submissionDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'UTC'
+        });
+        const timePart = submissionDate.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'UTC'
+        });
+        return `${datePart.replace(',', '')} ${timePart} UTC`;
+    };
+
+    const displayPicFormDetailsInModal = (form) => {
+        if (!dashboardPicDetailsModal || !dashboardPicModalTitle || !dashboardPicModalBody) {
+            console.error('PIC modal elements not found for displaying form details.');
+            alert('Could not display form details. Modal components missing.');
+            return;
+        }
+
+        dashboardPicModalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
+
+        const submissionTimestampStr = String(form.submission_timestamp || '').endsWith('Z')
+            ? String(form.submission_timestamp || '')
+            : `${form.submission_timestamp}Z`;
+        const submissionDate = new Date(submissionTimestampStr);
+        const formattedTime = Number.isNaN(submissionDate.getTime())
+            ? 'N/A'
+            : submissionDate.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
+
+        let contentHtml = `<p><strong>Submitted by:</strong> ${escapeHtml(form.submitted_by_username || 'Unknown')} at ${escapeHtml(formattedTime)}</p><hr>`;
+
+        if (form.sections_data && Array.isArray(form.sections_data)) {
+            form.sections_data.forEach(section => {
+                contentHtml += `<h4>${escapeHtml(section.title || '')}</h4>`;
+                if (section.section_comment) {
+                    contentHtml += `<p class="text-muted"><em>Section Comment: ${escapeHtml(section.section_comment)}</em></p>`;
+                }
+                contentHtml += '<ul class="list-group list-group-flush mb-3">';
+                if (section.items && Array.isArray(section.items)) {
+                    section.items.forEach(item => {
+                        contentHtml += `<li class="list-group-item"><strong>${escapeHtml(item.label || '')}:</strong> `;
+                        if (item.item_type === 'checkbox') {
+                            contentHtml += item.is_checked ? 'Checked' : 'Not Checked';
+                        } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
+                            contentHtml += `${escapeHtml(item.value || 'N/A')}`;
+                        } else {
+                            contentHtml += item.value ? escapeHtml(item.value) : '<em>Not provided</em>';
+                        }
+                        if (item.is_verified) {
+                            contentHtml += ` <span class="badge bg-success">Verified</span>`;
+                        }
+                        if (item.comment) {
+                            contentHtml += `<br><small class="text-muted"><em>Comment: ${escapeHtml(item.comment)}</em></small>`;
+                        }
+                        contentHtml += `</li>`;
+                    });
+                }
+                contentHtml += '</ul>';
+            });
+        } else {
+            contentHtml += '<p>No detailed section data available.</p>';
+        }
+
+        dashboardPicModalBody.innerHTML = contentHtml;
+        dashboardPicDetailsModal.show();
+    };
+
+    const renderPicHandoffs = (forms) => {
+        if (!dashboardPicHandoffsLatest || !dashboardPicHandoffsTableBody || !dashboardPicHandoffsEmpty) return;
+
+        const hasForms = Array.isArray(forms) && forms.length > 0;
+
+        if (!hasForms) {
+            dashboardPicHandoffsLatest.innerHTML = '<div class="text-muted small">No PIC Handoff submissions exist for this mission.</div>';
+            dashboardPicHandoffsTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">No PIC Handoff submissions exist for this mission.</td></tr>';
+            dashboardPicHandoffsEmpty.style.display = 'block';
+            return;
+        }
+
+        dashboardPicHandoffsEmpty.style.display = 'none';
+
+        const latest = forms[0];
+        dashboardPicHandoffsLatest.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <div class="fw-bold">${escapeHtml(latest.form_title || 'PIC Handoff Checklist')}</div>
+                    <div class="text-muted small">
+                        ${escapeHtml(formatUtcTimestampForTable(latest.submission_timestamp))} • ${escapeHtml(latest.submitted_by_username || 'Unknown')}
+                    </div>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-sm btn-info" id="dashboardPicHandoffsViewLatestBtn">View Details</button>
+                </div>
+            </div>
+        `;
+        const viewLatestBtn = document.getElementById('dashboardPicHandoffsViewLatestBtn');
+        if (viewLatestBtn) {
+            viewLatestBtn.addEventListener('click', () => displayPicFormDetailsInModal(latest));
+        }
+
+        dashboardPicHandoffsTableBody.innerHTML = '';
+        forms.forEach(form => {
+            const row = dashboardPicHandoffsTableBody.insertRow();
+            row.insertCell().textContent = form.mission_id || '';
+            row.insertCell().textContent = form.form_title || '';
+            row.insertCell().textContent = formatUtcTimestampForTable(form.submission_timestamp);
+            row.insertCell().textContent = form.submitted_by_username || '';
+
+            const actionsCell = row.insertCell();
+            const viewButton = document.createElement('button');
+            viewButton.classList.add('btn', 'btn-sm', 'btn-info');
+            viewButton.textContent = 'View Details';
+            viewButton.addEventListener('click', () => displayPicFormDetailsInModal(form));
+            actionsCell.appendChild(viewButton);
+        });
+    };
+
+    const loadPicHandoffsForMission = async () => {
+        if (!dashboardPicHandoffsSpinner || !dashboardPicHandoffsLatest || !dashboardPicHandoffsTableBody || !dashboardPicHandoffsEmpty) return;
+
+        if (!missionId) {
+            dashboardPicHandoffsLatest.innerHTML = '<div class="text-muted small">No mission selected.</div>';
+            dashboardPicHandoffsTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">No mission selected.</td></tr>';
+            dashboardPicHandoffsEmpty.style.display = 'none';
+            return;
+        }
+
+        dashboardPicHandoffsSpinner.style.display = 'block';
+        dashboardPicHandoffsEmpty.style.display = 'none';
+
+        try {
+            const forms = await apiRequest(`/api/forms/pic_handoffs/mission/${encodeURIComponent(missionId)}`, 'GET');
+            renderPicHandoffs(forms);
+        } catch (error) {
+            dashboardPicHandoffsLatest.innerHTML = `<div class="text-danger small">Failed to load PIC submissions: ${escapeHtml(error.message)}</div>`;
+            dashboardPicHandoffsTableBody.innerHTML = `<tr><td colspan="5" class="text-danger small">Failed to load PIC submissions: ${escapeHtml(error.message)}</td></tr>`;
+            dashboardPicHandoffsEmpty.style.display = 'none';
+        } finally {
+            dashboardPicHandoffsSpinner.style.display = 'none';
+        }
+    };
+
     const loadMissionMedia = async () => {
         if (!missionMediaGallery) return;
         if (!missionId) {
@@ -280,6 +443,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (missionMediaUploadSpinner) missionMediaUploadSpinner.style.display = 'none';
             }
         });
+    }
+
+    // PIC Submissions tab lazy-load
+    const picTabButton = document.getElementById('dashboard-pic-tab');
+    if (picTabButton) {
+        picTabButton.addEventListener('shown.bs.tab', () => {
+            loadPicHandoffsForMission();
+        });
+    }
+    if (dashboardPicHandoffsRefreshBtn) {
+        dashboardPicHandoffsRefreshBtn.addEventListener('click', () => loadPicHandoffsForMission());
     }
 
     if (missionMediaGallery) {

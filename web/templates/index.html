@@ -380,121 +380,183 @@
           {% endif %}
         </div>
         <div class="card-body">
-          <div class="mb-3">
-            <h5>Formal Plan Document</h5>
-            <div id="overviewPlanContainer" style="display: none;">
-              <a href="#" id="overviewPlanLink" target="_blank" rel="noopener noreferrer"></a>
-            </div>
-            <div id="overviewPlanEmpty" class="text-muted small">No formal plan document uploaded.</div>
-          </div>
+          <ul class="nav nav-tabs" id="dashboardOverviewTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="dashboard-overview-tab" data-bs-toggle="tab" data-bs-target="#dashboard-overview-pane" type="button" role="tab" aria-controls="dashboard-overview-pane" aria-selected="true">
+                Mission Overview
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="dashboard-pic-tab" data-bs-toggle="tab" data-bs-target="#dashboard-pic-pane" type="button" role="tab" aria-controls="dashboard-pic-pane" aria-selected="false">
+                PIC Submissions
+              </button>
+            </li>
+          </ul>
 
-          <div class="mb-3">
-            <h5>Mission Reports</h5>
-            <div id="overviewWeeklyReportContainer" style="display: none;">
-              <strong>Weekly Report:</strong>
-              <a href="#" id="overviewWeeklyReportLink" target="_blank" rel="noopener noreferrer"></a>
-            </div>
-            <div id="overviewEndReportContainer" style="display: none;">
-              <strong>End of Mission Report:</strong>
-              <a href="#" id="overviewEndReportLink" target="_blank" rel="noopener noreferrer"></a>
-            </div>
-            <div id="overviewNoReports" class="text-muted small">No reports available yet.</div>
-          </div>
+          <div class="tab-content pt-3" id="dashboardOverviewTabsContent">
+            <div class="tab-pane fade show active" id="dashboard-overview-pane" role="tabpanel" aria-labelledby="dashboard-overview-tab" tabindex="0">
+              <div class="mb-3">
+                <h5>Formal Plan Document</h5>
+                <div id="overviewPlanContainer" style="display: none;">
+                  <a href="#" id="overviewPlanLink" target="_blank" rel="noopener noreferrer"></a>
+                </div>
+                <div id="overviewPlanEmpty" class="text-muted small">No formal plan document uploaded.</div>
+              </div>
 
-          <div class="mb-3">
-            <h5>Sensor Tracker Metadata</h5>
-            <div id="overviewSensorTrackerContainer" style="display: none;">
-              <dl class="row mb-0">
-                <dt class="col-sm-4">Title:</dt>
-                <dd class="col-sm-8" id="overviewStTitle">-</dd>
-                <dt class="col-sm-4">Start:</dt>
-                <dd class="col-sm-8" id="overviewStStart">-</dd>
-                <dt class="col-sm-4">End:</dt>
-                <dd class="col-sm-8" id="overviewStEnd">-</dd>
-                <dt class="col-sm-4">Platform:</dt>
-                <dd class="col-sm-8" id="overviewStPlatform">-</dd>
-                <dt class="col-sm-4">Data Repository:</dt>
-                <dd class="col-sm-8" id="overviewStDataRepo">-</dd>
-              </dl>
-              <div class="mt-2">
-                <strong>Deployment Description:</strong>
-                <p class="text-muted small mb-0" id="overviewStDescription" style="white-space: pre-wrap;">-</p>
+              <div class="mb-3">
+                <h5>Mission Reports</h5>
+                <div id="overviewWeeklyReportContainer" style="display: none;">
+                  <strong>Weekly Report:</strong>
+                  <a href="#" id="overviewWeeklyReportLink" target="_blank" rel="noopener noreferrer"></a>
+                </div>
+                <div id="overviewEndReportContainer" style="display: none;">
+                  <strong>End of Mission Report:</strong>
+                  <a href="#" id="overviewEndReportLink" target="_blank" rel="noopener noreferrer"></a>
+                </div>
+                <div id="overviewNoReports" class="text-muted small">No reports available yet.</div>
               </div>
-              <div class="mt-3" id="overviewStInstruments" style="display: none;">
-                <h6 class="mb-2">Instruments</h6>
-                <ul class="list-unstyled small mb-0" id="overviewStInstrumentsList"></ul>
-              </div>
-            </div>
-            <div id="overviewSensorTrackerEmpty" class="text-muted small">No Sensor Tracker metadata available.</div>
-          </div>
 
-          <div class="row mt-4">
-            <div class="col-lg-7">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4 class="mb-0">Mission Comments</h4>
-              </div>
-              <div class="mission-notes-container">
-                <ul class="list-group mission-notes-list" id="dashboardMissionNotesList">
-                  <li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>
-                </ul>
-                {% if current_user %}
-                <div class="card mt-3">
-                  <div class="card-body p-2">
-                    <textarea class="form-control new-mission-note-content" rows="2" placeholder="Add a new mission comment..."></textarea>
-                    <button class="btn btn-sm btn-primary mt-2 add-mission-note-btn">Add Comment</button>
+              <div class="mb-3">
+                <h5>Sensor Tracker Metadata</h5>
+                <div id="overviewSensorTrackerContainer" style="display: none;">
+                  <dl class="row mb-0">
+                    <dt class="col-sm-4">Title:</dt>
+                    <dd class="col-sm-8" id="overviewStTitle">-</dd>
+                    <dt class="col-sm-4">Start:</dt>
+                    <dd class="col-sm-8" id="overviewStStart">-</dd>
+                    <dt class="col-sm-4">End:</dt>
+                    <dd class="col-sm-8" id="overviewStEnd">-</dd>
+                    <dt class="col-sm-4">Platform:</dt>
+                    <dd class="col-sm-8" id="overviewStPlatform">-</dd>
+                    <dt class="col-sm-4">Data Repository:</dt>
+                    <dd class="col-sm-8" id="overviewStDataRepo">-</dd>
+                  </dl>
+                  <div class="mt-2">
+                    <strong>Deployment Description:</strong>
+                    <p class="text-muted small mb-0" id="overviewStDescription" style="white-space: pre-wrap;">-</p>
+                  </div>
+                  <div class="mt-3" id="overviewStInstruments" style="display: none;">
+                    <h6 class="mb-2">Instruments</h6>
+                    <ul class="list-unstyled small mb-0" id="overviewStInstrumentsList"></ul>
                   </div>
                 </div>
-                {% endif %}
+                <div id="overviewSensorTrackerEmpty" class="text-muted small">No Sensor Tracker metadata available.</div>
               </div>
-            </div>
-            <div class="col-lg-5">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4 class="mb-0">Mission Goals</h4>
-                {% if current_user and current_user.role == 'admin' %}
-                <button class="btn btn-sm btn-primary add-goal-btn" title="Add New Goal"><i class="fas fa-plus"></i> Add Goal</button>
-                {% endif %}
-              </div>
-              <ul class="list-group mission-goals-list" id="dashboardMissionGoalsList">
-                <li class="list-group-item text-muted no-mission-goals-placeholder">No mission goals have been defined.</li>
-              </ul>
-            </div>
-          </div>
 
-          {% if current_user %}
-          <div class="collapse mb-3" id="missionMediaUploadCollapse">
-            <form id="missionMediaUploadForm">
-              <div class="row g-2 align-items-end">
-                <div class="col-md-5">
-                  <label for="missionMediaFile" class="form-label small">Select File</label>
-                  <input type="file" class="form-control form-control-sm" id="missionMediaFile" accept="image/*,video/*" required>
+              <div class="row mt-4">
+                <div class="col-lg-7">
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">Mission Comments</h4>
+                  </div>
+                  <div class="mission-notes-container">
+                    <ul class="list-group mission-notes-list" id="dashboardMissionNotesList">
+                      <li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>
+                    </ul>
+                    {% if current_user %}
+                    <div class="card mt-3">
+                      <div class="card-body p-2">
+                        <textarea class="form-control new-mission-note-content" rows="2" placeholder="Add a new mission comment..."></textarea>
+                        <button class="btn btn-sm btn-primary mt-2 add-mission-note-btn">Add Comment</button>
+                      </div>
+                    </div>
+                    {% endif %}
+                  </div>
                 </div>
-                <div class="col-md-3">
-                  <label for="missionMediaOperation" class="form-label small">Operation Type</label>
-                  <select class="form-select form-select-sm" id="missionMediaOperation">
-                    <option value="">Not specified</option>
-                    <option value="deployment">Deployment</option>
-                    <option value="recovery">Recovery</option>
-                  </select>
-                </div>
-                <div class="col-md-4">
-                  <label for="missionMediaCaption" class="form-label small">Caption</label>
-                  <input type="text" class="form-control form-control-sm" id="missionMediaCaption" placeholder="Optional caption">
+                <div class="col-lg-5">
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">Mission Goals</h4>
+                    {% if current_user and current_user.role == 'admin' %}
+                    <button class="btn btn-sm btn-primary add-goal-btn" title="Add New Goal"><i class="fas fa-plus"></i> Add Goal</button>
+                    {% endif %}
+                  </div>
+                  <ul class="list-group mission-goals-list" id="dashboardMissionGoalsList">
+                    <li class="list-group-item text-muted no-mission-goals-placeholder">No mission goals have been defined.</li>
+                  </ul>
                 </div>
               </div>
-              <div class="mt-2 d-flex align-items-center gap-2">
-                <button type="submit" class="btn btn-sm btn-primary" id="missionMediaUploadBtn">
-                  <i class="fas fa-upload"></i> Upload
-                </button>
-                <span id="missionMediaUploadSpinner" class="text-muted small" style="display: none;">
-                  <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  Uploading...
-                </span>
+
+              {% if current_user %}
+              <div class="collapse mb-3" id="missionMediaUploadCollapse">
+                <form id="missionMediaUploadForm">
+                  <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                      <label for="missionMediaFile" class="form-label small">Select File</label>
+                      <input type="file" class="form-control form-control-sm" id="missionMediaFile" accept="image/*,video/*" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label for="missionMediaOperation" class="form-label small">Operation Type</label>
+                      <select class="form-select form-select-sm" id="missionMediaOperation">
+                        <option value="">Not specified</option>
+                        <option value="deployment">Deployment</option>
+                        <option value="recovery">Recovery</option>
+                      </select>
+                    </div>
+                    <div class="col-md-4">
+                      <label for="missionMediaCaption" class="form-label small">Caption</label>
+                      <input type="text" class="form-control form-control-sm" id="missionMediaCaption" placeholder="Optional caption">
+                    </div>
+                  </div>
+                  <div class="mt-2 d-flex align-items-center gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary" id="missionMediaUploadBtn">
+                      <i class="fas fa-upload"></i> Upload
+                    </button>
+                    <span id="missionMediaUploadSpinner" class="text-muted small" style="display: none;">
+                      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      Uploading...
+                    </span>
+                  </div>
+                </form>
               </div>
-            </form>
-          </div>
-          {% endif %}
-          <div id="missionMediaGallery" class="row g-3">
-            <div class="text-muted small">Loading media...</div>
+              {% endif %}
+              <div id="missionMediaGallery" class="row g-3">
+                <div class="text-muted small">Loading media...</div>
+              </div>
+            </div>
+
+            <div class="tab-pane fade" id="dashboard-pic-pane" role="tabpanel" aria-labelledby="dashboard-pic-tab" tabindex="0">
+              <div id="dashboardPicHandoffsSpinner" class="text-center my-4" style="display: none;">
+                <div class="spinner-border" role="status">
+                  <span class="visually-hidden">Loading PIC submissions...</span>
+                </div>
+                <div class="text-muted small mt-2">Loading PIC submissions...</div>
+              </div>
+
+              <div id="dashboardPicHandoffsContent">
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Most Recent PIC Submission</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPicHandoffsRefreshBtn">
+                      <i class="fas fa-rotate"></i> Refresh
+                    </button>
+                  </div>
+                  <div class="card-body" id="dashboardPicHandoffsLatest">
+                    <div class="text-muted small">No PIC submissions loaded yet.</div>
+                  </div>
+                </div>
+
+                <h5 class="mt-3">All PIC Submissions</h5>
+                <div class="table-responsive">
+                  <table class="table table-striped table-hover table-sm">
+                    <thead>
+                      <tr>
+                        <th>Mission</th>
+                        <th>Form Title</th>
+                        <th>Submission Time (UTC)</th>
+                        <th>Submitted By</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dashboardPicHandoffsTableBody">
+                      <tr><td colspan="5" class="text-muted small">No PIC submissions loaded yet.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p id="dashboardPicHandoffsEmpty" class="text-center text-muted mt-3" style="display:none;">No PIC Handoff forms have been submitted for this mission.</p>
+              </div>
+
+              {% set id_prefix = "dashboardPicHandoffs" %}
+              {% include "_form_details_modal.html" %}
+            </div>
           </div>
         </div>
       </div>

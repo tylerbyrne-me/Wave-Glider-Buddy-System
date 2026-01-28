@@ -108,6 +108,9 @@ from .routers import user_notes as user_notes_router
 from .routers import shared_tips as shared_tips_router
 from .routers import chatbot as chatbot_router
 
+# Admin imports
+from .core.admin_sqladmin import setup_sqladmin
+
 # --- Conditional import for fcntl ---
 IS_UNIX = True
 try:
@@ -201,6 +204,9 @@ app.include_router(user_notes_router.router)
 app.include_router(shared_tips_router.router)
 app.include_router(chatbot_router.router)
 
+# SQLAdmin will be initialized in startup_event with the app instance
+# No need to mount separately - it's integrated into the app during setup
+
 logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
 
@@ -243,6 +249,10 @@ async def initialize_startup_cache():
     """
     logger.info("STARTUP: Initializing comprehensive data cache...")
     
+    # Check feature toggle status
+    local_data_loading_enabled = feature_toggles.is_feature_enabled("local_data_loading")
+    logger.info(f"STARTUP: Local data loading feature toggle: {'ENABLED' if local_data_loading_enabled else 'DISABLED'}")
+    
     # Get all active missions, filtering out empty strings
     active_missions = [m for m in settings.active_realtime_missions if m and m.strip()]
     if not active_missions:
@@ -263,9 +273,14 @@ async def initialize_startup_cache():
         
         for report_type in incremental_types:
             try:
+                # Determine source preference: try local first if feature toggle is enabled
+                source_pref_for_cache = "remote"  # Default
+                if feature_toggles.is_feature_enabled("local_data_loading"):
+                    source_pref_for_cache = "local"
+                
                 # Load data for the last 24 hours to get a good baseline
                 cache_key = create_time_aware_cache_key(
-                    report_type, mission_id, None, None, 24, "remote", None
+                    report_type, mission_id, None, None, 24, source_pref_for_cache, None
                 )
                 
                 # Check if already cached
@@ -273,13 +288,38 @@ async def initialize_startup_cache():
                     logger.debug(f"STARTUP: {report_type} for {mission_id} already cached")
                     continue
                 
-                # Load data with overlap
-                df, source_path, _ = await load_data_with_overlap(
-                    report_type, mission_id, 
-                    start_date=None, end_date=None, hours_back=24,
-                    overlap_hours=CACHE_STRATEGIES[report_type]["overlap_hours"],
-                    source_preference="remote", custom_local_path=None, current_user=None
-                )
+                # Determine source preference: try local first if feature toggle is enabled
+                if feature_toggles.is_feature_enabled("local_data_loading"):
+                    # Try local first during startup if feature is enabled
+                    # Use system access mode to bypass admin check during startup
+                    logger.info(f"STARTUP: Local data loading enabled, attempting local load for {report_type} ({mission_id})")
+                    df, source_path, _ = await load_data_with_overlap(
+                        report_type, mission_id, 
+                        start_date=None, end_date=None, hours_back=24,
+                        overlap_hours=CACHE_STRATEGIES[report_type]["overlap_hours"],
+                        source_preference="local", custom_local_path=None, 
+                        current_user=None, allow_system_access=True
+                    )
+                    
+                    # If local failed, try remote as fallback
+                    if df is None or df.empty:
+                        logger.info(f"STARTUP: Local load failed for {report_type} ({mission_id}), trying remote fallback")
+                    else:
+                        logger.info(f"STARTUP: Successfully loaded {report_type} ({mission_id}) from local: {source_path}")
+                        df, source_path, _ = await load_data_with_overlap(
+                            report_type, mission_id, 
+                            start_date=None, end_date=None, hours_back=24,
+                            overlap_hours=CACHE_STRATEGIES[report_type]["overlap_hours"],
+                            source_preference="remote", custom_local_path=None, current_user=None
+                        )
+                else:
+                    # Feature toggle disabled, use remote only
+                    df, source_path, _ = await load_data_with_overlap(
+                        report_type, mission_id, 
+                        start_date=None, end_date=None, hours_back=24,
+                        overlap_hours=CACHE_STRATEGIES[report_type]["overlap_hours"],
+                        source_preference="remote", custom_local_path=None, current_user=None
+                    )
                 
                 if not df.empty:
                     # Store in cache with proper datetime conversion
@@ -651,9 +691,32 @@ def _initialize_database_and_users():
             )
 
 async def _load_from_local_sources(
-    report_type: str, mission_id: str, custom_local_path: Optional[str]
+    report_type: str, mission_id: str, custom_local_path: Optional[str],
+    current_user: Optional[models.User] = None,
+    allow_system_access: bool = False
 ) -> Tuple[Optional[pd.DataFrame], str, Optional[datetime]]:
-    """Helper to attempt loading data from local sources (custom then default)."""
+    """
+    Helper to attempt loading data from local sources (custom then default).
+    
+    Local data loading is restricted to admin users only and requires the
+    'local_data_loading' feature toggle to be enabled.
+    """
+    # Check if local data loading is enabled
+    if not feature_toggles.is_feature_enabled("local_data_loading"):
+        logger.info("Local data loading is disabled via feature toggle.")
+        return None, "Local (Disabled): Feature toggle not enabled", None
+    
+    # Admin check: skip if system access is allowed (for startup/system operations)
+    if not allow_system_access:
+        if not current_user or current_user.role != models.UserRoleEnum.admin:
+            logger.warning(
+                f"Non-admin user '{current_user.username if current_user else 'anonymous'}' "
+                f"attempted to load local data for {report_type} ({mission_id}). Access denied."
+            )
+            return None, "Local (Restricted): Admin access required", None
+    else:
+        logger.info(f"System access allowed for local data loading: {report_type} ({mission_id})")
+    
     df = None
     actual_source_path = "Data not loaded"
     _attempted_custom_local = False
@@ -661,7 +724,7 @@ async def _load_from_local_sources(
     if custom_local_path:
         _custom_local_path_str = f"Local (Custom): {Path(custom_local_path) / mission_id}"
         try:
-            logger.debug(
+            logger.info(
                 f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}"
             )
             df_attempt, file_mod_time = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path))
@@ -686,7 +749,7 @@ async def _load_from_local_sources(
         _default_local_path_str = f"Local (Default): {settings.local_data_base_path / mission_id}"
         _attempted_default_local = False
         try:
-            logger.debug(
+            logger.info(
                 f"Attempting local load for {report_type} (mission: {mission_id}) from default path: {settings.local_data_base_path}"
             )
             df_attempt, file_mod_time = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
@@ -913,7 +976,8 @@ async def load_data_with_overlap(
     overlap_hours: int = 1,
     source_preference: Optional[str] = None,
     custom_local_path: Optional[str] = None,
-    current_user: Optional[models.User] = None
+    current_user: Optional[models.User] = None,
+    allow_system_access: bool = False
 ) -> Tuple[pd.DataFrame, str, Optional[datetime]]:
     """
     Load data with overlap to prevent gaps.
@@ -954,12 +1018,12 @@ async def load_data_with_overlap(
     
     load_attempted = False
     file_modification_time = None
-    if source_preference == "local":  # Local-only preference
+    if source_preference == "local":  # Local-only preference (admin only, feature toggle required)
         load_attempted = True
-        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
+        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path, current_user, allow_system_access=allow_system_access)
     elif source_preference == "remote" or source_preference is None:
         # Default behavior: remote-only (no local fallback)
-        # Local fallback can be explicitly requested via source_preference="local" or custom_local_path
+        # Local is never used as default - only when explicitly requested by admin
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_remote_sources(report_type, mission_id, current_user)
         if df is None:
@@ -1314,6 +1378,17 @@ async def run_weekly_reports_job():
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
     logger.info("Application startup event initiated.")  # Changed from print
+    
+    # Setup admin interfaces
+    try:
+        # Setup SQLAdmin (doesn't require Redis)
+        # Focus: Core operational models (Users, Stations, Missions, Timesheets, etc.)
+        # Pass the app instance as SQLAdmin requires it for initialization
+        setup_sqladmin(app)
+        logger.info("SQLAdmin configured successfully at /admin (admin-only, authenticated)")
+    except Exception as e:
+        logger.error(f"Error setting up admin interfaces: {e}", exc_info=True)
+    
     # Create directory for mission plan uploads if it doesn't exist
     MISSION_PLANS_DIR = PROJECT_ROOT / "web" / "static" / "mission_plans"
     MISSION_PLANS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1964,6 +2039,20 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
                     # Process for automatic offload logging
                     stats = process_wg_vm4_info_for_mission(session, processed_df, mission)
                     logger.info(f"WG-VM4 auto-processing for mission {mission}: {stats}")
+                    
+                    # Load and attach Vemco VM4 Remote Health to offload logs when available
+                    try:
+                        from .core.wg_vm4_station_service import attach_remote_health_to_offload_logs
+                        from .core.processors import preprocess_wg_vm4_remote_health_df
+                        remote_health_result = await load_data_source("wg_vm4_remote_health", mission, current_user=current_user)
+                        if isinstance(remote_health_result, tuple) and len(remote_health_result) >= 2:
+                            rh_df = remote_health_result[0]
+                            if rh_df is not None and not rh_df.empty:
+                                rh_processed = preprocess_wg_vm4_remote_health_df(rh_df)
+                                health_stats = attach_remote_health_to_offload_logs(session, rh_processed)
+                                logger.info(f"WG-VM4 remote health attached for mission {mission}: {health_stats}")
+                    except Exception as rh_err:
+                        logger.debug(f"WG-VM4 remote health not loaded or attach failed for mission {mission}: {rh_err}")
                 else:
                     logger.debug(f"No WG-VM4 info data available for mission {mission}")
             else:

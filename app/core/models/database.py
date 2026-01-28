@@ -82,6 +82,20 @@ class StationMetadata(SQLModel, table=True):
         index=True,
         description="User override for display status, e.g., SKIPPED",
     )
+    field_season_year: Optional[int] = SQLModelField(
+        default=None,
+        index=True,
+        description="Field season year this station record belongs to (NULL = current/active season)",
+    )
+    is_archived: bool = SQLModelField(
+        default=False,
+        index=True,
+        description="Whether this station record is archived (read-only)",
+    )
+    archived_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="UTC timestamp when this station was archived",
+    )
 
     offload_logs: List["OffloadLog"] = Relationship(
         back_populates="station",
@@ -106,6 +120,13 @@ class OffloadLogBase(SQLModel):
         default=None,
         description="Notes about the offload and/or file size"
     )
+    # VM4 Remote Health snapshot at time of connection (from Vemco VM4 Remote Health.csv)
+    remote_health_model_id: Optional[str] = SQLModelField(default=None, description="Model ID from station remote health (e.g. 1538).")
+    remote_health_serial_number: Optional[str] = SQLModelField(default=None, description="Serial number from station remote health.")
+    remote_health_modem_address: Optional[int] = SQLModelField(default=None, description="Modem address from station remote health.")
+    remote_health_temperature_c: Optional[float] = SQLModelField(default=None, description="Temperature (C) from station remote health.")
+    remote_health_tilt_rad: Optional[float] = SQLModelField(default=None, description="Tilt (rad) from station remote health.")
+    remote_health_humidity: Optional[int] = SQLModelField(default=None, description="Humidity from station remote health.")
 
 
 class OffloadLog(OffloadLogBase, table=True):
@@ -119,8 +140,48 @@ class OffloadLog(OffloadLogBase, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         description="UTC timestamp when this log entry was created."
     )
+    field_season_year: Optional[int] = SQLModelField(
+        default=None,
+        index=True,
+        description="Field season year this offload occurred in",
+    )
 
     station: "StationMetadata" = Relationship(back_populates="offload_logs")
+
+
+# --- Field Season Database Model ---
+class FieldSeason(SQLModel, table=True):
+    """Field season database table."""
+    __tablename__ = "field_seasons"
+    
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    year: int = SQLModelField(
+        unique=True,
+        index=True,
+        description="Field season year (e.g., 2024, 2025)",
+    )
+    is_active: bool = SQLModelField(
+        default=True,
+        index=True,
+        description="Whether this is the currently active season (only one active at a time)",
+    )
+    closed_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="UTC timestamp when this season was closed",
+    )
+    closed_by_username: Optional[str] = SQLModelField(
+        default=None,
+        description="Username of the user who closed this season",
+    )
+    summary_statistics: Optional[Dict] = SQLModelField(
+        default=None,
+        sa_column=Column(JSON),
+        description="JSON field storing season summary statistics",
+    )
+    created_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="UTC timestamp when this season record was created",
+    )
 
 
 # --- Submitted Form Database Model ---

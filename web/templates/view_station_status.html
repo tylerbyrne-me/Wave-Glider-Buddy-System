@@ -53,6 +53,70 @@
                 <button class="btn btn-secondary" onclick="window.close();" title="Close this tab/window">Close Page</button>
             </div>
         </div>
+        
+        <!-- Season Management Section (Admin Only) -->
+        <div id="seasonManagementSection" class="card mb-4" style="display: none;">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Field Season Management</h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center mb-3">
+                    <div class="col-md-4">
+                        <label for="activeSeasonDisplay" class="form-label">Active Season:</label>
+                        <div id="activeSeasonDisplay" class="fw-bold">Loading...</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="seasonSelector" class="form-label">View Season:</label>
+                        <select class="form-select" id="seasonSelector">
+                            <option value="">Current Active Season</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="btn-group-vertical" role="group">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-success" id="createSeasonBtn" title="Create a new field season" data-bs-toggle="modal" data-bs-target="#createSeasonModal" style="display: none;">
+                                    <i class="fas fa-plus me-1"></i> Create New Season
+                                </button>
+                                <button class="btn btn-warning" id="closeSeasonBtn" title="Close a season (archives all data)" data-bs-toggle="modal" data-bs-target="#closeSeasonModal" style="display: none;">
+                                    <i class="fas fa-lock me-1"></i> Close Season
+                                </button>
+                                <button class="btn btn-info" id="prepareNextSeasonBtn" title="Prepare master list for next season" style="display: none;">
+                                    <i class="fas fa-file-export me-1"></i> Prepare Next Season
+                                </button>
+                            </div>
+                            <button class="btn btn-secondary mt-2" id="downloadPreviousSeasonBtn" title="Download previous season data" data-bs-toggle="modal" data-bs-target="#downloadPreviousSeasonModal">
+                                <i class="fas fa-download me-1"></i> Download Previous Season
+                            </button>
+                            <button class="btn btn-danger mt-2" id="clearAllBtn" title="TESTING ONLY: Clear all stations and offload logs without saving" data-bs-toggle="modal" data-bs-target="#clearAllModal">
+                                <i class="fas fa-trash-alt me-1"></i> Clear All (Testing)
+                            </button>
+                            <div class="btn-group mt-2" role="group">
+                                <button class="btn btn-warning btn-sm" id="manageSeasonsBtn" title="TESTING: Manage seasons (edit, delete, set active)" data-bs-toggle="modal" data-bs-target="#manageSeasonsModal">
+                                    <i class="fas fa-cog me-1"></i> Manage Seasons (Testing)
+                                </button>
+                            </div>
+                            <button class="btn btn-info btn-sm mt-2" id="processVm4Btn" title="TESTING: Process VM4 offloads for a mission" data-bs-toggle="modal" data-bs-target="#processVm4Modal">
+                                <i class="fas fa-cogs me-1"></i> Process VM4 Offloads (Testing)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="seasonStatsDisplay" class="mt-3" style="display: none;">
+                    <!-- Season statistics will be displayed here -->
+                    <div class="card bg-dark border-info">
+                        <div class="card-header bg-info text-dark">
+                            <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Season Statistics</h6>
+                        </div>
+                        <div class="card-body" id="seasonStatsContent">
+                            <div class="text-center text-muted">
+                                <i class="fas fa-spinner fa-spin me-2"></i>Loading statistics...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <hr class="mb-4">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="flex-grow-1 me-2">
@@ -243,6 +307,18 @@
                                     Offloaded Successfully?
                                 </label>
                             </div>
+                            <div id="latestRemoteHealthSection" class="mb-3" style="display: none;">
+                                <h6 class="text-info">Latest Offload – Remote Health (VM4)</h6>
+                                <p class="small text-muted mb-2">From Vemco VM4 Remote Health at connection.</p>
+                                <div class="row small">
+                                    <div class="col-md-4"><strong>Model ID:</strong> <span id="displayRemoteHealthModelId">—</span></div>
+                                    <div class="col-md-4"><strong>Serial #:</strong> <span id="displayRemoteHealthSerialNumber">—</span></div>
+                                    <div class="col-md-4"><strong>Modem Addr:</strong> <span id="displayRemoteHealthModemAddress">—</span></div>
+                                    <div class="col-md-4"><strong>Temp (°C):</strong> <span id="displayRemoteHealthTemperatureC">—</span></div>
+                                    <div class="col-md-4"><strong>Tilt (rad):</strong> <span id="displayRemoteHealthTiltRad">—</span></div>
+                                    <div class="col-md-4"><strong>Humidity:</strong> <span id="displayRemoteHealthHumidity">—</span></div>
+                                </div>
+                            </div>
                             <button type="button" class="btn btn-success" id="logNewOffloadBtn">Log New Offload</button>
                         </div>
                     </form>
@@ -266,6 +342,13 @@
                     <p>Upload a CSV file with station metadata. The required column is: <strong>station_id</strong>. Optional columns include: <strong>serial_number, modem_address, bottom_depth_m, waypoint_number, station_settings, notes, display_status_override</strong>.</p>
                     <form id="uploadCsvForm">
                         <div class="mb-3">
+                            <label for="uploadSeasonYear" class="form-label">Season Year:</label>
+                            <select class="form-select" id="uploadSeasonYear">
+                                <option value="">Current Active Season</option>
+                            </select>
+                            <div class="form-text">Select which season this data belongs to. Leave as "Current Active Season" for new data.</div>
+                        </div>
+                        <div class="mb-3">
                             <label for="csvFile" class="form-label">CSV File</label>
                             <input class="form-control" type="file" id="csvFile" accept=".csv">
                         </div>
@@ -275,6 +358,308 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" id="submitUploadBtn">Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Statistics Modal -->
+    <div class="modal fade" id="seasonStatsModal" tabindex="-1" aria-labelledby="seasonStatsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="seasonStatsModalLabel">Season Statistics</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="seasonStatsModalBody">
+                    <!-- Statistics will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Season Modal -->
+    <div class="modal fade" id="createSeasonModal" tabindex="-1" aria-labelledby="createSeasonModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createSeasonModalLabel">Create New Field Season</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newSeasonYear" class="form-label">Season Year:</label>
+                        <input type="number" class="form-control" id="newSeasonYear" min="2000" max="2100" required>
+                        <div class="form-text">Enter the year for the new field season (e.g., 2026)</div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="setAsActiveCheck" checked>
+                        <label class="form-check-label" for="setAsActiveCheck">
+                            Set as active season
+                        </label>
+                        <div class="form-text">If checked, this season will become the active season. Any existing active season will be deactivated.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="confirmCreateSeasonBtn">Create Season</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Close Season Modal -->
+    <div class="modal fade" id="closeSeasonModal" tabindex="-1" aria-labelledby="closeSeasonModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="closeSeasonModalLabel">Close Field Season</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> Closing a season will archive all stations and offload logs for that year. 
+                        This action cannot be undone.
+                    </div>
+                    <div class="mb-3">
+                        <label for="closeSeasonYear" class="form-label">Select Season to Close:</label>
+                        <select class="form-select" id="closeSeasonYear" required>
+                            <option value="">Select a season...</option>
+                        </select>
+                        <div class="form-text">Only active/open seasons can be closed.</div>
+                    </div>
+                    <div id="closeSeasonPreview" class="mt-3" style="display: none;">
+                        <h6>This will close:</h6>
+                        <ul id="closeSeasonPreviewList"></ul>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning" id="confirmCloseSeasonBtn">Close Season</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manage Seasons Modal (Testing Only) -->
+    <div class="modal fade" id="manageSeasonsModal" tabindex="-1" aria-labelledby="manageSeasonsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title" id="manageSeasonsModalLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Manage Seasons (Testing Only)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <strong>Testing Controls:</strong> These operations are for testing and administration purposes.
+                    </div>
+                    <div class="mb-3">
+                        <label for="manageSeasonSelector" class="form-label">Select Season:</label>
+                        <select class="form-select" id="manageSeasonSelector">
+                            <option value="">Select a season...</option>
+                        </select>
+                    </div>
+                    <div id="seasonDetailsDisplay" class="mb-3" style="display: none;">
+                        <!-- Season details will be displayed here -->
+                    </div>
+                    <div class="btn-group w-100" role="group">
+                        <button class="btn btn-primary" id="setActiveSeasonBtn" disabled>
+                            <i class="fas fa-star me-1"></i> Set as Active
+                        </button>
+                        <button class="btn btn-warning" id="editSeasonBtn" disabled>
+                            <i class="fas fa-edit me-1"></i> Edit Season
+                        </button>
+                        <button class="btn btn-danger" id="deleteSeasonBtn" disabled>
+                            <i class="fas fa-trash me-1"></i> Delete Season
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Season Modal -->
+    <div class="modal fade" id="editSeasonModal" tabindex="-1" aria-labelledby="editSeasonModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editSeasonModalLabel">Edit Season</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editSeasonYear">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="editSeasonIsActive">
+                        <label class="form-check-label" for="editSeasonIsActive">
+                            Set as active season
+                        </label>
+                        <div class="form-text">If checked, this season will become active and all other seasons will be deactivated.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmEditSeasonBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Season Modal -->
+    <div class="modal fade" id="deleteSeasonModal" tabindex="-1" aria-labelledby="deleteSeasonModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title" id="deleteSeasonModalLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Delete Season (Testing)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <strong>Warning:</strong> This will delete the season record only. 
+                        Associated stations and offload logs will remain in the database.
+                    </div>
+                    <p>You cannot delete the active season. Set another season as active first.</p>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="confirmDeleteSeasonCheck" required>
+                        <label class="form-check-label" for="confirmDeleteSeasonCheck">
+                            I understand this will delete the season record (stations/logs remain)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteSeasonBtn" disabled>
+                        <i class="fas fa-trash me-1"></i> Delete Season
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Process VM4 Offloads Modal (Testing Only) -->
+    <div class="modal fade" id="processVm4Modal" tabindex="-1" aria-labelledby="processVm4ModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header bg-info">
+                    <h5 class="modal-title" id="processVm4ModalLabel">
+                        <i class="fas fa-cogs me-2"></i>Process VM4 Offloads (Testing)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <strong>Testing Tool:</strong> Manually trigger VM4 offload processing for a mission.
+                        This will process WG-VM4 info data and create offload logs automatically.
+                    </div>
+                    <div class="mb-3">
+                        <label for="processVm4MissionId" class="form-label">Mission ID:</label>
+                        <input type="text" class="form-control" id="processVm4MissionId" placeholder="e.g., m216, m217" required>
+                        <div class="form-text">Enter the mission ID to process VM4 offloads for</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="processVm4SeasonYear" class="form-label">Field Season Year (Optional):</label>
+                        <select class="form-select" id="processVm4SeasonYear">
+                            <option value="">Use station's season or active season (default)</option>
+                        </select>
+                        <div class="form-text">Specify a field season year to assign all offload logs to (useful for historical missions)</div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="processVm4Force">
+                        <label class="form-check-label" for="processVm4Force">
+                            Force processing (even for historical missions)
+                        </label>
+                    </div>
+                    <div id="processVm4Result" class="mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-info" id="confirmProcessVm4Btn">Process VM4 Offloads</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clear All Modal (Testing Only) -->
+    <div class="modal fade" id="clearAllModal" tabindex="-1" aria-labelledby="clearAllModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title" id="clearAllModalLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Clear All Data (Testing Only)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-exclamation-triangle me-2"></i><strong>WARNING: DESTRUCTIVE OPERATION</strong></h6>
+                        <p class="mb-0">This will <strong>permanently delete</strong> all stations and offload logs without archiving or saving any data.</p>
+                    </div>
+                    <div class="alert alert-warning">
+                        <strong>This is for testing purposes only!</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>All station metadata will be deleted</li>
+                            <li>All offload logs will be deleted</li>
+                            <li>No data will be archived or saved</li>
+                            <li>This action cannot be undone</li>
+                        </ul>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="confirmClearAllCheck" required>
+                        <label class="form-check-label" for="confirmClearAllCheck">
+                            I understand this will permanently delete all data and I want to proceed
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmClearAllBtn" disabled>
+                        <i class="fas fa-trash-alt me-1"></i> Clear All Data
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download Previous Season Modal -->
+    <div class="modal fade" id="downloadPreviousSeasonModal" tabindex="-1" aria-labelledby="downloadPreviousSeasonModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="downloadPreviousSeasonModalLabel">Download Previous Season Data</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="downloadSeasonYear" class="form-label">Season Year:</label>
+                        <select class="form-select" id="downloadSeasonYear">
+                            <option value="">Select a season...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="downloadStationType" class="form-label">Station Type (Optional):</label>
+                        <select class="form-select" id="downloadStationType">
+                            <option value="">All Station Types</option>
+                            <option value="CBS">CBS*</option>
+                            <option value="NCAT">NCAT*</option>
+                            <option value="GULMPA">GULMPA*</option>
+                            <option value="HALIBT">HALIBT*</option>
+                            <option value="HFX">HFX*</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmDownloadBtn">Download</button>
                 </div>
             </div>
         </div>

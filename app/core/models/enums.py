@@ -18,6 +18,7 @@ class ReportTypeEnum(str, Enum):
     solar = "solar"
     wg_vm4 = "wg_vm4"  # New WG-VM4 sensor
     wg_vm4_info = "wg_vm4_info"  # WG-VM4 info data for automatic offload logging
+    wg_vm4_remote_health = "wg_vm4_remote_health"  # VM4 remote health at connection
 
 
 class SourceEnum(str, Enum):

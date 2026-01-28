@@ -52,6 +52,7 @@ email_validator
 fastapi
 fastapi-cli
 fastapi-mail==1.5.0
+sqladmin==0.19.0
 filelock==3.20.1
 flake8==7.2.0
 Flask==3.1.1

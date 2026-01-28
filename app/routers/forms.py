@@ -94,6 +94,24 @@ async def get_recent_pic_handoff_submissions(
     forms = session.exec(statement).all()
     return forms
 
+
+@router.get("/api/forms/pic_handoffs/mission/{mission_id}", response_model=List[models.SubmittedForm])
+async def get_pic_handoff_submissions_for_mission(
+    mission_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    statement = (
+        select(models.SubmittedForm)
+        .where(
+            models.SubmittedForm.form_type == "pic_handoff_checklist",
+            models.SubmittedForm.mission_id == mission_id,
+        )
+        .order_by(models.SubmittedForm.submission_timestamp.desc())
+    )
+    forms = session.exec(statement).all()
+    return forms
+
 @router.get("/api/forms/{mission_id}/template/{form_type}")
 async def get_form_template(mission_id: str, form_type: str):
     try:

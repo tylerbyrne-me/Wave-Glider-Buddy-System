@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed here
-    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true}'
+    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "local_data_loading": false}'
     
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file

@@ -564,6 +564,59 @@ def preprocess_wg_vm4_info_df(df: pd.DataFrame) -> pd.DataFrame:
     return df_processed
 
 
+def preprocess_wg_vm4_remote_health_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocesses the Vemco VM4 Remote Health CSV.
+    Normalizes column names for model Id, serial Number, modem Address,
+    temperature (C), tilt (Rad), humidity. Used to attach health data to offload logs.
+    """
+    if df.empty:
+        return df
+    
+    rename_map = {
+        "model Id": "model_id",
+        "serial Number": "serial_number",
+        "serial Num": "serial_number",
+        "modem Address": "modem_address",
+        "modem Ad": "modem_address",
+        "temperature (C)": "temperature_c",
+        "tilt (Rad)": "tilt_rad",
+        "tilt (rad)": "tilt_rad",
+        "humidity": "humidity",
+    }
+    # Apply renames for columns that exist (CSV may use spaces)
+    for raw, norm in rename_map.items():
+        if raw in df.columns and norm not in df.columns:
+            df = df.rename(columns={raw: norm})
+    
+    # Remote Health CSV uses "timeStamp" (per VM4 exports), but be tolerant
+    timestamp_col = "timestamp"
+    if "timeStamp" in df.columns and timestamp_col not in df.columns:
+        df = df.rename(columns={"timeStamp": timestamp_col})
+    if "Timestamp" in df.columns and timestamp_col not in df.columns:
+        df = df.rename(columns={"Timestamp": timestamp_col})
+    if "timestamp" in df.columns and timestamp_col not in df.columns:
+        df = df.rename(columns={"timestamp": timestamp_col})
+    
+    if timestamp_col in df.columns:
+        df[timestamp_col] = utils.parse_timestamp_column(
+            df[timestamp_col], errors="coerce", utc=True
+        )
+    
+    numeric_health = ["temperature_c", "tilt_rad", "humidity", "modem_address", "model_id"]
+    for col in numeric_health:
+        if col in df.columns:
+            if col == "model_id":
+                df[col] = df[col].astype(str)
+            else:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    if "serial_number" in df.columns:
+        df["serial_number"] = df["serial_number"].astype(str)
+    
+    return df
+
+
 # ============================================================================
 # Processor Registry Initialization
 # ============================================================================
@@ -588,6 +641,7 @@ def _initialize_registry():
     registry.register("telemetry", preprocess_telemetry_df)
     registry.register("wg_vm4", preprocess_wg_vm4_df)
     registry.register("wg_vm4_info", preprocess_wg_vm4_info_df)
+    registry.register("wg_vm4_remote_health", preprocess_wg_vm4_remote_health_df)
     
     return registry
 

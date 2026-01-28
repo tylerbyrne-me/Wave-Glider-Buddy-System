@@ -62,6 +62,7 @@ async def sync_mission_file(
         "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv",
         "wg_vm4": "Vemco VM4 Daily Local Health.csv",
         "wg_vm4_info": "Vemco VM4 Information.csv",
+        "wg_vm4_remote_health": "Vemco VM4 Remote Health.csv",
     }
     
     if report_type not in reports:

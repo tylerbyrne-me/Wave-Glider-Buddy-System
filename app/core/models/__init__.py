@@ -33,6 +33,7 @@ from .database import (
     StationMetadata,
     OffloadLog,
     OffloadLogBase,
+    FieldSeason,
     ShiftAssignment,
     UserUnavailability,
     PayPeriod,
@@ -88,6 +89,14 @@ from .schemas import (
     # Offload log models
     OffloadLogCreate,
     OffloadLogRead,
+    
+    # Field season models
+    FieldSeasonCreate,
+    FieldSeasonRead,
+    FieldSeasonUpdate,
+    FieldSeasonSummary,
+    SeasonCloseRequest,
+    MasterListExport,
     
     # Form models
     FormItem,
@@ -192,6 +201,8 @@ __all__ = [
     "UserInDB",
     "StationMetadata",
     "OffloadLog",
+    "OffloadLogBase",
+    "FieldSeason",
     "ShiftAssignment",
     "UserUnavailability",
     "PayPeriod",
@@ -208,7 +219,6 @@ __all__ = [
     "SubmittedForm",
     "Announcement",
     "AnnouncementAcknowledgement",
-    "OffloadLogBase",
     "KnowledgeDocument",
     "KnowledgeDocumentVersion",
     "UserNote",
@@ -239,6 +249,12 @@ __all__ = [
     "StationMetadataCreateResponse",
     "OffloadLogCreate",
     "OffloadLogRead",
+    "FieldSeasonCreate",
+    "FieldSeasonRead",
+    "FieldSeasonUpdate",
+    "FieldSeasonSummary",
+    "SeasonCloseRequest",
+    "MasterListExport",
     "FormItem",
     "FormSection",
     "MissionFormSchema",

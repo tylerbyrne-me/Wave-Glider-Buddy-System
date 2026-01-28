@@ -3,7 +3,7 @@ Pydantic request/response model schemas for the Wave Glider Buddy System.
 """
 
 from datetime import datetime, date
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import SQLModel
@@ -211,6 +211,18 @@ class StationMetadataBase(StationMetadataCore):
         default=None,
         description="Outcome of the last offload attempt"
     )
+    field_season_year: Optional[int] = Field(
+        default=None,
+        description="Field season year this station record belongs to (NULL = current/active season)",
+    )
+    is_archived: bool = Field(
+        default=False,
+        description="Whether this station record is archived (read-only)",
+    )
+    archived_at_utc: Optional[datetime] = Field(
+        default=None,
+        description="UTC timestamp when this station was archived",
+    )
 
 
 class StationMetadataCreate(StationMetadataBase):
@@ -264,6 +276,12 @@ class OffloadLogCreate(SQLModel):
     was_offloaded: Optional[bool] = None
     vrl_file_name: Optional[str] = None
     offload_notes_file_size: Optional[str] = None
+    remote_health_model_id: Optional[str] = None
+    remote_health_serial_number: Optional[str] = None
+    remote_health_modem_address: Optional[int] = None
+    remote_health_temperature_c: Optional[float] = None
+    remote_health_tilt_rad: Optional[float] = None
+    remote_health_humidity: Optional[int] = None
 
 
 class OffloadLogRead(SQLModel):
@@ -281,6 +299,75 @@ class OffloadLogRead(SQLModel):
     was_offloaded: Optional[bool] = None
     vrl_file_name: Optional[str] = None
     offload_notes_file_size: Optional[str] = None
+    field_season_year: Optional[int] = None
+    remote_health_model_id: Optional[str] = None
+    remote_health_serial_number: Optional[str] = None
+    remote_health_modem_address: Optional[int] = None
+    remote_health_temperature_c: Optional[float] = None
+    remote_health_tilt_rad: Optional[float] = None
+    remote_health_humidity: Optional[int] = None
+
+
+# ============================================================================
+# Field Season Models
+# ============================================================================
+
+class FieldSeasonCreate(SQLModel):
+    """Model for creating a field season."""
+    year: int = Field(..., description="Field season year (e.g., 2024, 2025)")
+    is_active: bool = Field(default=True, description="Whether this is the active season")
+
+
+class FieldSeasonRead(SQLModel):
+    """Model for reading a field season."""
+    id: int
+    year: int
+    is_active: bool
+    closed_at_utc: Optional[datetime] = None
+    closed_by_username: Optional[str] = None
+    summary_statistics: Optional[Dict[str, Any]] = None
+    created_at_utc: datetime
+
+
+class FieldSeasonUpdate(SQLModel):
+    """Model for updating a field season (testing only)."""
+    is_active: Optional[bool] = None
+    closed_at_utc: Optional[datetime] = None
+    closed_by_username: Optional[str] = None
+
+
+class FieldSeasonSummary(SQLModel):
+    """Model for season summary statistics."""
+    year: int
+    total_stations: int
+    stations_by_type: Dict[str, int]
+    total_offload_attempts: int
+    successful_offloads: int
+    failed_offloads: int
+    skipped_stations: int
+    success_rate: float
+    average_time_at_station_hours: Optional[float] = None
+    unique_stations_deployed: int
+    first_offload_date: Optional[datetime] = None
+    last_offload_date: Optional[datetime] = None
+
+
+class SeasonCloseRequest(SQLModel):
+    """Model for closing a season."""
+    year: int = Field(..., description="Year of the season to close")
+
+
+class MasterListExport(SQLModel):
+    """Model for master list export data."""
+    station_id: str
+    serial_number: Optional[str] = None
+    modem_address: Optional[int] = None
+    bottom_depth_m: Optional[float] = None
+    waypoint_number: Optional[str] = None
+    station_settings: Optional[str] = None
+    deployment_latitude: Optional[float] = None
+    deployment_longitude: Optional[float] = None
+    notes: Optional[str] = None
 
 
 # ============================================================================

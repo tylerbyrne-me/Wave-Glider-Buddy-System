@@ -19,6 +19,7 @@ from cachetools import LRUCache
 from ..config import settings
 from . import utils, loaders
 from . import models
+from .feature_toggles import is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ CACHE_STRATEGIES = {
     "fluorometer": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
     "wg_vm4": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
     "wg_vm4_info": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
+    "wg_vm4_remote_health": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
     "telemetry": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
     "wave_frequency_spectrum": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
     "wave_energy_spectrum": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
@@ -369,6 +371,7 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         "vr2c": "gliderTimeStamp",
         "fluorometer": "gliderTimeStamp",
         "wg_vm4": "gliderTimeStamp",
+        "wg_vm4_remote_health": "timeStamp",
         "ais": "lastSeenTimestamp",  # Fixed: AIS uses lastSeenTimestamp
         "errors": "gliderTimeStamp",
         "wave_frequency_spectrum": "timeStamp",  # Wave spectrum uses timeStamp
@@ -457,19 +460,42 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
 # ============================================================================
 
 async def _load_from_local_sources(
-    report_type: str, mission_id: str, custom_local_path: Optional[str]
+    report_type: str, mission_id: str, custom_local_path: Optional[str],
+    current_user: Optional[models.User] = None,
+    allow_system_access: bool = False
 ) -> Tuple[Optional[pd.DataFrame], str, Optional[datetime]]:
     """
     Helper to attempt loading data from local sources (custom then default).
+    
+    Local data loading is restricted to admin users only and requires the
+    'local_data_loading' feature toggle to be enabled.
     
     Args:
         report_type: Type of report to load
         mission_id: Mission identifier
         custom_local_path: Custom local path if specified
+        current_user: Current user for permission checking (must be admin)
+        allow_system_access: If True, bypass admin check for system operations (e.g., startup)
         
     Returns:
         Tuple of (DataFrame or None, source_path_string, file_modification_time)
     """
+    # Check if local data loading is enabled
+    if not is_feature_enabled("local_data_loading"):
+        logger.info("Local data loading is disabled via feature toggle.")
+        return None, "Local (Disabled): Feature toggle not enabled", None
+    
+    # Admin check: skip if system access is allowed (for startup/system operations)
+    if not allow_system_access:
+        if not current_user or current_user.role != models.UserRoleEnum.admin:
+            logger.warning(
+                f"Non-admin user '{current_user.username if current_user else 'anonymous'}' "
+                f"attempted to load local data for {report_type} ({mission_id}). Access denied."
+            )
+            return None, "Local (Restricted): Admin access required", None
+    else:
+        logger.info(f"System access allowed for local data loading: {report_type} ({mission_id})")
+    
     df = None
     actual_source_path = "Data not loaded"
     _attempted_custom_local = False
@@ -477,7 +503,7 @@ async def _load_from_local_sources(
     if custom_local_path:
         _custom_local_path_str = f"Local (Custom): {Path(custom_local_path) / mission_id}"
         try:
-            logger.debug(
+            logger.info(
                 f"Attempting local load for {report_type} (mission: {mission_id}) from custom path: {custom_local_path}"
             )
             df_attempt, file_mod_time = await loaders.load_report(report_type, mission_id, base_path=Path(custom_local_path))
@@ -502,7 +528,7 @@ async def _load_from_local_sources(
         _default_local_path_str = f"Local (Default): {settings.local_data_base_path / mission_id}"
         _attempted_default_local = False
         try:
-            logger.debug(
+            logger.info(
                 f"Attempting local load for {report_type} (mission: {mission_id}) from default path: {settings.local_data_base_path}"
             )
             df_attempt, file_mod_time = await loaders.load_report(report_type, mission_id, base_path=settings.local_data_base_path)
@@ -635,7 +661,8 @@ async def load_data_with_overlap(
     overlap_hours: int = 1,
     source_preference: Optional[str] = None,
     custom_local_path: Optional[str] = None,
-    current_user: Optional[models.User] = None
+    current_user: Optional[models.User] = None,
+    allow_system_access: bool = False
 ) -> Tuple[pd.DataFrame, str, Optional[datetime]]:
     """
     Load data with overlap to prevent gaps.
@@ -676,16 +703,16 @@ async def load_data_with_overlap(
     
     load_attempted = False
     file_modification_time = None
-    if source_preference == "local":  # Local-only preference
+    if source_preference == "local":  # Local-only preference (admin only, feature toggle required)
         load_attempted = True
-        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
+        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path, current_user, allow_system_access)
     elif source_preference == "remote":
         # Remote-only preference - try remote first
         load_attempted = True
         df, actual_source_path, file_modification_time = await _load_from_remote_sources(report_type, mission_id, current_user)
-        if df is None:  # If remote failed, try local as fallback
-            logger.warning(f"Remote preference failed for {report_type} ({mission_id}). Falling back to local.")
-            df_fallback, path_fallback, file_mod_time_fallback = await _load_from_local_sources(report_type, mission_id, None)
+        if df is None:  # If remote failed, try local as fallback (only if admin and feature enabled)
+            logger.warning(f"Remote preference failed for {report_type} ({mission_id}). Attempting local fallback (if enabled).")
+            df_fallback, path_fallback, file_mod_time_fallback = await _load_from_local_sources(report_type, mission_id, None, current_user, allow_system_access)
             if df_fallback is not None:
                 df, actual_source_path, file_modification_time = df_fallback, path_fallback, file_mod_time_fallback
             elif "Data not loaded" in actual_source_path or "Access Restricted" in actual_source_path:
@@ -693,14 +720,10 @@ async def load_data_with_overlap(
                     actual_source_path = path_fallback
                     file_modification_time = file_mod_time_fallback
     elif source_preference is None:
-        # No preference - try local first (preferred), then remote (fallback)
+        # No preference - always try remote first (default), local is never default
         load_attempted = True
-        df, actual_source_path, file_modification_time = await _load_from_local_sources(report_type, mission_id, custom_local_path)
-        if df is None or df.empty:  # If local failed, try remote as fallback
-            logger.debug(f"Local load failed for {report_type} ({mission_id}). Trying remote.")
-            df_remote, path_remote, file_mod_time_remote = await _load_from_remote_sources(report_type, mission_id, current_user)
-            if df_remote is not None:
-                df, actual_source_path, file_modification_time = df_remote, path_remote, file_mod_time_remote
+        df, actual_source_path, file_modification_time = await _load_from_remote_sources(report_type, mission_id, current_user)
+        # Local is never used as default - only when explicitly requested by admin
     
     if not load_attempted:
         logger.error(f"No load attempt for {report_type} ({mission_id}) with pref '{source_preference}'. Unexpected.")

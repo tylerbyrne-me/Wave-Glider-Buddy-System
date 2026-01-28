@@ -81,6 +81,11 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         await fetchStationStatuses(); // Now fetch data
         if (loadingSpinner) loadingSpinner.style.display = 'none';
+        
+        // Initialize season management if admin
+        if (isAdmin) {
+            await initializeSeasonManagement();
+        }
     }
 
     async function fetchStationStatuses() {
@@ -88,7 +93,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (loadingSpinner) loadingSpinner.style.display = 'block'; // Show spinner during fetch
 
         try {
-            allStationsData = await apiRequest('/api/stations/status_overview', 'GET');
+            let url = '/api/stations/status_overview';
+            if (selectedSeasonYear !== null) {
+                url += `?season_year=${selectedSeasonYear}`;
+            }
+            allStationsData = await apiRequest(url, 'GET');
             renderTable(allStationsData);
         } catch (error) {
             showToast(`Error loading station statuses: ${error.message}`, 'danger');
@@ -135,7 +144,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             editButton.classList.add('btn', 'btn-sm', 'btn-outline-primary', 'me-1');
             editButton.title = `Edit / Log for ${station.station_id}`;
             editButton.innerHTML = `<i class="fas fa-edit"></i> Edit`;
-            editButton.onclick = () => openEditLogModal(station.station_id);
+            editButton.onclick = () => openEditLogModal(station.station_id, station);
             actionsCell.appendChild(editButton);
 
             // The "Delete" button is restricted to admins.
@@ -288,7 +297,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             "latest_arrival_date", "latest_distance_command_sent_m", 
             "latest_time_first_command_sent_utc", "latest_offload_start_time_utc",
             "latest_offload_end_time_utc", "latest_departure_date",
-            "latest_was_offloaded", "latest_offload_notes_file_size"
+            "latest_was_offloaded", "latest_offload_notes_file_size",
+            // VM4 Remote Health fields (from latest offload)
+            "remote_health_model_id", "remote_health_serial_number", "remote_health_modem_address",
+            "remote_health_temperature_c", "remote_health_tilt_rad", "remote_health_humidity"
         ];
         const displayHeaders = [ // User-friendly headers for the CSV file
             "Station ID", "Serial Number", "Modem Address",
@@ -297,7 +309,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             "Arrival Date (UTC)", "Distance Cmd Sent (m)",
             "Time First Cmd Sent (UTC)", "Offload Start (UTC)",
             "Offload End (UTC)", "Departure Date (UTC)",
-            "Offloaded Successfully", "Offload Notes/File Size"
+            "Offloaded Successfully", "Offload Notes/File Size",
+            // VM4 Remote Health headers
+            "Remote Health Model ID", "Remote Health Serial Number", "Remote Health Modem Address",
+            "Remote Health Temperature (C)", "Remote Health Tilt (Rad)", "Remote Health Humidity"
         ];
         let csvContent = displayHeaders.join(",") + "\r\n";
         dataToExport.forEach(station => {
@@ -330,7 +345,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         uploadCsvModalInstance = new bootstrap.Modal(uploadCsvModalEl);
     }
 
-    async function openEditLogModal(stationId) {
+    async function openEditLogModal(stationId, stationRow) {
         // Any authenticated user can open the modal to log an offload.
         if (!editLogStationModalInstance) return;
 
@@ -347,6 +362,21 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (modalStationIdDisplay) modalStationIdDisplay.textContent = stationId;
         if (newStationIdContainer) newStationIdContainer.style.display = 'none';
         if (logNewOffloadSection) logNewOffloadSection.style.display = 'block';
+        
+        // Show latest offload remote health (VM4) when available from overview row
+        const rhSection = document.getElementById('latestRemoteHealthSection');
+        const row = stationRow || (Array.isArray(allStationsData) ? allStationsData.find(s => s.station_id === stationId) : null);
+        if (rhSection && row && (row.remote_health_model_id != null || row.remote_health_temperature_c != null || row.remote_health_humidity != null)) {
+            rhSection.style.display = 'block';
+            document.getElementById('displayRemoteHealthModelId').textContent = row.remote_health_model_id != null ? row.remote_health_model_id : '—';
+            document.getElementById('displayRemoteHealthSerialNumber').textContent = row.remote_health_serial_number != null ? row.remote_health_serial_number : '—';
+            document.getElementById('displayRemoteHealthModemAddress').textContent = row.remote_health_modem_address != null ? row.remote_health_modem_address : '—';
+            document.getElementById('displayRemoteHealthTemperatureC').textContent = row.remote_health_temperature_c != null ? row.remote_health_temperature_c : '—';
+            document.getElementById('displayRemoteHealthTiltRad').textContent = row.remote_health_tilt_rad != null ? row.remote_health_tilt_rad : '—';
+            document.getElementById('displayRemoteHealthHumidity').textContent = row.remote_health_humidity != null ? row.remote_health_humidity : '—';
+        } else if (rhSection) {
+            rhSection.style.display = 'none';
+        }
 
         document.getElementById('formStationId').value = stationId; // Hidden input
 
@@ -566,8 +596,28 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
                 if (csvFile) csvFile.value = '';
                 if (submitUploadBtn) submitUploadBtn.disabled = false;
+                
+                // Populate season dropdown
+                populateUploadSeasonDropdown();
+                
                 uploadCsvModalInstance.show();
             }
+        });
+    }
+
+    function populateUploadSeasonDropdown() {
+        const uploadSeasonYear = document.getElementById('uploadSeasonYear');
+        if (!uploadSeasonYear) return;
+
+        // Clear existing options
+        uploadSeasonYear.innerHTML = '<option value="">Current Active Season</option>';
+
+        // Add all seasons
+        allSeasons.forEach(season => {
+            const option = document.createElement('option');
+            option.value = season.year;
+            option.textContent = `${season.year}${season.is_active ? ' (Active)' : ' (Closed)'}`;
+            uploadSeasonYear.appendChild(option);
         });
     }
 
@@ -579,6 +629,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
 
             const file = csvFile.files[0];
+            const uploadSeasonYear = document.getElementById('uploadSeasonYear');
+            const selectedSeasonYear = uploadSeasonYear ? uploadSeasonYear.value : '';
+
             const formData = new FormData();
             formData.append('file', file);
 
@@ -593,7 +646,15 @@ document.addEventListener('DOMContentLoaded', async function () {
                     headers['Authorization'] = `Bearer ${token}`;
                 }
                 // Note: Don't set Content-Type for FormData - browser sets it with boundary
-                const response = await fetch('/api/station_metadata/upload_csv/', {
+                
+                // Build URL with season_year parameter if specified
+                let uploadUrl = '/api/station_metadata/upload_csv/';
+                if (selectedSeasonYear) {
+                    uploadUrl += `?season_year=${encodeURIComponent(selectedSeasonYear)}`;
+                }
+                
+                // Note: Don't set Content-Type for FormData - browser sets it with boundary
+                const response = await fetch(uploadUrl, {
                     method: 'POST',
                     headers: headers,
                     body: formData
@@ -606,15 +667,34 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
 
                 let alertClass = response.status === 207 ? 'alert-warning' : 'alert-success';
-                showToast(resultData.message, response.status === 207 ? 'warning' : 'success');
+                let toastType = response.status === 207 ? 'warning' : (resultData.warnings ? 'info' : 'success');
+                showToast(resultData.message, toastType);
                 let resultHtml = `<div class="alert ${alertClass}">${resultData.message}</div>`;
+                
+                // Display warnings (duplicate checks)
+                if (resultData.warnings && resultData.warnings.length > 0) {
+                    resultHtml += '<div class="mt-3"><h6><i class="fas fa-exclamation-triangle me-2"></i>Warnings (Duplicates Detected):</h6><ul class="list-group">';
+                    resultData.warnings.forEach(warning => {
+                        const warningClass = warning.type.includes('in_csv') ? 'list-group-item-warning' : 'list-group-item-info';
+                        resultHtml += `<li class="list-group-item ${warningClass} bg-dark text-light">`;
+                        resultHtml += `<strong>${warning.message}</strong>`;
+                        if (warning.duplicates && warning.duplicates.length > 0) {
+                            resultHtml += `<br><small>Values: ${warning.duplicates.join(', ')}</small>`;
+                        }
+                        resultHtml += `</li>`;
+                    });
+                    resultHtml += '</ul></div>';
+                }
+                
+                // Display errors
                 if (resultData.errors && resultData.errors.length > 0) {
-                    resultHtml += '<h6>Errors:</h6><ul class="list-group">';
+                    resultHtml += '<div class="mt-3"><h6><i class="fas fa-times-circle me-2"></i>Errors:</h6><ul class="list-group">';
                     resultData.errors.forEach(err => {
                         resultHtml += `<li class="list-group-item list-group-item-danger bg-dark text-light">${err}</li>`;
                     });
-                    resultHtml += '</ul>';
+                    resultHtml += '</ul></div>';
                 }
+                
                 uploadResult.innerHTML = resultHtml;
 
                 await fetchStationStatuses(); // Refresh the main station table
@@ -710,6 +790,1386 @@ document.addEventListener('DOMContentLoaded', async function () {
             showToast(`Error deleting station: ${error.message}`, 'danger');
             console.error('Error deleting station:', error);
             alert(`Error: ${error.message}`);
+        }
+    }
+
+    // ============================================================================
+    // Field Season Management Functions
+    // ============================================================================
+    
+    let activeSeason = null;
+    let allSeasons = [];
+    let selectedSeasonYear = null; // null = active season
+
+    // Initialize season management UI
+    async function initializeSeasonManagement() {
+        if (!isAdmin) {
+            return; // Only show for admins
+        }
+
+        const seasonManagementSection = document.getElementById('seasonManagementSection');
+        if (seasonManagementSection) {
+            seasonManagementSection.style.display = 'block';
+        }
+
+        await fetchActiveSeason();
+        await fetchAllSeasons();
+        setupSeasonEventListeners();
+        
+        // Populate upload season dropdown when seasons are loaded
+        populateUploadSeasonDropdown();
+        
+        // Update statistics display for currently selected season
+        if (selectedSeasonYear) {
+            await updateSeasonStatisticsDisplay(selectedSeasonYear);
+        } else if (activeSeason) {
+            await updateSeasonStatisticsDisplay(activeSeason.year);
+        }
+    }
+
+    async function fetchActiveSeason() {
+        try {
+            activeSeason = await apiRequest('/api/field_seasons/active', 'GET');
+            const activeSeasonDisplay = document.getElementById('activeSeasonDisplay');
+            if (activeSeasonDisplay) {
+                activeSeasonDisplay.textContent = activeSeason.year || 'No active season';
+            }
+            updateSeasonButtons();
+            
+            // If no season is selected and we have an active season, show its stats
+            if (!selectedSeasonYear && activeSeason) {
+                await updateSeasonStatisticsDisplay(activeSeason.year);
+            }
+        } catch (error) {
+            console.warn('No active season found or error fetching:', error);
+            activeSeason = null;
+            const activeSeasonDisplay = document.getElementById('activeSeasonDisplay');
+            if (activeSeasonDisplay) {
+                activeSeasonDisplay.textContent = 'No active season';
+            }
+            updateSeasonButtons();
+        }
+    }
+
+    function updateSeasonButtons() {
+        const createSeasonBtn = document.getElementById('createSeasonBtn');
+        const closeSeasonBtn = document.getElementById('closeSeasonBtn');
+        const prepareNextSeasonBtn = document.getElementById('prepareNextSeasonBtn');
+
+        if (activeSeason) {
+            // Active season exists - show close/prepare buttons, hide create button
+            if (createSeasonBtn) createSeasonBtn.style.display = 'none';
+            if (closeSeasonBtn) closeSeasonBtn.style.display = 'inline-block';
+            if (prepareNextSeasonBtn) prepareNextSeasonBtn.style.display = 'inline-block';
+        } else {
+            // No active season - show create button, hide close/prepare buttons
+            if (createSeasonBtn) createSeasonBtn.style.display = 'inline-block';
+            if (closeSeasonBtn) closeSeasonBtn.style.display = 'none';
+            if (prepareNextSeasonBtn) prepareNextSeasonBtn.style.display = 'none';
+        }
+    }
+
+    async function fetchAllSeasons() {
+        try {
+            allSeasons = await apiRequest('/api/field_seasons/', 'GET');
+            const seasonSelector = document.getElementById('seasonSelector');
+            const downloadSeasonYear = document.getElementById('downloadSeasonYear');
+            
+            if (seasonSelector) {
+                // Clear existing options except first
+                seasonSelector.innerHTML = '<option value="">Current Active Season</option>';
+                allSeasons.forEach(season => {
+                    const option = document.createElement('option');
+                    option.value = season.year;
+                    option.textContent = `${season.year}${season.is_active ? ' (Active)' : ' (Closed)'}`;
+                    seasonSelector.appendChild(option);
+                });
+            }
+            
+            if (downloadSeasonYear) {
+                downloadSeasonYear.innerHTML = '<option value="">Select a season...</option>';
+                allSeasons.forEach(season => {
+                    if (!season.is_active) { // Only show closed seasons for download
+                        const option = document.createElement('option');
+                        option.value = season.year;
+                        option.textContent = `${season.year}`;
+                        downloadSeasonYear.appendChild(option);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching seasons:', error);
+        }
+    }
+
+    function setupSeasonEventListeners() {
+        const closeSeasonBtn = document.getElementById('closeSeasonBtn');
+        const prepareNextSeasonBtn = document.getElementById('prepareNextSeasonBtn');
+        const seasonSelector = document.getElementById('seasonSelector');
+        const confirmDownloadBtn = document.getElementById('confirmDownloadBtn');
+        const confirmCloseSeasonBtn = document.getElementById('confirmCloseSeasonBtn');
+        const closeSeasonYear = document.getElementById('closeSeasonYear');
+
+        // Close season button now opens modal instead of directly closing
+        // The modal will handle the actual close action
+
+        if (prepareNextSeasonBtn) {
+            prepareNextSeasonBtn.addEventListener('click', handlePrepareNextSeason);
+        }
+
+        if (seasonSelector) {
+            seasonSelector.addEventListener('change', handleSeasonSelection);
+        }
+
+        if (confirmDownloadBtn) {
+            confirmDownloadBtn.addEventListener('click', handleDownloadPreviousSeason);
+        }
+
+        if (confirmCloseSeasonBtn) {
+            confirmCloseSeasonBtn.addEventListener('click', handleCloseSeason);
+        }
+
+        if (closeSeasonYear) {
+            closeSeasonYear.addEventListener('change', updateCloseSeasonPreview);
+        }
+
+        // Clear all functionality
+        const confirmClearAllCheck = document.getElementById('confirmClearAllCheck');
+        const confirmClearAllBtn = document.getElementById('confirmClearAllBtn');
+        
+        if (confirmClearAllCheck) {
+            confirmClearAllCheck.addEventListener('change', function() {
+                if (confirmClearAllBtn) {
+                    confirmClearAllBtn.disabled = !this.checked;
+                }
+            });
+        }
+
+        if (confirmClearAllBtn) {
+            confirmClearAllBtn.addEventListener('click', handleClearAll);
+        }
+
+        // Create season functionality
+        const confirmCreateSeasonBtn = document.getElementById('confirmCreateSeasonBtn');
+        if (confirmCreateSeasonBtn) {
+            confirmCreateSeasonBtn.addEventListener('click', handleCreateSeason);
+        }
+
+        // Manage seasons functionality
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        const setActiveSeasonBtn = document.getElementById('setActiveSeasonBtn');
+        const editSeasonBtn = document.getElementById('editSeasonBtn');
+        const deleteSeasonBtn = document.getElementById('deleteSeasonBtn');
+        const confirmEditSeasonBtn = document.getElementById('confirmEditSeasonBtn');
+        const confirmDeleteSeasonBtn = document.getElementById('confirmDeleteSeasonBtn');
+        const confirmDeleteSeasonCheck = document.getElementById('confirmDeleteSeasonCheck');
+
+        if (manageSeasonSelector) {
+            manageSeasonSelector.addEventListener('change', handleManageSeasonSelection);
+        }
+
+        if (setActiveSeasonBtn) {
+            setActiveSeasonBtn.addEventListener('click', handleSetActiveSeason);
+        }
+
+        if (editSeasonBtn) {
+            editSeasonBtn.addEventListener('click', handleEditSeason);
+        }
+
+        if (deleteSeasonBtn) {
+            deleteSeasonBtn.addEventListener('click', handleDeleteSeason);
+        }
+
+        if (confirmEditSeasonBtn) {
+            confirmEditSeasonBtn.addEventListener('click', handleConfirmEditSeason);
+        }
+
+        if (confirmDeleteSeasonBtn) {
+            confirmDeleteSeasonBtn.addEventListener('click', handleConfirmDeleteSeason);
+        }
+
+        if (confirmDeleteSeasonCheck) {
+            confirmDeleteSeasonCheck.addEventListener('change', function() {
+                if (confirmDeleteSeasonBtn) {
+                    confirmDeleteSeasonBtn.disabled = !this.checked;
+                }
+            });
+        }
+
+        // Populate manage seasons dropdown when modal opens
+        const manageSeasonsModal = document.getElementById('manageSeasonsModal');
+        if (manageSeasonsModal) {
+            manageSeasonsModal.addEventListener('show.bs.modal', function() {
+                populateManageSeasonsDropdown();
+            });
+        }
+
+        // Process VM4 functionality
+        const confirmProcessVm4Btn = document.getElementById('confirmProcessVm4Btn');
+        if (confirmProcessVm4Btn) {
+            confirmProcessVm4Btn.addEventListener('click', handleProcessVm4);
+        }
+
+        // Populate VM4 season dropdown when modal opens
+        const processVm4Modal = document.getElementById('processVm4Modal');
+        if (processVm4Modal) {
+            processVm4Modal.addEventListener('show.bs.modal', function() {
+                populateProcessVm4SeasonDropdown();
+            });
+        }
+
+        // Set default year when create season modal opens
+        const createSeasonModal = document.getElementById('createSeasonModal');
+        if (createSeasonModal) {
+            createSeasonModal.addEventListener('show.bs.modal', function() {
+                const newSeasonYear = document.getElementById('newSeasonYear');
+                if (newSeasonYear && !newSeasonYear.value) {
+                    // Set to current year as default
+                    newSeasonYear.value = new Date().getFullYear();
+                }
+            });
+        }
+
+        // Populate close season dropdown when modal is shown
+        const closeSeasonModal = document.getElementById('closeSeasonModal');
+        if (closeSeasonModal) {
+            closeSeasonModal.addEventListener('show.bs.modal', function() {
+                populateCloseSeasonDropdown();
+            });
+        }
+    }
+
+    function populateCloseSeasonDropdown() {
+        const closeSeasonYear = document.getElementById('closeSeasonYear');
+        if (!closeSeasonYear) return;
+
+        // Clear existing options
+        closeSeasonYear.innerHTML = '<option value="">Select a season...</option>';
+
+        // Add active/open seasons (not yet closed)
+        allSeasons.forEach(season => {
+            if (season.is_active && !season.closed_at_utc) {
+                const option = document.createElement('option');
+                option.value = season.year;
+                option.textContent = `${season.year}${season.is_active ? ' (Active)' : ''}`;
+                closeSeasonYear.appendChild(option);
+            }
+        });
+
+        // If there's an active season, select it by default
+        if (activeSeason) {
+            closeSeasonYear.value = activeSeason.year.toString();
+            updateCloseSeasonPreview();
+        }
+    }
+
+    function updateCloseSeasonPreview() {
+        const closeSeasonYear = document.getElementById('closeSeasonYear');
+        const preview = document.getElementById('closeSeasonPreview');
+        const previewList = document.getElementById('closeSeasonPreviewList');
+
+        if (!closeSeasonYear || !preview || !previewList) return;
+
+        const selectedYear = closeSeasonYear.value;
+        if (!selectedYear) {
+            preview.style.display = 'none';
+            return;
+        }
+
+        // Show preview of what will be closed
+        preview.style.display = 'block';
+        previewList.innerHTML = `
+            <li><strong>Season Year:</strong> ${selectedYear}</li>
+            <li>All stations for ${selectedYear} will be archived</li>
+            <li>All offload logs for ${selectedYear} will be archived</li>
+            <li>Season statistics will be generated</li>
+            <li>Further modifications to archived data will be prevented</li>
+        `;
+    }
+
+    async function handleCloseSeason() {
+        const closeSeasonYear = document.getElementById('closeSeasonYear');
+        const closeSeasonModal = bootstrap.Modal.getInstance(document.getElementById('closeSeasonModal'));
+
+        if (!closeSeasonYear || !closeSeasonYear.value) {
+            showToast('Please select a season to close', 'warning');
+            return;
+        }
+
+        const year = parseInt(closeSeasonYear.value);
+
+        // Final confirmation
+        const confirmMessage = `Are you sure you want to close the ${year} field season?\n\n` +
+            `This will:\n` +
+            `- Archive all stations and offload logs for ${year}\n` +
+            `- Generate season statistics\n` +
+            `- Prevent further modifications to archived data\n\n` +
+            `This action cannot be undone.`;
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        try {
+            showToast('Closing season...', 'info');
+            const result = await apiRequest(`/api/field_seasons/${year}/close`, 'POST');
+            showToast(`Season ${year} closed successfully!`, 'success');
+            
+            // Close modal
+            if (closeSeasonModal) {
+                closeSeasonModal.hide();
+            }
+            
+            // Refresh seasons and data
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+            await fetchStationStatuses();
+            
+            // Update statistics display on page
+            await updateSeasonStatisticsDisplay(year);
+            
+            // Also show statistics in modal
+            await showSeasonStatistics(year);
+        } catch (error) {
+            showToast(`Error closing season: ${error.message}`, 'danger');
+            console.error('Error closing season:', error);
+        }
+    }
+
+    async function handlePrepareNextSeason() {
+        if (!activeSeason) {
+            showToast('No active season found', 'warning');
+            return;
+        }
+
+        try {
+            // Export master list
+            const url = `/api/field_seasons/${activeSeason.year}/master_list/export`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to export master list');
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = `master_list_${activeSeason.year}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+
+            showToast('Master list exported successfully! Edit and re-upload to create next season.', 'success');
+        } catch (error) {
+            showToast(`Error preparing master list: ${error.message}`, 'danger');
+            console.error('Error preparing master list:', error);
+        }
+    }
+
+    async function handleSeasonSelection(event) {
+        const year = event.target.value ? parseInt(event.target.value) : null;
+        selectedSeasonYear = year;
+        
+        // Refresh table with selected season filter
+        await fetchStationStatuses();
+        
+        // Update statistics display
+        // If no year selected, show active season stats if available
+        if (year) {
+            await updateSeasonStatisticsDisplay(year);
+        } else if (activeSeason) {
+            await updateSeasonStatisticsDisplay(activeSeason.year);
+        } else {
+            // Hide stats if no season available
+            const seasonStatsDisplay = document.getElementById('seasonStatsDisplay');
+            if (seasonStatsDisplay) {
+                seasonStatsDisplay.style.display = 'none';
+            }
+        }
+    }
+
+    async function handleDownloadPreviousSeason() {
+        const downloadSeasonYear = document.getElementById('downloadSeasonYear');
+        const downloadStationType = document.getElementById('downloadStationType');
+        const downloadModal = bootstrap.Modal.getInstance(document.getElementById('downloadPreviousSeasonModal'));
+
+        if (!downloadSeasonYear || !downloadSeasonYear.value) {
+            showToast('Please select a season year', 'warning');
+            return;
+        }
+
+        const year = parseInt(downloadSeasonYear.value);
+        const stationType = downloadStationType ? downloadStationType.value : null;
+
+        try {
+            let url = `/api/field_seasons/${year}/download`;
+            if (stationType) {
+                url += `?station_type=${encodeURIComponent(stationType)}`;
+            }
+
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to download data');
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            
+            let filename = `station_offloads_${year}`;
+            if (stationType) {
+                filename += `_${stationType.toUpperCase()}`;
+            }
+            filename += '.csv';
+            
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+
+            showToast('Download started!', 'success');
+            if (downloadModal) {
+                downloadModal.hide();
+            }
+        } catch (error) {
+            showToast(`Error downloading data: ${error.message}`, 'danger');
+            console.error('Error downloading season data:', error);
+        }
+    }
+
+    async function updateSeasonStatisticsDisplay(year) {
+        const seasonStatsDisplay = document.getElementById('seasonStatsDisplay');
+        const seasonStatsContent = document.getElementById('seasonStatsContent');
+        
+        if (!seasonStatsDisplay || !seasonStatsContent) return;
+        
+        // If no season selected, hide the display
+        if (!year) {
+            seasonStatsDisplay.style.display = 'none';
+            return;
+        }
+        
+        try {
+            // Show loading state
+            seasonStatsDisplay.style.display = 'block';
+            seasonStatsContent.innerHTML = `
+                <div class="text-center text-muted">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Loading statistics...
+                </div>
+            `;
+            
+            const statistics = await apiRequest(`/api/field_seasons/${year}/summary`, 'GET');
+            
+            // Format the statistics HTML
+            let statsHtml = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-info">Overview</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Total Stations:</strong> ${statistics.total_stations}</li>
+                            <li><strong>Unique Stations Deployed:</strong> ${statistics.unique_stations_deployed}</li>
+                            <li><strong>Total Offload Attempts:</strong> ${statistics.total_offload_attempts}</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-info">Success Rates</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Successful Offloads:</strong> <span class="text-success">${statistics.successful_offloads}</span></li>
+                            <li><strong>Failed Offloads:</strong> <span class="text-danger">${statistics.failed_offloads}</span></li>
+                            ${statistics.failed_stations !== undefined ? `<li><strong>Failed Stations:</strong> <span class="text-danger">${statistics.failed_stations}</span></li>` : ''}
+                            <li><strong>Skipped Stations:</strong> <span class="text-warning">${statistics.skipped_stations}</span></li>
+                            <li><strong>Success Rate:</strong> <span class="fw-bold">${statistics.success_rate}%</span></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <h6 class="text-info">Stations by Type</h6>
+                        <ul class="list-unstyled">
+                            ${Object.entries(statistics.stations_by_type || {}).map(([type, count]) => 
+                                `<li><strong>${type}:</strong> ${count}</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-info">Timing</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Average Time at Station:</strong> ${statistics.average_time_at_station_hours ? statistics.average_time_at_station_hours.toFixed(2) + ' hours' : 'N/A'}</li>
+                            <li><strong>First Offload:</strong> ${statistics.first_offload_date ? new Date(statistics.first_offload_date).toLocaleString() : 'N/A'}</li>
+                            <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? new Date(statistics.last_offload_date).toLocaleString() : 'N/A'}</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+            
+            // Add connection attempt statistics if available
+            if (statistics.total_connection_attempts !== undefined) {
+                statsHtml += `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6 class="text-info">Connection Attempts</h6>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <ul class="list-unstyled">
+                                        <li><strong>Total Attempts:</strong> ${statistics.total_connection_attempts}</li>
+                                        <li><strong>Stations with Attempts:</strong> ${statistics.stations_with_attempts || 0}</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-3">
+                                    <ul class="list-unstyled">
+                                        <li><strong>Stations with Multiple Attempts:</strong> ${statistics.stations_with_multiple_attempts || 0}</li>
+                                        <li><strong>Avg Attempts per Station:</strong> ${statistics.average_attempts_per_station || 0}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Add success by station type if available
+            if (statistics.success_by_station_type && Object.keys(statistics.success_by_station_type).length > 0) {
+                statsHtml += `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6 class="text-info">Success Rate by Station Type</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-dark">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Total</th>
+                                            <th>Successful</th>
+                                            <th>Failed</th>
+                                            <th>Skipped</th>
+                                            <th>Success Rate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${Object.entries(statistics.success_by_station_type).map(([type, data]) => 
+                                            `<tr>
+                                                <td><strong>${type}</strong></td>
+                                                <td>${data.total}</td>
+                                                <td class="text-success">${data.successful}</td>
+                                                <td class="text-danger">${data.failed}</td>
+                                                <td class="text-warning">${data.skipped}</td>
+                                                <td><strong>${data.success_rate}%</strong></td>
+                                            </tr>`
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Add success by mission if available
+            if (statistics.success_by_mission && Object.keys(statistics.success_by_mission).length > 0) {
+                statsHtml += `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6 class="text-info">Success Rate by Mission</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-dark">
+                                    <thead>
+                                        <tr>
+                                            <th>Mission ID</th>
+                                            <th>Total</th>
+                                            <th>Successful</th>
+                                            <th>Failed</th>
+                                            <th>Skipped</th>
+                                            <th>Success Rate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${Object.entries(statistics.success_by_mission).map(([mission, data]) => 
+                                            `<tr>
+                                                <td><strong>${mission}</strong></td>
+                                                <td>${data.total}</td>
+                                                <td class="text-success">${data.successful}</td>
+                                                <td class="text-danger">${data.failed}</td>
+                                                <td class="text-warning">${data.skipped}</td>
+                                                <td><strong>${data.success_rate}%</strong></td>
+                                            </tr>`
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Add detailed station attempt information if available
+            if (statistics.station_attempt_details && Object.keys(statistics.station_attempt_details).length > 0) {
+                // Show stations with multiple attempts in a collapsible section
+                const stationsWithMultipleAttempts = Object.entries(statistics.station_attempt_details)
+                    .filter(([stationId, details]) => details.attempt_count > 1)
+                    .sort((a, b) => b[1].attempt_count - a[1].attempt_count);
+                
+                if (stationsWithMultipleAttempts.length > 0) {
+                    statsHtml += `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6 class="text-info">
+                                    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#stationAttemptDetails" aria-expanded="false">
+                                        <i class="fas fa-chevron-down me-1"></i>Station Attempt Details (${stationsWithMultipleAttempts.length} stations with multiple attempts)
+                                    </button>
+                                </h6>
+                                <div class="collapse mt-2" id="stationAttemptDetails">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-dark">
+                                            <thead>
+                                                <tr>
+                                                    <th>Station ID</th>
+                                                    <th>Attempt Count</th>
+                                                    <th>Attempt Timestamps</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${stationsWithMultipleAttempts.map(([stationId, details]) => 
+                                                    `<tr>
+                                                        <td><strong>${stationId}</strong></td>
+                                                        <td><span class="badge bg-warning">${details.attempt_count}</span></td>
+                                                        <td>
+                                                            <small>
+                                                                ${details.attempt_timestamps.map(ts => 
+                                                                    new Date(ts).toLocaleString()
+                                                                ).join('<br>')}
+                                                            </small>
+                                                        </td>
+                                                    </tr>`
+                                                ).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            seasonStatsContent.innerHTML = statsHtml;
+        } catch (error) {
+            // If season doesn't have statistics yet (not closed), show a message
+            if (error.message && error.message.includes('404')) {
+                seasonStatsContent.innerHTML = `
+                    <div class="alert alert-info mb-0">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Statistics will be available after this season is closed.
+                    </div>
+                `;
+            } else {
+                seasonStatsContent.innerHTML = `
+                    <div class="alert alert-warning mb-0">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Error loading statistics: ${error.message}
+                    </div>
+                `;
+                console.error('Error fetching season statistics:', error);
+            }
+        }
+    }
+
+    async function showSeasonStatistics(year) {
+        try {
+            const statistics = await apiRequest(`/api/field_seasons/${year}/summary`, 'GET');
+            
+            const modalBody = document.getElementById('seasonStatsModalBody');
+            if (modalBody) {
+                let modalHtml = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Overview</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>Total Stations:</strong> ${statistics.total_stations}</li>
+                                <li><strong>Unique Stations Deployed:</strong> ${statistics.unique_stations_deployed}</li>
+                                <li><strong>Total Offload Attempts:</strong> ${statistics.total_offload_attempts}</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Success Rates</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>Successful Offloads:</strong> <span class="text-success">${statistics.successful_offloads}</span></li>
+                                <li><strong>Failed Offloads:</strong> <span class="text-danger">${statistics.failed_offloads}</span></li>
+                                ${statistics.failed_stations !== undefined ? `<li><strong>Failed Stations:</strong> <span class="text-danger">${statistics.failed_stations}</span></li>` : ''}
+                                <li><strong>Skipped Stations:</strong> <span class="text-warning">${statistics.skipped_stations}</span></li>
+                                <li><strong>Success Rate:</strong> <span class="fw-bold">${statistics.success_rate}%</span></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <h6>Stations by Type</h6>
+                            <ul class="list-unstyled">
+                                ${Object.entries(statistics.stations_by_type || {}).map(([type, count]) => 
+                                    `<li><strong>${type}:</strong> ${count}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Timing</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>Average Time at Station:</strong> ${statistics.average_time_at_station_hours ? statistics.average_time_at_station_hours.toFixed(2) + ' hours' : 'N/A'}</li>
+                                <li><strong>First Offload:</strong> ${statistics.first_offload_date ? new Date(statistics.first_offload_date).toLocaleString() : 'N/A'}</li>
+                                <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? new Date(statistics.last_offload_date).toLocaleString() : 'N/A'}</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                
+                // Add connection attempt statistics if available
+                if (statistics.total_connection_attempts !== undefined) {
+                    modalHtml += `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Connection Attempts</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <ul class="list-unstyled">
+                                            <li><strong>Total Attempts:</strong> ${statistics.total_connection_attempts}</li>
+                                            <li><strong>Stations with Attempts:</strong> ${statistics.stations_with_attempts || 0}</li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <ul class="list-unstyled">
+                                            <li><strong>Stations with Multiple Attempts:</strong> ${statistics.stations_with_multiple_attempts || 0}</li>
+                                            <li><strong>Avg Attempts per Station:</strong> ${statistics.average_attempts_per_station || 0}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Add success by station type if available
+                if (statistics.success_by_station_type && Object.keys(statistics.success_by_station_type).length > 0) {
+                    modalHtml += `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Success Rate by Station Type</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Type</th>
+                                                <th>Total</th>
+                                                <th>Successful</th>
+                                                <th>Failed</th>
+                                                <th>Skipped</th>
+                                                <th>Success Rate</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${Object.entries(statistics.success_by_station_type).map(([type, data]) => 
+                                                `<tr>
+                                                    <td><strong>${type}</strong></td>
+                                                    <td>${data.total}</td>
+                                                    <td class="text-success">${data.successful}</td>
+                                                    <td class="text-danger">${data.failed}</td>
+                                                    <td class="text-warning">${data.skipped}</td>
+                                                    <td><strong>${data.success_rate}%</strong></td>
+                                                </tr>`
+                                            ).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Add success by mission if available
+                if (statistics.success_by_mission && Object.keys(statistics.success_by_mission).length > 0) {
+                    modalHtml += `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Success Rate by Mission</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Mission ID</th>
+                                                <th>Total</th>
+                                                <th>Successful</th>
+                                                <th>Failed</th>
+                                                <th>Skipped</th>
+                                                <th>Success Rate</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${Object.entries(statistics.success_by_mission).map(([mission, data]) => 
+                                                `<tr>
+                                                    <td><strong>${mission}</strong></td>
+                                                    <td>${data.total}</td>
+                                                    <td class="text-success">${data.successful}</td>
+                                                    <td class="text-danger">${data.failed}</td>
+                                                    <td class="text-warning">${data.skipped}</td>
+                                                    <td><strong>${data.success_rate}%</strong></td>
+                                                </tr>`
+                                            ).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Add connection attempt statistics if available
+                if (statistics.total_connection_attempts !== undefined) {
+                    modalHtml += `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Connection Attempts</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <ul class="list-unstyled">
+                                            <li><strong>Total Attempts:</strong> ${statistics.total_connection_attempts}</li>
+                                            <li><strong>Stations with Attempts:</strong> ${statistics.stations_with_attempts || 0}</li>
+                                        </ul>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <ul class="list-unstyled">
+                                            <li><strong>Stations with Multiple Attempts:</strong> ${statistics.stations_with_multiple_attempts || 0}</li>
+                                            <li><strong>Avg Attempts per Station:</strong> ${statistics.average_attempts_per_station || 0}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Add detailed station attempt information if available
+                if (statistics.station_attempt_details && Object.keys(statistics.station_attempt_details).length > 0) {
+                    // Show stations with multiple attempts in a collapsible section
+                    const stationsWithMultipleAttempts = Object.entries(statistics.station_attempt_details)
+                        .filter(([stationId, details]) => details.attempt_count > 1)
+                        .sort((a, b) => b[1].attempt_count - a[1].attempt_count);
+                    
+                    if (stationsWithMultipleAttempts.length > 0) {
+                        modalHtml += `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#modalStationAttemptDetails" aria-expanded="false">
+                                            <i class="fas fa-chevron-down me-1"></i>Station Attempt Details (${stationsWithMultipleAttempts.length} stations with multiple attempts)
+                                        </button>
+                                    </h6>
+                                    <div class="collapse mt-2" id="modalStationAttemptDetails">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Station ID</th>
+                                                        <th>Attempt Count</th>
+                                                        <th>Attempt Timestamps</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${stationsWithMultipleAttempts.map(([stationId, details]) => 
+                                                        `<tr>
+                                                            <td><strong>${stationId}</strong></td>
+                                                            <td><span class="badge bg-warning">${details.attempt_count}</span></td>
+                                                            <td>
+                                                                <small>
+                                                                    ${details.attempt_timestamps.map(ts => 
+                                                                        new Date(ts).toLocaleString()
+                                                                    ).join('<br>')}
+                                                                </small>
+                                                            </td>
+                                                        </tr>`
+                                                    ).join('')}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                modalBody.innerHTML = modalHtml;
+            }
+
+            const modal = new bootstrap.Modal(document.getElementById('seasonStatsModal'));
+            modal.show();
+        } catch (error) {
+            showToast(`Error fetching statistics: ${error.message}`, 'danger');
+            console.error('Error fetching season statistics:', error);
+        }
+    }
+
+    // Note: Season filtering would require API endpoint modification
+    // For now, the status_overview endpoint shows current active season data
+
+    async function handleClearAll() {
+        const confirmClearAllCheck = document.getElementById('confirmClearAllCheck');
+        const clearAllModal = bootstrap.Modal.getInstance(document.getElementById('clearAllModal'));
+
+        if (!confirmClearAllCheck || !confirmClearAllCheck.checked) {
+            showToast('Please confirm that you understand this will delete all data', 'warning');
+            return;
+        }
+
+        // Final confirmation
+        const finalConfirm = confirm(
+            'FINAL WARNING: This will permanently delete ALL stations and offload logs.\n\n' +
+            'This action cannot be undone.\n\n' +
+            'Are you absolutely sure you want to proceed?'
+        );
+
+        if (!finalConfirm) {
+            return;
+        }
+
+        try {
+            showToast('Clearing all data...', 'info');
+            const result = await apiRequest('/api/stations/clear_all?confirm=true', 'DELETE');
+            
+            // Close modal
+            if (clearAllModal) {
+                clearAllModal.hide();
+            }
+            
+            // Reset checkbox
+            if (confirmClearAllCheck) {
+                confirmClearAllCheck.checked = false;
+            }
+            const confirmClearAllBtn = document.getElementById('confirmClearAllBtn');
+            if (confirmClearAllBtn) {
+                confirmClearAllBtn.disabled = true;
+            }
+            
+            showToast('All data cleared successfully', 'success');
+            
+            // Refresh data (will be empty now)
+            await fetchStationStatuses();
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+        } catch (error) {
+            showToast(`Error clearing data: ${error.message}`, 'danger');
+            console.error('Error clearing all data:', error);
+        }
+    }
+
+    function populateManageSeasonsDropdown() {
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        if (!manageSeasonSelector) return;
+
+        manageSeasonSelector.innerHTML = '<option value="">Select a season...</option>';
+        allSeasons.forEach(season => {
+            const option = document.createElement('option');
+            option.value = season.year;
+            option.textContent = `${season.year}${season.is_active ? ' (Active)' : ' (Closed)'}`;
+            manageSeasonSelector.appendChild(option);
+        });
+    }
+
+    async function handleManageSeasonSelection(event) {
+        const year = event.target.value ? parseInt(event.target.value) : null;
+        const seasonDetailsDisplay = document.getElementById('seasonDetailsDisplay');
+        const setActiveSeasonBtn = document.getElementById('setActiveSeasonBtn');
+        const editSeasonBtn = document.getElementById('editSeasonBtn');
+        const deleteSeasonBtn = document.getElementById('deleteSeasonBtn');
+
+        if (!year) {
+            if (seasonDetailsDisplay) seasonDetailsDisplay.style.display = 'none';
+            if (setActiveSeasonBtn) setActiveSeasonBtn.disabled = true;
+            if (editSeasonBtn) editSeasonBtn.disabled = true;
+            if (deleteSeasonBtn) deleteSeasonBtn.disabled = true;
+            return;
+        }
+
+        const season = allSeasons.find(s => s.year === year);
+        if (!season) {
+            showToast('Season not found', 'warning');
+            return;
+        }
+
+        // Display season details
+        if (seasonDetailsDisplay) {
+            seasonDetailsDisplay.innerHTML = `
+                <div class="card bg-secondary">
+                    <div class="card-body">
+                        <h6>Season Details</h6>
+                        <ul class="list-unstyled mb-0">
+                            <li><strong>Year:</strong> ${season.year}</li>
+                            <li><strong>Status:</strong> ${season.is_active ? 'Active' : 'Closed'}</li>
+                            <li><strong>Created:</strong> ${new Date(season.created_at_utc).toLocaleString()}</li>
+                            ${season.closed_at_utc ? `<li><strong>Closed:</strong> ${new Date(season.closed_at_utc).toLocaleString()}</li>` : ''}
+                            ${season.closed_by_username ? `<li><strong>Closed By:</strong> ${season.closed_by_username}</li>` : ''}
+                        </ul>
+                    </div>
+                </div>
+            `;
+            seasonDetailsDisplay.style.display = 'block';
+        }
+
+        // Enable/disable buttons based on season state
+        if (setActiveSeasonBtn) {
+            setActiveSeasonBtn.disabled = season.is_active;
+        }
+        if (editSeasonBtn) {
+            editSeasonBtn.disabled = false;
+        }
+        if (deleteSeasonBtn) {
+            deleteSeasonBtn.disabled = season.is_active; // Can't delete active season
+        }
+    }
+
+    async function handleSetActiveSeason() {
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        if (!manageSeasonSelector || !manageSeasonSelector.value) {
+            showToast('Please select a season', 'warning');
+            return;
+        }
+
+        const year = parseInt(manageSeasonSelector.value);
+        const finalConfirm = confirm(
+            `Set season ${year} as the active season?\n\n` +
+            `This will deactivate all other seasons.`
+        );
+
+        if (!finalConfirm) {
+            return;
+        }
+
+        try {
+            showToast('Setting active season...', 'info');
+            const result = await apiRequest(`/api/field_seasons/${year}/set_active`, 'POST');
+            showToast(`Season ${year} is now active!`, 'success');
+            
+            // Refresh data
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+            await fetchStationStatuses();
+            
+            // Close modal
+            const manageSeasonsModal = bootstrap.Modal.getInstance(document.getElementById('manageSeasonsModal'));
+            if (manageSeasonsModal) {
+                manageSeasonsModal.hide();
+            }
+        } catch (error) {
+            showToast(`Error setting active season: ${error.message}`, 'danger');
+            console.error('Error setting active season:', error);
+        }
+    }
+
+    function handleEditSeason() {
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        if (!manageSeasonSelector || !manageSeasonSelector.value) {
+            showToast('Please select a season', 'warning');
+            return;
+        }
+
+        const year = parseInt(manageSeasonSelector.value);
+        const season = allSeasons.find(s => s.year === year);
+        if (!season) {
+            showToast('Season not found', 'warning');
+            return;
+        }
+
+        // Populate edit modal
+        const editSeasonYear = document.getElementById('editSeasonYear');
+        const editSeasonIsActive = document.getElementById('editSeasonIsActive');
+        
+        if (editSeasonYear) editSeasonYear.value = year;
+        if (editSeasonIsActive) editSeasonIsActive.checked = season.is_active;
+
+        // Show edit modal
+        const editSeasonModal = new bootstrap.Modal(document.getElementById('editSeasonModal'));
+        editSeasonModal.show();
+    }
+
+    async function handleConfirmEditSeason() {
+        const editSeasonYear = document.getElementById('editSeasonYear');
+        const editSeasonIsActive = document.getElementById('editSeasonIsActive');
+        const editSeasonModal = bootstrap.Modal.getInstance(document.getElementById('editSeasonModal'));
+
+        if (!editSeasonYear || !editSeasonYear.value) {
+            showToast('Season year not found', 'warning');
+            return;
+        }
+
+        const year = parseInt(editSeasonYear.value);
+        const isActive = editSeasonIsActive ? editSeasonIsActive.checked : false;
+
+        try {
+            showToast('Updating season...', 'info');
+            const updateData = {
+                is_active: isActive
+            };
+
+            const result = await apiRequest(`/api/field_seasons/${year}`, 'PUT', updateData);
+            showToast(`Season ${year} updated successfully!`, 'success');
+            
+            // Close modal
+            if (editSeasonModal) {
+                editSeasonModal.hide();
+            }
+            
+            // Refresh data
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+            
+            // Refresh manage seasons dropdown
+            populateManageSeasonsDropdown();
+        } catch (error) {
+            showToast(`Error updating season: ${error.message}`, 'danger');
+            console.error('Error updating season:', error);
+        }
+    }
+
+    function handleDeleteSeason() {
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        if (!manageSeasonSelector || !manageSeasonSelector.value) {
+            showToast('Please select a season', 'warning');
+            return;
+        }
+
+        const year = parseInt(manageSeasonSelector.value);
+        const season = allSeasons.find(s => s.year === year);
+        if (!season) {
+            showToast('Season not found', 'warning');
+            return;
+        }
+
+        if (season.is_active) {
+            showToast('Cannot delete the active season. Set another season as active first.', 'warning');
+            return;
+        }
+
+        // Show delete modal
+        const deleteSeasonModal = new bootstrap.Modal(document.getElementById('deleteSeasonModal'));
+        deleteSeasonModal.show();
+        
+        // Store the year in the modal for confirmation
+        const deleteSeasonYearInput = document.createElement('input');
+        deleteSeasonYearInput.type = 'hidden';
+        deleteSeasonYearInput.id = 'deleteSeasonYearValue';
+        deleteSeasonYearInput.value = year;
+        const deleteSeasonModalBody = document.getElementById('deleteSeasonModal').querySelector('.modal-body');
+        if (deleteSeasonModalBody && !document.getElementById('deleteSeasonYearValue')) {
+            deleteSeasonModalBody.appendChild(deleteSeasonYearInput);
+        } else if (document.getElementById('deleteSeasonYearValue')) {
+            document.getElementById('deleteSeasonYearValue').value = year;
+        }
+    }
+
+    async function handleConfirmDeleteSeason() {
+        const confirmDeleteSeasonCheck = document.getElementById('confirmDeleteSeasonCheck');
+        const deleteSeasonModal = bootstrap.Modal.getInstance(document.getElementById('deleteSeasonModal'));
+        const deleteSeasonYearValue = document.getElementById('deleteSeasonYearValue');
+
+        if (!confirmDeleteSeasonCheck || !confirmDeleteSeasonCheck.checked) {
+            showToast('Please confirm deletion', 'warning');
+            return;
+        }
+
+        if (!deleteSeasonYearValue || !deleteSeasonYearValue.value) {
+            showToast('Season year not found', 'warning');
+            return;
+        }
+
+        const year = parseInt(deleteSeasonYearValue.value);
+
+        const finalConfirm = confirm(
+            `FINAL WARNING: Delete season ${year}?\n\n` +
+            `This will delete the season record only.\n` +
+            `Stations and offload logs will remain in the database.\n\n` +
+            `This action cannot be undone.`
+        );
+
+        if (!finalConfirm) {
+            return;
+        }
+
+        try {
+            showToast('Deleting season...', 'info');
+            const result = await apiRequest(`/api/field_seasons/${year}?confirm=true`, 'DELETE');
+            showToast(`Season ${year} deleted successfully!`, 'success');
+            
+            // Close modal
+            if (deleteSeasonModal) {
+                deleteSeasonModal.hide();
+            }
+            
+            // Reset checkbox
+            if (confirmDeleteSeasonCheck) {
+                confirmDeleteSeasonCheck.checked = false;
+            }
+            const confirmDeleteSeasonBtn = document.getElementById('confirmDeleteSeasonBtn');
+            if (confirmDeleteSeasonBtn) {
+                confirmDeleteSeasonBtn.disabled = true;
+            }
+            
+            // Refresh data
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+            populateManageSeasonsDropdown();
+        } catch (error) {
+            showToast(`Error deleting season: ${error.message}`, 'danger');
+            console.error('Error deleting season:', error);
+        }
+    }
+
+    function populateProcessVm4SeasonDropdown() {
+        const processVm4SeasonYear = document.getElementById('processVm4SeasonYear');
+        if (!processVm4SeasonYear) return;
+
+        // Keep the default option
+        processVm4SeasonYear.innerHTML = '<option value="">Use station\'s season or active season (default)</option>';
+        
+        // Add all seasons
+        if (allSeasons && allSeasons.length > 0) {
+            allSeasons.forEach(season => {
+                const option = document.createElement('option');
+                option.value = season.year;
+                option.textContent = `${season.year}${season.is_active ? ' (Active)' : season.closed_at_utc ? ' (Closed)' : ''}`;
+                processVm4SeasonYear.appendChild(option);
+            });
+        }
+    }
+
+    async function handleProcessVm4() {
+        const processVm4MissionId = document.getElementById('processVm4MissionId');
+        const processVm4Force = document.getElementById('processVm4Force');
+        const processVm4SeasonYear = document.getElementById('processVm4SeasonYear');
+        const processVm4Result = document.getElementById('processVm4Result');
+        const processVm4Modal = bootstrap.Modal.getInstance(document.getElementById('processVm4Modal'));
+
+        if (!processVm4MissionId || !processVm4MissionId.value.trim()) {
+            showToast('Please enter a mission ID', 'warning');
+            return;
+        }
+
+        const missionId = processVm4MissionId.value.trim();
+        const force = processVm4Force ? processVm4Force.checked : false;
+        const fieldSeasonYear = processVm4SeasonYear && processVm4SeasonYear.value ? parseInt(processVm4SeasonYear.value) : null;
+
+        try {
+            if (processVm4Result) {
+                processVm4Result.innerHTML = '<div class="alert alert-info">Processing VM4 offloads...</div>';
+            }
+            showToast('Processing VM4 offloads...', 'info');
+
+            let url = `/api/missions/${encodeURIComponent(missionId)}/process_vm4_offloads`;
+            const params = [];
+            if (force) {
+                params.push('force=true');
+            }
+            if (fieldSeasonYear) {
+                params.push(`field_season_year=${fieldSeasonYear}`);
+            }
+            if (params.length > 0) {
+                url += '?' + params.join('&');
+            }
+
+            const result = await apiRequest(url, 'POST');
+            
+            // Display results
+            if (processVm4Result) {
+                let resultHtml = `<div class="alert alert-success">${result.message}</div>`;
+                if (result.field_season_year) {
+                    resultHtml += `<div class="alert alert-info">All offload logs assigned to field season ${result.field_season_year}</div>`;
+                }
+                if (result.remote_health && Object.keys(result.remote_health).length > 0) {
+                    resultHtml += `<div class="alert alert-secondary"><strong>Remote Health attach:</strong> ` +
+                        `rows=${result.remote_health.rows_processed ?? 0}, ` +
+                        `updated=${result.remote_health.logs_updated ?? 0}, ` +
+                        `stations_matched=${result.remote_health.stations_matched ?? 0}, ` +
+                        `no_station=${result.remote_health.no_station ?? 0}, ` +
+                        `no_matching_log=${result.remote_health.no_matching_log ?? 0}` +
+                        `</div>`;
+                }
+                if (result.statistics) {
+                    resultHtml += '<div class="mt-3"><h6>Processing Statistics:</h6><ul class="list-group">';
+                    Object.entries(result.statistics).forEach(([key, value]) => {
+                        resultHtml += `<li class="list-group-item bg-dark text-light"><strong>${key}:</strong> ${value}</li>`;
+                    });
+                    resultHtml += '</ul></div>';
+                }
+                processVm4Result.innerHTML = resultHtml;
+            }
+
+            showToast('VM4 processing completed!', 'success');
+            
+            // Refresh station data
+            await fetchStationStatuses();
+        } catch (error) {
+            showToast(`Error processing VM4 offloads: ${error.message}`, 'danger');
+            if (processVm4Result) {
+                processVm4Result.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+            console.error('Error processing VM4 offloads:', error);
+        }
+    }
+
+    async function handleCreateSeason() {
+        const newSeasonYear = document.getElementById('newSeasonYear');
+        const setAsActiveCheck = document.getElementById('setAsActiveCheck');
+        const createSeasonModal = bootstrap.Modal.getInstance(document.getElementById('createSeasonModal'));
+
+        if (!newSeasonYear || !newSeasonYear.value) {
+            showToast('Please enter a season year', 'warning');
+            return;
+        }
+
+        const year = parseInt(newSeasonYear.value);
+        if (isNaN(year) || year < 2000 || year > 2100) {
+            showToast('Please enter a valid year between 2000 and 2100', 'warning');
+            return;
+        }
+
+        try {
+            showToast('Creating season...', 'info');
+            const seasonData = {
+                year: year,
+                is_active: setAsActiveCheck ? setAsActiveCheck.checked : true
+            };
+
+            const result = await apiRequest('/api/field_seasons/', 'POST', seasonData);
+            
+            // Close modal
+            if (createSeasonModal) {
+                createSeasonModal.hide();
+            }
+            
+            // Reset form
+            if (newSeasonYear) newSeasonYear.value = '';
+            if (setAsActiveCheck) setAsActiveCheck.checked = true;
+            
+            showToast(`Season ${year} created successfully!`, 'success');
+            
+            // Refresh seasons and data
+            await fetchAllSeasons();
+            await fetchActiveSeason();
+            await fetchStationStatuses();
+        } catch (error) {
+            showToast(`Error creating season: ${error.message}`, 'danger');
+            console.error('Error creating season:', error);
         }
     }
 });

@@ -45,6 +45,7 @@ async def load_report(
         "wave_energy_spectrum": "GPS Waves Energy Spectrum.csv",  # New
         "wg_vm4": "Vemco VM4 Daily Local Health.csv",  #  WG-VM4 sensor daily detection counts
         "wg_vm4_info": "Vemco VM4 Information.csv",  # WG-VM4 sensor info
+        "wg_vm4_remote_health": "Vemco VM4 Remote Health.csv",  # VM4 remote health at connection
     }
 
     if report_type not in reports:
