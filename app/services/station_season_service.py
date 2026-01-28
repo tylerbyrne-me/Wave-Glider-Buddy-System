@@ -64,12 +64,17 @@ class StationSeasonService:
     ) -> Dict[str, Any]:
         """
         Calculate comprehensive statistics for a field season.
-        
-        Improved logic:
-        - If station has offload attempts but no confirmed success → Failed
-        - If station has no offload attempts → Skipped (unless explicitly marked)
+
+        Assumption: If a command was sent and we never have a confirmed offload
+        response (was_offloaded True), the station is counted as failed.
+
+        Logic:
+        - Command/attempt sent = any log with offload_start_time_utc or time_first_command_sent_utc
+        - Confirmed offload = at least one log with was_offloaded is True
+        - Command sent and no confirmed offload → Failed
+        - No logs or no attempt timestamps → Skipped (unless explicitly marked)
         - Break down success by station type and mission ID
-        
+
         Returns:
             Dictionary containing detailed season statistics
         """
@@ -191,16 +196,15 @@ class StationSeasonService:
                     success_by_mission[mission_id]["successful"] += 1
                     success_by_mission[mission_id]["total"] += 1
                 else:
-                    # No successful offloads - check for any connection/offload attempt
-                    # An attempt = any log with offload_start_time_utc OR time_first_command_sent_utc
-                    # (connection attempts that never completed show up with first command sent only)
+                    # No confirmed offload (was_offloaded True). If command was sent, count as failed.
+                    # Attempt = any log with offload_start_time_utc or time_first_command_sent_utc
                     has_any_attempt = any(
                         (log.offload_start_time_utc or log.time_first_command_sent_utc)
                         for log in station_logs
                     )
                     
                     if has_any_attempt:
-                        # Had connection/offload attempt(s) but no confirmed success = failed
+                        # Command sent, no confirmed offload response → failed
                         failed_stations += 1
                         failed_station_ids.append(station.station_id)
                         success_by_type[station_type]["failed"] += 1
