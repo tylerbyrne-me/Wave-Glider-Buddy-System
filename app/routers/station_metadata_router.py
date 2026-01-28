@@ -1013,6 +1013,30 @@ async def close_field_season(
         )
 
 
+@router.post(
+    "/field_seasons/{year}/reprocess_statistics",
+    response_model=models.FieldSeasonRead,
+    tags=["Field Season Management"],
+)
+async def reprocess_season_statistics(
+    year: int,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    """Reprocess and save summary statistics for a closed season (admin only)."""
+    logger.info(
+        f"Admin '{current_user.username}' reprocessing statistics for closed season {year}."
+    )
+    try:
+        season = StationSeasonService.reprocess_season_statistics(session, year)
+        return season
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
 @router.get(
     "/field_seasons/{year}/stations",
     response_model=List[models.StationMetadataRead],

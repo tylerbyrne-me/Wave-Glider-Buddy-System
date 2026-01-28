@@ -344,6 +344,8 @@ class FieldSeasonSummary(SQLModel):
     total_offload_attempts: int
     successful_offloads: int
     failed_offloads: int
+    failed_stations: int = 0
+    failed_station_ids: List[str] = Field(default_factory=list, description="Station IDs with attempts but no successful offload")
     skipped_stations: int
     success_rate: float
     average_time_at_station_hours: Optional[float] = None

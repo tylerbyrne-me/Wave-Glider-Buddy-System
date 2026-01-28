@@ -959,6 +959,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         const manageSeasonSelector = document.getElementById('manageSeasonSelector');
         const setActiveSeasonBtn = document.getElementById('setActiveSeasonBtn');
         const editSeasonBtn = document.getElementById('editSeasonBtn');
+        const reprocessStatisticsBtn = document.getElementById('reprocessStatisticsBtn');
         const deleteSeasonBtn = document.getElementById('deleteSeasonBtn');
         const confirmEditSeasonBtn = document.getElementById('confirmEditSeasonBtn');
         const confirmDeleteSeasonBtn = document.getElementById('confirmDeleteSeasonBtn');
@@ -974,6 +975,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         if (editSeasonBtn) {
             editSeasonBtn.addEventListener('click', handleEditSeason);
+        }
+
+        if (reprocessStatisticsBtn) {
+            reprocessStatisticsBtn.addEventListener('click', handleReprocessStatistics);
         }
 
         if (deleteSeasonBtn) {
@@ -1298,6 +1303,14 @@ document.addEventListener('DOMContentLoaded', async function () {
                         </ul>
                     </div>
                 </div>
+                ${(statistics.failed_station_ids && statistics.failed_station_ids.length > 0) ? `
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <h6 class="text-danger">Failed station IDs (attempts but no success)</h6>
+                        <p class="small mb-0 text-muted">${statistics.failed_station_ids.join(', ')}</p>
+                    </div>
+                </div>
+                ` : ''}
                 <div class="row mt-3">
                     <div class="col-md-6">
                         <h6 class="text-info">Stations by Type</h6>
@@ -1516,6 +1529,14 @@ document.addEventListener('DOMContentLoaded', async function () {
                             </ul>
                         </div>
                     </div>
+                    ${(statistics.failed_station_ids && statistics.failed_station_ids.length > 0) ? `
+                    <div class="row mt-2">
+                        <div class="col-12">
+                            <h6 class="text-danger">Failed station IDs (attempts but no success)</h6>
+                            <p class="small mb-0 text-muted">${statistics.failed_station_ids.join(', ')}</p>
+                        </div>
+                    </div>
+                    ` : ''}
                     <div class="row mt-3">
                         <div class="col-md-6">
                             <h6>Stations by Type</h6>
@@ -1792,12 +1813,14 @@ document.addEventListener('DOMContentLoaded', async function () {
         const seasonDetailsDisplay = document.getElementById('seasonDetailsDisplay');
         const setActiveSeasonBtn = document.getElementById('setActiveSeasonBtn');
         const editSeasonBtn = document.getElementById('editSeasonBtn');
+        const reprocessStatisticsBtn = document.getElementById('reprocessStatisticsBtn');
         const deleteSeasonBtn = document.getElementById('deleteSeasonBtn');
 
         if (!year) {
             if (seasonDetailsDisplay) seasonDetailsDisplay.style.display = 'none';
             if (setActiveSeasonBtn) setActiveSeasonBtn.disabled = true;
             if (editSeasonBtn) editSeasonBtn.disabled = true;
+            if (reprocessStatisticsBtn) reprocessStatisticsBtn.disabled = true;
             if (deleteSeasonBtn) deleteSeasonBtn.disabled = true;
             return;
         }
@@ -1834,8 +1857,46 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (editSeasonBtn) {
             editSeasonBtn.disabled = false;
         }
+        if (reprocessStatisticsBtn) {
+            reprocessStatisticsBtn.disabled = !season.closed_at_utc; // Only for closed seasons
+        }
         if (deleteSeasonBtn) {
             deleteSeasonBtn.disabled = season.is_active; // Can't delete active season
+        }
+    }
+
+    async function handleReprocessStatistics() {
+        const manageSeasonSelector = document.getElementById('manageSeasonSelector');
+        if (!manageSeasonSelector || !manageSeasonSelector.value) {
+            showToast('Please select a season', 'warning');
+            return;
+        }
+
+        const year = parseInt(manageSeasonSelector.value);
+        const season = allSeasons.find(s => s.year === year);
+        if (!season || !season.closed_at_utc) {
+            showToast('Reprocess statistics is only available for closed seasons', 'warning');
+            return;
+        }
+
+        const confirmed = confirm(
+            `Recalculate summary statistics for closed season ${year}?\n\n` +
+            `This will recompute stats from current offload data and update the stored summary.`
+        );
+        if (!confirmed) return;
+
+        try {
+            showToast('Reprocessing statistics...', 'info');
+            const result = await apiRequest(`/api/field_seasons/${year}/reprocess_statistics`, 'POST');
+            showToast(`Statistics for season ${year} updated successfully`, 'success');
+            await fetchAllSeasons();
+            populateManageSeasonsDropdown();
+            // Refresh details if same season still selected
+            const ev = new Event('change');
+            if (manageSeasonSelector) manageSeasonSelector.dispatchEvent(ev);
+        } catch (error) {
+            showToast(`Error reprocessing statistics: ${error.message}`, 'danger');
+            console.error('Error reprocessing statistics:', error);
         }
     }
 

@@ -109,6 +109,7 @@ class StationSeasonService:
         failed_offloads = 0
         skipped_stations = 0
         failed_stations = 0  # Track failed stations (not just failed log attempts)
+        failed_station_ids: List[str] = []  # IDs of stations that had attempts but no success
         total_time_at_station_seconds = []
         unique_stations = set()
         first_offload_date = None
@@ -190,34 +191,31 @@ class StationSeasonService:
                     success_by_mission[mission_id]["successful"] += 1
                     success_by_mission[mission_id]["total"] += 1
                 else:
-                    # No successful offloads - check for failed attempts
-                    # A failed attempt is: offload_start_time_utc exists but was_offloaded is not True
-                    failed_attempts = [
-                        log for log in station_logs
-                        if log.offload_start_time_utc is not None 
-                        and log.was_offloaded is not True
-                    ]
+                    # No successful offloads - check for any connection/offload attempt
+                    # An attempt = any log with offload_start_time_utc OR time_first_command_sent_utc
+                    # (connection attempts that never completed show up with first command sent only)
+                    has_any_attempt = any(
+                        (log.offload_start_time_utc or log.time_first_command_sent_utc)
+                        for log in station_logs
+                    )
                     
-                    if failed_attempts:
-                        # Has offload attempts (start_time exists) but no confirmed success = failed
-                        # This includes:
-                        # - was_offloaded is False (explicitly failed)
-                        # - was_offloaded is None but start_time exists (attempted but no confirmation)
+                    if has_any_attempt:
+                        # Had connection/offload attempt(s) but no confirmed success = failed
                         failed_stations += 1
+                        failed_station_ids.append(station.station_id)
                         success_by_type[station_type]["failed"] += 1
                         success_by_type[station_type]["total"] += 1
                         mission_id = station.last_offload_by_glider or "unknown"
                         success_by_mission[mission_id]["failed"] += 1
                         success_by_mission[mission_id]["total"] += 1
                         
-                        # Log for debugging
                         logger.debug(
                             f"Station {station.station_id} marked as failed: "
-                            f"{len(failed_attempts)} failed attempt(s) found. "
-                            f"Logs: {[(log.offload_start_time_utc, log.was_offloaded) for log in station_logs]}"
+                            f"attempt(s) but no success. "
+                            f"Logs: {[(getattr(l, 'offload_start_time_utc'), getattr(l, 'time_first_command_sent_utc'), l.was_offloaded) for l in station_logs]}"
                         )
                     else:
-                        # Has logs but no actual offload attempts (no start_time) = skipped
+                        # Has logs but no timestamps indicating an attempt = skipped
                         skipped_stations += 1
                         success_by_type[station_type]["skipped"] += 1
                         success_by_type[station_type]["total"] += 1
@@ -339,7 +337,8 @@ class StationSeasonService:
             "total_offload_attempts": total_offload_attempts,
             "successful_offloads": successful_offloads,
             "failed_offloads": failed_offloads,
-            "failed_stations": failed_stations,  # New: count of stations that failed (not just log attempts)
+            "failed_stations": failed_stations,
+            "failed_station_ids": sorted(failed_station_ids),  # For feedback: which stations failed
             "skipped_stations": skipped_stations,
             "success_rate": round(success_rate, 2),
             "average_time_at_station_hours": (
@@ -458,6 +457,36 @@ class StationSeasonService:
             f"Archived {len(stations)} stations and {len(offload_logs)} offload logs."
         )
         
+        return season
+
+    @staticmethod
+    def reprocess_season_statistics(
+        session: SQLModelSession, year: int
+    ) -> FieldSeason:
+        """
+        Recalculate and save summary statistics for a closed season.
+        Only applies to seasons that are already closed.
+
+        Args:
+            session: Database session
+            year: Year of the closed season
+
+        Returns:
+            The updated FieldSeason record with new summary_statistics
+        """
+        season = StationSeasonService.get_season_by_year(session, year)
+        if not season:
+            raise ValueError(f"Season {year} not found")
+        if not season.closed_at_utc:
+            raise ValueError(f"Season {year} is not closed; reprocess is only for closed seasons")
+
+        statistics = StationSeasonService.calculate_season_statistics(session, year)
+        season.summary_statistics = statistics
+        session.add(season)
+        session.commit()
+        session.refresh(season)
+
+        logger.info(f"Reprocessed statistics for closed season {year}.")
         return season
 
     @staticmethod

@@ -468,12 +468,15 @@
                     <div id="seasonDetailsDisplay" class="mb-3" style="display: none;">
                         <!-- Season details will be displayed here -->
                     </div>
-                    <div class="btn-group w-100" role="group">
+                    <div class="btn-group w-100 flex-wrap" role="group">
                         <button class="btn btn-primary" id="setActiveSeasonBtn" disabled>
                             <i class="fas fa-star me-1"></i> Set as Active
                         </button>
                         <button class="btn btn-warning" id="editSeasonBtn" disabled>
                             <i class="fas fa-edit me-1"></i> Edit Season
+                        </button>
+                        <button class="btn btn-info" id="reprocessStatisticsBtn" disabled title="Recalculate summary statistics for this closed season">
+                            <i class="fas fa-calculator me-1"></i> Reprocess Statistics
                         </button>
                         <button class="btn btn-danger" id="deleteSeasonBtn" disabled>
                             <i class="fas fa-trash me-1"></i> Delete Season
