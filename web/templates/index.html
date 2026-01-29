@@ -564,9 +564,6 @@
                 </div>
                 <p id="dashboardPicHandoffsEmpty" class="text-center text-muted mt-3" style="display:none;">No PIC Handoff forms have been submitted for this mission.</p>
               </div>
-
-              {% set id_prefix = "dashboardPicHandoffs" %}
-              {% include "_form_details_modal.html" %}
             </div>
           </div>
         </div>
@@ -1993,6 +1990,11 @@
     </div>
     </div> <!-- End Right Main Display Area -->
   </div> <!-- End New Two-Column Layout / End Right Main Display Area -->
+
+  <!-- PIC Handoff details modal: outside #main-display-area so it stays fixed when the right panel scrolls -->
+  {% set id_prefix = "dashboardPicHandoffs" %}
+  {% include "_form_details_modal.html" %}
+
     <!-- --- Footer --- -->
   <hr>
 
