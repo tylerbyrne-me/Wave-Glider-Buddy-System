@@ -93,11 +93,11 @@ async def create_live_kml_token(
         
         logger.info(f"Created live KML token {token[:8]}... for missions: {', '.join(request.mission_ids)}")
         
-        # Get server URL from request
+        # Get server URL from request (fallback to config for production)
         if request_obj:
             base_url = str(request_obj.base_url).rstrip('/')
         else:
-            base_url = "http://localhost:8000"
+            base_url = settings.app_base_url.rstrip('/')
         
         # Generate network link KML file content
         network_link_kml = _generate_network_link_kml(token, request.mission_ids, base_url)
@@ -277,11 +277,11 @@ async def get_network_link_file(
         
         mission_ids = token_record.mission_ids.split(',')
         
-        # Get server URL from request
+        # Get server URL from request (fallback to config for production)
         if request_obj:
             base_url = str(request_obj.base_url).rstrip('/')
         else:
-            base_url = "http://localhost:8000"
+            base_url = settings.app_base_url.rstrip('/')
         
         network_link_kml = _generate_network_link_kml(token, mission_ids, base_url)
         
@@ -362,8 +362,10 @@ async def revoke_token(
         raise HTTPException(status_code=500, detail=f"Error revoking token: {str(e)}")
 
 
-def _generate_network_link_kml(token: str, mission_ids: List[str], base_url: str = "http://localhost:8000") -> str:
+def _generate_network_link_kml(token: str, mission_ids: List[str], base_url: str | None = None) -> str:
     """Generate NetworkLink KML that Google Earth can use to subscribe to live updates"""
+    if base_url is None:
+        base_url = settings.app_base_url.rstrip('/')
     mission_names = ", ".join([f"m{mid}" for mid in mission_ids])
     
     # Use the provided base URL

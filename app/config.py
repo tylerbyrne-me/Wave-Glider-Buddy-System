@@ -32,6 +32,13 @@ class Settings(BaseSettings):
 
     # Default relative to project root if not overridden by .env
 
+    # --- App URL / HTTP(S) (for production) ---
+    # Public URL of the app. Used for links, redirects, KML network links, etc.
+    # Local: http://localhost:8000  |  Production: http://192.168.1.18:8080 or https://...
+    app_base_url: str = "http://localhost:8000"
+    # Set True when the app is served over HTTPS (enables Secure flag on cookies).
+    app_use_https: bool = False
+
     # JWT Settings
     # IMPORTANT: The default JWT_SECRET_KEY is INSECURE and for DEVELOPMENT ONLY.
     # ALWAYS override this in your .env file with a strong, randomly generated key for production.

@@ -11,6 +11,7 @@ from ..core.auth import get_current_admin_user, get_current_active_user, get_opt
 from ..core import models
 from ..core.security import create_access_token, verify_password
 from ..core.db import get_db_session
+from ..config import settings
 from app.core.templates import templates
 from ..core.template_context import get_template_context
 
@@ -52,7 +53,7 @@ async def login_for_access_token(
         value=access_token,
         httponly=True,  # Prevents client-side JS from accessing the cookie
         samesite="lax",  # Recommended for security
-        # secure=True, # In production with HTTPS, this should be True
+        secure=settings.app_use_https,  # True when served over HTTPS (set APP_USE_HTTPS=true in .env)
         # max_age=... # Optionally set an expiry
     )
 
