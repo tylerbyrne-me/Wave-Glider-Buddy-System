@@ -460,11 +460,13 @@ def setup_sqladmin(app: FastAPI):
         authentication_backend = create_sqladmin_auth_backend(secret_key=settings.jwt_secret_key)
         
         # Initialize SQLAdmin with the FastAPI app (app is required as first arg)
+        # base_url: where admin is mounted (configurable for production path prefix)
         admin = Admin(
             app=app,
             engine=sqlite_engine,
             title="Wave Glider Admin - Operations",
             authentication_backend=authentication_backend,
+            base_url=settings.app_admin_base_url.strip() or "/admin",
         )
         
         # Core operational models

@@ -1385,7 +1385,15 @@ async def startup_event():
         # Focus: Core operational models (Users, Stations, Missions, Timesheets, etc.)
         # Pass the app instance as SQLAdmin requires it for initialization
         setup_sqladmin(app)
-        logger.info("SQLAdmin configured successfully at /admin (admin-only, authenticated)")
+        from .config import settings as _settings
+        _admin_path = (_settings.app_admin_base_url or "/admin").strip() or "/admin"
+        logger.info(
+            "SQLAdmin configured successfully at %s (admin-only, authenticated). "
+            "Full URL: %s%s",
+            _admin_path,
+            _settings.app_base_url.rstrip("/"),
+            _admin_path if _admin_path.startswith("/") else "/" + _admin_path,
+        )
     except Exception as e:
         logger.error(f"Error setting up admin interfaces: {e}", exc_info=True)
     

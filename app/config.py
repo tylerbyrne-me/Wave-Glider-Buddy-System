@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     app_base_url: str = "http://localhost:8000"
     # Set True when the app is served over HTTPS (enables Secure flag on cookies).
     app_use_https: bool = False
+    # Path where SQLAdmin is mounted (default /admin). Use e.g. /app/admin if app is under a prefix.
+    app_admin_base_url: str = "/admin"
 
     # JWT Settings
     # IMPORTANT: The default JWT_SECRET_KEY is INSECURE and for DEVELOPMENT ONLY.
