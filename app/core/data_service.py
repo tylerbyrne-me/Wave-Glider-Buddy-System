@@ -972,13 +972,14 @@ class DataService:
         actual_source_path = "Data not loaded"
         file_modification_time = None
         
-        # Try local first (preferred - faster and more reliable)
-        if source_preference != "remote":
+        # Try local first only when explicitly requested (admin + feature toggle)
+        # When source_preference is "local", try local with current_user for admin check
+        if source_preference == "local":
             df, actual_source_path, file_modification_time = await _load_from_local_sources(
-                report_type, mission_id, custom_local_path
+                report_type, mission_id, custom_local_path, current_user, allow_system_access=False
             )
         
-        # Fall back to remote if local failed or source_preference is "remote"
+        # Fall back to remote if local failed or source_preference is "remote" or None
         if df is None or df.empty:
             if source_preference != "local":
                 df, actual_source_path, file_modification_time = await _load_from_remote_sources(
