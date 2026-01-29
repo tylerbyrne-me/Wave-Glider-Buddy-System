@@ -25,6 +25,7 @@ def _get_cached_feature_context() -> Dict[str, Any]:
         "is_payroll_enabled": features.get("payroll", False),
         "is_admin_management_enabled": features.get("admin_management", False),
         "is_station_offloads_enabled": features.get("station_offloads", False),
+        "is_local_data_loading_enabled": features.get("local_data_loading", False),
         "is_mission_dashboard_enabled": features.get("mission_dashboard", True),
         "is_forms_enabled": features.get("forms", True),
         "is_reporting_enabled": features.get("reporting", True),

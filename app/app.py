@@ -2077,6 +2077,11 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     is_realtime = mission in settings.active_realtime_missions if not is_historical else False
     context["is_current_mission_realtime"] = is_realtime
     context["is_historical_mission"] = is_historical
+    
+    # Data source preference from URL (for data source modal and button)
+    context["current_source_preference"] = request.query_params.get("source") or "remote"
+    context["current_source"] = context["current_source_preference"]
+    context["current_local_path"] = request.query_params.get("local_path") or ""
 
     return templates.TemplateResponse("index.html", context)
 

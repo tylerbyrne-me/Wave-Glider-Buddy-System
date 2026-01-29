@@ -63,6 +63,17 @@
     An error occurred. Please check console for details or try again later.
   </div>
 
+  <!-- Data source control: only visible when local_data_loading feature is enabled -->
+  {% if features.local_data_loading %}
+  <div class="mb-2 d-flex align-items-center">
+    <span class="text-muted small me-2">Data source:</span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="openDataSourceModalBtn" data-bs-toggle="modal" data-bs-target="#dataSourceModal" title="Choose where to load sensor data from (Remote or Local). Local is admin-only.">
+      <i class="fas fa-database me-1"></i> <span id="dataSourceButtonLabel">{{ "Local" if (current_source_preference or 'remote') == 'local' else "Remote" }}</span>
+    </button>
+    <small class="text-muted ms-2">Click to change</small>
+  </div>
+  {% endif %}
+
     <!-- New Two-Column Layout for Dashboard Content -->
   {% set nav_values = navigation_info['values'] if navigation_info and navigation_info['values'] else {} %}
   {% set power_values = power_info['values'] if power_info and power_info['values'] else {} %}
