@@ -39,6 +39,34 @@
   --bs-primary-dark: rgb(14, 40, 79);
   --bs-secondary-dark: #5c636a;
 }
+
+/* Season Statistics card: follow light/dark theme */
+.season-stats-card {
+  background-color: var(--background);
+  color: var(--text-color);
+  border-color: var(--card-border) !important;
+}
+.season-stats-card .season-stats-card-header {
+  background-color: var(--card-hover-bg);
+  color: var(--text-color);
+  border-bottom: 1px solid var(--card-border);
+}
+.season-stats-card .season-stats-card-body {
+  background-color: var(--background);
+  color: var(--text-color);
+}
+.season-stats-card .table {
+  color: inherit;
+  --bs-table-bg: transparent;
+  --bs-table-striped-bg: var(--highlight-bg);
+  --bs-table-hover-bg: var(--card-hover-bg);
+  --bs-table-border-color: var(--card-border);
+}
+.season-stats-card .table th,
+.season-stats-card .table td {
+  border-color: var(--card-border);
+}
+
 :root[data-theme="dark"] {
   /* Base palette */
   --text: #e9ecef;

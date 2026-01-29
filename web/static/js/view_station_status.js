@@ -1363,7 +1363,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <div class="col-12">
                             <h6 class="text-info">Success Rate by Station Type</h6>
                             <div class="table-responsive">
-                                <table class="table table-sm table-dark">
+                                <table class="table table-sm">
                                     <thead>
                                         <tr>
                                             <th>Type</th>
@@ -1400,7 +1400,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <div class="col-12">
                             <h6 class="text-info">Success Rate by Mission</h6>
                             <div class="table-responsive">
-                                <table class="table table-sm table-dark">
+                                <table class="table table-sm">
                                     <thead>
                                         <tr>
                                             <th>Mission ID</th>
@@ -1448,7 +1448,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                                 </h6>
                                 <div class="collapse mt-2" id="stationAttemptDetails">
                                     <div class="table-responsive">
-                                        <table class="table table-sm table-dark">
+                                        <table class="table table-sm">
                                             <thead>
                                                 <tr>
                                                     <th>Station ID</th>
