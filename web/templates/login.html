@@ -7,14 +7,12 @@
 {% block head_extra_css %}
     <style>
         body {
-            /* Set background image for the splash screen */
-            background-image: url('/static/images/login_splash.jpg'); /* Update path and filename */
-            background-size: cover; /* Cover the entire viewport */
-            background-position: center; /* Center the image */
-            background-repeat: no-repeat; /* Do not repeat the image */
-            background-attachment: fixed; /* Keep background fixed when scrolling (optional) */
-            /* padding-top: 70px; is handled by base.html */
-            /* background-color: #212529; /* Removed or commented out as background-image takes precedence */
+            /* Fallback image; JS picks a random one on load */
+            background-image: url('/static/images/login_splash.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
         }
         .login-container { /* New container for centering the card */
             display: flex;
@@ -80,4 +78,24 @@
 
 {% block body_extra_js %}
     {# auth.js is already included in base.html #}
+    <script>
+        (function () {
+            var loginBackgrounds = [
+    '/static/images/login_splash.jpg',
+    '/static/images/login_splash_2.jpg',
+    '/static/images/login_splash_3.jpg',
+    '/static/images/login_splash_4.jpg',
+    '/static/images/login_splash_5.jpg',
+    '/static/images/login_splash_6.jpg',
+    '/static/images/login_splash_7.jpg',
+    '/static/images/login_splash_8.jpg',
+    '/static/images/login_splash_9.jpg',
+    '/static/images/login_splash_10.jpg',
+];
+            if (loginBackgrounds.length) {
+                var idx = Math.floor(Math.random() * loginBackgrounds.length);
+                document.body.style.backgroundImage = "url('" + loginBackgrounds[idx] + "')";
+            }
+        })();
+    </script>
 {% endblock %}
