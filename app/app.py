@@ -2005,9 +2005,22 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     
     hours = 24  # Default time window for summaries/mini-trends
 
+    # Use source preference from URL so server-rendered summaries/sensor cards/mini-trends match charts
+    source_preference = request.query_params.get("source") or None
+    custom_local_path = request.query_params.get("local_path") or None
+
     # Load only the data sources for enabled sensor cards
     results = await asyncio.gather(
-        *[load_data_source(rt, mission, current_user=current_user) for rt in report_types_to_load],
+        *[
+            load_data_source(
+                rt, mission,
+                source_preference=source_preference,
+                custom_local_path=custom_local_path,
+                current_user=current_user,
+                hours_back=hours,
+            )
+            for rt in report_types_to_load
+        ],
         return_exceptions=True
     )
 

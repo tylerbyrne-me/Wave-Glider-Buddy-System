@@ -121,6 +121,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                         contentHtml += `<li class="list-group-item bg-dark text-light"><strong>${item.label}:</strong> `;
                         if (item.item_type === 'checkbox') {
                             contentHtml += item.is_checked ? 'Checked' : 'Not Checked';
+                        } else if (item.id === 'user_comments_val') {
+                            const comments = (item.value && String(item.value).trim()) ? item.value : 'No included comments';
+                            contentHtml += comments;
                         } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
                             contentHtml += `${item.value || 'N/A'}`;
                         } else {

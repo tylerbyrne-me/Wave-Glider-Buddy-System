@@ -83,9 +83,18 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                         models.FormItem(id="line_follow_val", label="Line Following Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
                     ]
                 ),
-                # ... (include other sections for pic_handoff_checklist as defined in your original app.py)
-                # For brevity, I'm omitting the full list of items for operational_notes, station_ops, payload_status
-                # but you should include them here as per your original `get_example_form_schema`
+                models.FormSection(
+                    id="user_comments",
+                    title="User Comments",
+                    items=[
+                        models.FormItem(
+                            id="user_comments_val",
+                            label="Comments",
+                            item_type=models.FormItemTypeEnum.TEXT_AREA,
+                            placeholder="Optional comments...",
+                        ),
+                    ],
+                ),
             ]
         )
     # Add other form types here
