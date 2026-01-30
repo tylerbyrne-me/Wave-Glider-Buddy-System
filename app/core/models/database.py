@@ -483,6 +483,7 @@ class MissionInstrument(SQLModel, table=True):
     data_logger_id: Optional[int] = None
     data_logger_name: Optional[str] = None
     data_logger_identifier: Optional[str] = None
+    data_logger_serial: Optional[str] = None  # Serial number of the data logger (e.g. Science Computer)
     is_platform_direct: bool = SQLModelField(default=False, description="True if attached directly to platform")
     
     # Timing

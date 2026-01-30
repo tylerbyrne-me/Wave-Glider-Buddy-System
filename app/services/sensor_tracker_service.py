@@ -1201,6 +1201,7 @@ class SensorTrackerService:
                                     "data_logger_id": data_logger_id,
                                     "data_logger_name": data_logger_name,
                                     "data_logger_identifier": data_logger_identifier,
+                                    "data_logger_serial": data_logger_serial,
                                     "raw_relationship": inst_rel,
                                 }
                                 parsed_instruments.append(parsed_inst)

@@ -437,7 +437,18 @@ document.addEventListener('DOMContentLoaded', async function() {
 
                 const scienceContainer = document.getElementById('stScienceInstrumentsContainer');
                 const scienceList = document.getElementById('stScienceInstruments');
+                const scienceSerialEl = document.getElementById('stScienceComputerSerial');
                 if (scienceInstruments.length > 0) {
+                    const scienceComputerSerial = scienceInstruments[0].data_logger_serial;
+                    if (scienceSerialEl) {
+                        if (scienceComputerSerial) {
+                            scienceSerialEl.textContent = `Serial: ${escapeHtml(scienceComputerSerial)}`;
+                            scienceSerialEl.style.display = 'block';
+                        } else {
+                            scienceSerialEl.textContent = '';
+                            scienceSerialEl.style.display = 'none';
+                        }
+                    }
                     scienceList.innerHTML = '';
                     scienceInstruments.forEach(inst => {
                         const li = document.createElement('li');
@@ -449,6 +460,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     });
                     scienceContainer.style.display = 'block';
                 } else {
+                    if (scienceSerialEl) scienceSerialEl.style.display = 'none';
                     scienceContainer.style.display = 'none';
                 }
 

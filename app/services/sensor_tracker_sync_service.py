@@ -348,6 +348,7 @@ class SensorTrackerSyncService:
                 logger_identifier = logger_data.get("data_logger_identifier")
                 
                 instruments = logger_data.get("instruments", [])
+                logger_serial = logger_data.get("data_logger_serial")
                 for inst_data in instruments:
                     await self._create_instrument_record(
                         mission_id, inst_data, session,
@@ -355,6 +356,7 @@ class SensorTrackerSyncService:
                         data_logger_id=logger_id,
                         data_logger_name=logger_name,
                         data_logger_identifier=logger_identifier,
+                        data_logger_serial=logger_serial,
                         is_platform_direct=False
                     )
             
@@ -405,11 +407,12 @@ class SensorTrackerSyncService:
         data_logger_id: Optional[int] = None,
         data_logger_name: Optional[str] = None,
         data_logger_identifier: Optional[str] = None,
+        data_logger_serial: Optional[str] = None,
         is_platform_direct: bool = False
     ):
         """
         Create an instrument record and its associated sensors.
-        
+
         Args:
             mission_id: Mission ID (e.g., "m216")
             inst_data: Instrument data dictionary
@@ -418,6 +421,7 @@ class SensorTrackerSyncService:
             data_logger_id: Data logger ID
             data_logger_name: Data logger name
             data_logger_identifier: Data logger identifier
+            data_logger_serial: Serial number of the data logger (e.g. Science Computer)
             is_platform_direct: True if instrument is directly on platform
         """
         instrument = models.MissionInstrument(
@@ -433,6 +437,7 @@ class SensorTrackerSyncService:
             data_logger_id=data_logger_id,
             data_logger_name=data_logger_name,
             data_logger_identifier=data_logger_identifier,
+            data_logger_serial=data_logger_serial,
             is_platform_direct=is_platform_direct
         )
         

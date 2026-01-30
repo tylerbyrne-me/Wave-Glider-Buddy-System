@@ -616,9 +616,12 @@ async def generate_weekly_report(
                     ax3 = fig_st.add_subplot(gs[1, 0])
                     format_instrument_section(ax3, "Flight Computer Instruments", flight_instruments)
                     
-                    # Bottom Right: Science Computer Instruments
+                    # Bottom Right: Science Computer Instruments (include Science Computer serial if present)
                     ax4 = fig_st.add_subplot(gs[1, 1])
-                    format_instrument_section(ax4, "Science Computer Instruments", science_instruments)
+                    science_title = "Science Computer Instruments"
+                    if science_instruments and getattr(science_instruments[0], "data_logger_serial", None):
+                        science_title = f"Science Computer Instruments (SN: {science_instruments[0].data_logger_serial})"
+                    format_instrument_section(ax4, science_title, science_instruments)
                     
                     # Add a new page for long-form text fields (deployment comment and acknowledgement)
                     # Only create if at least one of them has content
