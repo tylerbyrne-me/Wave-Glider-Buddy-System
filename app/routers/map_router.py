@@ -6,8 +6,8 @@ and generate KML files for Google Maps/Earth export.
 """
 
 from typing import Optional, List
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Query, HTTPException
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import JSONResponse, Response
 import logging
 import math
@@ -18,13 +18,18 @@ import httpx
 from ..core.auth import get_current_active_user
 from ..core import models
 from ..core.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
-from ..core.processors import preprocess_telemetry_df
+from ..core.processors import preprocess_telemetry_df, preprocess_slocum_track_df
 from ..core.data_service import get_data_service
+from ..core.slocum_erddap_client import fetch_slocum_track, ERDDAP_TIMEOUT
+from ..core.feature_toggles import is_feature_enabled
 from ..core.error_handlers import handle_processing_error, handle_data_not_found, ErrorContext
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Map"])
+
+# Slightly above client timeout for asyncio.wait_for on Slocum ERDDAP fetch
+SLOCUM_ERDDAP_REQUEST_TIMEOUT = ERDDAP_TIMEOUT + 5
 
 
 async def _prepare_track_data(
@@ -112,6 +117,74 @@ async def _prepare_track_data(
         }
 
 
+async def _prepare_slocum_track_data(
+    dataset_id: str,
+    time_start: str,
+    time_end: str,
+    current_user: models.User,
+    max_points: int = 1000,
+) -> dict:
+    """
+    Load Slocum ERDDAP data, preprocess, and prepare track points for map display.
+
+    Returns same shape as _prepare_track_data: track_points, point_count, bounds, source, error.
+    """
+    source_label = f"ERDDAP: {dataset_id}"
+    try:
+        df = await asyncio.wait_for(
+            asyncio.to_thread(
+                fetch_slocum_track, dataset_id, time_start, time_end
+            ),
+            timeout=SLOCUM_ERDDAP_REQUEST_TIMEOUT,
+        )
+        if df is None or df.empty:
+            logger.warning(f"No Slocum data for dataset {dataset_id}")
+            return {
+                "track_points": [],
+                "point_count": 0,
+                "bounds": None,
+                "source": source_label,
+                "error": "No data available",
+            }
+        processed_df = preprocess_slocum_track_df(df)
+        if processed_df.empty:
+            logger.warning(f"No valid Slocum track points after preprocessing for {dataset_id}")
+            return {
+                "track_points": [],
+                "point_count": 0,
+                "bounds": None,
+                "source": source_label,
+                "error": "No valid track points",
+            }
+        track_points = prepare_track_points(processed_df, max_points=max_points)
+        bounds = get_track_bounds(track_points)
+        return {
+            "track_points": track_points,
+            "point_count": len(track_points),
+            "bounds": bounds,
+            "source": source_label,
+            "error": None,
+        }
+    except asyncio.TimeoutError:
+        logger.warning(f"Slocum ERDDAP fetch timed out for dataset {dataset_id}")
+        return {
+            "track_points": [],
+            "point_count": 0,
+            "bounds": None,
+            "source": source_label,
+            "error": "ERDDAP server did not respond in time. Try again later.",
+        }
+    except Exception as e:
+        logger.error(f"Error preparing Slocum track for {dataset_id}: {e}", exc_info=True)
+        return {
+            "track_points": [],
+            "point_count": 0,
+            "bounds": None,
+            "source": source_label,
+            "error": str(e),
+        }
+
+
 @router.get("/api/map/telemetry/{mission_id}")
 async def get_mission_track(
     mission_id: str,
@@ -158,6 +231,64 @@ async def get_mission_track(
             error=e,
             resource=mission_id,
             user_id=str(current_user.id) if current_user else None
+        )
+
+
+@router.get("/api/map/slocum/telemetry/{dataset_id}")
+async def get_slocum_mission_track(
+    dataset_id: str,
+    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history from now (used if time_start/time_end not set)"),
+    time_start: Optional[str] = Query(None, description="Start time ISO 8601 (e.g. 2025-08-01T00:00:00Z)"),
+    time_end: Optional[str] = Query(None, description="End time ISO 8601 (e.g. 2025-08-31T23:59:59Z)"),
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """
+    Get Slocum ERDDAP track points for map visualization.
+
+    Provide either (time_start, time_end) or hours_back. If time_start/time_end
+    are provided they take precedence; otherwise time range is derived from
+    hours_back from now (UTC).
+
+    Returns same response shape as Wave Glider /api/map/telemetry/{mission_id}.
+    """
+    if not is_feature_enabled("slocum_platform"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Slocum platform is disabled (feature_toggles.slocum_platform).",
+        )
+    now = datetime.now(timezone.utc)
+    if time_start and time_end:
+        t_start, t_end = time_start, time_end
+    else:
+        end_dt = now
+        start_dt = now - timedelta(hours=hours_back or 72)
+        t_end = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        t_start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        track_data = await _prepare_slocum_track_data(
+            dataset_id, t_start, t_end, current_user, max_points=1000
+        )
+        response_data = {
+            "mission_id": dataset_id,
+            "dataset_id": dataset_id,
+            "track_points": track_data["track_points"],
+            "point_count": track_data["point_count"],
+            "bounds": track_data["bounds"],
+            "source": track_data["source"],
+            "time_start": t_start,
+            "time_end": t_end,
+        }
+        if track_data.get("error"):
+            response_data["error"] = track_data["error"]
+        return JSONResponse(content=response_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise handle_processing_error(
+            operation="retrieving Slocum track data",
+            error=e,
+            resource=dataset_id,
+            user_id=str(current_user.id) if current_user else None,
         )
 
 

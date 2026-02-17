@@ -49,6 +49,7 @@ donfig
 durationpy==0.10
 ecdsa
 email_validator
+erddapy>=2.0.0
 fastapi
 fastapi-cli
 fastapi-mail==1.5.0

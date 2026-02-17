@@ -66,8 +66,14 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed here
-    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "local_data_loading": false}'
-    
+    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "local_data_loading": false, "slocum_platform": true}'
+
+    # --- Slocum ERDDAP Settings ---
+    # Ocean Track Slocum glider ERDDAP server; override in .env if needed
+    slocum_erddap_server: str = "https://erddap.oceantrack.org/erddap"
+    # Comma-separated dataset IDs to show as "active" in the map/dataset picker
+    active_slocum_datasets: str = ""
+
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file
     sensor_tracker_host: str = "https://prod.ceotr.ca/sensor_tracker"

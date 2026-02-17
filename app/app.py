@@ -107,6 +107,8 @@ from .routers import knowledge_base as knowledge_base_router
 from .routers import user_notes as user_notes_router
 from .routers import shared_tips as shared_tips_router
 from .routers import chatbot as chatbot_router
+from .routers import exploration_slocum as exploration_slocum_router
+from .routers import slocum as slocum_router
 
 # Admin imports
 from .core.admin_sqladmin import setup_sqladmin
@@ -203,6 +205,8 @@ app.include_router(knowledge_base_router.router)
 app.include_router(user_notes_router.router)
 app.include_router(shared_tips_router.router)
 app.include_router(chatbot_router.router)
+app.include_router(exploration_slocum_router.router)
+app.include_router(slocum_router.router)
 
 # SQLAdmin will be initialized in startup_event with the app instance
 # No need to mount separately - it's integrated into the app during setup

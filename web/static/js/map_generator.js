@@ -9,6 +9,10 @@ import { apiRequest, showToast } from '/static/js/api.js';
 
 let missionMap = null;
 let missionTracks = [];
+let slocumTracks = [];
+
+/** Slocum track color palette (teal/green for visual distinction from Wave Glider blue/red) */
+const SLOCUM_COLORS = ['#008b8b', '#20b2aa', '#2e8b57', '#3cb371', '#48d1cc', '#5f9ea0', '#66cdaa', '#7fffd4'];
 
 /**
  * Initialize the mission map and auto-load active missions
@@ -186,7 +190,7 @@ async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
 }
 
 /**
- * Clear all tracks from the map
+ * Clear all Wave Glider tracks from the map
  */
 function clearTracks() {
     if (missionTracks.length > 0) {
@@ -194,6 +198,228 @@ function clearTracks() {
             missionMap.removeLayer(track.layer);
         });
         missionTracks = [];
+    }
+}
+
+/**
+ * Clear all Slocum tracks from the map
+ */
+function clearSlocumTracks() {
+    if (slocumTracks.length > 0) {
+        slocumTracks.forEach(track => {
+            missionMap.removeLayer(track.layer);
+        });
+        slocumTracks = [];
+    }
+}
+
+/**
+ * Fetch Slocum dataset list (active + available) from API
+ * @returns {Promise<{active: Array, available: Array}>}
+ */
+async function loadSlocumDatasets() {
+    const data = await apiRequest('/api/slocum/datasets', 'GET');
+    return { active: data.active || [], available: data.available || [] };
+}
+
+/**
+ * Load and display a single Slocum glider track
+ * @param {string} datasetId - ERDDAP dataset ID
+ * @param {number} hoursBack - Number of hours of history
+ * @param {number} colorIndex - Index into SLOCUM_COLORS for multi-track styling
+ */
+async function loadSlocumTrack(datasetId, hoursBack = 72, colorIndex = 0) {
+    if (!missionMap) {
+        showToast('Map not initialized', 'danger');
+        return;
+    }
+    try {
+        const data = await apiRequest(`/api/map/slocum/telemetry/${encodeURIComponent(datasetId)}?hours_back=${hoursBack}`, 'GET');
+        if (!data.track_points || data.track_points.length === 0) {
+            showToast(`No track data for Slocum dataset ${datasetId}`, 'warning');
+            return;
+        }
+        const color = SLOCUM_COLORS[colorIndex % SLOCUM_COLORS.length];
+        const trackLayer = L.polyline(
+            data.track_points.map(point => [point.lat, point.lon]),
+            {
+                color: color,
+                weight: 3,
+                opacity: 0.8,
+                dashArray: '10, 10'
+            }
+        ).addTo(missionMap);
+        slocumTracks.push({
+            datasetId: datasetId,
+            layer: trackLayer,
+            pointCount: data.point_count,
+            bounds: data.bounds
+        });
+        if (data.bounds) {
+            const allLayers = [...missionTracks, ...slocumTracks].map(t => t.layer);
+            const group = new L.featureGroup(allLayers);
+            missionMap.fitBounds(group.getBounds(), { padding: [50, 50] });
+        }
+        updateSlocumTrackInfo();
+    } catch (error) {
+        showToast(`Error loading Slocum track ${datasetId}: ${error.message}`, 'danger');
+    }
+}
+
+/**
+ * Update Slocum track info in the UI
+ */
+function updateSlocumTrackInfo() {
+    const infoElement = document.getElementById('slocumTrackInfo');
+    if (!infoElement) return;
+    if (slocumTracks.length === 0) {
+        infoElement.innerHTML = '';
+        return;
+    }
+    const totalPoints = slocumTracks.reduce((sum, t) => sum + t.pointCount, 0);
+    let html = '<div class="alert alert-secondary mb-2"><strong>Slocum gliders</strong> (dashed) – ';
+    html += `${slocumTracks.length} dataset(s), ${totalPoints.toLocaleString()} points</div>`;
+    infoElement.innerHTML = html;
+}
+
+/**
+ * Remove a single Slocum track by dataset ID
+ * @param {string} datasetId
+ */
+function removeSlocumTrack(datasetId) {
+    const idx = slocumTracks.findIndex(t => t.datasetId === datasetId);
+    if (idx === -1) return;
+    const track = slocumTracks[idx];
+    if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+    slocumTracks.splice(idx, 1);
+    updateSlocumTrackInfo();
+}
+
+/**
+ * Initialize Slocum dataset picker and wire events (when section exists and feature enabled)
+ */
+function initSlocumUI() {
+    const section = document.getElementById('slocumDatasetsSection');
+    if (!section || !missionMap) return;
+    const activeList = document.getElementById('slocumActiveList');
+    const hoursBackSelect = document.getElementById('slocumHoursBack');
+    const clearBtn = document.getElementById('slocumClearTracksBtn');
+    const browseBtn = document.getElementById('slocumBrowseBtn');
+    const searchBtn = document.getElementById('slocumSearchBtn');
+    const searchInput = document.getElementById('slocumSearchInput');
+    const searchResults = document.getElementById('slocumSearchResults');
+    const browseModal = document.getElementById('slocumBrowseModal');
+
+    function getHoursBack() {
+        return hoursBackSelect ? parseInt(hoursBackSelect.value, 10) || 72 : 72;
+    }
+
+    function setLoading(loading) {
+        if (activeList) {
+            activeList.innerHTML = loading
+                ? '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Loading…</span>'
+                : '';
+        }
+        if (browseBtn) browseBtn.disabled = loading;
+    }
+
+    function renderActiveList(active) {
+        if (!activeList) return;
+        if (!active || active.length === 0) {
+            activeList.innerHTML = '<span class="text-muted">No active datasets configured.</span>';
+            return;
+        }
+        let html = '<div class="d-flex flex-wrap gap-2">';
+        active.forEach((ds, i) => {
+            const id = ds.datasetID || ds.datasetId || 'unknown';
+            const title = ds.title || id;
+            html += `<label class="d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input slocum-dataset-cb" data-dataset-id="${id}"> ${title}</label>`;
+        });
+        html += '</div>';
+        activeList.innerHTML = html;
+        activeList.querySelectorAll('.slocum-dataset-cb').forEach(cb => {
+            cb.addEventListener('change', async function() {
+                const datasetId = this.getAttribute('data-dataset-id');
+                if (this.checked) {
+                    const colorIndex = slocumTracks.length;
+                    await loadSlocumTrack(datasetId, getHoursBack(), colorIndex);
+                } else {
+                    removeSlocumTrack(datasetId);
+                }
+            });
+        });
+    }
+
+    setLoading(true);
+    loadSlocumDatasets()
+        .then(data => {
+            setLoading(false);
+            renderActiveList(data.active);
+        })
+        .catch(err => {
+            setLoading(false);
+            if (activeList) activeList.innerHTML = '<span class="text-danger">Failed to load datasets. Try again later.</span>';
+            showToast('Failed to load Slocum datasets', 'danger');
+        });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            clearSlocumTracks();
+            updateSlocumTrackInfo();
+            if (activeList) activeList.querySelectorAll('.slocum-dataset-cb').forEach(cb => { cb.checked = false; });
+        });
+    }
+
+    if (browseBtn && browseModal) {
+        browseBtn.addEventListener('click', () => {
+            const modal = typeof bootstrap !== 'undefined' && bootstrap.Modal ? new bootstrap.Modal(browseModal) : null;
+            if (modal) modal.show();
+        });
+    }
+
+    if (searchBtn && searchInput && searchResults) {
+        searchBtn.addEventListener('click', async () => {
+            const q = searchInput.value.trim();
+            if (!q) {
+                searchResults.innerHTML = '<p class="text-muted">Enter a search term.</p>';
+                return;
+            }
+            searchResults.innerHTML = '<p class="text-muted"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Searching…</p>';
+            searchBtn.disabled = true;
+            try {
+                const data = await apiRequest(`/api/slocum/datasets/search?q=${encodeURIComponent(q)}`, 'GET');
+                const list = data.datasets || [];
+                if (list.length === 0) {
+                    searchResults.innerHTML = '<p class="text-muted">No datasets found.</p>';
+                    return;
+                }
+                let html = '<ul class="list-group list-group-flush">';
+                list.forEach((ds, i) => {
+                    const id = ds.datasetID || ds.datasetId || 'unknown';
+                    const title = ds.title || id;
+                    html += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>${title}</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary add-slocum-dataset-btn" data-dataset-id="${id}">Add to map</button>
+                    </li>`;
+                });
+                html += '</ul>';
+                searchResults.innerHTML = html;
+                searchResults.querySelectorAll('.add-slocum-dataset-btn').forEach(btn => {
+                    btn.addEventListener('click', async function() {
+                        const datasetId = this.getAttribute('data-dataset-id');
+                        const colorIndex = slocumTracks.length;
+                        await loadSlocumTrack(datasetId, getHoursBack(), colorIndex);
+                        const modal = browseModal && typeof bootstrap !== 'undefined' && bootstrap.Modal ? bootstrap.Modal.getInstance(browseModal) : null;
+                        if (modal) modal.hide();
+                    });
+                });
+            } catch (err) {
+                const msg = err.message || (err.detail && (typeof err.detail === 'string' ? err.detail : err.detail.detail)) || 'Search failed';
+                searchResults.innerHTML = `<p class="text-danger">${msg}</p>`;
+            } finally {
+                searchBtn.disabled = false;
+            }
+        });
     }
 }
 
@@ -414,7 +640,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (mapContainer) {
         // Initialize map when container is present
         initializeMissionMap();
-        
+        // Slocum dataset picker (when feature enabled and section present)
+        initSlocumUI();
+
         // Set up event listeners for controls
         const generateBtn = document.getElementById('generateMapBtn');
         const downloadBtn = document.getElementById('downloadKMLBtn');
@@ -485,6 +713,19 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Export functions for use in other modules if needed
-export { initializeMissionMap, loadMissionTrack, loadMultipleMissionTracks, generateLiveKML, downloadMissionKML };
+export {
+    initializeMissionMap,
+    loadMissionTrack,
+    loadMultipleMissionTracks,
+    clearTracks,
+    clearSlocumTracks,
+    loadSlocumDatasets,
+    loadSlocumTrack,
+    removeSlocumTrack,
+    updateSlocumTrackInfo,
+    initSlocumUI,
+    generateLiveKML,
+    downloadMissionKML
+};
 
 

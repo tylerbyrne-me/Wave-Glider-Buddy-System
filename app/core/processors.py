@@ -504,6 +504,38 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_processed
 
+
+def preprocess_slocum_track_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess Slocum ERDDAP track DataFrame for map display.
+
+    Standardizes ERDDAP column names (time, latitude, longitude, depth) to
+    Timestamp, Latitude, Longitude, Depth for use with prepare_track_points.
+
+    Args:
+        df: Raw DataFrame from ERDDAP with columns e.g. "time (UTC)",
+            "latitude (degrees_north)", "longitude (degrees_east)", "depth (m)".
+
+    Returns:
+        Processed DataFrame with Timestamp, Latitude, Longitude, Depth.
+    """
+    timestamp_col = "Timestamp"
+    rename_map = {
+        "latitude (degrees_north)": "Latitude",
+        "longitude (degrees_east)": "Longitude",
+        "depth (m)": "Depth",
+    }
+    numeric_cols = ["Latitude", "Longitude", "Depth"]
+    df_processed = _apply_common_processing(
+        df, timestamp_col, rename_map, numeric_cols
+    )
+    if df_processed.empty:
+        return df_processed
+    # Drop rows with missing lat/lon so map has valid points
+    df_processed = df_processed.dropna(subset=["Latitude", "Longitude"])
+    return df_processed
+
+
 def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocesses the WG-VM4 data.
