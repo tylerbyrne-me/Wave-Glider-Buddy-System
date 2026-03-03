@@ -197,7 +197,7 @@ async def admin_change_user_password(
 @router.get("/login.html", response_class=HTMLResponse)
 async def login_page(request: Request, current_user: models.User = Depends(get_optional_current_user)):
     if current_user:
-        return RedirectResponse(url="/home.html")
+        return RedirectResponse(url="/platform")
     return templates.TemplateResponse("login.html", get_template_context(request=request))
 
 @router.get("/register.html", response_class=HTMLResponse)

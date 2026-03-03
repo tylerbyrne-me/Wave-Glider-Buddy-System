@@ -4,7 +4,7 @@
       <!-- Top Row -->
       <div class="navbar-top-row d-flex align-items-center position-relative" style="height: var(--banner-top-row-height);"> {# Added position-relative for absolute positioning #}
         <div class="d-flex align-items-center" style="padding-left: var(--banner-padding-x);"> {# Left aligned title #}
-          <a class="navbar-brand d-flex align-items-center" href="/home.html" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
+          <a class="navbar-brand d-flex align-items-center" href="{% if platform is none %}/platform{% else %}{{ platform_home_url | default('/wave-glider/home') }}{% endif %}" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
             <img src="/static/images/wgbs_logo.svg" alt="Wave Glider Buddy System Logo" class="navbar-logo me-2">
             <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
           </a>
@@ -36,16 +36,18 @@
         </ul>
       </div>
 
-      <!-- Bottom Row -->
+      <!-- Bottom Row: show when show_banner_nav is true (false only on platform choice /platform). -->
+      {% if show_banner_nav | default(true) %}
       <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
         <ul class="navbar-nav d-flex" style="padding-left: var(--banner-padding-x); width:100%;"> {# Removed justify-content-start for individual item control #}
+          {% if platform == 'wave_glider' %}
           <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="activeMissionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Active Mission Dashboard
             </a>
             <ul class="dropdown-menu" aria-labelledby="activeMissionDashboardDropdown" id="activeMissionSelectorDropdownMenu">
               <!-- Active mission options populated by JS -->
-              <li><a class="dropdown-item" href="/">Loading Missions...</a></li>
+              <li><a class="dropdown-item" href="/wave-glider">Loading Missions...</a></li>
             </ul>
           </li>
           <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
@@ -54,19 +56,67 @@
             </a>
             <ul class="dropdown-menu" aria-labelledby="historicalMissionDashboardDropdown" id="historicalMissionSelectorDropdownMenu">
               <!-- Historical mission options populated by JS -->
-              <li><a class="dropdown-item" href="/historical">Loading Missions...</a></li>
+              <li><a class="dropdown-item" href="/wave-glider/historical">Loading Missions...</a></li>
             </ul>
           </li>
+          {% endif %}
+          {% if platform == 'slocum' %}
+          <li class="nav-item dropdown me-3">
+            <a class="nav-link dropdown-toggle" href="#" id="slocumActiveDatasetDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Active Dataset Dashboard
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="slocumActiveDatasetDropdown" id="slocumActiveDatasetDropdownMenu">
+              <li><a class="dropdown-item" href="/slocum">Loading...</a></li>
+            </ul>
+          </li>
+          <li class="nav-item dropdown me-3">
+            <a class="nav-link dropdown-toggle" href="#" id="slocumHistoricalDatasetDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Historical Dataset Dashboard
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="slocumHistoricalDatasetDropdown" id="slocumHistoricalDatasetDropdownMenu">
+              <li><a class="dropdown-item" href="/slocum/historical">Loading...</a></li>
+            </ul>
+          </li>
+          <li class="nav-item me-3">
+            <a class="nav-link" href="/slocum/home">Slocum Home</a>
+          </li>
+          {% if features.slocum_mission_files %}
+          <li class="nav-item me-3">
+            <a class="nav-link" href="/slocum/vehicle-params"><i class="fas fa-cog"></i> Vehicle Parameters</a>
+          </li>
+          {% endif %}
+          {% if features.slocum_knowledge_base %}
+          <li class="nav-item dropdown me-3">
+            <a class="nav-link dropdown-toggle" href="#" id="slocumKnowledgeBaseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-book"></i> Knowledge Base
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="slocumKnowledgeBaseDropdown">
+              <li><a class="dropdown-item" href="/slocum/chatbot.html">
+                <i class="fas fa-robot"></i> Ask Chatbot
+              </a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="/slocum/knowledge_base.html">
+                <i class="fas fa-book"></i> Documents
+              </a></li>
+              <li><a class="dropdown-item" href="/slocum/my_notes.html">
+                <i class="fas fa-sticky-note"></i> My Notes
+              </a></li>
+              <li><a class="dropdown-item" href="/slocum/shared_tips.html">
+                <i class="fas fa-lightbulb"></i> Shared Tips
+              </a></li>
+              <li><a class="dropdown-item" href="/slocum/admin_faqs.html">
+                <i class="fas fa-question-circle"></i> Manage FAQs
+              </a></li>
+            </ul>
+          </li>
+          {% endif %}
+          {% endif %}
           {% if features.schedule %}
           <li class="nav-item me-3"> {# Added me-3 for spacing #}
             <a class="nav-link" href="/schedule.html">Schedule</a>
           </li>
           {% endif %}
-          {% if features.station_offloads %}
-          <li class="nav-item me-3"> {# Added me-3 for spacing #}
-            <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
-          </li>
-          {% endif %}
+          {% if platform == 'wave_glider' and features.wave_glider_knowledge_base %}
           <li class="nav-item dropdown me-3">
             <a class="nav-link dropdown-toggle" href="#" id="knowledgeBaseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-book"></i> Knowledge Base
@@ -90,6 +140,13 @@
               </a></li>
             </ul>
           </li>
+          {% endif %}
+          {% if platform == 'wave_glider' and (features.wave_glider_specific_nav | default(true)) %}
+          {% if features.station_offloads %}
+          <li class="nav-item me-3"> {# Added me-3 for spacing #}
+            <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
+          </li>
+          {% endif %}
           {% if features.payroll %}
           <li class="nav-item dropdown me-3" id="payrollDropdown" style="display: none;">
             <a class="nav-link dropdown-toggle" href="#" id="payrollDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -129,6 +186,7 @@
             </ul>
           </li>
           {% endif %}
+          {% endif %}
           <!-- Auto-refresh toggle, only visible on dashboard page -->
           {% if is_current_mission_realtime %}
           <li class="nav-item ms-auto me-3"> {# ms-auto pushes this to the right #}
@@ -140,6 +198,7 @@
           {% endif %}
         </ul>
       </div>
+      {% endif %}
     </div>
   </div>
 </nav>

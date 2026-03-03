@@ -29,7 +29,19 @@ async def chatbot_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
-    """Chatbot main page."""
+    """Chatbot main page (Wave Glider)."""
+    return templates.TemplateResponse(
+        "chatbot.html",
+        get_template_context(request=request, current_user=current_user)
+    )
+
+
+@router.get("/slocum/chatbot.html", response_class=HTMLResponse)
+async def slocum_chatbot_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    """Chatbot page for Slocum platform."""
     return templates.TemplateResponse(
         "chatbot.html",
         get_template_context(request=request, current_user=current_user)
@@ -42,6 +54,18 @@ async def admin_faqs_page(
     current_user: models.User = Depends(get_current_admin_user)
 ):
     """FAQ management page (admin only)."""
+    return templates.TemplateResponse(
+        "admin_faqs.html",
+        get_template_context(request=request, current_user=current_user)
+    )
+
+
+@router.get("/slocum/admin_faqs.html", response_class=HTMLResponse)
+async def slocum_admin_faqs_page(
+    request: Request,
+    current_user: models.User = Depends(get_current_admin_user)
+):
+    """FAQ management page for Slocum platform (admin only)."""
     return templates.TemplateResponse(
         "admin_faqs.html",
         get_template_context(request=request, current_user=current_user)
@@ -92,8 +116,16 @@ async def query_chatbot(
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
-    """Process a chatbot query and return matching FAQs and related resources."""
+    """Process a chatbot query and return matching FAQs and related resources.
+    All data (FAQs, documents, tips) is strictly scoped to the given platform;
+    Slocum context never sees or references Wave Glider content, and vice versa.
+    """
     try:
+        # Normalize to canonical platform only; no cross-platform data
+        raw = (query_request.platform or "wave_glider").strip().lower()
+        platform = "slocum" if raw == "slocum" else "wave_glider"
+        kb_base = "/slocum" if platform == "slocum" else ""
+        
         # Get user ID from database
         from ..core import auth
         user_in_db = auth.get_user_from_db(session, current_user.username)
@@ -102,8 +134,11 @@ async def query_chatbot(
         # Detect query intent for targeted searching
         intent = chatbot_service.detect_query_intent(query_request.query)
         
-        # Get all active FAQs
-        faq_stmt = select(models.FAQEntry).where(models.FAQEntry.is_active == True)
+        # Get all active FAQs for this platform
+        faq_stmt = select(models.FAQEntry).where(
+            models.FAQEntry.is_active == True,
+            models.FAQEntry.platform == platform,
+        )
         faq_entries = session.exec(faq_stmt).all()
         
         # Match FAQs to query (uses vector search if available)
@@ -145,7 +180,8 @@ async def query_chatbot(
             query=query_request.query,
             category_filter=category_filter,
             tag_filter=tag_filter,
-            limit=5
+            limit=5,
+            platform=platform,
         )
         
         logger.debug(f"Vector doc results: {len(vector_doc_results)} matches")
@@ -169,7 +205,8 @@ async def query_chatbot(
             query=query_request.query,
             category_filter=category_filter,
             tag_filter=tag_filter,
-            limit=5
+            limit=5,
+            platform=platform,
         )
         
         logger.debug(f"Vector tip results: {len(vector_tip_results)} matches")
@@ -194,7 +231,8 @@ async def query_chatbot(
         if all_related_doc_ids:
             doc_stmt = select(models.KnowledgeDocument).where(
                 models.KnowledgeDocument.id.in_(list(all_related_doc_ids)),
-                models.KnowledgeDocument.is_active == True
+                models.KnowledgeDocument.is_active == True,
+                models.KnowledgeDocument.platform == platform,
             )
             docs = session.exec(doc_stmt).all()
             for doc in docs:
@@ -203,7 +241,7 @@ async def query_chatbot(
                     type="document",
                     id=doc.id,
                     title=doc.title,
-                    url=f"/knowledge_base.html#document-{doc.id}",
+                    url=f"{kb_base}/knowledge_base.html#document-{doc.id}" if kb_base else f"/knowledge_base.html#document-{doc.id}",
                     snippet=snippet_meta.get("snippet"),
                     similarity=snippet_meta.get("similarity"),
                     chunk_index=snippet_meta.get("chunk_index"),
@@ -217,7 +255,8 @@ async def query_chatbot(
         if all_related_tip_ids:
             tip_stmt = select(models.SharedTip).where(
                 models.SharedTip.id.in_(list(all_related_tip_ids)),
-                models.SharedTip.is_archived == False
+                models.SharedTip.is_archived == False,
+                models.SharedTip.platform == platform,
             )
             tips = session.exec(tip_stmt).all()
             for tip in tips:
@@ -226,7 +265,7 @@ async def query_chatbot(
                     type="tip",
                     id=tip.id,
                     title=tip.title,
-                    url=f"/shared_tips.html?tip_id={tip.id}",
+                    url=f"{kb_base}/shared_tips.html?tip_id={tip.id}" if kb_base else f"/shared_tips.html?tip_id={tip.id}",
                     snippet=snippet_meta.get("snippet"),
                     similarity=snippet_meta.get("similarity"),
                     chunk_index=snippet_meta.get("chunk_index"),
@@ -303,7 +342,8 @@ async def query_chatbot(
         interaction = models.ChatbotInteraction(
             user_id=user_id,
             query=query_request.query,
-            matched_faq_ids=','.join(map(str, matched_faq_ids)) if matched_faq_ids else None
+            matched_faq_ids=','.join(map(str, matched_faq_ids)) if matched_faq_ids else None,
+            platform=platform,
         )
         session.add(interaction)
         session.commit()
@@ -373,11 +413,12 @@ async def submit_chatbot_feedback(
 async def list_faqs(
     category: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_admin: models.User = Depends(get_current_admin_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
-    """List all FAQs (admin only)."""
-    statement = select(models.FAQEntry)
+    """List all FAQs (admin only), optionally filtered by platform."""
+    statement = select(models.FAQEntry).where(models.FAQEntry.platform == platform)
     
     if category:
         statement = statement.where(models.FAQEntry.category == category)
@@ -405,7 +446,8 @@ async def create_faq(
         tags=faq_data.tags,
         related_document_ids=faq_data.related_document_ids,
         related_tip_ids=faq_data.related_tip_ids,
-        created_by_username=current_admin.username
+        created_by_username=current_admin.username,
+        platform=faq_data.platform,
     )
     
     session.add(faq)
@@ -421,7 +463,8 @@ async def create_faq(
                 answer=faq.answer,
                 category=faq.category,
                 tags=faq.tags,
-                keywords=faq.keywords
+                keywords=faq.keywords,
+                platform=faq.platform,
             )
             logger.info(f"FAQ {faq.id} vectorized for semantic search")
     except Exception as e:
@@ -462,7 +505,8 @@ async def update_faq(
                 answer=faq.answer,
                 category=faq.category,
                 tags=faq.tags,
-                keywords=faq.keywords
+                keywords=faq.keywords,
+                platform=faq.platform,
             )
             logger.info(f"FAQ {faq.id} updated in vector store")
     except Exception as e:

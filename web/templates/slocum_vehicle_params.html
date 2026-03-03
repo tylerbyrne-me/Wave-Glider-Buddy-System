@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}Slocum – Vehicle Parameters{% endblock %}
+
+{% block body_class %}container-fluid{% endblock %}
+
+{% block body_data_attributes %}
+  data-deployment-id="{{ deployment_id or '' }}"
+{% endblock %}
+
+{% block content %}
+  <div id="slocumVehicleParamsError" class="alert alert-danger" style="display: none;" role="alert"></div>
+
+  <div class="d-flex align-items-center mb-2 mt-3">
+    <a href="/slocum/home" class="btn btn-outline-secondary btn-sm me-2"><i class="fas fa-arrow-left me-1"></i> Slocum Home</a>
+    <h4 class="mb-0">Vehicle Parameters – Mission Files</h4>
+  </div>
+
+  <div id="deployment-selector" class="card mb-3">
+    <div class="card-header">Deployment</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">Only active realtime Slocum missions and a &quot;Testing&quot; deployment are shown.</p>
+      <div class="row align-items-end">
+        <div class="col-auto">
+          <label class="form-label mb-0">Select or create</label>
+          <select id="deploymentSelect" class="form-select" style="min-width: 220px;">
+            <option value="">— Select deployment —</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <button type="button" class="btn btn-outline-primary btn-sm" id="btnNewDeployment">New deployment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="deployment-content" style="display: none;">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span id="deploymentHeaderName">—</span>
+        <div>
+          <button type="button" class="btn btn-sm btn-outline-secondary me-1" id="btnRefreshSummary">Refresh summary</button>
+          <a id="btnDownloadZip" href="#" class="btn btn-sm btn-primary" target="_blank" rel="noopener">Download ZIP</a>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="missionSummary" class="small text-muted mb-3">—</div>
+        <ul class="nav nav-tabs mb-2" role="tablist">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-files" type="button">Files</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-changes" type="button">Review changes</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-snapshots" type="button">Snapshots</button></li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="tab-files">
+            <div class="mb-2 d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btnUploadFile">Upload file</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCreateFile">Create file</button>
+            </div>
+            <div id="fileList" class="list-group"></div>
+          </div>
+          <div class="tab-pane fade" id="tab-changes">
+            <div id="reviewPanel">
+              <p class="text-muted small">Preview and apply parameter changes here. Use the natural-language input below or edit parameters in the file view.</p>
+              <div class="mb-2">
+                <label class="form-label small">Natural language change</label>
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control" id="nlChangeInput" placeholder="e.g. set dive_depth to 200" />
+                  <button type="button" class="btn btn-outline-primary" id="btnNlPreview">Preview</button>
+                </div>
+              </div>
+              <div id="previewDiffs" class="mb-3"></div>
+              <button type="button" class="btn btn-sm btn-success" id="btnApplyChanges" style="display: none;">Apply changes &amp; download</button>
+            </div>
+          </div>
+          <div class="tab-pane fade" id="tab-snapshots">
+            <div id="snapshotList" class="list-group"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="uploadFileInput" accept=".ma,.mi" style="display: none;" />
+
+  <!-- New deployment modal -->
+  <div class="modal fade" id="newDeploymentModal" tabindex="-1" aria-labelledby="newDeploymentModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="newDeploymentModalLabel">New deployment</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Deployments are shown only for active realtime Slocum missions, or a &quot;Testing&quot; deployment for development.</p>
+          <div class="mb-2">
+            <label class="form-label small" for="newDeploymentName">Name</label>
+            <input type="text" class="form-control form-control-sm" id="newDeploymentName" placeholder="e.g. Challenger Spring 2026 or Testing">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small" for="newDeploymentGlider">Glider name</label>
+            <input type="text" class="form-control form-control-sm" id="newDeploymentGlider" placeholder="e.g. challenger or testing">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small" for="newDeploymentDataset">Active realtime dataset</label>
+            <select class="form-select form-select-sm" id="newDeploymentDataset">
+              <option value="">— Testing (no dataset) —</option>
+            </select>
+            <div class="form-text small">Leave as &quot;Testing&quot; for a test deployment; otherwise link to an active mission.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnNewDeploymentConfirm">Create</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Request change for one file (from Files tab) -->
+  <div class="modal fade" id="requestChangeModal" tabindex="-1" aria-labelledby="requestChangeModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="requestChangeModalLabel">Request change</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">Describe the parameter change for <strong id="requestChangeFileName">—</strong>.</p>
+          <div class="mb-2">
+            <input type="text" class="form-control form-control-sm" id="requestChangeInput" placeholder="e.g. set num_waypoints to 5">
+          </div>
+          <div id="requestChangePreview" class="mb-2"></div>
+          <div id="requestChangeError" class="small text-danger" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="requestChangePreviewBtn">Preview</button>
+          <button type="button" class="btn btn-success btn-sm" id="requestChangeApplyBtn" style="display: none;">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block body_extra_js %}
+  <script type="module" src="/static/js/slocum_vehicle_params.js"></script>
+{% endblock %}

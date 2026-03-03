@@ -109,6 +109,7 @@ from .routers import shared_tips as shared_tips_router
 from .routers import chatbot as chatbot_router
 from .routers import exploration_slocum as exploration_slocum_router
 from .routers import slocum as slocum_router
+from .routers import slocum_mission_files as slocum_mission_files_router
 
 # Admin imports
 from .core.admin_sqladmin import setup_sqladmin
@@ -207,6 +208,7 @@ app.include_router(shared_tips_router.router)
 app.include_router(chatbot_router.router)
 app.include_router(exploration_slocum_router.router)
 app.include_router(slocum_router.router)
+app.include_router(slocum_mission_files_router.router)
 
 # SQLAdmin will be initialized in startup_event with the app instance
 # No need to mount separately - it's integrated into the app during setup
@@ -1549,7 +1551,12 @@ def shutdown_event():
 
 
 async def _process_loaded_data_for_home_view(
-    results: list, report_types_order: list, hours: int, mission_id: str, current_user: Optional[models.User] = None
+    results: list,
+    report_types_order: list,
+    hours: int,
+    mission_id: str,
+    current_user: Optional[models.User] = None,
+    theoretical_max_wh: Optional[float] = None,
 ) -> dict:
     """
     Processes the loaded data results, calculates summaries, and determines
@@ -1639,7 +1646,12 @@ async def _process_loaded_data_for_home_view(
     # Only process data for sensors that were actually loaded
     if "power" in data_frames and data_frames["power"] is not None:
         power_file_mod_time = file_mod_times_map.get("power") or get_cache_timestamp("power", mission_id, source_preference)
-        power_info = summaries.get_power_status(data_frames.get("power"), data_frames.get("solar"), power_file_mod_time)
+        power_info = summaries.get_power_status(
+            data_frames.get("power"),
+            data_frames.get("solar"),
+            power_file_mod_time,
+            theoretical_max_wh=theoretical_max_wh,
+        )
         power_info["mini_trend"] = summaries.get_power_mini_trend(data_frames.get("power"))
 
     if "ctd" in data_frames and data_frames["ctd"] is not None:
@@ -1919,13 +1931,29 @@ async def _process_loaded_data_for_home_view(
 
 @app.get("/", include_in_schema=False)
 async def root(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
-    """Active mission dashboard."""
+    """Legacy: redirect to canonical Wave Glider URLs."""
     mission = request.query_params.get("mission")
     if not mission:
-        return RedirectResponse(url="/home.html")
-    
-    # Reuse shared dashboard rendering logic
+        return RedirectResponse(url="/wave-glider/home")
+    return RedirectResponse(url=f"/wave-glider?mission={mission}")
+
+
+@app.get("/wave-glider", include_in_schema=False)
+async def wave_glider_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
+    """Wave Glider mission dashboard."""
+    mission = request.query_params.get("mission")
+    if not mission:
+        return RedirectResponse(url="/wave-glider/home")
     return await _render_dashboard(request, mission, current_user, session, is_historical=False)
+
+
+@app.get("/wave-glider/historical", include_in_schema=False)
+async def wave_glider_historical_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
+    """Wave Glider historical mission dashboard (canonical URL)."""
+    mission = request.query_params.get("mission")
+    if not mission:
+        return RedirectResponse(url="/wave-glider/home")
+    return await _render_dashboard(request, mission, current_user, session, is_historical=True)
 
 
 async def _render_dashboard(request: Request, mission: str, current_user: models.User, session: SQLModelSession, is_historical: bool = False):
@@ -2087,14 +2115,26 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     elif "wg_vm4_info" in report_types_to_load and is_historical:
         logger.info(f"Skipping WG-VM4 offload log processing for historical mission {mission} to prevent overwriting current logs")
 
+    # Battery theoretical max from mission overview (980 + APU*980 Wh)
+    mission_overview_for_battery = session.get(models.MissionOverview, mission)
+    battery_apu = getattr(mission_overview_for_battery, "battery_apu_count", None) if mission_overview_for_battery else None
+    theoretical_max_wh = summaries.theoretical_max_wh(battery_apu)
+
     # Process the loaded data for summaries and mini-trends
-    context = await _process_loaded_data_for_home_view(results, report_types_to_load, hours, mission, current_user)
+    context = await _process_loaded_data_for_home_view(
+        results, report_types_to_load, hours, mission, current_user,
+        theoretical_max_wh=theoretical_max_wh,
+    )
     context.update(get_template_context(
         request=request,
         mission=mission,
         current_user=current_user,
     ))
-    
+    # Ensure banner shows Wave Glider nav (Active/Historical, WG-specific items)
+    context["show_banner_nav"] = True
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+
     # Add sensor card configuration to context
     context["enabled_sensor_cards"] = enabled_sensor_cards
     
@@ -2112,14 +2152,12 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
 
 
 @app.get("/historical", include_in_schema=False)
-async def historical_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
-    """Historical mission dashboard - same as root but for past missions without cache refresh."""
+async def historical_dashboard_redirect(request: Request):
+    """Legacy: redirect to canonical Wave Glider historical URL."""
     mission = request.query_params.get("mission")
     if not mission:
-        return RedirectResponse(url="/home.html")
-    
-    # Reuse the same logic as root endpoint but mark as historical
-    return await _render_dashboard(request, mission, current_user, session, is_historical=True)
+        return RedirectResponse(url="/wave-glider/home")
+    return RedirectResponse(url=f"/wave-glider/historical?mission={mission}")
 
 @app.get("/api/data/{report_type}/{mission_id}")
 async def get_report_data_for_plotting(
@@ -2343,16 +2381,14 @@ async def get_report_data_for_plotting(
             response.headers["Expires"] = "0"
             return response
 
-        # Resample data based on user-defined granularity
+        # Resample data based on user-defined granularity (0 = no resampling, show all points)
         data_to_resample = recent_data.set_index("Timestamp")
         numeric_cols = data_to_resample.select_dtypes(include=[np.number])
-        # Ensure numeric_cols is not empty before resampling
         if numeric_cols.empty:
             logger.info(
                 f"No numeric data to resample for {report_type.value}, "
                 f"mission {mission_id} after filtering and before resampling."
             )
-            # Return empty data with cache metadata
             response_data = {
                 "data": [],
                 "cache_metadata": {
@@ -2367,8 +2403,10 @@ async def get_report_data_for_plotting(
             response.headers["Expires"] = "0"
             return response
 
-        # Perform resampling using the specified granularity
-        resampled_data = numeric_cols.resample(f"{params.granularity_minutes}min").mean().reset_index()
+        if params.granularity_minutes and params.granularity_minutes > 0:
+            resampled_data = numeric_cols.resample(f"{params.granularity_minutes}min").mean().reset_index()
+        else:
+            resampled_data = numeric_cols.reset_index()
 
         if report_type == "vr2c" and "PingCount" in resampled_data.columns:
             resampled_data = resampled_data.sort_values(

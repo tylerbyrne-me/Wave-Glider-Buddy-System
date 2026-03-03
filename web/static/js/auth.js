@@ -84,8 +84,8 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                 if (response.ok) {
                     const data = await response.json();
                     localStorage.setItem('accessToken', data.access_token);
-                    // Redirect to the new home page
-                    window.location.href = '/home.html';
+                    // Redirect to platform choice (splash)
+                    window.location.href = '/platform';
                 } else {
                     const errorData = await response.json();
                     const detail = errorData.detail || `Login failed (Status: ${response.status})`;
@@ -255,7 +255,7 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                     const listItem = document.createElement('li');
                     const link = document.createElement('a');
                     link.classList.add('dropdown-item');
-                    link.href = `/?mission=${m_id}`;
+                    link.href = `/wave-glider?mission=${m_id}`;
                     link.textContent = m_id;
                     if (pageMissionId && m_id === pageMissionId && !isHistorical) {
                         link.classList.add('active');
@@ -290,7 +290,7 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                     const listItem = document.createElement('li');
                     const link = document.createElement('a');
                     link.classList.add('dropdown-item');
-                    link.href = `/historical?mission=${m_id}`;
+                    link.href = `/wave-glider/historical?mission=${m_id}`;
                     link.textContent = m_id;
                     if (pageMissionId && m_id === pageMissionId && isHistorical) {
                         link.classList.add('active');
@@ -305,12 +305,78 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
         }
     }
 
+    // --- Populate Slocum Active Dataset Dashboard dropdown (if present) ---
+    const slocumActiveDatasetDropdownMenu = document.getElementById('slocumActiveDatasetDropdownMenu');
+    if (slocumActiveDatasetDropdownMenu) {
+        const pageDataset = document.body.dataset.dataset;
+        const isHistorical = document.body.dataset.isHistorical === 'true';
+        try {
+            const datasets = await apiRequest('/api/slocum/available_datasets', 'GET');
+            slocumActiveDatasetDropdownMenu.innerHTML = '';
+            const validDatasets = datasets.filter(d => d && d.trim());
+            if (validDatasets.length === 0) {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = '<a class="dropdown-item disabled">No active datasets</a>';
+                slocumActiveDatasetDropdownMenu.appendChild(listItem);
+            } else {
+                validDatasets.forEach(datasetId => {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.classList.add('dropdown-item');
+                    link.href = `/slocum?dataset=${encodeURIComponent(datasetId)}`;
+                    link.textContent = datasetId;
+                    if (pageDataset && datasetId === pageDataset && !isHistorical) {
+                        link.classList.add('active');
+                    }
+                    listItem.appendChild(link);
+                    slocumActiveDatasetDropdownMenu.appendChild(listItem);
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching active Slocum datasets for banner:', error);
+            slocumActiveDatasetDropdownMenu.innerHTML = '<li><a class="dropdown-item disabled">Error loading datasets</a></li>';
+        }
+    }
+
+    // --- Populate Slocum Historical Dataset Dashboard dropdown (if present) ---
+    const slocumHistoricalDatasetDropdownMenu = document.getElementById('slocumHistoricalDatasetDropdownMenu');
+    if (slocumHistoricalDatasetDropdownMenu) {
+        const pageDataset = document.body.dataset.dataset;
+        const isHistorical = document.body.dataset.isHistorical === 'true';
+        try {
+            const datasets = await apiRequest('/api/slocum/available_historical_datasets', 'GET');
+            slocumHistoricalDatasetDropdownMenu.innerHTML = '';
+            const validDatasets = datasets.filter(d => d && d.trim());
+            if (validDatasets.length === 0) {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = '<a class="dropdown-item disabled">No historical datasets</a>';
+                slocumHistoricalDatasetDropdownMenu.appendChild(listItem);
+            } else {
+                validDatasets.forEach(datasetId => {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.classList.add('dropdown-item');
+                    link.href = `/slocum/historical?dataset=${encodeURIComponent(datasetId)}`;
+                    link.textContent = datasetId;
+                    if (pageDataset && datasetId === pageDataset && isHistorical) {
+                        link.classList.add('active');
+                    }
+                    listItem.appendChild(link);
+                    slocumHistoricalDatasetDropdownMenu.appendChild(listItem);
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching historical Slocum datasets for banner:', error);
+            slocumHistoricalDatasetDropdownMenu.innerHTML = '<li><a class="dropdown-item disabled">Error loading datasets</a></li>';
+        }
+    }
+
     // --- Update "Submit New PIC Handoff" link for active missions ---
     const activeMissionMenu = document.getElementById('activeMissionSelectorDropdownMenu');
     if (activeMissionMenu) {
         activeMissionMenu.addEventListener('click', function(event) {
             const targetLink = event.target.closest('.dropdown-item');
-            if (targetLink && targetLink.href.includes('/?mission=')) {
+            if (targetLink && targetLink.href.includes('mission=')) {
                 const newMissionId = new URL(targetLink.href).searchParams.get('mission');
                 updateSubmitNewPicHandoffLink(newMissionId);
             }
@@ -348,7 +414,7 @@ async function checkAuth() {
         // Try to fetch user profile (will use cookie if present)
         const user = await apiRequest('/api/users/me', 'GET');
         if (window.location.pathname === '/login.html') {
-            window.location.href = '/home.html';
+            window.location.href = '/platform';
             return true;
         }
         return true;

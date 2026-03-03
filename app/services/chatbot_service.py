@@ -174,7 +174,8 @@ class ChatbotService:
         query: str,
         category_filter: Optional[str] = None,
         tag_filter: Optional[str] = None,
-        limit: int = 5
+        limit: int = 5,
+        platform: Optional[str] = None,
     ) -> List[Tuple[Dict, float, str]]:
         """
         Search documents using vector search with optional category/tag filtering.
@@ -185,6 +186,7 @@ class ChatbotService:
             category_filter: Filter by category (e.g., "troubleshooting")
             tag_filter: Filter by tag
             limit: Maximum results
+            platform: If set, filter by platform (wave_glider or slocum).
             
         Returns:
             List of (metadata_dict, similarity_score, content) tuples
@@ -196,7 +198,8 @@ class ChatbotService:
                     category_filter=category_filter,
                     tag_filter=tag_filter,
                     limit=limit,
-                    similarity_threshold=settings.vector_similarity_threshold
+                    similarity_threshold=settings.vector_similarity_threshold,
+                    platform=platform,
                 )
             except Exception as e:
                 logger.error(f"Error in vector document search: {e}")
@@ -208,7 +211,8 @@ class ChatbotService:
         query: str,
         category_filter: Optional[str] = None,
         tag_filter: Optional[str] = None,
-        limit: int = 5
+        limit: int = 5,
+        platform: Optional[str] = None,
     ) -> List[Tuple[Dict, float, str]]:
         """
         Search shared tips using vector search with optional category/tag filtering.
@@ -218,6 +222,7 @@ class ChatbotService:
             category_filter: Filter by category (e.g., "troubleshooting")
             tag_filter: Filter by tag
             limit: Maximum results
+            platform: If set, filter by platform (wave_glider or slocum).
             
         Returns:
             List of (metadata_dict, similarity_score, content) tuples
@@ -229,7 +234,8 @@ class ChatbotService:
                     category_filter=category_filter,
                     tag_filter=tag_filter,
                     limit=limit,
-                    similarity_threshold=settings.vector_similarity_threshold
+                    similarity_threshold=settings.vector_similarity_threshold,
+                    platform=platform,
                 )
             except Exception as e:
                 logger.error(f"Error in vector tip search: {e}")

@@ -3,8 +3,26 @@ Template context processor for adding global context variables to all templates.
 """
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+
 from .feature_toggles import get_feature_context
 from ..config import settings
+
+
+def get_platform_context_from_request(request: Any) -> Dict[str, Any]:
+    """
+    Derive platform and platform_home_url from request path for platform-aware nav.
+    URL is source of truth; no session/cookie for current platform.
+    """
+    # Starlette/FastAPI Request uses url.path; request.path may be missing
+    url = getattr(request, "url", None)
+    path = (url.path if url is not None else "") or getattr(request, "path", "") or ""
+    # Prefer exact prefix; fall back to substring for proxied/prefixed paths
+    if path.startswith("/slocum") or "/slocum" in path:
+        return {"platform": "slocum", "platform_home_url": "/slocum/home"}
+    if path.startswith("/wave-glider") or "/wave-glider" in path:
+        return {"platform": "wave_glider", "platform_home_url": "/wave-glider/home"}
+    # Splash (/platform) or other pages: no platform chosen
+    return {"platform": None, "platform_home_url": "/wave-glider/home"}
 
 
 def get_global_template_context() -> Dict[str, Any]:
@@ -49,14 +67,19 @@ def get_global_template_context() -> Dict[str, Any]:
 def get_template_context(**kwargs) -> Dict[str, Any]:
     """
     Helper function to create template context with feature toggles and global context.
+    If 'request' is in kwargs, adds platform and platform_home_url from request path.
     
     Args:
-        **kwargs: Additional context variables
+        **kwargs: Additional context variables (e.g. request, current_user, active_missions)
         
     Returns:
         dict: Template context with feature toggles and global context
     """
     context = get_global_template_context()
+    request = kwargs.pop("request", None)
+    if request is not None:
+        context["request"] = request
+        context.update(get_platform_context_from_request(request))
     context.update(kwargs)
     return context
 

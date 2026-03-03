@@ -72,6 +72,11 @@ class VectorSearchService:
             name="tips",
             metadata={"description": "Shared tips and tricks"}
         )
+
+        self.slocum_masterdata_collection = self.client.get_or_create_collection(
+            name="slocum_masterdata",
+            metadata={"description": "Slocum glider masterdata parameter definitions"}
+        )
         
         logger.info("Vector search service initialized")
     
@@ -82,7 +87,8 @@ class VectorSearchService:
         answer: str,
         category: Optional[str] = None,
         tags: Optional[str] = None,
-        keywords: Optional[str] = None
+        keywords: Optional[str] = None,
+        platform: str = "wave_glider",
     ):
         """Add or update an FAQ in the vector store."""
         if not self.enabled:
@@ -100,7 +106,8 @@ class VectorSearchService:
                 "category": category or "general",
                 "tags": tags or "",
                 "keywords": keywords or "",
-                "type": "faq"
+                "type": "faq",
+                "platform": platform,
             }
             
             # Add to collection (will update if ID exists)
@@ -123,7 +130,8 @@ class VectorSearchService:
         category: Optional[str] = None,
         tags: Optional[str] = None,
         file_type: Optional[str] = None,
-        use_chunking: bool = True
+        use_chunking: bool = True,
+        platform: str = "wave_glider",
     ):
         """
         Add or update a document in the vector store.
@@ -157,7 +165,7 @@ class VectorSearchService:
             # For large documents, use chunking for better precision
             should_chunk = use_chunking and settings.vector_chunking_enabled
             if should_chunk and len(content) > settings.vector_chunking_min_chars:
-                self._add_document_chunked(doc_id, title, content, category, tags, file_type)
+                self._add_document_chunked(doc_id, title, content, category, tags, file_type, platform)
             else:
                 # Small document - store as single entry
                 embedding = self.embedding_model.encode(content).tolist()
@@ -170,7 +178,8 @@ class VectorSearchService:
                     "file_type": file_type or "",
                     "type": "document",
                     "chunk_index": "0",
-                    "is_chunked": "false"
+                    "is_chunked": "false",
+                    "platform": platform,
                 }
                 
                 self.documents_collection.upsert(
@@ -191,7 +200,8 @@ class VectorSearchService:
         content: str,
         category: Optional[str] = None,
         tags: Optional[str] = None,
-        file_type: Optional[str] = None
+        file_type: Optional[str] = None,
+        platform: str = "wave_glider",
     ):
         """Add a document as multiple chunks for better search precision."""
         try:
@@ -233,7 +243,8 @@ class VectorSearchService:
                     "chunk_index": str(chunk.chunk_index),
                     "is_chunked": "true",
                     "start_char": str(chunk.start_char),
-                    "end_char": str(chunk.end_char)
+                    "end_char": str(chunk.end_char),
+                    "platform": platform,
                 })
             
             # Batch upsert all chunks
@@ -263,7 +274,8 @@ class VectorSearchService:
                     "file_type": file_type or "",
                     "type": "document",
                     "chunk_index": "0",
-                    "is_chunked": "false"
+                    "is_chunked": "false",
+                    "platform": platform,
                 }]
             )
     
@@ -288,7 +300,8 @@ class VectorSearchService:
         title: str,
         content: str,
         category: Optional[str] = None,
-        tags: Optional[str] = None
+        tags: Optional[str] = None,
+        platform: str = "wave_glider",
     ):
         """Add or update a shared tip in the vector store."""
         if not self.enabled:
@@ -304,7 +317,8 @@ class VectorSearchService:
                 "title": title,
                 "category": category or "general",
                 "tags": tags or "",
-                "type": "tip"
+                "type": "tip",
+                "platform": platform,
             }
             
             self.tips_collection.upsert(
@@ -317,6 +331,71 @@ class VectorSearchService:
             logger.debug(f"Added tip {tip_id} to vector store")
         except Exception as e:
             logger.error(f"Error adding tip to vector store: {e}")
+
+    def add_slocum_masterdata_chunks(self, chunks: List[Tuple[str, str]], replace_existing: bool = True):
+        """
+        Add Slocum masterdata chunks to the slocum_masterdata collection.
+        chunks: list of (chunk_id, content) e.g. [("chunk_0", "param description..."), ...]
+        If replace_existing=True, deletes all existing documents in the collection first.
+        """
+        if not self.enabled:
+            return
+        try:
+            if replace_existing:
+                try:
+                    existing = self.slocum_masterdata_collection.get(include=[])
+                    if existing["ids"]:
+                        self.slocum_masterdata_collection.delete(ids=existing["ids"])
+                except Exception:
+                    pass
+            if not chunks:
+                return
+            ids = [c[0] for c in chunks]
+            documents = [c[1] for c in chunks]
+            embeddings = self.embedding_model.encode(documents).tolist()
+            metadatas = [{"type": "masterdata", "chunk_id": cid} for cid in ids]
+            self.slocum_masterdata_collection.add(
+                ids=ids,
+                embeddings=embeddings,
+                documents=documents,
+                metadatas=metadatas,
+            )
+            logger.info(f"Added {len(chunks)} Slocum masterdata chunks to vector store")
+        except Exception as e:
+            logger.error(f"Error adding Slocum masterdata: {e}")
+
+    def search_slocum_masterdata(
+        self,
+        query: str,
+        limit: int = 8,
+        similarity_threshold: float = 0.3,
+    ) -> List[Tuple[Dict, float, str]]:
+        """
+        Search Slocum masterdata by semantic similarity.
+        Returns list of (metadata, similarity, document_content).
+        """
+        if not self.enabled:
+            return []
+        try:
+            query_embedding = self.embedding_model.encode(query).tolist()
+            results = self.slocum_masterdata_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit * 2,
+                include=["metadatas", "documents", "distances"],
+            )
+            matches = []
+            if results.get("distances") and results["distances"][0]:
+                for i, distance in enumerate(results["distances"][0]):
+                    similarity = 1 / (1 + distance)
+                    if similarity >= similarity_threshold:
+                        meta = results["metadatas"][0][i] if results["metadatas"] else {}
+                        doc = results["documents"][0][i] if results.get("documents") and results["documents"][0] else ""
+                        matches.append((meta, similarity, doc))
+            matches.sort(key=lambda x: x[1], reverse=True)
+            return matches[:limit]
+        except Exception as e:
+            logger.error(f"Error searching Slocum masterdata: {e}", exc_info=True)
+            return []
     
     def search_faqs(
         self,
@@ -324,7 +403,8 @@ class VectorSearchService:
         category_filter: Optional[str] = None,
         tag_filter: Optional[str] = None,
         limit: int = 5,
-        similarity_threshold: float = 0.35
+        similarity_threshold: float = 0.35,
+        platform: Optional[str] = None,
     ) -> List[Tuple[Dict, float]]:
         """
         Search FAQs using vector similarity.
@@ -335,6 +415,7 @@ class VectorSearchService:
             tag_filter: Filter by tag
             limit: Maximum results
             similarity_threshold: Minimum similarity score (lower = more strict)
+            platform: If set, filter by platform (wave_glider or slocum).
             
         Returns:
             List of (metadata_dict, similarity_score) tuples
@@ -351,6 +432,8 @@ class VectorSearchService:
                 where_clause["category"] = category_filter
             if tag_filter:
                 where_clause["tags"] = {"$contains": tag_filter}
+            if platform:
+                where_clause["platform"] = platform
             
             # Search with filters
             results = self.faq_collection.query(
@@ -384,7 +467,8 @@ class VectorSearchService:
         category_filter: Optional[str] = None,
         tag_filter: Optional[str] = None,
         limit: int = 5,
-        similarity_threshold: float = 0.35
+        similarity_threshold: float = 0.35,
+        platform: Optional[str] = None,
     ) -> List[Tuple[Dict, float, str]]:
         """
         Search documents using vector similarity.
@@ -396,6 +480,7 @@ class VectorSearchService:
             tag_filter: Filter by tag
             limit: Maximum results
             similarity_threshold: Minimum similarity score
+            platform: If set, filter by platform (wave_glider or slocum).
             
         Returns:
             List of (metadata_dict, similarity_score, content) tuples
@@ -412,6 +497,8 @@ class VectorSearchService:
                 where_clause["category"] = category_filter
             if tag_filter:
                 where_clause["tags"] = {"$contains": tag_filter}
+            if platform:
+                where_clause["platform"] = platform
             
             results = self.documents_collection.query(
                 query_embeddings=[query_embedding],
@@ -444,7 +531,8 @@ class VectorSearchService:
         category_filter: Optional[str] = None,
         tag_filter: Optional[str] = None,
         limit: int = 5,
-        similarity_threshold: float = 0.35
+        similarity_threshold: float = 0.35,
+        platform: Optional[str] = None,
     ) -> List[Tuple[Dict, float, str]]:
         """
         Search shared tips using vector similarity.
@@ -455,6 +543,7 @@ class VectorSearchService:
             tag_filter: Filter by tag
             limit: Maximum results
             similarity_threshold: Minimum similarity score
+            platform: If set, filter by platform (wave_glider or slocum).
             
         Returns:
             List of (metadata_dict, similarity_score, content) tuples
@@ -470,6 +559,8 @@ class VectorSearchService:
                 where_clause["category"] = category_filter
             if tag_filter:
                 where_clause["tags"] = {"$contains": tag_filter}
+            if platform:
+                where_clause["platform"] = platform
             
             results = self.tips_collection.query(
                 query_embeddings=[query_embedding],

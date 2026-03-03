@@ -900,6 +900,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                 setTimeout(() => {
                     loadSensorCardConfiguration(missionInfo);
                 }, 10);
+
+                // Battery APU count (Wave Glider theoretical max: 980 + APU*980 Wh)
+                const batteryApuInput = document.getElementById('batteryApuCount');
+                if (batteryApuInput) {
+                    const apu = missionInfo.overview && missionInfo.overview.battery_apu_count != null
+                        ? missionInfo.overview.battery_apu_count
+                        : '';
+                    batteryApuInput.value = apu === '' ? '' : String(apu);
+                }
                 
                 // Show the form container
                 if (overviewFormContainer) {
@@ -1372,12 +1381,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
             }
 
-            // Step 2: Save the overview with the (potentially new) URL and sensor cards
+            // Step 2: Save the overview with the (potentially new) URL, sensor cards, and battery APU count
             const enabledSensorCards = getEnabledSensorCards();
-            
+            const batteryApuInput = document.getElementById('batteryApuCount');
+            let batteryApuCount = null;
+            if (batteryApuInput && batteryApuInput.value.trim() !== '') {
+                const parsed = parseInt(batteryApuInput.value.trim(), 10);
+                if (!Number.isNaN(parsed) && parsed >= 0) {
+                    batteryApuCount = parsed;
+                }
+            }
+
             const payload = {
                 document_url: fileUrl || null, // Use the final URL, or null if removed
-                enabled_sensor_cards: enabledSensorCards.length > 0 ? JSON.stringify(enabledSensorCards) : null
+                enabled_sensor_cards: enabledSensorCards.length > 0 ? JSON.stringify(enabledSensorCards) : null,
+                battery_apu_count: batteryApuCount
             };
 
             try {

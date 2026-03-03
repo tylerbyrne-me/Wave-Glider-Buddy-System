@@ -36,7 +36,7 @@ class ReportDataParams(BaseModel):
     # Path parameters are handled by FastAPI directly in the function signature
     # Query parameters:
     hours_back: int = Field(72, gt=0, le=8760, description="Number of hours of data to retrieve, relative to the latest data point for the mission.")
-    granularity_minutes: Optional[int] = Field(15, ge=5, le=60, description="Data resampling interval in minutes for charts. Minimum 5, maximum 60.")
+    granularity_minutes: Optional[int] = Field(15, ge=0, le=60, description="Data resampling interval in minutes. 0 = show all data (no resampling); 5–60 = resample interval.")
     source: Optional[SourceEnum] = Field(None, description="Preferred data source: 'local' or 'remote'. Defaults to remote then local.")
     local_path: Optional[str] = Field(None, description="Custom base path for local data, overrides default settings path.")
     refresh: bool = Field(False, description="Force refresh data from source, bypassing cache.")
@@ -581,6 +581,8 @@ class MissionOverviewUpdate(BaseModel):
     weekly_report_url: Optional[str] = None
     end_of_mission_report_url: Optional[str] = None
     enabled_sensor_cards: Optional[str] = None
+    battery_apu_count: Optional[int] = None
+    vessel_standoff_m: Optional[int] = None
 
 
 class MissionGoalCreate(BaseModel):
@@ -755,6 +757,7 @@ class KnowledgeDocumentCreate(BaseModel):
     category: Optional[str] = None
     tags: Optional[str] = None
     access_level: str = Field(default="pilot", description="Access level: public, pilot, admin")
+    platform: str = Field(default="wave_glider", description="Platform: wave_glider or slocum")
 
 
 class KnowledgeDocumentUpdate(BaseModel):
@@ -785,6 +788,7 @@ class KnowledgeDocumentRead(BaseModel):
     uploaded_at_utc: datetime
     updated_at_utc: datetime
     version: int
+    platform: str = "wave_glider"
     
     class Config:
         from_attributes = True
@@ -809,6 +813,7 @@ class UserNoteCreate(BaseModel):
     category: Optional[str] = None
     tags: Optional[str] = None
     is_pinned: bool = False
+    platform: str = Field(default="wave_glider", description="Platform: wave_glider or slocum")
 
 
 class UserNoteUpdate(BaseModel):
@@ -831,6 +836,7 @@ class UserNoteRead(BaseModel):
     is_pinned: bool
     created_at_utc: datetime
     updated_at_utc: datetime
+    platform: str = "wave_glider"
     
     class Config:
         from_attributes = True
@@ -847,6 +853,7 @@ class SharedTipCreate(BaseModel):
     category: Optional[str] = None
     tags: Optional[str] = None
     is_pinned: bool = False
+    platform: str = Field(default="wave_glider", description="Platform: wave_glider or slocum")
 
 
 class SharedTipUpdate(BaseModel):
@@ -874,6 +881,7 @@ class SharedTipRead(BaseModel):
     is_pinned: bool
     is_archived: bool
     comment_count: int = 0
+    platform: str = "wave_glider"
     question_count: int = 0
     unresolved_question_count: int = 0
     
@@ -936,6 +944,7 @@ class FAQEntryCreate(BaseModel):
     tags: Optional[str] = None
     related_document_ids: Optional[str] = None
     related_tip_ids: Optional[str] = None
+    platform: str = Field(default="wave_glider", description="Platform: wave_glider or slocum")
 
 
 class FAQEntryUpdate(BaseModel):
@@ -966,6 +975,7 @@ class FAQEntryRead(BaseModel):
     view_count: int
     helpful_count: int
     is_active: bool
+    platform: str = "wave_glider"
     
     class Config:
         from_attributes = True
@@ -974,6 +984,7 @@ class FAQEntryRead(BaseModel):
 class ChatbotQueryRequest(BaseModel):
     """Model for chatbot query request."""
     query: str
+    platform: str = Field(default="wave_glider", description="Platform: wave_glider or slocum")
 
 
 class RelatedResource(BaseModel):
@@ -1005,3 +1016,142 @@ class ChatbotFeedbackRequest(BaseModel):
     interaction_id: int
     was_helpful: bool
     selected_faq_id: Optional[int] = None
+
+
+# ============================================================================
+# Slocum Mission File Tool Models
+# ============================================================================
+
+class SlocumDeploymentCreate(BaseModel):
+    """Model for creating a Slocum deployment."""
+    name: str = Field(..., description="Deployment name")
+    glider_name: str = Field(..., description="Glider name")
+    deployment_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    erddap_dataset_id: Optional[str] = Field(None, description="ERDDAP dataset ID for active realtime; omit for testing deployment")
+
+
+class SlocumDeploymentUpdate(BaseModel):
+    """Model for updating a Slocum deployment."""
+    name: Optional[str] = None
+    glider_name: Optional[str] = None
+    deployment_date: Optional[datetime] = None
+    erddap_dataset_id: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SlocumDeploymentRead(BaseModel):
+    """Model for reading a Slocum deployment."""
+    id: int
+    name: str
+    glider_name: str
+    deployment_date: Optional[datetime] = None
+    status: str
+    created_by_username: str
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    notes: Optional[str] = None
+    is_active: bool
+    erddap_dataset_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SlocumMissionFileRead(BaseModel):
+    """Model for reading a Slocum mission file."""
+    id: int
+    deployment_id: int
+    file_name: str
+    file_type: str
+    ma_subtype: Optional[str] = None
+    version: int
+    parsed_parameters: Optional[Dict[str, Any]] = None
+    uploaded_by_username: str
+    uploaded_at_utc: datetime
+    updated_at_utc: datetime
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class SlocumMissionFileVersionRead(BaseModel):
+    """Model for reading a mission file version."""
+    id: int
+    mission_file_id: int
+    version: int
+    changed_by_username: str
+    change_summary: Optional[str] = None
+    changed_parameters: Optional[Dict[str, Any]] = None
+    created_at_utc: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SlocumDeploymentSnapshotRead(BaseModel):
+    """Model for reading a deployment snapshot."""
+    id: int
+    deployment_id: int
+    snapshot_number: int
+    label: Optional[str] = None
+    file_states: Optional[Dict[str, Any]] = None
+    parameter_summary: Optional[Dict[str, Any]] = None
+    created_by_username: str
+    created_at_utc: datetime
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SlocumMissionChangeLogRead(BaseModel):
+    """Model for reading a change log entry."""
+    id: int
+    deployment_id: int
+    mission_file_id: Optional[int] = None
+    snapshot_id: Optional[int] = None
+    change_type: str
+    description: str
+    changed_by_username: str
+    request_method: str
+    original_request: Optional[str] = None
+    created_at_utc: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ParameterChangeRequest(BaseModel):
+    """Single parameter change for preview/apply."""
+    param: str = Field(..., description="Parameter name")
+    new_value: str = Field(..., description="New value")
+    file_name: str = Field(..., description="Source file name")
+
+
+class DeploymentChangesPreviewRequest(BaseModel):
+    """Request body for previewing deployment-level changes."""
+    changes: List[ParameterChangeRequest]
+
+
+class DeploymentChangesApplyRequest(BaseModel):
+    """Request body for applying deployment-level changes."""
+    changes: List[ParameterChangeRequest]
+    label: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class NaturalLanguageChangeRequest(BaseModel):
+    """Request body for NL change request (parsing only)."""
+    request: str = Field(..., description="Natural language change request")
+
+
+class SlocumMasterdataStatus(BaseModel):
+    """Response for masterdata status endpoint."""
+    has_masterdata: bool
+    document_id: Optional[int] = None
+    chunk_count: Optional[int] = None
+    parameter_count: Optional[int] = None
+    last_vectorized_utc: Optional[datetime] = None

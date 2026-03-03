@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (closeButton) {
         closeButton.addEventListener('click', () => { // Keep close button as requested
             window.close(); // Consider providing a fallback if window.close() is blocked
-            // Fallback: window.location.href = '/';
+            // Fallback: window.location.href = '/wave-glider/home';
         });
     }
 
@@ -40,15 +40,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         noFormsMessage.style.display = 'none';
 
         try {
-            let apiUrl = '/api/forms/pic_handoffs/recent';
             if (formId) {
-                apiUrl = `/api/forms/id/${formId}`;
-            }
-
-            const forms = await apiRequest(apiUrl, 'GET');
-            if (formId) {
-                displayFormDetailsInModal(forms);
+                const r = await apiRequest(`/api/forms/id/${formId}/with-changes`, 'GET');
+                displayFormDetailsInModal(r.form, r.changed_item_ids || []);
             } else {
+                const forms = await apiRequest('/api/forms/pic_handoffs/recent', 'GET');
                 renderFormsTable(forms);
             }
         } catch (error) {
@@ -91,17 +87,25 @@ document.addEventListener('DOMContentLoaded', async function () {
             const viewButton = document.createElement('button');
             viewButton.classList.add('btn', 'btn-sm', 'btn-info');
             viewButton.textContent = 'View Details';
-            viewButton.addEventListener('click', () => displayFormDetailsInModal(form));
+            viewButton.addEventListener('click', async () => {
+                try {
+                    const r = await apiRequest(`/api/forms/id/${form.id}/with-changes`, 'GET');
+                    displayFormDetailsInModal(r.form, r.changed_item_ids || []);
+                } catch (e) {
+                    showToast(`Error loading form: ${e.message}`, 'danger');
+                }
+            });
             actionsCell.appendChild(viewButton);
         });
     }
 
-    function displayFormDetailsInModal(form) {
+    function displayFormDetailsInModal(form, changedItemIds = []) {
         if (!formDetailsModal || !modalTitle || !modalBody) {
             console.error("Modal elements not found for displaying form details.");
             alert("Could not display form details. Modal components missing.");
             return;
         }
+        const changedSet = new Set(Array.isArray(changedItemIds) ? changedItemIds : []);
         modalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`; // Keep title format
 
         const submissionTimestampStr = form.submission_timestamp.endsWith('Z') ? form.submission_timestamp : form.submission_timestamp + 'Z';
@@ -118,8 +122,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                 contentHtml += '<ul class="list-group list-group-flush mb-3">';
                 if (section.items && Array.isArray(section.items)) {
                     section.items.forEach(item => {
-                        contentHtml += `<li class="list-group-item bg-dark text-light"><strong>${item.label}:</strong> `;
-                        if (item.item_type === 'checkbox') {
+                        const isChanged = item.id && changedSet.has(item.id);
+                        const liClass = isChanged ? 'list-group-item bg-dark text-light pic-handoff-item-changed' : 'list-group-item bg-dark text-light';
+                        contentHtml += `<li class="${liClass}" data-item-id="${item.id || ''}"><strong>${item.label}:</strong> `;
+                        if (item.id && String(item.id).startsWith('sensor_') && String(item.id).endsWith('_status')) {
+                            const v = item.value;
+                            contentHtml += (v !== undefined && v !== null && String(v).trim() !== '') ? String(v) : (item.is_checked ? 'On' : 'Off');
+                        } else if (item.item_type === 'checkbox') {
                             contentHtml += item.is_checked ? 'Checked' : 'Not Checked';
                         } else if (item.id === 'user_comments_val') {
                             const comments = (item.value && String(item.value).trim()) ? item.value : 'No included comments';
@@ -128,6 +137,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                             contentHtml += `${item.value || 'N/A'}`;
                         } else {
                             contentHtml += `${item.value || '<em>Not provided</em>'}`;
+                        }
+                        if (isChanged) {
+                            contentHtml += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;
                         }
                         if (item.is_verified) {
                             contentHtml += ` <span class="badge bg-success">Verified</span>`;

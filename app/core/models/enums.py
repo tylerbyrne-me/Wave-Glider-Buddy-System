@@ -40,6 +40,7 @@ class FormItemTypeEnum(str, Enum):
     STATIC_TEXT = "static_text"  # For instructions or non-interactive text
     DROPDOWN = "dropdown"  # New type for dropdown lists
     DATETIME_LOCAL = "datetime-local"  # For datetime-local input
+    SENSOR_STATUS = "sensor_status"  # Science sensor: last data time + On/Off toggle
 
 
 class PayPeriodStatusEnum(str, Enum):

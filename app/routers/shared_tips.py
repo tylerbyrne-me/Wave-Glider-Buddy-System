@@ -28,7 +28,19 @@ async def shared_tips_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
-    """Shared tips main page."""
+    """Shared tips main page (Wave Glider)."""
+    return templates.TemplateResponse(
+        "shared_tips.html",
+        get_template_context(request=request, current_user=current_user)
+    )
+
+
+@router.get("/slocum/shared_tips.html", response_class=HTMLResponse)
+async def slocum_shared_tips_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    """Shared tips page for Slocum platform."""
     return templates.TemplateResponse(
         "shared_tips.html",
         get_template_context(request=request, current_user=current_user)
@@ -41,11 +53,15 @@ async def get_shared_tips(
     query: Optional[str] = Query(None, description="Search query"),
     pinned_only: bool = Query(False, description="Show only pinned tips"),
     limit: int = Query(50, le=100),
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Get all shared tips."""
-    statement = select(models.SharedTip).where(models.SharedTip.is_archived == False)
+    statement = select(models.SharedTip).where(
+        models.SharedTip.is_archived == False,
+        models.SharedTip.platform == platform,
+    )
     
     # Apply filters
     if category:
@@ -115,7 +131,8 @@ async def get_shared_tips(
             'is_archived': tip.is_archived,
             'comment_count': counts['comment_count'],
             'question_count': counts['question_count'],
-            'unresolved_question_count': counts['unresolved_question_count']
+            'unresolved_question_count': counts['unresolved_question_count'],
+            'platform': tip.platform,
         }
         result.append(models.SharedTipRead(**tip_dict))
     
@@ -124,12 +141,16 @@ async def get_shared_tips(
 
 @router.get("/api/shared-tips/categories", response_model=models.CategoriesResponse)
 async def get_shared_tip_categories(
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Get list of categories for shared tips."""
     try:
-        statement = select(models.SharedTip).where(models.SharedTip.is_archived == False)
+        statement = select(models.SharedTip).where(
+            models.SharedTip.is_archived == False,
+            models.SharedTip.platform == platform,
+        )
         tips = session.exec(statement).all()
         
         # Count tips by category
@@ -154,6 +175,7 @@ async def get_shared_tip_categories(
 @router.get("/api/shared-tips/{tip_id}", response_model=models.SharedTipRead)
 async def get_shared_tip(
     tip_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -163,6 +185,8 @@ async def get_shared_tip(
         raise HTTPException(status_code=404, detail="Tip not found")
     
     if tip.is_archived:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     # Get comment/question counts
@@ -197,7 +221,8 @@ async def get_shared_tip(
         'is_archived': tip.is_archived,
         'comment_count': comment_count,
         'question_count': question_count,
-        'unresolved_question_count': unresolved_question_count
+        'unresolved_question_count': unresolved_question_count,
+        'platform': tip.platform,
     }
     
     return models.SharedTipRead(**tip_dict)
@@ -216,7 +241,8 @@ async def create_shared_tip(
         category=tip_data.category,
         tags=tip_data.tags,
         is_pinned=tip_data.is_pinned,
-        created_by_username=current_user.username
+        created_by_username=current_user.username,
+        platform=tip_data.platform,
     )
     
     session.add(tip)
@@ -232,7 +258,8 @@ async def create_shared_tip(
                 title=tip.title,
                 content=tip.content,
                 category=tip.category,
-                tags=tip.tags
+                tags=tip.tags,
+                platform=tip.platform,
             )
             logger.info(f"Tip {tip.id} vectorized for semantic search")
     except Exception as e:
@@ -246,6 +273,7 @@ async def create_shared_tip(
 async def update_shared_tip(
     tip_id: int,
     tip_data: models.SharedTipUpdate,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -255,6 +283,8 @@ async def update_shared_tip(
         raise HTTPException(status_code=404, detail="Tip not found")
     
     if tip.is_archived:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     # Update fields
@@ -287,7 +317,8 @@ async def update_shared_tip(
                 title=tip.title,
                 content=tip.content,
                 category=tip.category,
-                tags=tip.tags
+                tags=tip.tags,
+                platform=tip.platform,
             )
             logger.info(f"Tip {tip.id} updated in vector store")
     except Exception as e:
@@ -300,6 +331,7 @@ async def update_shared_tip(
 @router.post("/api/shared-tips/{tip_id}/helpful", response_model=models.SharedTipRead)
 async def mark_tip_helpful(
     tip_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -309,6 +341,8 @@ async def mark_tip_helpful(
         raise HTTPException(status_code=404, detail="Tip not found")
     
     if tip.is_archived:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     tip.helpful_count += 1
@@ -323,12 +357,15 @@ async def mark_tip_helpful(
 @router.delete("/api/shared-tips/{tip_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_shared_tip(
     tip_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Delete (archive) a shared tip. Any user can archive tips."""
     tip = session.get(models.SharedTip, tip_id)
     if not tip:
+        raise HTTPException(status_code=404, detail="Tip not found")
+    if tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     # Soft delete - mark as archived
@@ -358,13 +395,14 @@ async def delete_shared_tip(
 @router.get("/api/shared-tips/{tip_id}/comments", response_model=List[models.TipCommentRead])
 async def get_tip_comments(
     tip_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Get all comments for a specific tip."""
-    # Verify tip exists and is not archived
+    # Verify tip exists, is not archived, and belongs to platform
     tip = session.get(models.SharedTip, tip_id)
-    if not tip or tip.is_archived:
+    if not tip or tip.is_archived or tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     statement = select(models.TipComment).where(
@@ -383,13 +421,14 @@ async def get_tip_comments(
 async def create_tip_comment(
     tip_id: int,
     comment_data: models.TipCommentCreate,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Create a comment on a tip."""
-    # Verify tip exists and is not archived
+    # Verify tip exists, is not archived, and belongs to platform
     tip = session.get(models.SharedTip, tip_id)
-    if not tip or tip.is_archived:
+    if not tip or tip.is_archived or tip.platform != platform:
         raise HTTPException(status_code=404, detail="Tip not found")
     
     comment = models.TipComment(
@@ -438,6 +477,7 @@ async def update_tip_comment(
     tip_id: int,
     comment_id: int,
     comment_data: models.TipCommentUpdate,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -448,6 +488,10 @@ async def update_tip_comment(
     
     if comment.tip_id != tip_id:
         raise HTTPException(status_code=400, detail="Comment does not belong to this tip")
+    
+    tip = session.get(models.SharedTip, tip_id)
+    if not tip or tip.platform != platform:
+        raise HTTPException(status_code=404, detail="Tip not found")
     
     # Users can only update their own comments (unless admin)
     if comment.commented_by_username != current_user.username and current_user.role != "admin":
@@ -512,6 +556,7 @@ async def update_tip_comment(
 async def delete_tip_comment(
     tip_id: int,
     comment_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -522,6 +567,10 @@ async def delete_tip_comment(
     
     if comment.tip_id != tip_id:
         raise HTTPException(status_code=400, detail="Comment does not belong to this tip")
+    
+    tip = session.get(models.SharedTip, tip_id)
+    if not tip or tip.platform != platform:
+        raise HTTPException(status_code=404, detail="Tip not found")
     
     # Users can only delete their own comments (unless admin)
     if comment.commented_by_username != current_user.username and current_user.role != "admin":

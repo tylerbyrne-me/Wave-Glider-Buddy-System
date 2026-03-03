@@ -26,7 +26,19 @@ async def my_notes_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
-    """User notes main page."""
+    """User notes main page (Wave Glider)."""
+    return templates.TemplateResponse(
+        "my_notes.html",
+        get_template_context(request=request, current_user=current_user)
+    )
+
+
+@router.get("/slocum/my_notes.html", response_class=HTMLResponse)
+async def slocum_my_notes_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    """User notes page for Slocum platform."""
     return templates.TemplateResponse(
         "my_notes.html",
         get_template_context(request=request, current_user=current_user)
@@ -38,6 +50,7 @@ async def get_user_notes(
     category: Optional[str] = Query(None),
     query: Optional[str] = Query(None, description="Search query"),
     pinned_only: bool = Query(False, description="Show only pinned notes"),
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -48,7 +61,10 @@ async def get_user_notes(
     if not user_in_db:
         raise HTTPException(status_code=404, detail="User not found")
     
-    statement = select(models.UserNote).where(models.UserNote.user_id == user_in_db.id)
+    statement = select(models.UserNote).where(
+        models.UserNote.user_id == user_in_db.id,
+        models.UserNote.platform == platform,
+    )
     
     # Apply filters
     if category:
@@ -75,6 +91,7 @@ async def get_user_notes(
 
 @router.get("/api/user-notes/categories", response_model=models.CategoriesResponse)
 async def get_user_note_categories(
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -85,7 +102,10 @@ async def get_user_note_categories(
     if not user_in_db:
         raise HTTPException(status_code=404, detail="User not found")
     
-    statement = select(models.UserNote).where(models.UserNote.user_id == user_in_db.id)
+    statement = select(models.UserNote).where(
+        models.UserNote.user_id == user_in_db.id,
+        models.UserNote.platform == platform,
+    )
     notes = session.exec(statement).all()
     
     # Count notes by category
@@ -105,6 +125,7 @@ async def get_user_note_categories(
 @router.get("/api/user-notes/{note_id}", response_model=models.UserNoteRead)
 async def get_user_note(
     note_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -119,9 +140,11 @@ async def get_user_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     
-    # Verify ownership
+    # Verify ownership and platform
     if note.user_id != user_in_db.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if note.platform != platform:
+        raise HTTPException(status_code=404, detail="Note not found")
     
     return note
 
@@ -145,7 +168,8 @@ async def create_user_note(
         content=note_data.content,
         category=note_data.category,
         tags=note_data.tags,
-        is_pinned=note_data.is_pinned
+        is_pinned=note_data.is_pinned,
+        platform=note_data.platform,
     )
     
     session.add(note)
@@ -160,6 +184,7 @@ async def create_user_note(
 async def update_user_note(
     note_id: int,
     note_data: models.UserNoteUpdate,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -174,9 +199,11 @@ async def update_user_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     
-    # Verify ownership
+    # Verify ownership and platform
     if note.user_id != user_in_db.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if note.platform != platform:
+        raise HTTPException(status_code=404, detail="Note not found")
     
     # Update fields
     update_dict = note_data.model_dump(exclude_unset=True)
@@ -196,6 +223,7 @@ async def update_user_note(
 @router.delete("/api/user-notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_note(
     note_id: int,
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -210,9 +238,11 @@ async def delete_user_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     
-    # Verify ownership
+    # Verify ownership and platform
     if note.user_id != user_in_db.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if note.platform != platform:
+        raise HTTPException(status_code=404, detail="Note not found")
     
     session.delete(note)
     session.commit()

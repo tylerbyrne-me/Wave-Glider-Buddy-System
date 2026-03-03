@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, showToast, appendPlatformParam, getPlatform } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -119,7 +119,7 @@ function initializePage(user) {
     // Functions
     async function loadCategories() {
         try {
-            const response = await apiRequest('/api/user-notes/categories', 'GET');
+            const response = await apiRequest(appendPlatformParam('/api/user-notes/categories'), 'GET');
             allCategories = response.categories || [];
             
             // Clear and populate category filter dropdown
@@ -179,6 +179,7 @@ function initializePage(user) {
             if (pinnedOnlyFilter.checked) {
                 params.append('pinned_only', 'true');
             }
+            params.append('platform', getPlatform());
             
             const notes = await apiRequest(`/api/user-notes?${params.toString()}`, 'GET');
             currentNotes = notes || [];
@@ -289,7 +290,7 @@ function initializePage(user) {
         // Check if we need to fetch full details (if content is truncated)
         if (!note.content || (note.content.length <= 200 && note.content.includes('...'))) {
             try {
-                fullNote = await apiRequest(`/api/user-notes/${note.id}`, 'GET');
+                fullNote = await apiRequest(appendPlatformParam(`/api/user-notes/${note.id}`), 'GET');
             } catch (error) {
                 console.error('Error fetching note details:', error);
                 showToast('Error loading note details', 'danger');
@@ -326,7 +327,8 @@ function initializePage(user) {
             content: document.getElementById('noteContent').value,
             category: document.getElementById('noteCategory').value || null,
             tags: document.getElementById('noteTags').value || null,
-            is_pinned: document.getElementById('noteIsPinned').checked
+            is_pinned: document.getElementById('noteIsPinned').checked,
+            platform: getPlatform()
         };
         
         const submitBtn = document.getElementById('saveNoteBtn');
@@ -340,7 +342,7 @@ function initializePage(user) {
             let note;
             if (noteId) {
                 // Update existing
-                note = await apiRequest(`/api/user-notes/${noteId}`, 'PUT', noteData);
+                note = await apiRequest(appendPlatformParam(`/api/user-notes/${noteId}`), 'PUT', { title: noteData.title, content: noteData.content, category: noteData.category, tags: noteData.tags, is_pinned: noteData.is_pinned });
                 showToast('Note updated successfully!', 'success');
             } else {
                 // Create new
@@ -388,7 +390,7 @@ function initializePage(user) {
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
         
         try {
-            await apiRequest(`/api/user-notes/${noteToDelete.id}`, 'DELETE');
+            await apiRequest(appendPlatformParam(`/api/user-notes/${noteToDelete.id}`), 'DELETE');
             showToast('Note deleted successfully!', 'success');
             
             const modal = bootstrap.Modal.getInstance(document.getElementById('deleteNoteModal'));

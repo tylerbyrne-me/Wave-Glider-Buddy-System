@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast, fetchWithAuth } from '/static/js/api.js';
+import { apiRequest, showToast, fetchWithAuth, appendPlatformParam, getPlatform } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -114,7 +114,7 @@ function initializePage(user) {
     // Functions
     async function loadCategories() {
         try {
-            const response = await apiRequest('/api/knowledge/documents/categories', 'GET');
+            const response = await apiRequest(appendPlatformParam('/api/knowledge/documents/categories'), 'GET');
             allCategories = response.categories;
             
             // Clear and populate category filter dropdown
@@ -180,6 +180,7 @@ function initializePage(user) {
                 params.append('file_type', fileTypeFilter.value);
             }
             params.append('limit', currentLimit.toString());
+            params.append('platform', getPlatform());
             
             const documents = await apiRequest(`/api/knowledge/documents?${params.toString()}`, 'GET');
             
@@ -289,7 +290,7 @@ function initializePage(user) {
                             <button class="btn btn-sm btn-outline-primary view-doc-btn" data-doc-id="${doc.id}">
                                 <i class="fas fa-eye"></i> View
                             </button>
-                            <a href="/api/knowledge/documents/${doc.id}/download" class="btn btn-sm btn-outline-success" target="_blank">
+                            <a href="${appendPlatformParam(`/api/knowledge/documents/${doc.id}/download`)}" class="btn btn-sm btn-outline-success" target="_blank">
                                 <i class="fas fa-download"></i> Download
                             </a>
                             ${isAdmin ? `
@@ -326,7 +327,7 @@ function initializePage(user) {
     
     async function showDocumentModal(docId) {
         try {
-            const doc = await apiRequest(`/api/knowledge/documents/${docId}`, 'GET');
+            const doc = await apiRequest(appendPlatformParam(`/api/knowledge/documents/${docId}`), 'GET');
             
             const modal = document.getElementById('documentModal');
             const modalTitle = document.getElementById('documentModalTitle');
@@ -334,7 +335,7 @@ function initializePage(user) {
             const downloadBtn = document.getElementById('documentDownloadBtn');
             
             modalTitle.textContent = doc.title;
-            downloadBtn.href = `/api/knowledge/documents/${doc.id}/download`;
+            downloadBtn.href = appendPlatformParam(`/api/knowledge/documents/${doc.id}/download`);
             
             const fileSize = formatFileSize(doc.file_size);
             const uploadDate = new Date(doc.uploaded_at_utc).toLocaleDateString();
@@ -406,7 +407,8 @@ function initializePage(user) {
                 description: document.getElementById('uploadDescription').value || '',
                 category: document.getElementById('uploadCategory').value || '',
                 tags: document.getElementById('uploadTags').value || '',
-                access_level: document.getElementById('uploadAccessLevel').value
+                access_level: document.getElementById('uploadAccessLevel').value,
+                platform: getPlatform()
             });
             
             const response = await fetchWithAuth(`/api/knowledge/documents/upload?${params.toString()}`, {
@@ -518,7 +520,7 @@ function initializePage(user) {
         statusDiv.innerHTML = '<div class="alert alert-info">Saving changes...</div>';
         
         try {
-            const updatedDoc = await apiRequest(`/api/knowledge/documents/${docId}`, 'PUT', updateData);
+            const updatedDoc = await apiRequest(appendPlatformParam(`/api/knowledge/documents/${docId}`), 'PUT', updateData);
             
             statusDiv.innerHTML = '<div class="alert alert-success">Document updated successfully!</div>';
             showToast('Document updated successfully!', 'success');
@@ -568,7 +570,7 @@ function initializePage(user) {
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
         
         try {
-            await apiRequest(`/api/knowledge/documents/${documentToDelete.id}`, 'DELETE');
+            await apiRequest(appendPlatformParam(`/api/knowledge/documents/${documentToDelete.id}`), 'DELETE');
             
             showToast('Document deleted successfully!', 'success');
             

@@ -7,6 +7,7 @@ from ..core.db import get_db_session, SQLModelSession
 from app.core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
+from ..core.feature_toggles import is_feature_enabled
 from sqlmodel import select
 from sqlalchemy import or_
 import logging
@@ -14,16 +15,32 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Home"])
 
-@router.get("/home.html", response_class=HTMLResponse)
-async def get_home_page(
+
+@router.get("/platform", response_class=HTMLResponse)
+async def get_platform_choice(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user),
-    session: SQLModelSession = Depends(get_db_session)
 ):
+    """Platform choice (splash) after login: Wave Glider or Slocum Glider."""
     if not current_user:
         return RedirectResponse(url="/login.html")
-    
-    # Get active missions from settings
+    template_context = get_template_context(request=request, current_user=current_user)
+    template_context["show_banner_nav"] = False  # No nav tabs on splash to avoid cross-platform confusion
+    return templates.TemplateResponse("platform_choice.html", template_context)
+
+
+@router.get("/home.html", response_class=HTMLResponse)
+async def get_home_page_redirect():
+    """Legacy: redirect to canonical Wave Glider home."""
+    return RedirectResponse(url="/wave-glider/home")
+
+
+async def _get_wave_glider_home_response(
+    request: Request,
+    current_user: models.User,
+    session: SQLModelSession,
+):
+    """Build Wave Glider home page context and return TemplateResponse. Used by GET /wave-glider/home."""
     active_missions = settings.active_realtime_missions
     logger.info(f"Loading home page with active missions: {active_missions}")
     
@@ -141,12 +158,127 @@ async def get_home_page(
         )
     
     template_context = get_template_context(
-        request=request, 
+        request=request,
         current_user=current_user,
         active_missions=active_missions,
-        active_mission_data=active_mission_data
+        active_mission_data=active_mission_data,
     )
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "wave_glider"
+    template_context["platform_home_url"] = "/wave-glider/home"
     logger.info(f"Template context - active_missions: {active_missions}, active_mission_data keys: {list(active_mission_data.keys())}")
     logger.info(f"Active missions type: {type(active_missions)}, length: {len(active_missions) if active_missions else 0}")
     
-    return templates.TemplateResponse("home.html", template_context) 
+    return templates.TemplateResponse("home.html", template_context)
+
+
+@router.get("/wave-glider/home", response_class=HTMLResponse)
+async def get_wave_glider_home(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Wave Glider home: mission list and briefings."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    return await _get_wave_glider_home_response(request, current_user, session)
+
+
+@router.get("/slocum", response_class=HTMLResponse)
+async def get_slocum_dashboard(
+    request: Request,
+    dataset: Optional[str] = None,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+):
+    """Slocum Glider mission dashboard (active dataset). Same layout as WG dashboard."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    if not is_feature_enabled("slocum_platform"):
+        return RedirectResponse(url="/platform")
+    if not dataset:
+        return RedirectResponse(url="/slocum/home")
+    template_context = get_template_context(
+        request=request,
+        current_user=current_user,
+        active_missions=[],
+    )
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "slocum"
+    template_context["platform_home_url"] = "/slocum/home"
+    template_context["dataset"] = dataset
+    template_context["is_historical_dataset"] = False
+    template_context["is_current_mission_realtime"] = True  # Active dataset: show auto-refresh in banner
+    return templates.TemplateResponse("slocum_dashboard.html", template_context)
+
+
+@router.get("/slocum/historical", response_class=HTMLResponse)
+async def get_slocum_historical_dashboard(
+    request: Request,
+    dataset: Optional[str] = None,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+):
+    """Slocum Glider mission dashboard (historical dataset). Same template as /slocum with is_historical_dataset=True."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    if not is_feature_enabled("slocum_platform"):
+        return RedirectResponse(url="/platform")
+    if not dataset:
+        return RedirectResponse(url="/slocum/home")
+    template_context = get_template_context(
+        request=request,
+        current_user=current_user,
+        active_missions=[],
+    )
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "slocum"
+    template_context["platform_home_url"] = "/slocum/home"
+    template_context["dataset"] = dataset
+    template_context["is_historical_dataset"] = True
+    template_context["is_current_mission_realtime"] = False  # Historical: no auto-refresh in banner
+    return templates.TemplateResponse("slocum_dashboard.html", template_context)
+
+
+@router.get("/slocum/vehicle-params", response_class=HTMLResponse)
+async def get_slocum_vehicle_params(
+    request: Request,
+    deployment_id: Optional[int] = None,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+):
+    """Slocum Vehicle Parameters tool: edit mission files, view snapshots, apply changes."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    if not is_feature_enabled("slocum_platform"):
+        return RedirectResponse(url="/platform")
+    if not is_feature_enabled("slocum_mission_files"):
+        return RedirectResponse(url="/slocum/home")
+    template_context = get_template_context(
+        request=request,
+        current_user=current_user,
+        active_missions=[],
+    )
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "slocum"
+    template_context["platform_home_url"] = "/slocum/home"
+    template_context["deployment_id"] = deployment_id
+    return templates.TemplateResponse("slocum_vehicle_params.html", template_context)
+
+
+@router.get("/slocum/home", response_class=HTMLResponse)
+async def get_slocum_home(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+):
+    """Slocum Glider home: dataset list and map. No WG mission data."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    if not is_feature_enabled("slocum_platform"):
+        return RedirectResponse(url="/platform")
+    template_context = get_template_context(
+        request=request,
+        current_user=current_user,
+        active_missions=[],  # Do not show WG missions on Slocum home
+    )
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "slocum"
+    template_context["platform_home_url"] = "/slocum/home"
+    return templates.TemplateResponse("slocum_home.html", template_context)

@@ -238,13 +238,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         return `${datePart.replace(',', '')} ${timePart} UTC`;
     };
 
-    const displayPicFormDetailsInModal = (form) => {
+    const displayPicFormDetailsInModal = (form, changedItemIds = []) => {
         if (!dashboardPicDetailsModal || !dashboardPicModalTitle || !dashboardPicModalBody) {
             console.error('PIC modal elements not found for displaying form details.');
             alert('Could not display form details. Modal components missing.');
             return;
         }
 
+        const changedSet = new Set(Array.isArray(changedItemIds) ? changedItemIds : []);
         dashboardPicModalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
 
         const submissionTimestampStr = String(form.submission_timestamp || '').endsWith('Z')
@@ -266,8 +267,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                 contentHtml += '<ul class="list-group list-group-flush mb-3">';
                 if (section.items && Array.isArray(section.items)) {
                     section.items.forEach(item => {
-                        contentHtml += `<li class="list-group-item"><strong>${escapeHtml(item.label || '')}:</strong> `;
-                        if (item.item_type === 'checkbox') {
+                        const isChanged = item.id && changedSet.has(item.id);
+                        const liClass = isChanged ? 'list-group-item pic-handoff-item-changed' : 'list-group-item';
+                        contentHtml += `<li class="${liClass}" data-item-id="${escapeHtml(item.id || '')}"><strong>${escapeHtml(item.label || '')}:</strong> `;
+                        if (item.id && String(item.id).startsWith('sensor_') && String(item.id).endsWith('_status')) {
+                            const v = item.value;
+                            contentHtml += (v !== undefined && v !== null && String(v).trim() !== '') ? escapeHtml(String(v)) : (item.is_checked ? 'On' : 'Off');
+                        } else if (item.item_type === 'checkbox') {
                             contentHtml += item.is_checked ? 'Checked' : 'Not Checked';
                         } else if (item.id === 'user_comments_val') {
                             const comments = (item.value && String(item.value).trim()) ? item.value : 'No included comments';
@@ -276,6 +282,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                             contentHtml += `${escapeHtml(item.value || 'N/A')}`;
                         } else {
                             contentHtml += item.value ? escapeHtml(item.value) : '<em>Not provided</em>';
+                        }
+                        if (isChanged) {
+                            contentHtml += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;
                         }
                         if (item.is_verified) {
                             contentHtml += ` <span class="badge bg-success">Verified</span>`;
@@ -326,7 +335,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         `;
         const viewLatestBtn = document.getElementById('dashboardPicHandoffsViewLatestBtn');
         if (viewLatestBtn) {
-            viewLatestBtn.addEventListener('click', () => displayPicFormDetailsInModal(latest));
+            viewLatestBtn.addEventListener('click', async () => {
+                try {
+                    const r = await apiRequest(`/api/forms/id/${latest.id}/with-changes`, 'GET');
+                    displayPicFormDetailsInModal(r.form, r.changed_item_ids || []);
+                } catch (e) {
+                    console.error('Failed to load PIC form with changes', e);
+                    displayPicFormDetailsInModal(latest, []);
+                }
+            });
         }
 
         dashboardPicHandoffsTableBody.innerHTML = '';
@@ -341,7 +358,15 @@ document.addEventListener('DOMContentLoaded', async function() {
             const viewButton = document.createElement('button');
             viewButton.classList.add('btn', 'btn-sm', 'btn-info');
             viewButton.textContent = 'View Details';
-            viewButton.addEventListener('click', () => displayPicFormDetailsInModal(form));
+            viewButton.addEventListener('click', async () => {
+                try {
+                    const r = await apiRequest(`/api/forms/id/${form.id}/with-changes`, 'GET');
+                    displayPicFormDetailsInModal(r.form, r.changed_item_ids || []);
+                } catch (e) {
+                    console.error('Failed to load PIC form with changes', e);
+                    displayPicFormDetailsInModal(form, []);
+                }
+            });
             actionsCell.appendChild(viewButton);
         });
     };
@@ -3035,6 +3060,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // Track which sensor categories have been loaded so we can refresh all when Resample/hours/date changes
+    const loadedCategories = new Set();
+
     // --- NEW: Left Panel Click Handler ---
     function handleLeftPanelClicks() {
         const summaryCards = document.querySelectorAll('#left-nav-panel .summary-card');
@@ -3063,6 +3091,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     // Generic loader for all cards to ensure data is refreshed on click
                     const loader = getSensorLoader(category);
                     if (loader) {
+                        loadedCategories.add(category);
                         loader();
                     }
                 }
@@ -3108,12 +3137,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     function initializeInteractiveControls() {
         document.querySelectorAll('.hours-back-input, .granularity-select, .date-range-input').forEach(input => {
-            input.addEventListener('change', (event) => {
-                const reportType = event.target.dataset.reportType;
-                const loader = getSensorLoader(reportType);
-                if (loader) {
-                    loader();
-                }
+            input.addEventListener('change', () => {
+                // Refresh all already-loaded charts so they use the new Resample/hours/date
+                loadedCategories.forEach(category => {
+                    const loader = getSensorLoader(category);
+                    if (loader) loader();
+                });
             });
         });
     }
@@ -3404,16 +3433,17 @@ document.addEventListener('DOMContentLoaded', async function() {
     };
 
     // Initial data load for the default active view (Navigation)
-    // This ensures the main chart for the default view loads without needing a click.
     const defaultActiveCategory = document.querySelector('#left-nav-panel .summary-card.active-card')?.dataset.category;
-    if (defaultActiveCategory === 'waves') {
-        // If waves is the default, also fetch its marine forecast
-        fetchAndRenderWaveSpectrum(missionId); // Already there for spectrum
-        fetchMarineForecastData(missionId).then(data => renderMarineForecast(data));
-
-    } else {
-        // For other default active categories, ensure their data is loaded
-        const loader = getSensorLoader(defaultActiveCategory);
-        if (loader) loader();
+    if (defaultActiveCategory) {
+        loadedCategories.add(defaultActiveCategory);
+        if (defaultActiveCategory === 'waves') {
+            fetchAndRenderWaveSpectrum(missionId);
+            fetchMarineForecastData(missionId).then(data => renderMarineForecast(data));
+            const loader = getSensorLoader(defaultActiveCategory);
+            if (loader) loader();
+        } else {
+            const loader = getSensorLoader(defaultActiveCategory);
+            if (loader) loader();
+        }
     }
 });

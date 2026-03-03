@@ -63,6 +63,7 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                     title="Glider & Mission General Status",
                     items=[
                         models.FormItem(id="glider_id_val", label="Glider ID", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value="N/A"), # Placeholder
+                        models.FormItem(id="mission_title_val", label="Mission Title", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="Mission Not Assigned"),
                         models.FormItem(id="current_mos_val", label="Current MOS", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Sue L", "Tyler B", "Matt M", "Adam C"], required=True),
                         models.FormItem(id="current_pic_val", label="Current PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], required=True),
                         models.FormItem(id="last_pic_val", label="Last PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], required=True),
@@ -81,6 +82,9 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                         models.FormItem(id="thruster_status_val", label="Thruster Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
                         models.FormItem(id="obstacle_avoid_val", label="Obstacle Avoidance", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
                         models.FormItem(id="line_follow_val", label="Line Following Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
+                        models.FormItem(id="boats_in_area_val", label="Boats in the Area (AIS 24h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent AIS contacts."),
+                        models.FormItem(id="vessel_standoff_m_val", label="Vessel Standoff (m)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 1500"),
+                        models.FormItem(id="recent_errors_val", label="Recent Errors (24h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent errors."),
                     ]
                 ),
                 models.FormSection(

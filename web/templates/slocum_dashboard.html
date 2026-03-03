@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}Slocum Glider – {{ dataset }}{% endblock %}
+
+{% block body_class %}container-fluid{% endblock %}
+
+{% block body_data_attributes %}
+  data-dataset="{{ dataset }}"
+  data-is-historical="{{ 'true' if is_historical_dataset else 'false' }}"
+{% endblock %}
+
+{% block content %}
+  <div id="slocumDashboardError" class="alert alert-danger" style="display: none;" role="alert"></div>
+
+  <div class="d-flex align-items-center mb-2 mt-3">
+    <a href="/slocum/home" class="btn btn-outline-secondary btn-sm me-2"><i class="fas fa-arrow-left me-1"></i> Slocum Home</a>
+    <h4 class="mb-0">Slocum Dataset: <span class="text-muted">{{ dataset }}</span></h4>
+  </div>
+
+  <div class="row mt-3 slocum-dashboard" id="dashboard-main-content">
+    <!-- Left Navigation Panel (Summary Cards) -->
+    <div class="col-md-3" id="left-nav-panel">
+      <div class="summary-card active-card" data-category="overview">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>Overview</h5>
+            <div class="mini-summary">
+              Dataset summary and charts
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ dataset }}
+        </div>
+      </div>
+      <div class="summary-card" data-category="underwater_positioning">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>Underwater Positioning</h5>
+            <div class="mini-summary">
+              Pitch, roll, depth and altitude
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ dataset }}
+        </div>
+      </div>
+      <div class="summary-card" data-category="navigation">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>Navigation</h5>
+            <div class="mini-summary">
+              Heading and fin position
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ dataset }}
+        </div>
+      </div>
+      <div class="summary-card" data-category="power">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>Power</h5>
+            <div class="mini-summary">
+              Battery and amp-hour total
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ dataset }}
+        </div>
+      </div>
+      <div class="summary-card" data-category="ctd">
+        <div class="summary-card-main-content">
+          <div class="summary-card-text-content">
+            <h5>CTD</h5>
+            <div class="mini-summary">
+              Conductivity, temperature, pressure, salinity, density
+            </div>
+          </div>
+        </div>
+        <div class="summary-card-footer text-muted small">
+          {{ dataset }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Main Display Area -->
+    <div class="col-md-9" id="main-display-area">
+      <!-- Dashboard header: title and controls in the same bar (matches Wave Glider) -->
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center">
+            <h2 class="mb-0">{{ dataset }} - <span id="slocum-section-title">Overview</span></h2>
+            {% if is_historical_dataset %}
+            <span class="badge bg-secondary ms-2">Historical Dataset</span>
+            {% else %}
+            <span class="badge bg-success ms-2">Active Dataset</span>
+            {% endif %}
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="input-group input-group-sm" style="width: 200px;">
+              <label class="input-group-text" for="start-date-slocum" title="Start date and time for data visualization.">From</label>
+              <input type="datetime-local" class="form-control date-range-input" id="start-date-slocum" data-report-type="slocum">
+            </div>
+            <div class="input-group input-group-sm" style="width: 200px;">
+              <label class="input-group-text" for="end-date-slocum" title="End date and time for data visualization.">To</label>
+              <input type="datetime-local" class="form-control date-range-input" id="end-date-slocum" data-report-type="slocum">
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="clear-date-slocum" title="Clear date range and return to hours mode" style="display: none;">
+              <i class="fas fa-times"></i> Clear
+            </button>
+            <div class="input-group input-group-sm" style="width: 150px;">
+              <label class="input-group-text" for="slocumHoursBack" title="Set the time window for the chart data in hours.">Hours</label>
+              <input type="number" class="form-control hours-back-input" id="slocumHoursBack" value="24" min="1" max="8760" data-report-type="slocum">
+            </div>
+            <div class="input-group input-group-sm" style="width: 150px;">
+              <label class="input-group-text" for="slocumGranularity" title="Set the data resampling interval.">Resample</label>
+              <select id="slocumGranularity" class="form-select" data-report-type="overview">
+                <option value="0">All (no resample)</option>
+                <option value="5">5 min</option>
+                <option value="15" selected>15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">60 min</option>
+              </select>
+            </div>
+            <div class="dropdown">
+              <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-download me-1"></i> Download
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="#" id="slocum-download-csv">Data as CSV</a></li>
+                <li><a class="dropdown-item" href="#" id="slocum-save-charts-png" data-high-res="false">Charts as PNG</a></li>
+                <li><a class="dropdown-item" href="#" id="slocum-save-charts-png-hires" data-high-res="true">Charts as PNG (High-Res)</a></li>
+              </ul>
+            </div>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="slocumRefreshCharts">Refresh charts</button>
+            <span id="slocumLastDataTimestamp" class="text-muted small ms-1" title="Timestamp of the most recent data point in the displayed range.">Last data: —</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-detail-view card mb-4" id="detail-overview" style="display: block;">
+        <div class="card-body">
+          {% if is_slocum_mission_files_enabled %}
+          <div class="mb-3 p-3 bg-light rounded d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h6 class="mb-1">Mission files</h6>
+              <p class="mb-0 small text-muted">Upload and edit .ma / .mi files, apply parameter changes, and download snapshots.</p>
+            </div>
+            <a href="/slocum/vehicle-params" class="btn btn-primary btn-sm">Modify Vehicle Parameters</a>
+          </div>
+          {% endif %}
+          <div class="row g-3">
+            <div class="col-12 col-lg-6">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="m_depth_spinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="d-flex justify-content-end mb-1"><span class="badge bg-secondary" id="m_depth_summary">—</span></div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartMDepth"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="m_altitude_spinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="d-flex justify-content-end mb-1"><span class="badge bg-secondary" id="m_altitude_summary">—</span></div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartMAltitude"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="m_raw_altitude_spinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="d-flex justify-content-end mb-1"><span class="badge bg-secondary" id="m_raw_altitude_summary">—</span></div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartMRawAltitude"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="m_water_depth_spinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="d-flex justify-content-end mb-1"><span class="badge bg-secondary" id="m_water_depth_summary">—</span></div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartMWaterDepth"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-detail-view card mb-4" id="detail-underwater_positioning" style="display: none;">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumUwpPitchSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartUwpPitch"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumUwpRollSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartUwpRoll"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumUwpAltitudeSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartUwpAltitude"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-detail-view card mb-4" id="detail-navigation" style="display: none;">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumNavHeadingSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartNavHeading"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumNavFinSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartNavFin"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-detail-view card mb-4" id="detail-power" style="display: none;">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumPowerBatterySpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartPowerBattery"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumPowerAmphrSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartPowerAmphr"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="category-detail-view card mb-4" id="detail-ctd" style="display: none;">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumCtdConductivityTempPressureSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartCtdConductivityTempPressure"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="position-relative">
+                <div class="chart-spinner position-absolute top-50 start-50 translate-middle" id="slocumCtdDensitySalinityDepthSpinner">
+                  <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                  <canvas id="slocumChartCtdDensitySalinityDepth"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block body_extra_js %}
+  <script type="module" src="/static/js/slocum_dashboard.js"></script>
+{% endblock %}

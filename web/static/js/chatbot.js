@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, showToast, getPlatform } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -67,7 +67,7 @@ function initializeChatbot() {
         sendButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         
         try {
-            const response = await apiRequest('/api/chatbot/query', 'POST', { query });
+            const response = await apiRequest('/api/chatbot/query', 'POST', { query, platform: getPlatform() });
             currentInteractionId = response.interaction_id;
             
             // Display bot response

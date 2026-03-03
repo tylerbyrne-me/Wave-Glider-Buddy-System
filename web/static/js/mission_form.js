@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     itemDiv.classList.add('form-item', 'mb-3');
                     itemDiv.dataset.itemId = item.id;
 
+                    let labelContent = `${item.label}${item.required ? '<span class="text-danger">*</span>' : ''}`;
                     let inputHtml = '';
                     switch (item.item_type) {
                         case 'checkbox':
@@ -62,9 +63,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                         case 'text_area':
                             inputHtml = `<textarea class="form-control" id="${item.id}" name="${item.id}" rows="2" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>${item.value || ''}</textarea>`; // Adjusted rows
                             break;
-                        case 'autofilled_value':
-                            inputHtml = `<div class="autofilled-value" id="${item.id}">${item.value || 'N/A'}</div>`;
+                        case 'autofilled_value': {
+                            const hint = (item.hint || '').replace(/"/g, '&quot;');
+                            const titleAttr = hint ? ` title="${hint}"` : '';
+                            const hintClass = hint ? ' autofilled-value--has-tooltip' : '';
+                            inputHtml = `<div class="autofilled-value${hintClass}" id="${item.id}"${titleAttr}>${item.value || 'N/A'}</div>`;
                             break;
+                        }
                         case 'static_text':
                             inputHtml = `<p class="static-text mb-0" id="${item.id}">${item.value || ''}</p>`; // mb-0 to align better
                             break;
@@ -78,19 +83,38 @@ document.addEventListener('DOMContentLoaded', async function () {
                             });
                             inputHtml += `</select>`;
                             break;
+                        case 'sensor_status': {
+                            let lastTimeStr = 'N/A';
+                            let dropdownValue = 'Off';
+                            if (item.value) {
+                                try {
+                                    const parsed = typeof item.value === 'string' ? JSON.parse(item.value) : item.value;
+                                    lastTimeStr = parsed.last_time_str ?? 'N/A';
+                                    dropdownValue = (parsed.value === 'On' || parsed.default_on) ? 'On' : 'Off';
+                                } catch (_) { /* keep defaults */ }
+                            }
+                            labelContent = `${item.label}${item.required ? '<span class="text-danger">*</span>' : ''}<br><small class="text-muted">Last data: ${lastTimeStr}</small>`;
+                            inputHtml = `<select class="form-select" id="${item.id}" name="${item.id}">
+                                <option value="On" ${dropdownValue === 'On' ? 'selected' : ''}>On</option>
+                                <option value="Off" ${dropdownValue === 'Off' ? 'selected' : ''}>Off</option>
+                            </select>`;
+                            break;
+                        }
                     }
 
+                    // Omit per-item "Comment..." for text_area (e.g. User Comments) to avoid comment-for-comment
+                    const showItemComment = item.item_type !== 'text_area';
                     // New 4-column layout using Bootstrap grid
                     itemDiv.innerHTML = `
                         <div class="row align-items-center">
                             <div class="col-md-3">
-                                <label for="${item.id}" class="form-label mb-0">${item.label}${item.required ? '<span class="text-danger">*</span>' : ''}</label>
+                                <label for="${item.id}" class="form-label mb-0">${labelContent}</label>
                             </div>
                             <div class="col-md-4">
                                 ${inputHtml}
                             </div>
                             <div class="col-md-3">
-                                <textarea class="form-control form-control-sm" name="${item.id}_comment" rows="1" placeholder="Comment..."></textarea>
+                                ${showItemComment ? `<textarea class="form-control form-control-sm" name="${item.id}_comment" rows="1" placeholder="Comment..."></textarea>` : ''}
                             </div>
                             <div class="col-md-2">
                                 ${ (item.item_type === 'autofilled_value' || item.item_type === 'static_text') ?

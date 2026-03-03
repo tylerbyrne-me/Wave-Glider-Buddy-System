@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, showToast, appendPlatformParam, getPlatform } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -184,7 +184,7 @@ function initializePage(user) {
     // Functions
     async function loadCategories() {
         try {
-            const response = await apiRequest('/api/shared-tips/categories', 'GET');
+            const response = await apiRequest(appendPlatformParam('/api/shared-tips/categories'), 'GET');
             console.log('Categories response:', response);
             allCategories = response && response.categories ? response.categories : [];
             
@@ -245,6 +245,7 @@ function initializePage(user) {
             if (pinnedOnlyFilter.checked) {
                 params.append('pinned_only', 'true');
             }
+            params.append('platform', getPlatform());
             
             const url = `/api/shared-tips?${params.toString()}`;
             console.log('Loading tips from:', url);
@@ -375,7 +376,7 @@ function initializePage(user) {
     async function showTipDetail(tipId) {
         try {
             // This endpoint increments view count when a tip is specifically viewed
-            const tip = await apiRequest(`/api/shared-tips/${tipId}`, 'GET');
+            const tip = await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}`), 'GET');
             currentTipId = tipId;
             
             const modal = document.getElementById('tipDetailModal');
@@ -462,7 +463,7 @@ function initializePage(user) {
         commentsList.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading comments...</span></div></div>';
         
         try {
-            const comments = await apiRequest(`/api/shared-tips/${tipId}/comments`, 'GET');
+            const comments = await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/comments`), 'GET');
             
             if (comments.length === 0) {
                 commentsList.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> No comments yet. Be the first to comment!</div>';
@@ -565,13 +566,13 @@ function initializePage(user) {
         try {
             if (commentId) {
                 // Update existing comment
-                await apiRequest(`/api/shared-tips/${tipId}/comments/${commentId}`, 'PUT', {
+                await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/comments/${commentId}`), 'PUT', {
                     content: content
                 });
                 showToast('Comment updated successfully!', 'success');
             } else {
                 // Create new comment
-                await apiRequest(`/api/shared-tips/${tipId}/comments`, 'POST', {
+                await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/comments`), 'POST', {
                     content: content,
                     is_question: isQuestion
                 });
@@ -614,7 +615,7 @@ function initializePage(user) {
         }
         
         try {
-            await apiRequest(`/api/shared-tips/${tipId}/comments/${commentId}`, 'DELETE');
+            await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/comments/${commentId}`), 'DELETE');
             showToast('Comment deleted successfully!', 'success');
             await loadComments(tipId);
             
@@ -628,7 +629,7 @@ function initializePage(user) {
     
     async function resolveQuestion(commentId, tipId) {
         try {
-            await apiRequest(`/api/shared-tips/${tipId}/comments/${commentId}`, 'PUT', {
+                await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/comments/${commentId}`), 'PUT', {
                 is_resolved: true
             });
             showToast('Question marked as resolved!', 'success');
@@ -651,7 +652,7 @@ function initializePage(user) {
         // Check if we need to fetch full details (if content is truncated)
         if (!tip.content || (tip.content.length <= 300 && tip.content.includes('...'))) {
             try {
-                fullTip = await apiRequest(`/api/shared-tips/${tip.id}`, 'GET');
+                fullTip = await apiRequest(appendPlatformParam(`/api/shared-tips/${tip.id}`), 'GET');
             } catch (error) {
                 console.error('Error fetching tip details:', error);
                 showToast('Error loading tip details', 'danger');
@@ -688,7 +689,8 @@ function initializePage(user) {
             content: document.getElementById('tipContent').value,
             category: document.getElementById('tipCategory').value || null,
             tags: document.getElementById('tipTags').value || null,
-            is_pinned: document.getElementById('tipIsPinned').checked
+            is_pinned: document.getElementById('tipIsPinned').checked,
+            platform: getPlatform()
         };
         
         const submitBtn = document.getElementById('saveTipBtn');
@@ -701,7 +703,7 @@ function initializePage(user) {
         try {
             let tip;
             if (tipId) {
-                tip = await apiRequest(`/api/shared-tips/${tipId}`, 'PUT', tipData);
+                tip = await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}`), 'PUT', tipData);
                 showToast('Tip updated successfully!', 'success');
             } else {
                 tip = await apiRequest('/api/shared-tips', 'POST', tipData);
@@ -730,7 +732,7 @@ function initializePage(user) {
     
     async function markHelpful(tipId) {
         try {
-            const tip = await apiRequest(`/api/shared-tips/${tipId}/helpful`, 'POST');
+            const tip = await apiRequest(appendPlatformParam(`/api/shared-tips/${tipId}/helpful`), 'POST');
             showToast('Thank you for the feedback!', 'success');
             
             // Update the button text
@@ -770,7 +772,7 @@ function initializePage(user) {
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
         
         try {
-            await apiRequest(`/api/shared-tips/${tipToDelete.id}`, 'DELETE');
+            await apiRequest(appendPlatformParam(`/api/shared-tips/${tipToDelete.id}`), 'DELETE');
             showToast('Tip deleted successfully!', 'success');
             
             const modal = bootstrap.Modal.getInstance(document.getElementById('deleteTipModal'));

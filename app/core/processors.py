@@ -536,6 +536,134 @@ def preprocess_slocum_track_df(df: pd.DataFrame) -> pd.DataFrame:
     return df_processed
 
 
+# Possible ERDDAP column names for dashboard variables (with or without units)
+_SLOCUM_DASHBOARD_RENAME = {
+    "m_depth": "MDepth",
+    "m_depth (m)": "MDepth",
+    "m_altitude": "MAltitude",
+    "m_altitude (m)": "MAltitude",
+    "m_raw_altitude": "MRawAltitude",
+    "m_raw_altitude (m)": "MRawAltitude",
+    "m_water_depth": "MWaterDepth",
+    "m_water_depth (m)": "MWaterDepth",
+    "c_pitch": "CPitch",
+    "c_pitch (degrees)": "CPitch",
+    "c_pitch (deg)": "CPitch",
+    "m_pitch": "MPitch",
+    "m_pitch (degrees)": "MPitch",
+    "m_pitch (deg)": "MPitch",
+    "m_roll": "MRoll",
+    "m_roll (degrees)": "MRoll",
+    "m_roll (deg)": "MRoll",
+    "c_heading": "CHeading",
+    "c_heading (degrees)": "CHeading",
+    "c_heading (deg)": "CHeading",
+    "m_heading": "MHeading",
+    "m_heading (degrees)": "MHeading",
+    "m_heading (deg)": "MHeading",
+    "c_fin": "CFin",
+    "c_fin (radians)": "CFin",
+    "c_fin (rad)": "CFin",
+    "m_fin": "MFin",
+    "m_fin (radians)": "MFin",
+    "m_fin (rad)": "MFin",
+    "m_battery": "MBattery",
+    "m_battery (V)": "MBattery",
+    "m_battery (volts)": "MBattery",
+    "m_coulomb_amphr_total": "MCoulombAmphrTotal",
+    "m_coulomb_amphr_total (A.hr)": "MCoulombAmphrTotal",
+    "m_coulomb_amphr_total (A*hr)": "MCoulombAmphrTotal",
+    "m_coulomb_amphr_total (ah)": "MCoulombAmphrTotal",
+}
+
+# ERDDAP column names for CTD (with or without units) -> standard names
+_SLOCUM_CTD_RENAME = {
+    "conductivity": "Conductivity",
+    "conductivity (S/m)": "Conductivity",
+    "temperature": "Temperature",
+    "temperature (degrees_C)": "Temperature",
+    "temperature (degree_C)": "Temperature",
+    "temperature (degC)": "Temperature",
+    "pressure": "Pressure",
+    "pressure (decibar)": "Pressure",
+    "pressure (dbar)": "Pressure",
+    "salinity": "Salinity",
+    "salinity (PSU)": "Salinity",
+    "salinity (1)": "Salinity",
+    "density": "Density",
+    "density (kg/m^3)": "Density",
+    "density (kg/m3)": "Density",
+}
+
+
+def preprocess_slocum_ctd_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess Slocum CTD ERDDAP DataFrame for chart API.
+    Standardizes time and conductivity, temperature, pressure, salinity, density columns.
+    """
+    std_cols = ["Conductivity", "Temperature", "Pressure", "Salinity", "Density"]
+    df_processed = _initial_dataframe_setup(df, "Timestamp")
+    if df_processed.empty:
+        for col in std_cols:
+            df_processed[col] = pd.Series(dtype=float)
+        return df_processed
+    rename_map = {}
+    for std_name in std_cols:
+        for raw_name, s in _SLOCUM_CTD_RENAME.items():
+            if s == std_name and raw_name in df_processed.columns:
+                rename_map[raw_name] = std_name
+                break
+    df_processed = df_processed.rename(columns=rename_map)
+    for std_name in std_cols:
+        if std_name not in df_processed.columns:
+            df_processed[std_name] = np.nan
+        df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
+    return df_processed
+
+
+def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess Slocum ERDDAP DataFrame for dashboard charts.
+
+    Standardizes time and depth/altitude/pitch/roll columns to Timestamp, MDepth, MAltitude,
+    MRawAltitude, MWaterDepth, CPitch, MPitch, MRoll for use with chart API and frontend.
+
+    Args:
+        df: Raw DataFrame from fetch_slocum_dashboard_data (time, m_depth, m_altitude,
+            m_raw_altitude, m_water_depth, c_pitch, m_pitch, m_roll). Column names may include units.
+
+    Returns:
+        Processed DataFrame with Timestamp and standardized numeric columns.
+    """
+    std_cols = [
+        "MDepth", "MAltitude", "MRawAltitude", "MWaterDepth",
+        "CPitch", "MPitch", "MRoll",
+        "CHeading", "MHeading", "CFin", "MFin",
+        "MBattery", "MCoulombAmphrTotal",
+    ]
+    df_processed = _initial_dataframe_setup(df, "Timestamp")
+    if df_processed.empty:
+        for col in std_cols:
+            df_processed[col] = pd.Series(dtype=float)
+        return df_processed
+
+    # One raw column per standard name (ERDDAP may use "m_depth" or "m_depth (m)")
+    rename_map = {}
+    for std_name in std_cols:
+        for raw_name, s in _SLOCUM_DASHBOARD_RENAME.items():
+            if s == std_name and raw_name in df_processed.columns:
+                rename_map[raw_name] = std_name
+                break
+
+    df_processed = df_processed.rename(columns=rename_map)
+    for std_name in std_cols:
+        if std_name not in df_processed.columns:
+            df_processed[std_name] = np.nan
+        df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
+
+    return df_processed
+
+
 def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocesses the WG-VM4 data.

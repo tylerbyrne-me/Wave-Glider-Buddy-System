@@ -28,9 +28,17 @@ logger = logging.getLogger(__name__)
 # Initialize service
 kb_service = KnowledgeBaseService()
 
-# File storage directory
-KB_DOCUMENTS_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "knowledge_base" / "documents"
+# File storage directories (Wave Glider and Slocum separate)
+KB_BASE = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "knowledge_base"
+KB_DOCUMENTS_DIR = KB_BASE / "documents"
+SLOCUM_DOCUMENTS_DIR = KB_BASE / "slocum_documents"
 KB_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+SLOCUM_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _documents_dir_for_platform(platform: str) -> Path:
+    """Return the file storage directory for the given platform."""
+    return SLOCUM_DOCUMENTS_DIR if platform == "slocum" else KB_DOCUMENTS_DIR
 
 
 def _normalize_file_url(file_path: str) -> str:
@@ -46,13 +54,25 @@ def _normalize_file_url(file_path: str) -> str:
     return f"/{normalized_path}"
 
 
-# --- HTML Page Endpoint ---
+# --- HTML Page Endpoints ---
 @router.get("/knowledge_base.html", response_class=HTMLResponse)
 async def knowledge_base_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
-    """Knowledge base main page."""
+    """Knowledge base main page (Wave Glider)."""
+    return templates.TemplateResponse(
+        "knowledge_base.html",
+        get_template_context(request=request, current_user=current_user)
+    )
+
+
+@router.get("/slocum/knowledge_base.html", response_class=HTMLResponse)
+async def slocum_knowledge_base_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
+    """Knowledge base page for Slocum platform."""
     return templates.TemplateResponse(
         "knowledge_base.html",
         get_template_context(request=request, current_user=current_user)
@@ -67,6 +87,7 @@ async def upload_document(
     category: Optional[str] = Query(None),
     tags: Optional[str] = Query(None),
     access_level: str = Query("pilot", description="Access level: public, pilot, admin"),
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
@@ -76,21 +97,25 @@ async def upload_document(
     """
     logger.info(f"User '{current_user.username}' uploading document: {file.filename}")
     
-    # Validate file type
+    # Validate file type (include markdown for Slocum masterdata)
     allowed_types = {
         "application/pdf": "pdf",
         "application/msword": "doc",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "text/markdown": "md",
+        "text/plain": "md",
     }
-    
-    if file.content_type not in allowed_types:
+    # Also allow by extension for .md (browsers may send application/octet-stream)
+    if file.content_type not in allowed_types and Path(file.filename or "").suffix.lower() == ".md":
+        file_type = "md"
+    elif file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed: PDF, DOC, DOCX, PPTX. Got: {file.content_type}"
+            detail=f"Invalid file type. Allowed: PDF, DOC, DOCX, PPTX, MD. Got: {file.content_type}"
         )
-    
-    file_type = allowed_types[file.content_type]
+    else:
+        file_type = allowed_types[file.content_type]
     
     # Validate file size (configurable limit)
     MAX_FILE_SIZE = settings.knowledge_base_max_upload_size_mb * 1024 * 1024
@@ -110,8 +135,9 @@ async def upload_document(
     max_id_result = session.exec(max_id_stmt).first()
     doc_id = (max_id_result or 0) + 1
     
-    # Create document directory structure
-    doc_dir = KB_DOCUMENTS_DIR / str(doc_id) / "v1"
+    # Create document directory structure (platform-specific)
+    base_dir = _documents_dir_for_platform(platform)
+    doc_dir = base_dir / str(doc_id) / "v1"
     doc_dir.mkdir(parents=True, exist_ok=True)
     
     # Save file
@@ -125,8 +151,11 @@ async def upload_document(
         
         logger.info(f"File saved to {file_path}")
         
-        # Extract text for search (async, non-blocking)
-        searchable_content = await kb_service.extract_text_from_document(file_path, file_type)
+        # Extract text for search
+        if file_type == "md":
+            searchable_content = content.decode("utf-8", errors="replace")
+        else:
+            searchable_content = await kb_service.extract_text_from_document(file_path, file_type)
         logger.info(f"Extracted {len(searchable_content)} characters from document")
         
         # Create database record
@@ -146,6 +175,7 @@ async def upload_document(
             access_level=access_level,
             searchable_content=searchable_content,
             uploaded_by_username=current_user.username,
+            platform=platform,
         )
         
         session.add(document)
@@ -162,14 +192,28 @@ async def upload_document(
                     content=searchable_content or "",
                     category=category,
                     tags=tags,
-                    file_type=file_type
+                    file_type=file_type,
+                    platform=platform,
                 )
                 logger.info(f"Document {document.id} vectorized for semantic search")
+                # If Slocum Masterdata, also load into slocum_masterdata collection
+                if (category or "").strip().lower() == "masterdata" and platform == "slocum":
+                    try:
+                        from ..services.slocum_masterdata_service import load_and_vectorize_masterdata
+                        load_and_vectorize_masterdata(
+                            searchable_content or "",
+                            document_id=document.id,
+                            vector_search_service=chatbot_service.vector_service,
+                        )
+                        logger.info(f"Document {document.id} loaded as Slocum masterdata")
+                    except Exception as md_e:
+                        logger.warning(f"Failed to load as Slocum masterdata: {md_e}")
         except Exception as e:
             logger.warning(f"Failed to vectorize document {document.id}: {e}")
         
-        # Build file URL
-        file_url = f"/static/knowledge_base/documents/{doc_id}/v1/{safe_filename}"
+        # Build file URL (platform-specific path)
+        static_subdir = "slocum_documents" if platform == "slocum" else "documents"
+        file_url = f"/static/knowledge_base/{static_subdir}/{doc_id}/v1/{safe_filename}"
         
         logger.info(f"Document '{title}' uploaded successfully with ID {document.id}")
         
@@ -194,13 +238,15 @@ async def list_documents(
     category: Optional[str] = Query(None),
     file_type: Optional[str] = Query(None),
     limit: int = Query(50, le=100),
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """List/search knowledge base documents."""
     # Build query statement
     statement = select(models.KnowledgeDocument).where(
-        models.KnowledgeDocument.is_active == True
+        models.KnowledgeDocument.is_active == True,
+        models.KnowledgeDocument.platform == platform,
     )
     
     # Determine access level filter based on user role
@@ -256,7 +302,8 @@ async def list_documents(
             uploaded_by_username=doc.uploaded_by_username,
             uploaded_at_utc=doc.uploaded_at_utc,
             updated_at_utc=doc.updated_at_utc,
-            version=doc.version
+            version=doc.version,
+            platform=doc.platform,
         ))
     
     return results
@@ -264,13 +311,15 @@ async def list_documents(
 
 @router.get("/api/knowledge/documents/categories", response_model=models.CategoriesResponse)
 async def get_categories(
+    platform: str = Query("wave_glider", description="Platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     """Get list of all categories with document counts."""
-    # Build query with access level filter
+    # Build query with access level and platform filter
     statement = select(models.KnowledgeDocument).where(
-        models.KnowledgeDocument.is_active == True
+        models.KnowledgeDocument.is_active == True,
+        models.KnowledgeDocument.platform == platform,
     )
     
     if current_user.role == models.UserRoleEnum.pilot:
@@ -362,7 +411,8 @@ async def get_document(
         uploaded_by_username=document.uploaded_by_username,
         uploaded_at_utc=document.uploaded_at_utc,
         updated_at_utc=document.updated_at_utc,
-        version=document.version
+        version=document.version,
+        platform=document.platform,
     )
 
 
@@ -436,7 +486,8 @@ async def update_document(
                 content=document.searchable_content or "",
                 category=document.category,
                 tags=document.tags,
-                file_type=document.file_type
+                file_type=document.file_type,
+                platform=document.platform,
             )
             logger.info(f"Document {document.id} updated in vector store")
     except Exception as e:
@@ -461,7 +512,8 @@ async def update_document(
         uploaded_by_username=document.uploaded_by_username,
         uploaded_at_utc=document.uploaded_at_utc,
         updated_at_utc=document.updated_at_utc,
-        version=document.version
+        version=document.version,
+        platform=document.platform,
     )
 
 
@@ -481,7 +533,7 @@ async def delete_document(
         project_root = Path(__file__).resolve().parent.parent.parent
         file_path = project_root / document.file_path.replace("/", "\\" if "\\" in str(project_root) else "/")
         resolved_file_path = file_path.resolve()
-        resolved_docs_root = KB_DOCUMENTS_DIR.resolve()
+        resolved_docs_root = KB_BASE.resolve()
 
         try:
             resolved_file_path.relative_to(resolved_docs_root)

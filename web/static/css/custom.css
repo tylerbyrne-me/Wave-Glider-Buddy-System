@@ -26,6 +26,23 @@ h5.mt-3 {
   /* This targets the <td> elements directly, ensuring the background is visible. */
 }
 
+/* PIC Handoff: highlight row when value has changed since last PIC (most recent submission only) */
+.pic-handoff-item-changed {
+  border-left: 3px solid var(--bs-warning);
+}
+
+/* PIC Handoff: autofilled value with hover tooltip (e.g. % Battery Remaining) */
+.autofilled-value--has-tooltip {
+  cursor: help;
+}
+
+/* PIC Handoff: preserve newlines in static text (e.g. Boats in Area, Recent Errors) */
+.form-item .static-text {
+  white-space: pre-wrap;
+  max-height: 12em;
+  overflow-y: auto;
+}
+
 /* Make sure the value is a shade lighter that the one */
 /* defined by bootstrap for bg-dark */
 .navbar-dark.bg-dark {
@@ -415,6 +432,32 @@ footer .text-muted {
   margin-top: 1.5rem !important; /* Ensure a bit more space above the chart */
 }
 
+/* Slocum dashboard: match Wave Glider chart sizing standard (300px height, 100% width) */
+.slocum-chart-container,
+.slocum-uwp-chart {
+  width: 100%;
+  min-height: 300px;
+  height: 300px;
+  position: relative;
+}
+.slocum-chart-container canvas,
+.slocum-uwp-chart canvas {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+/*
+ * Slocum dashboard: restore readable font size so text and labels match Wave Glider perceived size.
+ * The global html { font-size: 67% } makes rem/em smaller site-wide; the WG dashboard often has
+ * larger blocks (summary values, cards) that feel bigger. Scoping 100% to .slocum-dashboard
+ * makes rem-based text in the Slocum dashboard match typical 16px-based sizing for readability.
+ */
+.slocum-dashboard {
+  font-size: 100%;
+}
+
 /* Power Task Manager Summary Styles - reserved for future styling */
 
 /* New style for the bordered/shaded summary box inside detail views */
@@ -438,6 +481,11 @@ footer .text-muted {
 .power-summary-column .text-center .power-summary-value-large {
   font-size: 2.2rem; /* Large font, will scale. (e.g., 2.2 * 16px * 0.67 = ~23.5px) */
   font-weight: 300; /* Lighter font weight for large numbers */
+}
+
+.power-summary-small {
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
   color: var(--text-color);
   line-height: 1.1; /* Adjust line height for large font */
 }

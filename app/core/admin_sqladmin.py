@@ -123,6 +123,8 @@ class MissionOverviewAdmin(ModelView, model=MissionOverview):
     """Admin view for Mission Overviews."""
     column_list = [
         MissionOverview.mission_id,
+        MissionOverview.battery_apu_count,
+        MissionOverview.vessel_standoff_m,
         MissionOverview.weekly_report_url,
         MissionOverview.end_of_mission_report_url,
         MissionOverview.created_at_utc,
@@ -130,6 +132,16 @@ class MissionOverviewAdmin(ModelView, model=MissionOverview):
     ]
     column_searchable_list = [MissionOverview.mission_id]
     column_sortable_list = [MissionOverview.mission_id, MissionOverview.created_at_utc]
+    form_columns = [
+        MissionOverview.mission_id,
+        MissionOverview.battery_apu_count,
+        MissionOverview.vessel_standoff_m,
+        MissionOverview.weekly_report_url,
+        MissionOverview.end_of_mission_report_url,
+        MissionOverview.document_url,
+        MissionOverview.comments,
+        MissionOverview.enabled_sensor_cards,
+    ]
     name = "Mission Overview"
     name_plural = "Mission Overviews"
     icon = "fa fa-ship"
@@ -252,6 +264,7 @@ class KnowledgeDocumentAdmin(ModelView, model=KnowledgeDocument):
     """Admin view for Knowledge Documents."""
     column_list = [
         KnowledgeDocument.id,
+        KnowledgeDocument.platform,
         KnowledgeDocument.title,
         KnowledgeDocument.category,
         KnowledgeDocument.file_type,
@@ -260,7 +273,8 @@ class KnowledgeDocumentAdmin(ModelView, model=KnowledgeDocument):
         KnowledgeDocument.uploaded_at_utc,
     ]
     column_searchable_list = [KnowledgeDocument.title, KnowledgeDocument.category]
-    column_sortable_list = [KnowledgeDocument.uploaded_at_utc, KnowledgeDocument.category]
+    column_sortable_list = [KnowledgeDocument.uploaded_at_utc, KnowledgeDocument.category, KnowledgeDocument.platform]
+    column_filters = [KnowledgeDocument.platform]
     name = "Knowledge Document"
     name_plural = "Knowledge Documents"
     icon = "fa fa-book"
@@ -270,6 +284,7 @@ class SharedTipAdmin(ModelView, model=SharedTip):
     """Admin view for Shared Tips."""
     column_list = [
         SharedTip.id,
+        SharedTip.platform,
         SharedTip.title,
         SharedTip.category,
         SharedTip.created_by_username,
@@ -278,7 +293,8 @@ class SharedTipAdmin(ModelView, model=SharedTip):
         SharedTip.created_at_utc,
     ]
     column_searchable_list = [SharedTip.title, SharedTip.category]
-    column_sortable_list = [SharedTip.created_at_utc, SharedTip.is_pinned]
+    column_sortable_list = [SharedTip.created_at_utc, SharedTip.is_pinned, SharedTip.platform]
+    column_filters = [SharedTip.platform]
     name = "Shared Tip"
     name_plural = "Shared Tips"
     icon = "fa fa-lightbulb"
@@ -288,6 +304,7 @@ class FAQEntryAdmin(ModelView, model=FAQEntry):
     """Admin view for FAQ Entries."""
     column_list = [
         FAQEntry.id,
+        FAQEntry.platform,
         FAQEntry.question,
         FAQEntry.category,
         FAQEntry.is_active,
@@ -295,7 +312,8 @@ class FAQEntryAdmin(ModelView, model=FAQEntry):
         FAQEntry.created_at_utc,
     ]
     column_searchable_list = [FAQEntry.question, FAQEntry.category]
-    column_sortable_list = [FAQEntry.created_at_utc, FAQEntry.view_count]
+    column_sortable_list = [FAQEntry.created_at_utc, FAQEntry.view_count, FAQEntry.platform]
+    column_filters = [FAQEntry.platform]
     name = "FAQ Entry"
     name_plural = "FAQ Entries"
     icon = "fa fa-question-circle"
@@ -339,6 +357,7 @@ class UserNoteAdmin(ModelView, model=UserNote):
     """Admin view for User Notes."""
     column_list = [
         UserNote.id,
+        UserNote.platform,
         UserNote.user_id,
         UserNote.title,
         UserNote.category,
@@ -346,7 +365,8 @@ class UserNoteAdmin(ModelView, model=UserNote):
         UserNote.created_at_utc,
     ]
     column_searchable_list = [UserNote.title, UserNote.category]
-    column_sortable_list = [UserNote.created_at_utc, UserNote.is_pinned]
+    column_sortable_list = [UserNote.created_at_utc, UserNote.is_pinned, UserNote.platform]
+    column_filters = [UserNote.platform]
     name = "User Note"
     name_plural = "User Notes"
     icon = "fa fa-sticky-note"

@@ -1019,6 +1019,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-telemetry" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-telemetry" data-report-type="telemetry">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1160,6 +1161,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-power" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-power" data-report-type="power">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1213,6 +1215,12 @@
                             <div class="power-summary-value-large" id="power-battery-wh">
                                 {{ "%.0f Wh"|format(power_values.get('BatteryWattHours')) if power_values.get('BatteryWattHours') is not none else 'N/A' }}
                             </div>
+                            {% if power_values.get('TheoreticalMaxBatteryWh') is not none %}
+                            <div class="power-summary-small text-muted">Max (theoretical): {{ "%.0f"|format(power_values.get('TheoreticalMaxBatteryWh')) }} Wh</div>
+                            {% endif %}
+                            {% if power_values.get('RealisticMaxBatteryWh') is not none %}
+                            <div class="power-summary-small text-muted">Observed max: {{ "%.0f"|format(power_values.get('RealisticMaxBatteryWh')) }} Wh</div>
+                            {% endif %}
                         </div>
                         <div class="text-center mt-3">
                             <div class="power-summary-header">Avg Output (24h)</div>
@@ -1295,6 +1303,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-ctd" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-ctd" data-report-type="ctd">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1412,6 +1421,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-weather" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-weather" data-report-type="weather">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1552,6 +1562,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-waves" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-waves" data-report-type="waves">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1714,6 +1725,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-vr2c" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-vr2c" data-report-type="vr2c">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1800,6 +1812,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-fluorometer" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-fluorometer" data-report-type="fluorometer">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>
@@ -1889,6 +1902,7 @@
               <div class="input-group input-group-sm" style="width: 150px;">
                 <label class="input-group-text" for="granularity-select-wg_vm4" title="Set the data resampling interval.">Resample</label>
                 <select class="form-select granularity-select" id="granularity-select-wg_vm4" data-report-type="wg_vm4">
+                  <option value="0">All (no resample)</option>
                   <option value="5">5 min</option>
                   <option value="15" selected>15 min</option>
                   <option value="30">30 min</option>

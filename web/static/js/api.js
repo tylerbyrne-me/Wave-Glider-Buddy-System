@@ -33,6 +33,22 @@ export const showToast = (message, type = 'success') => {
 };
 
 /**
+ * Current platform for Knowledge Base (wave_glider or slocum). Set by base template as window.APP_PLATFORM.
+ * @returns {string}
+ */
+export const getPlatform = () => (typeof window !== 'undefined' && window.APP_PLATFORM) ? window.APP_PLATFORM : 'wave_glider';
+
+/**
+ * Appends platform query parameter to a URL for KB API calls.
+ * @param {string} url - Base URL (may already have query params).
+ * @returns {string}
+ */
+export const appendPlatformParam = (url) => {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}platform=${encodeURIComponent(getPlatform())}`;
+};
+
+/**
  * Makes an authenticated API request.
  * Handles token retrieval, headers, and standardized error handling.
  * @param {string} url - The API endpoint URL.

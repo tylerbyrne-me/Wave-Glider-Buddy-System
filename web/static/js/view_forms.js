@@ -83,9 +83,18 @@ document.addEventListener('DOMContentLoaded', async function () {
                     const viewButton = document.createElement('button');
                     viewButton.classList.add('btn', 'btn-sm', 'btn-outline-info');
                     viewButton.textContent = 'View Details';
-                    viewButton.onclick = () => {
+                    viewButton.onclick = async () => {
                         document.getElementById('formDetailsModalLabel').textContent = `Details for: ${form.form_title} (${form.form_type})`;
-                        renderFormDetailsInModal(form);
+                        if (form.form_type === 'pic_handoff_checklist') {
+                            try {
+                                const r = await apiRequest(`/api/forms/id/${form.id}/with-changes`, 'GET');
+                                renderFormDetailsInModal(r.form, r.changed_item_ids || []);
+                            } catch (e) {
+                                renderFormDetailsInModal(form, []);
+                            }
+                        } else {
+                            renderFormDetailsInModal(form, []);
+                        }
                         formDetailsModal.show();
                     };
                     actionsCell.appendChild(viewButton);
@@ -110,9 +119,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     /**
      * Renders form details in the modal
      * @param {Object} form - The form object to render
+     * @param {string[]} changedItemIds - Item IDs that have changed since submission (PIC handoff most recent only)
      */
-    function renderFormDetailsInModal(form) {
+    function renderFormDetailsInModal(form, changedItemIds = []) {
         formDetailsContentElement.innerHTML = ''; // Clear previous content
+        const changedSet = new Set(Array.isArray(changedItemIds) ? changedItemIds : []);
 
         if (form.sections_data && form.sections_data.length > 0) {
             form.sections_data.forEach(section => {
@@ -135,10 +146,15 @@ document.addEventListener('DOMContentLoaded', async function () {
 
                 section.items.forEach(item => {
                     const listItem = document.createElement('li');
-                    listItem.classList.add('list-group-item', 'bg-transparent'); // bg-transparent for dark mode
-                    
+                    const isChanged = item.id && changedSet.has(item.id);
+                    listItem.classList.add('list-group-item', 'bg-transparent');
+                    if (isChanged) listItem.classList.add('pic-handoff-item-changed');
+
                     let itemValueDisplay = '';
-                    if (item.item_type === 'checkbox') {
+                    if (item.id && String(item.id).startsWith('sensor_') && String(item.id).endsWith('_status')) {
+                        const v = item.value;
+                        itemValueDisplay = (v !== undefined && v !== null && String(v).trim() !== '') ? String(v) : (item.is_checked ? 'On' : 'Off');
+                    } else if (item.item_type === 'checkbox') {
                         itemValueDisplay = item.is_checked ? 'Checked' : 'Unchecked';
                     } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
                         itemValueDisplay = item.value || 'N/A';
@@ -146,6 +162,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                         itemValueDisplay = item.value || '(empty)';
                     }
                     listItem.innerHTML = `<strong>${item.label}:</strong> ${itemValueDisplay}`;
+                    if (isChanged) {
+                        listItem.innerHTML += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;
+                    }
                     if (item.comment) {
                         listItem.innerHTML += `<br><small class="text-info ms-3"><em>Comment: ${item.comment}</em></small>`;
                     }

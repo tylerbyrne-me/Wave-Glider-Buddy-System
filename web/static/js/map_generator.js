@@ -329,11 +329,12 @@ function initSlocumUI() {
             activeList.innerHTML = '<span class="text-muted">No active datasets configured.</span>';
             return;
         }
-        let html = '<div class="d-flex flex-wrap gap-2">';
+        let html = '<div class="d-flex flex-wrap gap-2 align-items-center">';
         active.forEach((ds, i) => {
             const id = ds.datasetID || ds.datasetId || 'unknown';
             const title = ds.title || id;
-            html += `<label class="d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input slocum-dataset-cb" data-dataset-id="${id}"> ${title}</label>`;
+            const dashboardUrl = `/slocum?dataset=${encodeURIComponent(id)}`;
+            html += `<div class="d-flex align-items-center gap-1"><label class="d-flex align-items-center gap-1 mb-0"><input type="checkbox" class="form-check-input slocum-dataset-cb" data-dataset-id="${id}"> ${title}</label><a href="${dashboardUrl}" class="btn btn-link btn-sm p-0 ms-1">Dashboard</a></div>`;
         });
         html += '</div>';
         activeList.innerHTML = html;
@@ -397,9 +398,13 @@ function initSlocumUI() {
                 list.forEach((ds, i) => {
                     const id = ds.datasetID || ds.datasetId || 'unknown';
                     const title = ds.title || id;
+                    const dashboardUrl = `/slocum?dataset=${encodeURIComponent(id)}`;
                     html += `<li class="list-group-item d-flex justify-content-between align-items-center">
                         <span>${title}</span>
-                        <button type="button" class="btn btn-sm btn-outline-primary add-slocum-dataset-btn" data-dataset-id="${id}">Add to map</button>
+                        <span>
+                            <a href="${dashboardUrl}" class="btn btn-sm btn-outline-secondary me-1">Dashboard</a>
+                            <button type="button" class="btn btn-sm btn-outline-primary add-slocum-dataset-btn" data-dataset-id="${id}">Add to map</button>
+                        </span>
                     </li>`;
                 });
                 html += '</ul>';

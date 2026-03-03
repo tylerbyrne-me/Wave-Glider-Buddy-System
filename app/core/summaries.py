@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -14,10 +15,30 @@ from .processors import (preprocess_ais_df, preprocess_ctd_df,  # type: ignore
                          preprocess_wave_df, preprocess_weather_df)
 
 # MINI_TREND_POINTS = 30 # Number of data points for mini-trend graphs
-BATTERY_MAX_WH = 2775.0  # MAX BATTERY,
-# ASSUMES 1CCU AND 2APU EACH AT 925WATTHOUR
+BATTERY_MAX_WH = 2940.0  # Fallback when no APU config (legacy: 1 CCU + 2 APU)
+BATTERY_BASE_WH = 980  # Base capacity per platform; each APU adds 980 Wh
 
 logger = logging.getLogger(__name__)
+
+
+def theoretical_max_wh(apu_count: Optional[int]) -> float:
+    """Theoretical max battery Wh: 980 + (APU_count * 980). None => legacy BATTERY_MAX_WH."""
+    if apu_count is None:
+        return BATTERY_MAX_WH
+    return BATTERY_BASE_WH + (apu_count * BATTERY_BASE_WH)
+
+
+def _round_up_2_decimals(x: Any) -> Optional[float]:
+    """Round a power measurement up to 2 decimal places. Returns None for None/NaN/invalid."""
+    if x is None:
+        return None
+    if isinstance(x, (int, float)) and math.isnan(x):
+        return None
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return None
+    return math.ceil(x * 100) / 100
 
 
 def time_ago(dt: Optional[datetime]) -> str:
@@ -188,9 +209,10 @@ def _generate_mini_trend(
 
 
 def get_power_status(
-    df_power: Optional[pd.DataFrame], 
+    df_power: Optional[pd.DataFrame],
     df_solar: Optional[pd.DataFrame] = None,
-    last_update_timestamp: Optional[datetime] = None
+    last_update_timestamp: Optional[datetime] = None,
+    theoretical_max_wh: Optional[float] = None,
 ) -> Dict:
     """Returns a summary dict for power status. Returns safe defaults and logs errors if data is missing or malformed."""
     try:
@@ -200,6 +222,18 @@ def get_power_status(
         if last_row is None:
             return result_shell
 
+        theoretical_wh = theoretical_max_wh if theoretical_max_wh is not None else BATTERY_MAX_WH
+        effective_max = theoretical_wh
+        realistic_max_wh = None
+        if df_power_processed is not None and not df_power_processed.empty and "BatteryWattHours" in df_power_processed.columns:
+            try:
+                raw_max = df_power_processed["BatteryWattHours"].max()
+                if pd.notna(raw_max) and float(raw_max) > 0:
+                    realistic_max_wh = float(raw_max)
+                    effective_max = realistic_max_wh
+            except (ValueError, TypeError):
+                pass
+
         # All subsequent logic for get_power_status should be at this indentation level:
         df_last_24h = df_power_processed[
             df_power_processed["Timestamp"]
@@ -208,10 +242,10 @@ def get_power_status(
 
         battery_wh = last_row.get("BatteryWattHours")
         battery_percentage = None
-        if battery_wh is not None and pd.notna(battery_wh):
+        if battery_wh is not None and pd.notna(battery_wh) and effective_max > 0:
             try:
                 battery_percentage_calculated = (
-                    float(battery_wh) / BATTERY_MAX_WH
+                    float(battery_wh) / effective_max
                 ) * 100
                 battery_percentage = max(0, min(battery_percentage_calculated, 100))
             except (ValueError, TypeError) as e_calc:
@@ -228,7 +262,7 @@ def get_power_status(
         # Get Battery Charge Rate (assuming 'battery_charging_power_w' column from processor)
         battery_charge_rate_w = last_row.get("battery_charging_power_w")
 
-        # Calculate Time to Charge
+        # Calculate Time to Charge (use same effective_max as for percentage)
         time_to_charge_str = "N/A"
         if (
             battery_percentage is not None
@@ -244,7 +278,7 @@ def get_power_status(
                 # Nearly full
                 time_to_charge_str = "Fully Charged"
             else:
-                energy_needed_wh = (1.0 - (battery_percentage / 100.0)) * BATTERY_MAX_WH
+                energy_needed_wh = (1.0 - (battery_percentage / 100.0)) * effective_max
                 if energy_needed_wh < 0:
                     energy_needed_wh = 0
 
@@ -319,18 +353,21 @@ def get_power_status(
         )
 
         result_shell["values"] = {
-            "BatteryWattHours": battery_wh,
-            "SolarInputWatts": last_row.get("SolarInputWatts"),
-            "BatteryPercentage": battery_percentage,
-            "PowerDrawWatts": last_row.get("PowerDrawWatts"),
-            "NetPowerWatts": last_row.get("NetPowerWatts"),
-            "BatteryChargeRateW": battery_charge_rate_w,
+            "BatteryWattHours": _round_up_2_decimals(battery_wh),
+            "SolarInputWatts": _round_up_2_decimals(last_row.get("SolarInputWatts")),
+            "BatteryPercentage": _round_up_2_decimals(battery_percentage),
+            "PowerDrawWatts": _round_up_2_decimals(last_row.get("PowerDrawWatts")),
+            "NetPowerWatts": _round_up_2_decimals(last_row.get("NetPowerWatts")),
+            "BatteryChargeRateW": _round_up_2_decimals(battery_charge_rate_w),
             "TimeToChargeStr": time_to_charge_str,
-            "AvgOutputPortPower24hrW": avg_output_port_power_24hr_w,
-            "AvgSolarInput24hrW": avg_solar_input_24hr_w,
-            "Panel1Power": panel1_power,
-            "Panel2Power": panel2_power,
-            "Panel4Power": panel4_power,
+            "AvgOutputPortPower24hrW": _round_up_2_decimals(avg_output_port_power_24hr_w),
+            "AvgSolarInput24hrW": _round_up_2_decimals(avg_solar_input_24hr_w),
+            "Panel1Power": _round_up_2_decimals(panel1_power),
+            "Panel2Power": _round_up_2_decimals(panel2_power),
+            "Panel4Power": _round_up_2_decimals(panel4_power),
+            "TheoreticalMaxBatteryWh": _round_up_2_decimals(theoretical_wh),
+            "RealisticMaxBatteryWh": _round_up_2_decimals(realistic_max_wh),
+            "EffectiveMaxBatteryWh": _round_up_2_decimals(effective_max),
             "Timestamp": (
                 last_row["Timestamp"].isoformat()
                 if pd.notna(last_row.get("Timestamp"))

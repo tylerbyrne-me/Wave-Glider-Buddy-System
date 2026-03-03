@@ -6,7 +6,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1>Manage Mission Overviews</h1>
-        <a href="/" class="btn btn-secondary">Back to Dashboard</a>
+        <a href="/wave-glider/home" class="btn btn-secondary">Back to Dashboard</a>
     </div>
 
     <!-- Container 1: Mission Selector -->
@@ -275,6 +275,13 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary" id="selectAllSensors">Select All</button>
                             <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllSensors">Deselect All</button>
                         </div>
+                    </div>
+
+                    <!-- Battery (Wave Glider) -->
+                    <div class="mb-4">
+                        <label class="form-label" for="batteryApuCount">Battery APU Count (Wave Glider)</label>
+                        <input type="number" class="form-control" id="batteryApuCount" min="0" step="1" placeholder="e.g. 2" style="max-width: 8rem;">
+                        <div class="form-text">Number of APU battery sets beyond the base 980 Wh. Leave blank for legacy default (2775 Wh). 0 = 980 Wh, 1 = 1960 Wh, 2 = 2940 Wh.</div>
                     </div>
 
                     <!-- New File Upload Section -->

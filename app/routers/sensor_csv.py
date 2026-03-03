@@ -49,7 +49,7 @@ async def download_sensor_csv(
     sensor_type: str,
     mission: str = Query(..., description="Mission name"),
     hours_back: int = Query(24, description="Number of hours to look back"),
-    granularity_minutes: int = Query(15, description="Data resampling interval in minutes"),
+    granularity_minutes: int = Query(15, ge=0, le=60, description="Resampling interval in minutes. 0 = no resampling (all points)."),
     current_user: User = Depends(get_current_active_user)
 ):
     """Download sensor data as CSV"""

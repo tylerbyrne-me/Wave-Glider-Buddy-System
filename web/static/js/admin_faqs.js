@@ -3,7 +3,7 @@
  * Handles CRUD operations for FAQ entries
  */
 
-import { apiRequest, showToast } from './api.js';
+import { apiRequest, showToast, appendPlatformParam, getPlatform } from '/static/js/api.js';
 
 // State
 let allFaqs = [];
@@ -59,7 +59,7 @@ async function loadFaqs() {
             </div>
         `;
         
-        const response = await apiRequest('/api/admin/faqs', 'GET');
+        const response = await apiRequest(appendPlatformParam('/api/admin/faqs'), 'GET');
         allFaqs = response;
         
         updateFaqCount();
@@ -300,7 +300,8 @@ async function saveFaq() {
         keywords: faqKeywords.value.trim() || null,
         tags: faqTags.value.trim() || null,
         related_document_ids: faqRelatedDocs.value.trim() || null,
-        related_tip_ids: faqRelatedTips.value.trim() || null
+        related_tip_ids: faqRelatedTips.value.trim() || null,
+        platform: getPlatform()
     };
     
     const isEdit = !!faqId.value;
