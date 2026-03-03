@@ -88,3 +88,4 @@ secrets/
 **/data_store/
 **/test_data/
 **/tests/
+*.csv
