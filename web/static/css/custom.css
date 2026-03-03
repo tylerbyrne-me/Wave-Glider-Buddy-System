@@ -31,6 +31,12 @@ h5.mt-3 {
   border-left: 3px solid var(--bs-warning);
 }
 
+/* PIC Handoff: unverified data when viewing a submission */
+.pic-unverified-value {
+  font-weight: bold;
+  color: var(--bs-danger, #dc3545);
+}
+
 /* PIC Handoff: autofilled value with hover tooltip (e.g. % Battery Remaining) */
 .autofilled-value--has-tooltip {
   cursor: help;

@@ -125,19 +125,23 @@ document.addEventListener('DOMContentLoaded', async function () {
                         const isChanged = item.id && changedSet.has(item.id);
                         const liClass = isChanged ? 'list-group-item bg-dark text-light pic-handoff-item-changed' : 'list-group-item bg-dark text-light';
                         contentHtml += `<li class="${liClass}" data-item-id="${item.id || ''}"><strong>${item.label}:</strong> `;
+                        let valuePart;
                         if (item.id && String(item.id).startsWith('sensor_') && String(item.id).endsWith('_status')) {
                             const v = item.value;
-                            contentHtml += (v !== undefined && v !== null && String(v).trim() !== '') ? String(v) : (item.is_checked ? 'On' : 'Off');
+                            valuePart = (v !== undefined && v !== null && String(v).trim() !== '') ? String(v) : (item.is_checked ? 'On' : 'Off');
                         } else if (item.item_type === 'checkbox') {
-                            contentHtml += item.is_checked ? 'Checked' : 'Not Checked';
+                            valuePart = item.is_checked ? 'Checked' : 'Not Checked';
                         } else if (item.id === 'user_comments_val') {
-                            const comments = (item.value && String(item.value).trim()) ? item.value : 'No included comments';
-                            contentHtml += comments;
+                            valuePart = (item.value && String(item.value).trim()) ? item.value : 'No included comments';
                         } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
-                            contentHtml += `${item.value || 'N/A'}`;
+                            valuePart = `${item.value || 'N/A'}`;
                         } else {
-                            contentHtml += `${item.value || '<em>Not provided</em>'}`;
+                            valuePart = `${item.value || '<em>Not provided</em>'}`;
                         }
+                        if (item.is_verified === false) {
+                            valuePart = `<span class="pic-unverified-value">${valuePart}</span>`;
+                        }
+                        contentHtml += valuePart;
                         if (isChanged) {
                             contentHtml += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;
                         }

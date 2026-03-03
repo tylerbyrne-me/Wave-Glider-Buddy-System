@@ -217,17 +217,18 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
-    missionReportForm.addEventListener('submit', async function (event) {
-        event.preventDefault();
+    const unverifiedModalEl = document.getElementById('unverifiedConfirmModal');
+    const unverifiedModal = unverifiedModalEl ? new bootstrap.Modal(unverifiedModalEl) : null;
+    const unverifiedSubmitBtn = document.getElementById('unverifiedSubmitBtn');
+    const unverifiedCancelBtn = document.getElementById('unverifiedCancelSubmissionBtn');
+
+    async function performSubmission() {
         submissionStatusDiv.innerHTML = '<div class="alert alert-info">Submitting form...</div>';
 
-        const formData = new FormData(missionReportForm);
         const sectionsData = [];
-
-        // Reconstruct sections and items from the form
         document.querySelectorAll('.form-section').forEach(sectionElem => {
             const sectionTitle = sectionElem.querySelector('h3').textContent;
-            const sectionId = sectionElem.id || sectionTitle.toLowerCase().replace(/\s+/g, '_'); // Fallback id
+            const sectionId = sectionElem.id || sectionTitle.toLowerCase().replace(/\s+/g, '_');
             const sectionCommentElem = sectionElem.querySelector(`textarea[name="${sectionId}_comment"]`);
             const section = {
                 id: sectionId,
@@ -247,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     id: itemId,
                     label: label,
                     is_verified: verifiedElem ? verifiedElem.checked : null,
-                    item_type: '', // Will be set by backend schema, not strictly needed for submission if backend re-validates
+                    item_type: '',
                     value: null,
                     is_checked: null,
                     comment: commentElem ? commentElem.value.trim() : null
@@ -261,7 +262,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                         formItem.value = inputElem.value.trim();
                         formItem.item_type = inputElem.type === 'textarea' ? 'text_area' : 'text_input';
                     }
-                } else { // For autofilled or static, grab the displayed value if needed, or rely on schema
+                } else {
                     const displayElem = document.getElementById(itemId);
                     if (displayElem && (displayElem.classList.contains('autofilled-value') || displayElem.classList.contains('static-text'))) {
                         formItem.value = displayElem.textContent;
@@ -282,20 +283,46 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         try {
             const result = await apiRequest(`/api/forms/${missionId}`, 'POST', submissionPayload);
-            // Ensure the timestamp string from the server is parsed as UTC.
             const submissionTimestampStr = result.submission_timestamp.endsWith('Z') ? result.submission_timestamp : result.submission_timestamp + 'Z';
             const submissionTime = new Date(submissionTimestampStr);
-            // Using en-GB for a common 24-hour format, and explicitly stating UTC
             const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
             showToast('Form submitted successfully!', 'success');
             submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
-            missionReportForm.reset(); // Optionally reset the form
-            // Close the tab after a short delay to allow the user to see the success message
-            setTimeout(() => { window.close(); }, 1500); 
+            missionReportForm.reset();
+            setTimeout(() => { window.close(); }, 1500);
         } catch (error) {
             showToast(`Error submitting form: ${error.message}`, 'danger');
             submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;
         }
+    }
+
+    missionReportForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+
+        const verifiedInputs = missionReportForm.querySelectorAll('input[name$="_verified"]');
+        const hasUnverified = Array.from(verifiedInputs).some(el => el.type === 'checkbox' && !el.checked);
+        if (hasUnverified) {
+            if (unverifiedModal && unverifiedSubmitBtn && unverifiedCancelBtn) {
+                unverifiedSubmitBtn.onclick = () => {
+                    unverifiedSubmitBtn.onclick = null;
+                    unverifiedCancelBtn.onclick = null;
+                    unverifiedModal.hide();
+                    performSubmission();
+                };
+                unverifiedCancelBtn.onclick = () => {
+                    unverifiedSubmitBtn.onclick = null;
+                    unverifiedCancelBtn.onclick = null;
+                    unverifiedModal.hide();
+                };
+                unverifiedModal.show();
+                return;
+            }
+            if (!window.confirm('Some entries have not been verified. Submit anyway? If information could not be verified, we recommend adding a comment below explaining why it is wrong or missing.')) {
+                return;
+            }
+        }
+
+        await performSubmission();
     });
 
     // Initial load

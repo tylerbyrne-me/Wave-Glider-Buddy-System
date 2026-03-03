@@ -64,6 +64,25 @@
 
     <div id="submissionStatus" class="mt-3"></div>
 
+    <!-- Unverified data confirmation modal (custom labels instead of OK/Cancel) -->
+    <div class="modal fade" id="unverifiedConfirmModal" tabindex="-1" aria-labelledby="unverifiedConfirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title text-light" id="unverifiedConfirmModalLabel">Unverified entries</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-light">
+                    <p class="mb-0">Some entries have not been verified. Submit anyway? If information could not be verified, we recommend adding a comment below explaining why it is wrong or missing.</p>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" id="unverifiedCancelSubmissionBtn">Cancel Submission</button>
+                    <button type="button" class="btn btn-primary" id="unverifiedSubmitBtn">Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 {% endblock %}
 
 {% block body_extra_js %}

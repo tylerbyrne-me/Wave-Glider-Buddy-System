@@ -161,6 +161,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                     } else { // text_input, text_area
                         itemValueDisplay = item.value || '(empty)';
                     }
+                    if (item.is_verified === false) {
+                        itemValueDisplay = `<span class="pic-unverified-value">${itemValueDisplay}</span>`;
+                    }
                     listItem.innerHTML = `<strong>${item.label}:</strong> ${itemValueDisplay}`;
                     if (isChanged) {
                         listItem.innerHTML += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;

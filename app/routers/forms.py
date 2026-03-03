@@ -453,7 +453,40 @@ async def get_form_template(
                         item["hint"] = percent_battery_hint
 
         # Inject science sensor status rows after recent_errors_val in general_status
-        if sensor_items_to_inject:
+        # When WG-VM4 is enabled, also inject Current Station, Offload Status, Next Station
+        wg_vm4_form_items = []
+        if "wg_vm4" in enabled_cards:
+            wg_vm4_form_items = [
+                {
+                    "id": "wg_vm4_current_station_val",
+                    "label": "Current Station",
+                    "item_type": models.FormItemTypeEnum.TEXT_INPUT.value,
+                    "value": "N/A",
+                    "placeholder": "e.g. HFX031",
+                },
+                {
+                    "id": "wg_vm4_offload_status_val",
+                    "label": "Offload Status",
+                    "item_type": models.FormItemTypeEnum.DROPDOWN.value,
+                    "options": [
+                        "N/A",
+                        "Connecting to Station",
+                        "Connected to Station",
+                        "Offloading Station",
+                        "Aborting Offload",
+                    ],
+                    "value": "N/A",
+                },
+                {
+                    "id": "wg_vm4_next_station_val",
+                    "label": "Next Station",
+                    "item_type": models.FormItemTypeEnum.TEXT_INPUT.value,
+                    "value": "N/A",
+                    "placeholder": "e.g. HFX032",
+                },
+            ]
+
+        if sensor_items_to_inject or wg_vm4_form_items:
             for section in schema.get("sections", []):
                 if section.get("id") != "general_status":
                     continue
@@ -466,6 +499,11 @@ async def get_form_template(
                 if insert_idx is not None:
                     for sensor_item in reversed(sensor_items_to_inject):
                         items.insert(insert_idx, sensor_item)
+                    # WG-VM4 rows (only when wg_vm4 enabled) go right after the sensor block
+                    next_idx = insert_idx + len(sensor_items_to_inject)
+                    for wg_item in wg_vm4_form_items:
+                        items.insert(next_idx, wg_item)
+                        next_idx += 1
                 break
 
         return schema
