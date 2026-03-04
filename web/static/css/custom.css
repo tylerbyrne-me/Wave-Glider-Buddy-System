@@ -879,3 +879,38 @@ footer .text-muted {
     background-color: var(--bs-secondary-dark);
     border-color: var(--bs-secondary-dark);
 }
+
+/* Extreme Sea State (ESS) indicators */
+.table > tbody > tr.ess-calm {
+    border-left: 4px solid var(--bs-success, #198754);
+}
+.table > tbody > tr.ess-increasing {
+    border-left: 4px solid var(--bs-warning, #ffc107);
+}
+.table > tbody > tr.ess-extreme {
+    border-left: 4px solid var(--bs-danger, #dc3545);
+}
+
+.ess-indicator {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+}
+.ess-indicator.ess-calm { background-color: var(--bs-success, #198754); }
+.ess-indicator.ess-increasing { background-color: var(--bs-warning, #ffc107); }
+.ess-indicator.ess-extreme { background-color: var(--bs-danger, #dc3545); }
+
+.ess-legend-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 0.15rem;
+}
+.ess-legend-dot.ess-calm { background-color: var(--bs-success, #198754); }
+.ess-legend-dot.ess-increasing { background-color: var(--bs-warning, #ffc107); }
+.ess-legend-dot.ess-extreme { background-color: var(--bs-danger, #dc3545); }

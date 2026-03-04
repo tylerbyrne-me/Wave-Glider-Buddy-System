@@ -195,13 +195,13 @@
 
       <!-- Waves Summary Card -->
       {% if "waves" in enabled_sensor_cards %}
-      <div class="summary-card" data-category="waves" data-mini-trend='{{ wave_info.mini_trend | tojson | safe if wave_info and "mini_trend" in wave_info and wave_info.mini_trend is not none else "[]" }}'>
+      <div class="summary-card" data-category="waves" data-mini-trend='{{ wave_info.mini_trend | tojson | safe if wave_info and "mini_trend" in wave_info and wave_info.mini_trend is not none else "[]" }}' {% if wave_info and wave_info.get('ess_state') %}data-ess-state="{{ wave_info.ess_state }}"{% endif %}>
         <div class="summary-card-main-content">
           <div class="mini-chart-container">
             <canvas id="miniWaveChart"></canvas>
           </div>
           <div class="summary-card-text-content">
-            <h5>Waves</h5>
+            <h5>Waves {% if wave_info and wave_info.get('ess_state') %}<span class="ess-indicator ess-{{ wave_info.ess_state }}" title="{% if wave_info.ess_state == 'extreme' %}Extreme sea state (≥4.5 m) — figure-8 pattern required{% elif wave_info.ess_state == 'increasing' %}Increasing seas (2.5–4.5 m){% elif wave_info.ess_state == 'calm' %}Calm seas (&lt;2.5 m){% endif %}" aria-label="Sea state: {{ wave_info.ess_state }}"></span>{% endif %}</h5>
             <div class="mini-summary">
               {% if wave_info and wave_values %}
                 Hs: {{ "%.1f"|format(wave_values.get('SignificantWaveHeight')) if wave_values.get('SignificantWaveHeight') is not none else 'N/A' }} m<br>
@@ -1585,7 +1585,7 @@
         <div class="card-body">
           <div class="summary-content-area">
             {% if wave_info and wave_values %}
-            <div class="power-task-manager-summary detail-summary-box mb-3"> {# Reusing power summary class for layout #}
+            <div class="power-task-manager-summary detail-summary-box mb-3" id="waveDetailSummaryBox" data-wave-direction-numeric="{{ wave_values.get('MeanDirectionNumeric') if wave_values.get('MeanDirectionNumeric') is not none and wave_values.get('MeanDirectionStatus') == 'valid' else '' }}" data-wave-height="{{ wave_values.get('SignificantWaveHeight') if wave_values.get('SignificantWaveHeight') is not none else '' }}"> {# Reusing power summary class for layout #}
                 <div class="row">
                     <!-- Column 1: Wave Height, Wave Height 24hr Avg -->
                     <div class="col-md-4 power-summary-column">
@@ -1665,6 +1665,16 @@
               <span class="visually-hidden">Loading...</span>
             </div>
             <canvas id="waveSpectrumChart"></canvas> <!-- Ensure this ID is present -->
+          </div>
+
+          <!-- ESS course guidance: course to steer to face waves (head seas). JS fills forecast line. -->
+          <div class="ess-course-guidance mb-3 p-3 border rounded" id="essCourseGuidanceBlock">
+            <h5 class="mb-2">ESS course guidance</h5>
+            <p class="small text-muted mb-2">Course to steer so the bow (short legs of figure-8) faces oncoming waves. Update as wave direction shifts. Pattern: 2 km × 210 m, long legs perpendicular to wave direction.</p>
+            <div class="ess-course-rows">
+              <div><strong>From last measurement:</strong> <span id="essCourseFromMeasurement">—</span></div>
+              <div><strong>From forecast (this hour):</strong> <span id="essCourseFromForecast">—</span></div>
+            </div>
           </div>
 
           <!-- Marine Weather Forecast Embedded -->

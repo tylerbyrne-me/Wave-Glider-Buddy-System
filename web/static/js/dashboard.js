@@ -1999,6 +1999,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    const ESS_WAVE_HEIGHT_THRESHOLD_M = 4.5;
+    const ESS_APPROACHING_THRESHOLD_M = 2.5;
+
+    function getEssStateFromWaveHeight(h) {
+        if (h == null || typeof h !== 'number' || Number.isNaN(h)) return null;
+        if (h >= ESS_WAVE_HEIGHT_THRESHOLD_M) return 'extreme';
+        if (h >= ESS_APPROACHING_THRESHOLD_M) return 'increasing';
+        return 'calm';
+    }
+
     function renderMarineForecast(marineForecastData) {
         const initialContainer = document.getElementById('marineForecastInitial');
         const extendedContainer = document.getElementById('marineForecastExtendedContent');
@@ -2015,11 +2025,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             extendedContainer.innerHTML = '';
             toggleButton.style.display = 'none';
             metaInfoContainer.style.display = 'none';
+            updateEssCourseGuidance(null, null);
             return;
         }
 
         let forecastTitle = 'Marine Forecast'; // Already specific
-        initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>`;
+        const essLegend = '<p class="small text-muted mb-2"><span class="ess-legend-dot ess-calm" aria-label="Calm seas"></span> Calm (&lt;2.5 m) &nbsp; <span class="ess-legend-dot ess-increasing" aria-label="Increasing seas"></span> Increasing (2.5–4.5 m) &nbsp; <span class="ess-legend-dot ess-extreme" aria-label="Extreme sea state"></span> ESS (≥4.5 m)</p>';
+        initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>${essLegend}`;
 
         const hourly = marineForecastData.hourly;
         const units = marineForecastData.hourly_units || {};
@@ -2038,14 +2050,18 @@ document.addEventListener('DOMContentLoaded', async function() {
 
             for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
                 const time = new Date(hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const waveHeight = (hourly.wave_height && hourly.wave_height[i] !== null) ? hourly.wave_height[i].toFixed(1) : 'N/A';
+                const waveHeightVal = (hourly.wave_height && hourly.wave_height[i] !== null) ? hourly.wave_height[i] : null;
+                const waveHeight = waveHeightVal !== null ? waveHeightVal.toFixed(1) : 'N/A';
+                const essState = getEssStateFromWaveHeight(waveHeightVal);
+                const essClass = essState ? `ess-${essState}` : '';
+                const essTitle = essState === 'extreme' ? ' title="Extreme sea state (≥4.5 m)"' : (essState === 'increasing' ? ' title="Increasing seas (2.5–4.5 m)"' : (essState === 'calm' ? ' title="Calm seas (<2.5 m)"' : ''));
                 const wavePeriod = (hourly.wave_period && hourly.wave_period[i] !== null) ? hourly.wave_period[i].toFixed(1) : 'N/A';
                 const waveDir = (hourly.wave_direction && hourly.wave_direction[i] !== null) ? hourly.wave_direction[i].toFixed(0) : 'N/A';
                 const currentSpeed = (hourly.ocean_current_velocity && hourly.ocean_current_velocity[i] !== null) ? hourly.ocean_current_velocity[i].toFixed(2) : 'N/A';
                 const currentDir = (hourly.ocean_current_direction && hourly.ocean_current_direction[i] !== null) ? hourly.ocean_current_direction[i].toFixed(0) : 'N/A';
                 const currentDisplay = currentSpeed !== 'N/A' ? `${currentSpeed} @ ${currentDir}°` : 'N/A';
 
-                tableHtml += `<tr><td>${time}</td><td>${waveHeight}</td><td>${wavePeriod}</td><td>${waveDir}</td><td>${currentDisplay}</td></tr>`;
+                tableHtml += `<tr class="${essClass}"${essTitle}><td>${time}</td><td>${waveHeight}</td><td>${wavePeriod}</td><td>${waveDir}</td><td>${currentDisplay}</td></tr>`;
             }
             tableHtml += '</tbody></table>';
             return tableHtml;
@@ -2077,6 +2093,27 @@ document.addEventListener('DOMContentLoaded', async function() {
         } else {
             metaInfoContainer.style.display = 'none';
         }
+
+        const forecastDir = (hourly.wave_direction && hourly.wave_direction[0] !== null) ? Math.round(Number(hourly.wave_direction[0])) : null;
+        const measurementDir = readMeasuredWaveDirectionFromDom();
+        updateEssCourseGuidance(measurementDir, forecastDir);
+    }
+
+    function readMeasuredWaveDirectionFromDom() {
+        const box = document.getElementById('waveDetailSummaryBox');
+        if (!box) return null;
+        const raw = box.getAttribute('data-wave-direction-numeric');
+        if (raw === '' || raw === null) return null;
+        const n = parseInt(raw, 10);
+        if (Number.isNaN(n)) return null;
+        return n;
+    }
+
+    function updateEssCourseGuidance(measurementDir, forecastDir) {
+        const fromMeas = document.getElementById('essCourseFromMeasurement');
+        const fromForecast = document.getElementById('essCourseFromForecast');
+        if (fromMeas) fromMeas.textContent = measurementDir != null ? `Steer ${measurementDir}°` : 'N/A';
+        if (fromForecast) fromForecast.textContent = forecastDir != null ? `Steer ${forecastDir}°` : 'N/A';
     }
 
     // Fetch and render the Wave chart on page load (only if enabled)

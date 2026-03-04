@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from . import utils  # Import the utils module
+from .constants import get_ess_state
 from .processors import preprocess_telemetry_df  # type: ignore
 from .processors import preprocess_wg_vm4_df  # type: ignore
 from .processors import (preprocess_ais_df, preprocess_ctd_df,  # type: ignore
@@ -586,6 +587,7 @@ def get_wave_status(
             df_waves, preprocess_wave_df, "Wave", last_update_timestamp
         )
         if last_row is None:
+            result_shell["ess_state"] = None
             return result_shell
 
         # All subsequent logic for get_wave_status should be at this indentation level:
@@ -651,10 +653,11 @@ def get_wave_status(
                 else "N/A"
             ),
         }
+        result_shell["ess_state"] = get_ess_state(significant_wave_height)
         return result_shell
     except Exception as e:
         logger.warning(f"Error in get_wave_status: {e}", exc_info=True)
-        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A"}
+        return {"values": {}, "latest_timestamp_str": "N/A", "time_ago_str": "N/A", "ess_state": None}
 
 
 def get_wave_mini_trend(df_waves: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
