@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -65,16 +65,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             const month = monthSelect.value;
 
             // Use Promise.all to fire off both requests concurrently
-            // CSV download needs fetch directly for blob response, chart uses apiRequest for JSON
-            const token = localStorage.getItem('accessToken');
-            const headers = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-            
+            // CSV download uses fetchWithAuth for blob + auth + 401; chart uses apiRequest for JSON
             try {
                 const [csvResponse, chartData] = await Promise.all([
-                    fetch(`/api/admin/reports/monthly_timesheet_summary?year=${year}&month=${month}`, { headers }),
+                    fetchWithAuth(`/api/admin/reports/monthly_timesheet_summary?year=${year}&month=${month}`),
                     apiRequest(`/api/admin/reports/monthly_summary_chart?year=${year}&month=${month}`, 'GET')
                 ]);
 
@@ -113,11 +107,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                         noChartData.style.display = 'block';
                     }
                 }
+            } catch (error) {
+                showToast(error.message || 'Report failed', 'danger');
+                statusDiv.innerHTML = `<div class="alert alert-danger">${error.message || 'Report failed'}</div>`;
+            } finally {
+                downloadButton.disabled = false;
+                downloadButton.innerHTML = '<i class="fas fa-download me-2"></i>Download Report';
             }
-
-            // Re-enable button
-            downloadButton.disabled = false;
-            downloadButton.innerHTML = '<i class="fas fa-download me-2"></i>Download Report';
         });
 
         function renderPilotHoursChart(data) {

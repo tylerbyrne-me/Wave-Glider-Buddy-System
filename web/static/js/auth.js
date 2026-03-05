@@ -85,8 +85,8 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                     const data = await response.json();
                     localStorage.setItem('accessToken', data.access_token);
                     const nextUrl = new URLSearchParams(window.location.search).get('next');
-                    const redirectTo = (nextUrl && nextUrl.startsWith('/')) ? nextUrl : '/platform';
-                    window.location.href = redirectTo;
+                    const safeNext = (nextUrl && nextUrl.startsWith('/') && !nextUrl.startsWith('//')) ? nextUrl : '/platform';
+                    window.location.href = safeNext;
                 } else {
                     const errorData = await response.json();
                     const detail = errorData.detail || `Login failed (Status: ${response.status})`;

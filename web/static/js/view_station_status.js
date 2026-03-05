@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function () { 
     const stationStatusTableBody = document.getElementById('stationStatusTableBody');
@@ -639,24 +639,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             uploadResult.innerHTML = '<div class="alert alert-info">Uploading...</div>';
 
             try {
-                // For FormData uploads, we need to use fetch directly since apiRequest expects JSON
-                const token = localStorage.getItem('accessToken');
-                const headers = {};
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-                // Note: Don't set Content-Type for FormData - browser sets it with boundary
-                
                 // Build URL with season_year parameter if specified
                 let uploadUrl = '/api/station_metadata/upload_csv/';
                 if (selectedSeasonYear) {
                     uploadUrl += `?season_year=${encodeURIComponent(selectedSeasonYear)}`;
                 }
-                
-                // Note: Don't set Content-Type for FormData - browser sets it with boundary
-                const response = await fetch(uploadUrl, {
+                const response = await fetchWithAuth(uploadUrl, {
                     method: 'POST',
-                    headers: headers,
                     body: formData
                 });
 
@@ -1148,14 +1137,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         try {
-            // Export master list
             const url = `/api/field_seasons/${activeSeason.year}/master_list/export`;
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-                }
-            });
+            const response = await fetchWithAuth(url);
 
             if (!response.ok) {
                 throw new Error('Failed to export master list');
@@ -1219,12 +1202,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 url += `?station_type=${encodeURIComponent(stationType)}`;
             }
 
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-                }
-            });
+            const response = await fetchWithAuth(url);
 
             if (!response.ok) {
                 const errorData = await response.json();

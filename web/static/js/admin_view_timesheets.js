@@ -4,7 +4,7 @@
  */
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -297,13 +297,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         try {
-            // CSV export needs fetch directly for blob response
-            const token = localStorage.getItem('accessToken');
-            const headers = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-            const response = await fetch(`/api/admin/timesheets/export_csv?pay_period_id=${payPeriodId}`, { headers });
+            // CSV export needs fetch for blob response; fetchWithAuth adds token, credentials, and 401 redirect
+            const response = await fetchWithAuth(`/api/admin/timesheets/export_csv?pay_period_id=${payPeriodId}`);
             
             if (!response.ok) {
                 const errorData = await response.json();

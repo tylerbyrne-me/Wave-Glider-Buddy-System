@@ -2,7 +2,7 @@
  * Slocum Vehicle Parameters – mission file management UI.
  * Uses /api/slocum/mission-files/* for deployments, files, summary, changes, snapshots.
  */
-import { apiRequest, showToast } from '/static/js/api.js';
+import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 
 const API_BASE = '/api/slocum/mission-files';
 
@@ -343,10 +343,8 @@ function initUpload() {
     const form = new FormData();
     form.append('files', file);
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`${API_BASE}/deployments/${deploymentId}/files/upload`, {
+      const res = await fetchWithAuth(`${API_BASE}/deployments/${deploymentId}/files/upload`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
       });
       if (!res.ok) {

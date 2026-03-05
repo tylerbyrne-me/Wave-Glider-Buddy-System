@@ -4,7 +4,7 @@
  */
 
 import { getUserProfile, checkAuth } from "/static/js/auth.js";
-import { apiRequest, showToast } from "/static/js/api.js";
+import { apiRequest, fetchWithAuth, showToast } from "/static/js/api.js";
 
 document.addEventListener('DOMContentLoaded', async function () {
     // This function was moved from schedule.html to make this script more self-contained.
@@ -575,13 +575,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         const apiUrl = `/api/schedule/download?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&format=${encodeURIComponent(format)}&user_scope=${encodeURIComponent(userScope)}`;
 
         try {
-            // Download endpoint returns blob, use fetch directly
-            const token = localStorage.getItem('accessToken');
-            const headers = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-            const response = await fetch(apiUrl, { method: 'GET', headers });
+            // Download endpoint returns blob; fetchWithAuth adds token, credentials, and 401 redirect
+            const response = await fetchWithAuth(apiUrl);
 
             if (!response.ok) {
                 const errorText = await response.text();

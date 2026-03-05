@@ -5,6 +5,13 @@
  * way to handle authenticated requests and display user feedback.
  */
 
+/** Redirects to login with session_expired and next params. Used by apiRequest and fetchWithAuth. */
+const redirectToLoginOn401 = () => {
+    localStorage.removeItem('accessToken');
+    const nextParam = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login.html?session_expired=true&next=${nextParam}`;
+};
+
 /**
  * Shows a Bootstrap toast notification.
  * @param {string} message - The message to display in the toast.
@@ -74,9 +81,7 @@ export const apiRequest = async (url, method, body = null) => {
     const response = await fetch(url, options);
 
     if (response.status === 401) {
-        localStorage.removeItem('accessToken');
-        const nextParam = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = `/login.html?session_expired=true&next=${nextParam}`;
+        redirectToLoginOn401();
         throw new Error('Session expired. Redirecting to login.');
     }
 
@@ -116,13 +121,35 @@ export const apiRequest = async (url, method, body = null) => {
 };
 
 /**
- * Makes a fetch request with credentials included (for cookie-based auth).
- * @param {string} url - The API endpoint URL.
- * @param {Object} [options={}] - Fetch options (method, headers, etc.).
- * @returns {Promise<Response>} The fetch response promise.
+ * Returns headers object with Bearer token if present. Use for one-off fetch calls that need auth.
+ * Prefer apiRequest() or fetchWithAuth() so 401 handling and credentials are consistent.
  */
-export const fetchWithAuth = (url, options = {}) => {
-    return fetch(url, { ...options, credentials: 'include' });
+export const getAuthHeaders = () => {
+    const token = localStorage.getItem('accessToken');
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
+
+/**
+ * Makes a fetch request with auth (Bearer + credentials) and consistent 401 handling.
+ * Use for FormData, blob, or other non-JSON requests. On 401, redirects to login with next= and throws.
+ * @param {string} url - The API endpoint URL.
+ * @param {Object} [options={}] - Fetch options (method, headers, body, etc.). Headers are merged with auth.
+ * @returns {Promise<Response>} The fetch response promise (caller should check response.ok and handle 401 only if not redirected).
+ */
+export const fetchWithAuth = async (url, options = {}) => {
+    const token = localStorage.getItem('accessToken');
+    const headers = new Headers(options.headers || {});
+    if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    const response = await fetch(url, { ...options, headers, credentials: 'include' });
+    if (response.status === 401) {
+        redirectToLoginOn401();
+        throw new Error('Session expired. Redirecting to login.');
+    }
+    return response;
 };
 
 /**
