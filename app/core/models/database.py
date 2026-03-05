@@ -287,6 +287,11 @@ class MissionOverview(SQLModel, table=True):
         default=None,
         description="Distance in meters at which the platform begins auto-avoidance maneuvers around vessels (e.g. 1500).",
     )
+    sensor_sampling_rates: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="JSON object of sensor sampling config per sensor (ctd, c3, waves, weather, vr2c). Persisted from PIC form.",
+    )
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     updated_at_utc: datetime = SQLModelField(
         default_factory=lambda: datetime.now(timezone.utc),

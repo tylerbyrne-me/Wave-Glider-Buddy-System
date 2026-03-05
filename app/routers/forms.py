@@ -305,11 +305,11 @@ async def get_form_template(
         ).first()
         mission_title = (st_deployment.title or "Mission Not Assigned") if st_deployment else "Mission Not Assigned"
 
-        # Boats in the Area: AIS summary (24h) - time seen, time since contact, MMSI
+        # Boats in the Area: AIS summary (8h) - time seen, time since contact, MMSI
         df_ais, _, _ = await data_service.load("ais", mission_id, current_user=current_user, source_preference="local")
         if df_ais is None or df_ais.empty:
             df_ais, _, _ = await data_service.load("ais", mission_id, current_user=current_user, source_preference="remote")
-        ais_vessels = summaries.get_ais_summary(df_ais, max_age_hours=24) if df_ais is not None and not df_ais.empty else []
+        ais_vessels = summaries.get_ais_summary(df_ais, max_age_hours=8) if df_ais is not None and not df_ais.empty else []
         if ais_vessels:
             boats_lines = []
             for v in ais_vessels:
@@ -329,12 +329,12 @@ async def get_form_template(
         vessel_standoff = getattr(mission_overview, "vessel_standoff_m", None) if mission_overview else None
         vessel_standoff_display = str(vessel_standoff) if vessel_standoff is not None else ""
 
-        # Recent Errors (24h): time, time since, category, self-corrected
+        # Recent Errors (8h): time, time since, category, self-corrected
         df_errors, _, _ = await data_service.load("errors", mission_id, current_user=current_user, source_preference="local")
         if df_errors is None or df_errors.empty:
             df_errors, _, _ = await data_service.load("errors", mission_id, current_user=current_user, source_preference="remote")
         recent_errors_raw = (
-            summaries.get_recent_errors(df_errors, max_age_hours=24)
+            summaries.get_recent_errors(df_errors, max_age_hours=8)
             if df_errors is not None and not df_errors.empty
             else []
         )
@@ -486,7 +486,46 @@ async def get_form_template(
                 },
             ]
 
-        if sensor_items_to_inject or wg_vm4_form_items:
+        # Sensor sampling rates (editable, persist until changed). Only for sensors with configurable rates; exclude WG-VM4.
+        sampling_sensor_keys = ["ctd", "fluorometer", "waves", "weather", "vr2c"]
+        item_id_by_key = {
+            "ctd": "sensor_ctd_sampling_val",
+            "fluorometer": "sensor_fluorometer_sampling_val",
+            "waves": "sensor_waves_sampling_val",
+            "weather": "sensor_weather_sampling_val",
+            "vr2c": "sensor_vr2c_sampling_val",
+        }
+        rates_json = None
+        if mission_overview and mission_overview.sensor_sampling_rates:
+            try:
+                rates_json = json.loads(mission_overview.sensor_sampling_rates)
+            except (json.JSONDecodeError, TypeError):
+                rates_json = {}
+        # Storage key for display (fluorometer form row uses "c3" in JSON)
+        sampling_storage_key = {"fluorometer": "c3"}
+        # Keyed by sensor card for insertion under respective sensor status row
+        sampling_item_by_key = {}
+        for sk in sampling_sensor_keys:
+            if sk not in enabled_cards:
+                continue
+            cfg = SENSOR_SAMPLING_CONFIG.get(sk)
+            if not cfg:
+                continue
+            iid = item_id_by_key.get(sk)
+            if not iid:
+                continue
+            storage_key = sampling_storage_key.get(sk, sk)
+            display_val = _format_sensor_sampling_display(rates_json, storage_key)
+            sampling_item_by_key[sk] = {
+                "id": iid,
+                "label": cfg["label"],
+                "item_type": models.FormItemTypeEnum.TEXT_INPUT.value,
+                "value": display_val,
+                "placeholder": cfg.get("placeholder", ""),
+                "hint": cfg.get("hint"),
+            }
+
+        if sensor_items_to_inject or wg_vm4_form_items or sampling_item_by_key:
             for section in schema.get("sections", []):
                 if section.get("id") != "general_status":
                     continue
@@ -497,13 +536,18 @@ async def get_form_template(
                         insert_idx = i + 1
                         break
                 if insert_idx is not None:
+                    # Insert each sensor status row, then its sampling row (if any) directly underneath
                     for sensor_item in reversed(sensor_items_to_inject):
                         items.insert(insert_idx, sensor_item)
-                    # WG-VM4 rows (only when wg_vm4 enabled) go right after the sensor block
-                    next_idx = insert_idx + len(sensor_items_to_inject)
+                        insert_idx += 1
+                        card = sensor_item["id"].replace("sensor_", "").replace("_status", "")
+                        sampling_item = sampling_item_by_key.get(card)
+                        if sampling_item:
+                            items.insert(insert_idx, sampling_item)
+                            insert_idx += 1
                     for wg_item in wg_vm4_form_items:
-                        items.insert(next_idx, wg_item)
-                        next_idx += 1
+                        items.insert(insert_idx, wg_item)
+                        insert_idx += 1
                 break
 
         return schema
@@ -523,6 +567,132 @@ def _parse_vessel_standoff_from_sections(sections_data: Optional[List[dict]]) ->
                 except (ValueError, TypeError):
                     pass
     return None
+
+
+# Sensor sampling rate form item IDs and storage keys (WG-VM4 has no user-configurable rates)
+# "hint" is shown as a hover tooltip on the input.
+SENSOR_SAMPLING_CONFIG = {
+    "ctd": {
+        "label": "CTD Sample Rate",
+        "hint": "period (sec), samples/block, flush (sec), off (sec). Period cannot exceed 14 sec if O2 sensor installed.",
+        "placeholder": "e.g. 10, 10, 100, 400",
+        "default": "10, 10, 100, 400",
+    },
+    "c3": {
+        "label": "Fluorometer Sample Rate",
+        "hint": "UsePump (true/false), Flush (sec), AvgPeriod/Block (sec), OffTime (sec).",
+        "placeholder": "e.g. True, 100, 100, 400",
+        "default": "False, 45, 30, 0",
+    },
+    "fluorometer": {
+        "label": "Fluorometer Sample Rate",
+        "hint": "UsePump (true/false), Flush (sec), AvgPeriod/Block (sec), OffTime (sec).",
+        "placeholder": "e.g. True, 100, 100, 400",
+        "default": "False, 45, 30, 0",
+    },
+    "waves": {
+        "label": "Waves Interval",
+        "hint": "Collection interval in minutes (default 30).",
+        "placeholder": "e.g. 30",
+        "default": "30",
+    },
+    "weather": {
+        "label": "Weather Interval",
+        "hint": "Collection period in minutes (default 10).",
+        "placeholder": "e.g. 10",
+        "default": "10",
+    },
+    "vr2c": {
+        "label": "VR2C Status Interval",
+        "hint": "Status output interval in minutes (default 60).",
+        "placeholder": "e.g. 60",
+        "default": "60",
+    },
+}
+# Form item id suffix -> storage key (c3 = fluorometer)
+SENSOR_SAMPLING_ITEM_ID_TO_KEY = {
+    "sensor_ctd_sampling_val": "ctd",
+    "sensor_fluorometer_sampling_val": "c3",
+    "sensor_waves_sampling_val": "waves",
+    "sensor_weather_sampling_val": "weather",
+    "sensor_vr2c_sampling_val": "vr2c",
+}
+
+
+def _format_sensor_sampling_display(rates: Optional[dict], sensor_key: str) -> str:
+    """Format stored JSON for a sensor into the form display string."""
+    if not rates or sensor_key not in rates:
+        return SENSOR_SAMPLING_CONFIG.get(sensor_key, {}).get("default", "")
+    d = rates[sensor_key]
+    if not isinstance(d, dict):
+        return str(d) if d is not None else ""
+    if sensor_key == "ctd":
+        return ", ".join(
+            str(d.get(k, ""))
+            for k in ("period_sec", "samples_per_block", "flush_time_sec", "off_time_sec")
+        )
+    if sensor_key == "c3":
+        use_pump = d.get("use_pump", False)
+        return ", ".join(
+            [str(use_pump).lower()]
+            + [str(d.get(k, "")) for k in ("flush_sec", "avg_period_block_sec", "off_time_sec")]
+        )
+    if sensor_key in ("waves", "weather", "vr2c"):
+        return str(d.get("interval_min", ""))
+    return ""
+
+
+def _parse_sensor_sampling_value(sensor_key: str, value: str) -> Optional[dict]:
+    """Parse one sensor's form value string into a dict for JSON storage."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    try:
+        if sensor_key == "ctd":
+            if len(parts) < 4:
+                return None
+            return {
+                "period_sec": int(parts[0]),
+                "samples_per_block": int(parts[1]),
+                "flush_time_sec": int(parts[2]),
+                "off_time_sec": int(parts[3]),
+            }
+        if sensor_key == "c3":
+            if len(parts) < 4:
+                return None
+            use_pump = str(parts[0]).lower() in ("true", "1", "yes")
+            return {
+                "use_pump": use_pump,
+                "flush_sec": int(parts[1]),
+                "avg_period_block_sec": int(parts[2]),
+                "off_time_sec": int(parts[3]),
+            }
+        if sensor_key in ("waves", "weather", "vr2c"):
+            if not parts:
+                return None
+            return {"interval_min": int(parts[0])}
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def _parse_sensor_sampling_from_sections(sections_data: Optional[List[dict]]) -> Optional[dict]:
+    """Extract sensor sampling rates from form sections_data. Returns dict keyed by sensor for JSON storage."""
+    if not sections_data:
+        return None
+    collected = {}
+    for section in sections_data:
+        for item in (section.get("items") or []):
+            iid = item.get("id")
+            key = SENSOR_SAMPLING_ITEM_ID_TO_KEY.get(iid)
+            if not key:
+                continue
+            val = item.get("value")
+            parsed = _parse_sensor_sampling_value(key, str(val) if val is not None else "")
+            if parsed is not None:
+                collected[key] = parsed
+    return collected if collected else None
 
 
 @router.post("/api/forms/{mission_id}")
@@ -551,14 +721,21 @@ async def submit_form(
         )
         session.add(submitted_form)
 
-        # Persist vessel standoff (m) to mission overview when submitted in form
-        standoff_m = _parse_vessel_standoff_from_sections(sections_data)
-        if standoff_m is not None and standoff_m >= 0:
-            mission_overview = session.get(models.MissionOverview, mission_id)
-            if mission_overview is None and "-" in mission_id:
-                mission_overview = session.get(models.MissionOverview, mission_id.split("-")[-1])
-            if mission_overview is not None:
+        # Persist vessel standoff (m) and sensor sampling rates to mission overview when present in form
+        mission_overview = session.get(models.MissionOverview, mission_id)
+        if mission_overview is None and "-" in mission_id:
+            mission_overview = session.get(models.MissionOverview, mission_id.split("-")[-1])
+        if mission_overview is not None:
+            updated = False
+            standoff_m = _parse_vessel_standoff_from_sections(sections_data)
+            if standoff_m is not None and standoff_m >= 0:
                 mission_overview.vessel_standoff_m = standoff_m
+                updated = True
+            sampling_rates = _parse_sensor_sampling_from_sections(sections_data)
+            if sampling_rates is not None:
+                mission_overview.sensor_sampling_rates = json.dumps(sampling_rates)
+                updated = True
+            if updated:
                 mission_overview.updated_at_utc = datetime.now(timezone.utc)
                 session.add(mission_overview)
 

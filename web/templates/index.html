@@ -536,9 +536,14 @@
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <span>Most Recent PIC Submission</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPicHandoffsRefreshBtn">
-                      <i class="fas fa-rotate"></i> Refresh
-                    </button>
+                    <div class="d-flex gap-2">
+                      <a class="btn btn-sm btn-primary" id="dashboardPicFormLink" href="#" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-plus"></i> New PIC Submission
+                      </a>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="dashboardPicHandoffsRefreshBtn">
+                        <i class="fas fa-rotate"></i> Refresh
+                      </button>
+                    </div>
                   </div>
                   <div class="card-body" id="dashboardPicHandoffsLatest">
                     <div class="text-muted small">No PIC submissions loaded yet.</div>

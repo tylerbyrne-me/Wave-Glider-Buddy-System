@@ -42,6 +42,34 @@ h5.mt-3 {
   cursor: help;
 }
 
+/* Text inputs with hover tooltip (e.g. sensor sampling rate fields) */
+.form-control--has-tooltip {
+  cursor: help;
+}
+
+/* Visible "?" next to sample/interval labels – hover for hint tooltip */
+.sampling-hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin-left: 0.15em;
+  font-size: 0.85em;
+  font-weight: bold;
+  line-height: 1;
+  color: var(--bs-info, #0dcaf0);
+  background: rgba(13, 202, 240, 0.2);
+  border: 1px solid var(--bs-info, #0dcaf0);
+  border-radius: 50%;
+  cursor: help;
+  vertical-align: middle;
+}
+.sampling-hint-icon:hover {
+  background: rgba(13, 202, 240, 0.35);
+  color: var(--bs-info, #0dcaf0);
+}
+
 /* PIC Handoff: preserve newlines in static text (e.g. Boats in Area, Recent Errors) */
 .form-item .static-text {
   white-space: pre-wrap;

@@ -477,6 +477,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // PIC submission form link: open form for current mission
+    const dashboardPicFormLink = document.getElementById('dashboardPicFormLink');
+    if (dashboardPicFormLink && missionId) {
+        dashboardPicFormLink.href = `/mission/${encodeURIComponent(missionId)}/form/pic_handoff_checklist.html`;
+    }
+
     // PIC Submissions tab lazy-load
     const picTabButton = document.getElementById('dashboard-pic-tab');
     if (picTabButton) {

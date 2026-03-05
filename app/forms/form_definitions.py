@@ -82,9 +82,9 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                         models.FormItem(id="thruster_status_val", label="Thruster Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
                         models.FormItem(id="obstacle_avoid_val", label="Obstacle Avoidance", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
                         models.FormItem(id="line_follow_val", label="Line Following Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["ON", "OFF", "N/A"], required=True),
-                        models.FormItem(id="boats_in_area_val", label="Boats in the Area (AIS 24h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent AIS contacts."),
+                        models.FormItem(id="boats_in_area_val", label="Boats in the Area (AIS 8h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent AIS contacts."),
                         models.FormItem(id="vessel_standoff_m_val", label="Vessel Standoff (m)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 1500"),
-                        models.FormItem(id="recent_errors_val", label="Recent Errors (24h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent errors."),
+                        models.FormItem(id="recent_errors_val", label="Recent Errors (8h)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="No recent errors."),
                     ]
                 ),
                 models.FormSection(

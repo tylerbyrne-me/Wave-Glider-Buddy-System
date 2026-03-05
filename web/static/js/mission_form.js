@@ -57,9 +57,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                                            <label class="form-check-label" for="${item.id}">Check if complete/verified</label>
                                          </div>`;
                             break;
-                        case 'text_input':
-                            inputHtml = `<input type="text" class="form-control" id="${item.id}" name="${item.id}" value="${item.value || ''}" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>`;
+                        case 'text_input': {
+                            const textHint = (item.hint || '').replace(/"/g, '&quot;');
+                            const textTitleAttr = textHint ? ` title="${textHint}"` : '';
+                            const textHintClass = textHint ? ' form-control--has-tooltip' : '';
+                            inputHtml = `<input type="text" class="form-control${textHintClass}" id="${item.id}" name="${item.id}" value="${item.value || ''}" placeholder="${item.placeholder || ''}"${textTitleAttr} ${item.required ? 'required' : ''}>`;
                             break;
+                        }
                         case 'text_area':
                             inputHtml = `<textarea class="form-control" id="${item.id}" name="${item.id}" rows="2" placeholder="${item.placeholder || ''}" ${item.required ? 'required' : ''}>${item.value || ''}</textarea>`; // Adjusted rows
                             break;
@@ -100,6 +104,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                             </select>`;
                             break;
                         }
+                    }
+
+                    // When item has a hint, append a visible "?" icon next to the label for tooltip
+                    if (item.hint) {
+                        const hintEscaped = (item.hint || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        labelContent += ` <span class="sampling-hint-icon" title="${hintEscaped}" aria-label="Help">?</span>`;
                     }
 
                     // Omit per-item "Comment..." for text_area (e.g. User Comments) to avoid comment-for-comment
@@ -206,6 +216,55 @@ document.addEventListener('DOMContentLoaded', async function () {
                 updateNavFields(navModeSelect.value);
             }
             // --- End dynamic navigation mode fields ---
+
+            // Refresh data button: re-fetch template and update only autopopulated fields (keeps pilot's inputs/comments/verified state)
+            const refreshFormDataBtn = document.getElementById('refreshFormDataBtn');
+            if (refreshFormDataBtn) {
+                refreshFormDataBtn.addEventListener('click', async function () {
+                    const btn = this;
+                    const originalText = btn.textContent;
+                    btn.disabled = true;
+                    btn.textContent = 'Refreshing…';
+                    try {
+                        const schema = await apiRequest(`/api/forms/${missionId}/template/${formType}`, 'GET');
+                        let updated = 0;
+                        for (const section of schema.sections || []) {
+                            for (const item of section.items || []) {
+                                const itemType = item.item_type || '';
+                                const id = item.id;
+                                if (!id) continue;
+                                if (itemType === 'autofilled_value' || itemType === 'static_text') {
+                                    const el = document.getElementById(id);
+                                    if (el && (el.classList.contains('autofilled-value') || el.classList.contains('static-text'))) {
+                                        el.textContent = item.value != null && item.value !== '' ? item.value : 'N/A';
+                                        updated++;
+                                    }
+                                } else if (itemType === 'sensor_status') {
+                                    let lastTimeStr = 'N/A';
+                                    if (item.value) {
+                                        try {
+                                            const parsed = typeof item.value === 'string' ? JSON.parse(item.value) : item.value;
+                                            lastTimeStr = parsed.last_time_str ?? 'N/A';
+                                        } catch (_) { /* ignore */ }
+                                    }
+                                    const itemRow = document.querySelector(`.form-item[data-item-id="${id}"]`);
+                                    const small = itemRow?.querySelector('label small.text-muted');
+                                    if (small) {
+                                        small.textContent = `Last data: ${lastTimeStr}`;
+                                        updated++;
+                                    }
+                                }
+                            }
+                        }
+                        showToast(updated > 0 ? 'Autopopulated data refreshed.' : 'No autopopulated fields to update.', 'success');
+                    } catch (err) {
+                        showToast(`Refresh failed: ${err.message}`, 'danger');
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                    }
+                });
+            }
 
         } catch (error) {
             showToast(`Error loading form: ${error.message}`, 'danger');
