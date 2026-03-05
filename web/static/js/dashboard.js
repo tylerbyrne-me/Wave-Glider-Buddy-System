@@ -477,10 +477,25 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // PIC submission form link: open form for current mission
+    // PIC submission form link: open form for current mission in a new tab.
+    // Use click handler so we always resolve mission at click time (avoids href="#" opening same page in new tab).
     const dashboardPicFormLink = document.getElementById('dashboardPicFormLink');
-    if (dashboardPicFormLink && missionId) {
-        dashboardPicFormLink.href = `/mission/${encodeURIComponent(missionId)}/form/pic_handoff_checklist.html`;
+    if (dashboardPicFormLink) {
+        const formUrl = () => {
+            const mid = document.body.dataset.missionId || new URLSearchParams(window.location.search).get('mission');
+            return mid ? `/mission/${encodeURIComponent(mid)}/form/pic_handoff_checklist.html` : null;
+        };
+        dashboardPicFormLink.href = formUrl() || '#';
+        dashboardPicFormLink.addEventListener('click', (e) => {
+            const url = formUrl();
+            if (!url) {
+                e.preventDefault();
+                showToast('Select a mission first.', 'danger');
+                return;
+            }
+            e.preventDefault();
+            window.open(url, '_blank', 'noopener,noreferrer');
+        });
     }
 
     // PIC Submissions tab lazy-load
