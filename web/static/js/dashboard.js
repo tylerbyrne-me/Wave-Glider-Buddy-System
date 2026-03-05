@@ -5,6 +5,7 @@
 
 import { checkAuth, logout } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
+import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     // --- Authentication Check ---
@@ -244,68 +245,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             alert('Could not display form details. Modal components missing.');
             return;
         }
-
-        const changedSet = new Set(Array.isArray(changedItemIds) ? changedItemIds : []);
         dashboardPicModalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
-
-        const submissionTimestampStr = String(form.submission_timestamp || '').endsWith('Z')
-            ? String(form.submission_timestamp || '')
-            : `${form.submission_timestamp}Z`;
-        const submissionDate = new Date(submissionTimestampStr);
-        const formattedTime = Number.isNaN(submissionDate.getTime())
-            ? 'N/A'
-            : submissionDate.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
-
-        let contentHtml = `<p><strong>Submitted by:</strong> ${escapeHtml(form.submitted_by_username || 'Unknown')} at ${escapeHtml(formattedTime)}</p><hr>`;
-
-        if (form.sections_data && Array.isArray(form.sections_data)) {
-            form.sections_data.forEach(section => {
-                contentHtml += `<h4>${escapeHtml(section.title || '')}</h4>`;
-                if (section.section_comment) {
-                    contentHtml += `<p class="text-muted"><em>Section Comment: ${escapeHtml(section.section_comment)}</em></p>`;
-                }
-                contentHtml += '<ul class="list-group list-group-flush mb-3">';
-                if (section.items && Array.isArray(section.items)) {
-                    section.items.forEach(item => {
-                        const isChanged = item.id && changedSet.has(item.id);
-                        const liClass = isChanged ? 'list-group-item pic-handoff-item-changed' : 'list-group-item';
-                        contentHtml += `<li class="${liClass}" data-item-id="${escapeHtml(item.id || '')}"><strong>${escapeHtml(item.label || '')}:</strong> `;
-                        let valuePart;
-                        if (item.id && String(item.id).startsWith('sensor_') && String(item.id).endsWith('_status')) {
-                            const v = item.value;
-                            valuePart = (v !== undefined && v !== null && String(v).trim() !== '') ? escapeHtml(String(v)) : (item.is_checked ? 'On' : 'Off');
-                        } else if (item.item_type === 'checkbox') {
-                            valuePart = item.is_checked ? 'Checked' : 'Not Checked';
-                        } else if (item.id === 'user_comments_val') {
-                            valuePart = (item.value && String(item.value).trim()) ? escapeHtml(item.value) : 'No included comments';
-                        } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
-                            valuePart = escapeHtml(item.value || 'N/A');
-                        } else {
-                            valuePart = item.value ? escapeHtml(item.value) : '<em>Not provided</em>';
-                        }
-                        if (item.is_verified === false) {
-                            valuePart = `<span class="pic-unverified-value">${valuePart}</span>`;
-                        }
-                        contentHtml += valuePart;
-                        if (isChanged) {
-                            contentHtml += ` <span class="badge bg-warning text-dark">Changes since last PIC</span>`;
-                        }
-                        if (item.is_verified) {
-                            contentHtml += ` <span class="badge bg-success">Verified</span>`;
-                        }
-                        if (item.comment) {
-                            contentHtml += `<br><small class="text-muted"><em>Comment: ${escapeHtml(item.comment)}</em></small>`;
-                        }
-                        contentHtml += `</li>`;
-                    });
-                }
-                contentHtml += '</ul>';
-            });
-        } else {
-            contentHtml += '<p>No detailed section data available.</p>';
-        }
-
-        dashboardPicModalBody.innerHTML = contentHtml;
+        dashboardPicModalBody.innerHTML = renderPicHandoffDetails(form, changedItemIds || []);
         dashboardPicDetailsModal.show();
     };
 

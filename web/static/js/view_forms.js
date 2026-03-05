@@ -5,6 +5,7 @@
 
 import { checkAuth, logout } from '/static/js/auth.js';
 import { apiRequest, showToast } from '/static/js/api.js';
+import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 
 document.addEventListener('DOMContentLoaded', async function () {
     if (!await checkAuth()) {
@@ -84,15 +85,17 @@ document.addEventListener('DOMContentLoaded', async function () {
                     viewButton.classList.add('btn', 'btn-sm', 'btn-outline-info');
                     viewButton.textContent = 'View Details';
                     viewButton.onclick = async () => {
-                        document.getElementById('formDetailsModalLabel').textContent = `Details for: ${form.form_title} (${form.form_type})`;
+                        const modalLabel = document.getElementById('formDetailsModalLabel');
                         if (form.form_type === 'pic_handoff_checklist') {
+                            modalLabel.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
                             try {
                                 const r = await apiRequest(`/api/forms/id/${form.id}/with-changes`, 'GET');
-                                renderFormDetailsInModal(r.form, r.changed_item_ids || []);
+                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(r.form, r.changed_item_ids || []);
                             } catch (e) {
-                                renderFormDetailsInModal(form, []);
+                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(form, []);
                             }
                         } else {
+                            modalLabel.textContent = `Details for: ${form.form_title} (${form.form_type})`;
                             renderFormDetailsInModal(form, []);
                         }
                         formDetailsModal.show();
