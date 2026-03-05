@@ -149,6 +149,17 @@ except ImportError:
 
 app = FastAPI()
 
+# Session middleware for SQLAdmin (and any session-based auth). Session cookie expires with JWT.
+from starlette.middleware.sessions import SessionMiddleware
+_session_max_age_seconds = settings.jwt_access_token_expire_minutes * 60
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.jwt_secret_key,
+    max_age=_session_max_age_seconds,
+    same_site="lax",
+    https_only=settings.app_use_https,
+)
+
 # --- Email Configuration ---
 conf = ConnectionConfig(
     MAIL_USERNAME=settings.MAIL_USERNAME,
@@ -2152,8 +2163,11 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
 
 
 @app.get("/historical", include_in_schema=False)
-async def historical_dashboard_redirect(request: Request):
-    """Legacy: redirect to canonical Wave Glider historical URL."""
+async def historical_dashboard_redirect(
+    request: Request,
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Legacy: redirect to canonical Wave Glider historical URL (authenticated only)."""
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/wave-glider/home")

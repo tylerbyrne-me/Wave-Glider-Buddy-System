@@ -1,12 +1,12 @@
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from ..core.auth import get_current_admin_user, get_optional_current_user
+from ..core.auth import get_current_admin_user
 from ..core import models
 from ..core.templates import templates
 from ..core.template_context import get_template_context
@@ -66,7 +66,7 @@ async def get_scheduler_jobs():
     return jobs_list
 
 
-@router.get("/scheduler_status.html", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(get_optional_current_user)])
-async def get_scheduler_status_page(request: Request, current_user: models.User = Depends(get_optional_current_user)):
-    """Serves the HTML page for viewing scheduler status."""
+@router.get("/scheduler_status.html", response_class=HTMLResponse, include_in_schema=False)
+async def get_scheduler_status_page(request: Request, current_user: models.User = Depends(get_current_admin_user)):
+    """Serves the HTML page for viewing scheduler status (admin only)."""
     return templates.TemplateResponse("admin/scheduler_status.html", get_template_context(request=request, current_user=current_user))

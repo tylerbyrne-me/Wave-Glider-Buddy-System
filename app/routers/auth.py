@@ -47,14 +47,16 @@ async def login_for_access_token(
         data={"sub": user_in_db.username, "role": user_in_db.role.value}
     )
 
-    # Set the access token in an HttpOnly cookie
+    # Set the access token in an HttpOnly cookie (max_age aligns with JWT exp)
+    cookie_max_age_seconds = settings.jwt_access_token_expire_minutes * 60
     response.set_cookie(
         key="access_token_cookie",
         value=access_token,
         httponly=True,  # Prevents client-side JS from accessing the cookie
         samesite="lax",  # Recommended for security
         secure=settings.app_use_https,  # True when served over HTTPS (set APP_USE_HTTPS=true in .env)
-        # max_age=... # Optionally set an expiry
+        max_age=cookie_max_age_seconds,
+        path="/",
     )
 
     # Also return the token in the response body for client-side JS that needs it
@@ -64,7 +66,7 @@ async def login_for_access_token(
 @router.post("/logout")
 async def logout_user(response: Response):
     """Clears the authentication cookie."""
-    response.delete_cookie(key="access_token_cookie")
+    response.delete_cookie(key="access_token_cookie", path="/")
     return {"message": "Logged out successfully"}
 
 
