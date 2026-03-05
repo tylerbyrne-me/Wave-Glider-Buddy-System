@@ -66,7 +66,7 @@ export const apiRequest = async (url, method, body = null) => {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const options = { method, headers };
+    const options = { method, headers, credentials: 'include' };
     if (body) {
         options.body = JSON.stringify(body);
     }
@@ -75,7 +75,8 @@ export const apiRequest = async (url, method, body = null) => {
 
     if (response.status === 401) {
         localStorage.removeItem('accessToken');
-        window.location.href = '/login.html?session_expired=true';
+        const nextParam = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login.html?session_expired=true&next=${nextParam}`;
         throw new Error('Session expired. Redirecting to login.');
     }
 

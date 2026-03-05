@@ -84,8 +84,9 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
                 if (response.ok) {
                     const data = await response.json();
                     localStorage.setItem('accessToken', data.access_token);
-                    // Redirect to platform choice (splash)
-                    window.location.href = '/platform';
+                    const nextUrl = new URLSearchParams(window.location.search).get('next');
+                    const redirectTo = (nextUrl && nextUrl.startsWith('/')) ? nextUrl : '/platform';
+                    window.location.href = redirectTo;
                 } else {
                     const errorData = await response.json();
                     const detail = errorData.detail || `Login failed (Status: ${response.status})`;

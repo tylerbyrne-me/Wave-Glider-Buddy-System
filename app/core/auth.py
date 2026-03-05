@@ -193,15 +193,21 @@ async def get_current_user_token_data(
         if len(parts) == 2 and parts[0].lower() == "bearer":
             token = parts[1]
 
-    # 2. Try cookie if no header
-    if not token:
+    token_data = None
+    if token:
+        token_data = decode_access_token(token)
+
+    # 2. If header token missing or invalid (e.g. expired), try cookie (e.g. form opened in new tab)
+    if not token_data or not token_data.username:
+        if token:
+            logger.debug("Bearer token invalid or expired; trying cookie.")
         token = request.cookies.get("access_token_cookie")
+        if token:
+            token_data = decode_access_token(token)
 
     if not token:
         raise credentials_exception
-
-    token_data = decode_access_token(token)
-    if token_data is None or token_data.username is None:
+    if not token_data or not token_data.username:
         logger.warning("Token decoding failed or username missing in token.")
         raise credentials_exception
     return token_data
