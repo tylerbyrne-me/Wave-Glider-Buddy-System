@@ -536,8 +536,11 @@ async def get_form_template(
                         insert_idx = i + 1
                         break
                 if insert_idx is not None:
-                    # Insert each sensor status row, then its sampling row (if any) directly underneath
-                    for sensor_item in reversed(sensor_items_to_inject):
+                    # Insert sensor status rows (with sampling where applicable). WG-VM4 is placed
+                    # just above Current Station / Offload Status / Next Station so all VM4 fields stay together.
+                    sensor_without_vm4 = [s for s in sensor_items_to_inject if s["id"] != "sensor_wg_vm4_status"]
+                    wg_vm4_status_item = next((s for s in sensor_items_to_inject if s["id"] == "sensor_wg_vm4_status"), None)
+                    for sensor_item in reversed(sensor_without_vm4):
                         items.insert(insert_idx, sensor_item)
                         insert_idx += 1
                         card = sensor_item["id"].replace("sensor_", "").replace("_status", "")
@@ -545,6 +548,9 @@ async def get_form_template(
                         if sampling_item:
                             items.insert(insert_idx, sampling_item)
                             insert_idx += 1
+                    if wg_vm4_status_item:
+                        items.insert(insert_idx, wg_vm4_status_item)
+                        insert_idx += 1
                     for wg_item in wg_vm4_form_items:
                         items.insert(insert_idx, wg_item)
                         insert_idx += 1

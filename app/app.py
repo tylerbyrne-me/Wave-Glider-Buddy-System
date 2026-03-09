@@ -160,6 +160,17 @@ app.add_middleware(
     https_only=settings.app_use_https,
 )
 
+
+# Ensure static .js files are revalidated so production gets updated PIC/form scripts after deploy
+@app.middleware("http")
+async def add_static_js_no_cache(request, call_next):
+    response = await call_next(request)
+    path = request.scope.get("path", "")
+    if path.startswith("/static/") and path.endswith(".js"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 # --- Email Configuration ---
 conf = ConnectionConfig(
     MAIL_USERNAME=settings.MAIL_USERNAME,

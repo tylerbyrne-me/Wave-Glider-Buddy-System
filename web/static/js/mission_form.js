@@ -281,9 +281,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     const unverifiedSubmitBtn = document.getElementById('unverifiedSubmitBtn');
     const unverifiedCancelBtn = document.getElementById('unverifiedCancelSubmissionBtn');
 
-    async function performSubmission() {
-        submissionStatusDiv.innerHTML = '<div class="alert alert-info">Submitting form...</div>';
-
+    /** Build sections_data from the current form DOM. Call this at submit time so we capture user choices before any refresh. */
+    function buildSectionsDataFromForm() {
         const sectionsData = [];
         document.querySelectorAll('.form-section').forEach(sectionElem => {
             const sectionTitle = sectionElem.querySelector('h3').textContent;
@@ -317,7 +316,10 @@ document.addEventListener('DOMContentLoaded', async function () {
                     if (inputElem.type === 'checkbox') {
                         formItem.is_checked = inputElem.checked;
                         formItem.item_type = 'checkbox';
-                    } else if (inputElem.type === 'textarea' || inputElem.type === 'text' || inputElem.tagName.toLowerCase() === 'select') {
+                    } else if (inputElem.tagName && inputElem.tagName.toLowerCase() === 'select') {
+                        formItem.value = inputElem.value.trim();
+                        formItem.item_type = (itemId && /^sensor_.*_status$/.test(itemId)) ? 'sensor_status' : 'text_input';
+                    } else if (inputElem.type === 'textarea' || inputElem.type === 'text') {
                         formItem.value = inputElem.value.trim();
                         formItem.item_type = inputElem.type === 'textarea' ? 'text_area' : 'text_input';
                     }
@@ -332,7 +334,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             });
             sectionsData.push(section);
         });
+        return sectionsData;
+    }
 
+    async function performSubmission(capturedSectionsData) {
+        submissionStatusDiv.innerHTML = '<div class="alert alert-info">Submitting form...</div>';
+
+        const sectionsData = capturedSectionsData != null ? capturedSectionsData : buildSectionsDataFromForm();
         const submissionPayload = {
             mission_id: missionId,
             form_type: formType,
@@ -358,6 +366,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     missionReportForm.addEventListener('submit', async function (event) {
         event.preventDefault();
 
+        // Capture form state immediately when Submit is clicked, before any modal or async work.
+        // This ensures we submit the user's actual choices even if the form refreshes or resets.
+        const capturedSectionsData = buildSectionsDataFromForm();
+
         const verifiedInputs = missionReportForm.querySelectorAll('input[name$="_verified"]');
         const hasUnverified = Array.from(verifiedInputs).some(el => el.type === 'checkbox' && !el.checked);
         if (hasUnverified) {
@@ -366,7 +378,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     unverifiedSubmitBtn.onclick = null;
                     unverifiedCancelBtn.onclick = null;
                     unverifiedModal.hide();
-                    performSubmission();
+                    performSubmission(capturedSectionsData);
                 };
                 unverifiedCancelBtn.onclick = () => {
                     unverifiedSubmitBtn.onclick = null;
@@ -381,7 +393,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
         }
 
-        await performSubmission();
+        await performSubmission(capturedSectionsData);
     });
 
     // Initial load

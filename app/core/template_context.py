@@ -39,7 +39,8 @@ def get_global_template_context() -> Dict[str, Any]:
     context.update({
         # Application metadata
         "app_name": "Wave Glider Buddy System",
-        "app_version": "1.0.0",  # You can make this dynamic if needed
+        # Bump when deploying frontend/static fixes so cache-busted script URLs (e.g. PIC form) load new JS
+        "app_version": "1.0.0",
         "current_year": datetime.now().year,
         "current_utc": datetime.now(timezone.utc),
         

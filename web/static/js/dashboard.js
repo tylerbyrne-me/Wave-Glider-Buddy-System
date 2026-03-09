@@ -2071,11 +2071,19 @@ document.addEventListener('DOMContentLoaded', async function() {
         return n;
     }
 
+    function formatEssCourseFromWaveDirection(deg) {
+        if (deg == null || Number.isNaN(deg)) return 'N/A';
+        const waveFrom = ((Math.round(Number(deg)) % 360) + 360) % 360;
+        const longLeg1 = (waveFrom - 90 + 360) % 360;
+        const longLeg2 = (waveFrom + 90) % 360;
+        return `Steer ${waveFrom}° at turns; long legs ${longLeg1}° / ${longLeg2}°`;
+    }
+
     function updateEssCourseGuidance(measurementDir, forecastDir) {
         const fromMeas = document.getElementById('essCourseFromMeasurement');
         const fromForecast = document.getElementById('essCourseFromForecast');
-        if (fromMeas) fromMeas.textContent = measurementDir != null ? `Steer ${measurementDir}°` : 'N/A';
-        if (fromForecast) fromForecast.textContent = forecastDir != null ? `Steer ${forecastDir}°` : 'N/A';
+        if (fromMeas) fromMeas.textContent = formatEssCourseFromWaveDirection(measurementDir);
+        if (fromForecast) fromForecast.textContent = formatEssCourseFromWaveDirection(forecastDir);
     }
 
     // Fetch and render the Wave chart on page load (only if enabled)

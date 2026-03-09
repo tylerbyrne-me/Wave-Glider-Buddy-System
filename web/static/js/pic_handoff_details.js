@@ -85,6 +85,10 @@ function formatItemValue(item) {
     const raw = item.value;
 
     if (id.startsWith('sensor_') && id.endsWith('_status')) {
+        const rawStr = raw != null ? String(raw).trim() : '';
+        if (rawStr === 'On' || rawStr === 'Off') {
+            return rawStr;
+        }
         try {
             const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
             const onOff = (v && (v.value === 'On' || v.default_on)) ? 'On' : 'Off';

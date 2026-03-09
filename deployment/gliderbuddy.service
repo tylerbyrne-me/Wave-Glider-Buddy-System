@@ -1,0 +1,17 @@
+[Unit]
+Description=Wave Glider Buddy System (FastAPI + Gunicorn)
+After=network.target
+
+[Service]
+Type=notify
+User=gliderbuddy
+Group=gliderbuddy
+WorkingDirectory=/path/to/Wave-Glider-Buddy-System
+Environment="PATH=/path/to/venv/bin"
+# Increase -w (workers) for more concurrency; 4 is the README default.
+ExecStart=/path/to/venv/bin/gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.app:app -b 0.0.0.0:8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

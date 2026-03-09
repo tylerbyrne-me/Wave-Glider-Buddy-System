@@ -1672,10 +1672,10 @@
             <canvas id="waveSpectrumChart"></canvas> <!-- Ensure this ID is present -->
           </div>
 
-          <!-- ESS course guidance: course to steer to face waves (head seas). JS fills forecast line. -->
+          <!-- ESS course guidance: bow at turns = wave direction (from); long legs = orthogonal (wave ± 90°) for waypoint layout. -->
           <div class="ess-course-guidance mb-3 p-3 border rounded" id="essCourseGuidanceBlock">
             <h5 class="mb-2">ESS course guidance</h5>
-            <p class="small text-muted mb-2">Course to steer so the bow (short legs of figure-8) faces oncoming waves. Update as wave direction shifts. Pattern: 2 km × 210 m, long legs perpendicular to wave direction.</p>
+            <p class="small text-muted mb-2">Wave direction is reported as direction waves are <strong>coming from</strong>. Build the figure-8 from a first waypoint (WP1): <strong>bow at turns</strong> = steer into waves (wave direction); <strong>long legs</strong> = orthogonal to wave direction (wave ± 90°). Pattern: 2 km × 210 m. Example: wave from 60° → steer 60° at turns; long leg bearings 330° and 150°. Update as wave direction shifts.</p>
             <div class="ess-course-rows">
               <div><strong>From last measurement:</strong> <span id="essCourseFromMeasurement">—</span></div>
               <div><strong>From forecast (this hour):</strong> <span id="essCourseFromForecast">—</span></div>
@@ -2057,7 +2057,7 @@
 {% endblock %}
 
 {% block body_extra_js %}
-  <script type="module" src="/static/js/dashboard.js"></script>
+  <script type="module" src="/static/js/dashboard.js?v={{ app_version }}"></script>
   <script type="module" src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
   <script>
     // Pass error analysis data to JavaScript
