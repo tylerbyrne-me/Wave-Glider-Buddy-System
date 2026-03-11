@@ -10,6 +10,19 @@ logger = logging.getLogger(__name__)
 # Minimum valid date for timestamps (filters out epoch dates from parsing failures)
 MIN_VALID_TIMESTAMP = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
+
+def get_effective_local_path(
+    source_preference: Optional[str], custom_local_path: Optional[str]
+) -> Optional[str]:
+    """Return the local data path to use: custom if set, else config default when source is 'local'."""
+    if custom_local_path:
+        return custom_local_path
+    if source_preference == "local":
+        from ..config import settings  # lazy to avoid circular import if config ever imports core
+        return str(settings.local_data_base_path)
+    return None
+
+
 def sanitize_path_segment(value: str) -> str:
     """Make a safe path segment for filesystem storage."""
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())

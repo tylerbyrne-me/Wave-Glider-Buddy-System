@@ -2196,10 +2196,9 @@ async def get_ess_planning_page(
 ):
     """ESS Waypoint Planner pop-out: initial position and measured wave direction for first paint."""
     source_preference = request.query_params.get("source") or None
-    custom_local_path = request.query_params.get("local_path") or None
-    # When source is local and no path given, use config default so ESS sees the same path as dashboard
-    if source_preference == "local" and not custom_local_path:
-        custom_local_path = str(settings.local_data_base_path)
+    custom_local_path = utils.get_effective_local_path(
+        source_preference, request.query_params.get("local_path") or None
+    )
     initial_position = None
     initial_wave_measured = None
     hours = 24
@@ -2332,7 +2331,8 @@ async def post_ess_waypoints(
 ):
     """Compute WP1-WP4 for ESS figure-8 pattern from origin and wave direction (from). Returns decimal degrees."""
     result = ess_waypoints.compute_ess_waypoints(
-        body.lat, body.lon, body.wave_direction_deg
+        body.lat, body.lon, body.wave_direction_deg,
+        short_leg_m=body.short_leg_m, long_leg_m=body.long_leg_m,
     )
     return JSONResponse(content=result)
 

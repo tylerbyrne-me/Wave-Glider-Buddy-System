@@ -21,19 +21,16 @@
             if (data.local_path != null) localPath = (data.local_path && String(data.local_path).trim()) || null;
         } catch (e) {}
     }
-    if (initialPosition == null || initialWaveMeasured == null) {
-        try {
-            const rawPos = (app.getAttribute('data-initial-position') || app.dataset.initialPosition || 'null').trim();
-            const rawWave = (app.getAttribute('data-initial-wave-measured') || app.dataset.initialWaveMeasured || 'null').trim();
-            if (rawPos && rawPos !== 'null' && (rawPos.startsWith('{') || rawPos.startsWith('['))) initialPosition = JSON.parse(rawPos);
-            if (rawWave && rawWave !== 'null' && (rawWave.startsWith('{') || rawWave.startsWith('['))) initialWaveMeasured = JSON.parse(rawWave);
-        } catch (e) {}
-    }
+
+    const DEFAULT_SHORT_LEG_M = 210;
+    const DEFAULT_LONG_LEG_M = 2000;
 
     let state = {
         lat: null,
         lon: null,
         useForecast: false,
+        useCustomDir: false,
+        customDir: null,
         measuredDir: null,
         measuredTs: null,
         forecastDir: null,
@@ -49,9 +46,31 @@
     const outWp4 = document.getElementById('outWp4');
 
     function getWaveDirectionDeg() {
+        if (state.useCustomDir) {
+            const el = document.getElementById('inputCustomWaveDir');
+            if (el) {
+                const n = parseFloat(el.value);
+                if (!Number.isNaN(n) && n >= 0 && n <= 360) return n;
+            }
+            return state.customDir;
+        }
         if (state.useForecast && state.forecastDir != null) return state.forecastDir;
         if (state.measuredDir != null) return state.measuredDir;
         return state.forecastDir; // fallback to forecast when no measured direction
+    }
+
+    function getShortLegM() {
+        const el = document.getElementById('inputShortLegM');
+        if (!el) return DEFAULT_SHORT_LEG_M;
+        const n = parseFloat(el.value);
+        return (!Number.isNaN(n) && n >= 1 && n <= 10000) ? n : DEFAULT_SHORT_LEG_M;
+    }
+
+    function getLongLegM() {
+        const el = document.getElementById('inputLongLegM');
+        if (!el) return DEFAULT_LONG_LEG_M;
+        const n = parseFloat(el.value);
+        return (!Number.isNaN(n) && n >= 1 && n <= 100000) ? n : DEFAULT_LONG_LEG_M;
     }
 
     function apiRequest(url, method, body) {
@@ -63,11 +82,16 @@
     function fetchWaypoints() {
         const deg = getWaveDirectionDeg();
         if (state.lat == null || state.lon == null || deg == null) return Promise.resolve(null);
-        return apiRequest('/api/ess/waypoints', 'POST', {
+        const shortM = getShortLegM();
+        const longM = getLongLegM();
+        const body = {
             lat: state.lat,
             lon: state.lon,
-            wave_direction_deg: deg
-        });
+            wave_direction_deg: deg,
+            short_leg_m: shortM,
+            long_leg_m: longM
+        };
+        return apiRequest('/api/ess/waypoints', 'POST', body);
     }
 
     function updateOutput(data) {
@@ -98,17 +122,19 @@
         const latMax = Math.max(...lats);
         const lonMin = Math.min(...lons);
         const lonMax = Math.max(...lons);
-        const pad = 0.15;
-        const rangeLat = (latMax - latMin) || 0.001;
-        const rangeLon = (lonMax - lonMin) || 0.001;
-        const padLat = rangeLat * pad;
-        const padLon = rangeLon * pad;
+        const rangeLat = (latMax - latMin) || 0.0001;
+        const rangeLon = (lonMax - lonMin) || 0.0001;
+        const pad = 0.2;
+        const midLat = (latMin + latMax) / 2;
+        const midLon = (lonMin + lonMax) / 2;
+        const scaleDeg = Math.max(rangeLat, rangeLon) * (1 + 2 * pad);
+        const pixelsPerDeg = Math.min(w, h) / scaleDeg;
 
         function toX(lon) {
-            return ((lon - (lonMin - padLon)) / (rangeLon + 2 * padLon)) * w;
+            return w / 2 + (lon - midLon) * pixelsPerDeg;
         }
         function toY(lat) {
-            return h - ((lat - (latMin - padLat)) / (rangeLat + 2 * padLat)) * h;
+            return h / 2 - (lat - midLat) * pixelsPerDeg;
         }
 
         const x1 = toX(data.wp1.lon);
@@ -207,6 +233,47 @@
         recalc();
     });
 
+    const waveSourceCustomEl = document.getElementById('waveSourceCustom');
+    const inputCustomWaveDirEl = document.getElementById('inputCustomWaveDir');
+    if (waveSourceCustomEl) {
+        waveSourceCustomEl.addEventListener('change', function () {
+            state.useCustomDir = this.checked;
+            if (state.useCustomDir) {
+                const forecastCb = document.getElementById('waveSourceForecast');
+                if (forecastCb) forecastCb.checked = false;
+                state.useForecast = false;
+                if (inputCustomWaveDirEl) {
+                    const n = parseFloat(inputCustomWaveDirEl.value);
+                    state.customDir = (!Number.isNaN(n) && n >= 0 && n <= 360) ? n : null;
+                }
+            } else {
+                state.customDir = null;
+            }
+            recalc();
+        });
+    }
+    if (inputCustomWaveDirEl) {
+        inputCustomWaveDirEl.addEventListener('input', function () {
+            if (!state.useCustomDir) return;
+            const n = parseFloat(this.value);
+            state.customDir = (!Number.isNaN(n) && n >= 0 && n <= 360) ? n : null;
+            recalc();
+        });
+        inputCustomWaveDirEl.addEventListener('change', function () {
+            if (!state.useCustomDir) return;
+            const n = parseFloat(this.value);
+            state.customDir = (!Number.isNaN(n) && n >= 0 && n <= 360) ? n : null;
+            recalc();
+        });
+    }
+
+    const inputShortLegEl = document.getElementById('inputShortLegM');
+    const inputLongLegEl = document.getElementById('inputLongLegM');
+    if (inputShortLegEl) inputShortLegEl.addEventListener('change', recalc);
+    if (inputShortLegEl) inputShortLegEl.addEventListener('input', function () { setTimeout(recalc, 350); });
+    if (inputLongLegEl) inputLongLegEl.addEventListener('change', recalc);
+    if (inputLongLegEl) inputLongLegEl.addEventListener('input', function () { setTimeout(recalc, 350); });
+
     document.getElementById('copyCoordinates').addEventListener('click', function () {
         if (!state.waypoints) return;
         const d = state.waypoints;
@@ -252,16 +319,8 @@
                 if (cb) cb.checked = true;
             }
         }
-        if (initialPosition && initialPosition.lat != null && initialPosition.lon != null) {
-            setPosition(initialPosition.lat, initialPosition.lon);
-        } else {
-            recalc();
-        }
+        recalc();
     }).catch(function () {
-        if (initialPosition && initialPosition.lat != null && initialPosition.lon != null) {
-            setPosition(initialPosition.lat, initialPosition.lon);
-        } else {
-            recalc();
-        }
+        recalc();
     });
 })();

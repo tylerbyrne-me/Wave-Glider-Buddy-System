@@ -127,6 +127,8 @@ class ESSWaypointsRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90, description="Origin latitude (decimal degrees).")
     lon: float = Field(..., ge=-180, le=180, description="Origin longitude (decimal degrees).")
     wave_direction_deg: float = Field(..., ge=0, le=360, description="Direction waves are coming from (0-360 degrees).")
+    short_leg_m: Optional[float] = Field(default=None, ge=1, le=10000, description="Short leg length (m). Default from config (210).")
+    long_leg_m: Optional[float] = Field(default=None, ge=1, le=100000, description="Long leg length (m). Default from config (2000).")
 
 
 class MissionReportFile(BaseModel):
