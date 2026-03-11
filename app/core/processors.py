@@ -140,6 +140,7 @@ def preprocess_weather_df(df):
 
 
 def preprocess_wave_df(df):
+    """GPS Waves Sensor Data: same column names for local and remote (timeStamp, hs (m), tp (s), dp (deg), sample Gaps)."""
     timestamp_col = "Timestamp"
     rename_map = {
         "hs (m)": "SignificantWaveHeight",
@@ -147,7 +148,7 @@ def preprocess_wave_df(df):
         "dp (deg)": "MeanWaveDirection",
         "sample Gaps": "SampleGaps",
     }
-    numeric_cols = list(rename_map.values())
+    numeric_cols = ["SignificantWaveHeight", "WavePeriod", "MeanWaveDirection", "SampleGaps"]
     return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
 
 

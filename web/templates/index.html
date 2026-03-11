@@ -1680,6 +1680,7 @@
               <div><strong>From last measurement:</strong> <span id="essCourseFromMeasurement">—</span></div>
               <div><strong>From forecast (this hour):</strong> <span id="essCourseFromForecast">—</span></div>
             </div>
+            <a href="#" class="btn btn-outline-primary btn-sm mt-2" id="openEssPlannerLink" data-mission="{{ mission }}" data-source="{{ current_source_preference or '' }}" data-local-path="{{ current_local_path | e if current_local_path else '' }}" data-default-local-path="{{ default_local_path | e if default_local_path else '' }}">Open ESS waypoint planner</a>
           </div>
 
           <!-- Marine Weather Forecast Embedded -->

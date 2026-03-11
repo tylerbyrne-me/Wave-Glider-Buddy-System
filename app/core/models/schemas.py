@@ -122,6 +122,13 @@ class ReportGenerationOptions(BaseModel):
     custom_filename: Optional[str] = Field(default=None, max_length=100, description="A custom name for the report file, used when not saving to overview.")
 
 
+class ESSWaypointsRequest(BaseModel):
+    """Request body for ESS waypoint computation (figure-8 pattern)."""
+    lat: float = Field(..., ge=-90, le=90, description="Origin latitude (decimal degrees).")
+    lon: float = Field(..., ge=-180, le=180, description="Origin longitude (decimal degrees).")
+    wave_direction_deg: float = Field(..., ge=0, le=360, description="Direction waves are coming from (0-360 degrees).")
+
+
 class MissionReportFile(BaseModel):
     """Metadata for a generated mission report file."""
     filename: str

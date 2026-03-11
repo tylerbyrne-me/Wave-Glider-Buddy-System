@@ -3457,4 +3457,21 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (loader) loader();
         }
     }
+
+    // Open ESS waypoint planner with same data source as dashboard (use form; when local and no custom path, use config default)
+    document.addEventListener('click', function (e) {
+        const link = e.target.closest && e.target.closest('#openEssPlannerLink');
+        if (!link) return;
+        e.preventDefault();
+        const mission = link.dataset.mission;
+        const checked = document.querySelector('input[name="dataSourceOption"]:checked');
+        const pathInput = document.getElementById('customLocalPath');
+        const source = (checked && checked.value) ? checked.value : (new URLSearchParams(window.location.search).get('source') || '');
+        let localPath = (pathInput && pathInput.value != null) ? String(pathInput.value).trim() : (new URLSearchParams(window.location.search).get('local_path') || '');
+        if (source === 'local' && !localPath && link.dataset.defaultLocalPath) localPath = link.dataset.defaultLocalPath;
+        let url = '/wave-glider/ess-planning?mission=' + encodeURIComponent(mission);
+        if (source) url += '&source=' + encodeURIComponent(source);
+        if (localPath) url += '&local_path=' + encodeURIComponent(localPath);
+        window.open(url, '_blank', 'noopener,noreferrer');
+    });
 });

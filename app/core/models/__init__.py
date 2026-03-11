@@ -70,6 +70,7 @@ from .schemas import (
     # Report/Data params
     ReportDataParams,
     ForecastParams,
+    ESSWaypointsRequest,
     ReportGenerationOptions,
     MissionReportFile,
     MissionReportListResponse,
@@ -241,6 +242,7 @@ __all__ = [
     # Pydantic schemas (add all schema names here)
     "ReportDataParams",
     "ForecastParams",
+    "ESSWaypointsRequest",
     "ReportGenerationOptions",
     "MissionReportFile",
     "MissionReportListResponse",

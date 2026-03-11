@@ -5,6 +5,10 @@
 ESS_WAVE_HEIGHT_THRESHOLD_M = 4.5  # >= this: extreme seas, figure-8 (bow-tie) pattern required
 ESS_APPROACHING_THRESHOLD_M = 2.5  # [approaching, ESS): increasing seas; < this: calm
 
+# Figure-8 (bow-tie) pattern dimensions per Liquid Robotics (2 km x 210 m)
+ESS_PATTERN_LONG_LEG_M = 2000
+ESS_PATTERN_SHORT_LEG_M = 210
+
 
 def get_ess_state(wave_height_m: float | None) -> str | None:
     """Return 'calm' | 'increasing' | 'extreme' from wave height (m), or None if no data."""

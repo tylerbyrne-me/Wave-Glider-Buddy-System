@@ -5,6 +5,7 @@ import shutil
 import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 # --- Configure Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)-5.5s [%(name)s] %(message)s')
@@ -86,7 +87,7 @@ from .core.auth import (get_current_active_user, get_current_admin_user,
                          get_optional_current_user)
 from .config import settings
 from .core import models  # type: ignore
-from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context, reporting) # type: ignore
+from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context, reporting, ess_waypoints) # type: ignore
 from .core.security import create_access_token, verify_password
 from .core.db import SQLModelSession, get_db_session, sqlite_engine
 from .core.scheduler import set_scheduler
@@ -2169,6 +2170,7 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     context["current_source_preference"] = request.query_params.get("source") or "remote"
     context["current_source"] = context["current_source_preference"]
     context["current_local_path"] = request.query_params.get("local_path") or ""
+    context["default_local_path"] = str(settings.local_data_base_path)
 
     return templates.TemplateResponse("index.html", context)
 
@@ -2183,6 +2185,156 @@ async def historical_dashboard_redirect(
     if not mission:
         return RedirectResponse(url="/wave-glider/home")
     return RedirectResponse(url=f"/wave-glider/historical?mission={mission}")
+
+
+@app.get("/wave-glider/ess-planning", response_class=HTMLResponse, include_in_schema=False)
+async def get_ess_planning_page(
+    request: Request,
+    mission: str = Query(..., description="Mission ID"),
+    debug: Optional[str] = Query(None, description="Show debug panel (e.g. 1)"),
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """ESS Waypoint Planner pop-out: initial position and measured wave direction for first paint."""
+    source_preference = request.query_params.get("source") or None
+    custom_local_path = request.query_params.get("local_path") or None
+    # When source is local and no path given, use config default so ESS sees the same path as dashboard
+    if source_preference == "local" and not custom_local_path:
+        custom_local_path = str(settings.local_data_base_path)
+    initial_position = None
+    initial_wave_measured = None
+    hours = 24
+    ess_debug: Optional[dict] = None
+    show_debug = debug in ("1", "true", "yes")
+    telemetry_rows = 0
+    telemetry_raw_columns: List[str] = []
+    telemetry_has_required = False
+    waves_rows = 0
+    waves_raw_columns: List[str] = []
+    wave_direction_status = "no_data"
+    wave_direction_numeric = None
+
+    logger.info(
+        "ESS planning request: mission=%s source=%s local_path=%s",
+        mission, source_preference, custom_local_path or "(none)",
+    )
+
+    try:
+        telemetry_result = await load_data_source(
+            "telemetry", mission,
+            source_preference=source_preference,
+            custom_local_path=custom_local_path,
+            current_user=current_user,
+            hours_back=hours,
+        )
+        if isinstance(telemetry_result, tuple) and len(telemetry_result) >= 1:
+            df_telemetry = telemetry_result[0]
+            if df_telemetry is not None:
+                telemetry_raw_columns = list(df_telemetry.columns)
+                telemetry_rows = len(df_telemetry)
+            if df_telemetry is not None and not df_telemetry.empty:
+                df_telemetry = processors.preprocess_telemetry_df(df_telemetry)
+                telemetry_has_required = (
+                    "Timestamp" in df_telemetry.columns
+                    and "Latitude" in df_telemetry.columns
+                    and "Longitude" in df_telemetry.columns
+                )
+                if telemetry_has_required:
+                    latest = df_telemetry.sort_values("Timestamp", ascending=False).iloc[0]
+                    lat = latest.get("Latitude")
+                    lon = latest.get("Longitude")
+                    ts = latest.get("Timestamp")
+                    if lat is not None and lon is not None and pd.notna(lat) and pd.notna(lon):
+                        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC") if hasattr(ts, "strftime") else str(ts)
+                        initial_position = {"lat": float(lat), "lon": float(lon), "timestamp_str": ts_str}
+        else:
+            logger.debug("ESS planning: telemetry_result not a tuple or empty, type=%s", type(telemetry_result).__name__)
+
+        waves_result = await load_data_source(
+            "waves", mission,
+            source_preference=source_preference,
+            custom_local_path=custom_local_path,
+            current_user=current_user,
+            hours_back=hours,
+        )
+        if isinstance(waves_result, tuple) and len(waves_result) >= 1:
+            df_waves = waves_result[0]
+            if df_waves is not None:
+                waves_raw_columns = list(df_waves.columns)
+                waves_rows = len(df_waves)
+            if df_waves is not None and not df_waves.empty:
+                wave_info = summaries.get_wave_status(df_waves)
+                vals = wave_info.get("values") or {}
+                wave_direction_status = vals.get("MeanDirectionStatus") or "missing"
+                wave_direction_numeric = vals.get("MeanDirectionNumeric")
+                if vals.get("MeanDirectionStatus") == "valid" and vals.get("MeanDirectionNumeric") is not None:
+                    ts_str = wave_info.get("latest_timestamp_str") or vals.get("Timestamp") or "N/A"
+                    if isinstance(ts_str, str) and ts_str == "N/A" and vals.get("Timestamp"):
+                        ts_str = str(vals["Timestamp"])
+                    initial_wave_measured = {
+                        "direction_deg": int(vals["MeanDirectionNumeric"]),
+                        "timestamp_str": ts_str,
+                    }
+        else:
+            logger.debug("ESS planning: waves_result not a tuple or empty, type=%s", type(waves_result).__name__)
+
+        if show_debug:
+            ess_debug = {
+                "source_preference": source_preference,
+                "local_path": custom_local_path or "(none)",
+                "telemetry_rows": telemetry_rows,
+                "telemetry_raw_columns": telemetry_raw_columns,
+                "telemetry_has_required_cols": telemetry_has_required,
+                "initial_position_set": initial_position is not None,
+                "waves_rows": waves_rows,
+                "waves_raw_columns": waves_raw_columns,
+                "wave_direction_status": wave_direction_status,
+                "wave_direction_numeric": wave_direction_numeric,
+                "initial_wave_measured_set": initial_wave_measured is not None,
+            }
+        logger.info(
+            "ESS planning result: telemetry_rows=%s has_pos=%s waves_rows=%s dir_status=%s has_wave=%s",
+            telemetry_rows, initial_position is not None, waves_rows, wave_direction_status, initial_wave_measured is not None,
+        )
+    except Exception as e:
+        logger.warning(f"ESS planning initial data load failed for mission {mission}: {e}", exc_info=True)
+        if show_debug:
+            ess_debug = {
+                "error": str(e),
+                "source_preference": source_preference,
+                "local_path": custom_local_path or "(none)",
+            }
+
+    context = get_template_context(request=request, mission=mission, current_user=current_user)
+    context["request"] = request
+    context["mission_id"] = mission
+    context["mission"] = mission
+    context["initial_position"] = initial_position
+    context["initial_wave_measured"] = initial_wave_measured
+    context["source_preference"] = source_preference
+    context["local_path"] = custom_local_path or None
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
+    context["ess_debug"] = ess_debug
+    q = {"mission": mission}
+    if source_preference:
+        q["source"] = source_preference
+    if custom_local_path:
+        q["local_path"] = custom_local_path
+    context["back_to_dashboard_url"] = "/wave-glider?" + urlencode(q)
+    return templates.TemplateResponse("ess_planning.html", context)
+
+
+@app.post("/api/ess/waypoints")
+async def post_ess_waypoints(
+    body: models.ESSWaypointsRequest = Body(...),
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Compute WP1-WP4 for ESS figure-8 pattern from origin and wave direction (from). Returns decimal degrees."""
+    result = ess_waypoints.compute_ess_waypoints(
+        body.lat, body.lon, body.wave_direction_deg
+    )
+    return JSONResponse(content=result)
 
 @app.get("/api/data/{report_type}/{mission_id}")
 async def get_report_data_for_plotting(
