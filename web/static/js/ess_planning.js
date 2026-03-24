@@ -108,12 +108,74 @@
         outWp4.textContent = fmt(data.wp4);
     }
 
+    function bearingFromDegToCanvasUnit(fromDeg) {
+        const r = (fromDeg % 360 + 360) % 360 * Math.PI / 180;
+        return { ux: Math.sin(r), uy: -Math.cos(r) };
+    }
+
+    function drawArrow(ctx, x0, y0, x1, y1, color, lineW, headLen) {
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.001) return;
+        const ux = dx / len;
+        const uy = dy / len;
+        const bx = x1 - ux * headLen;
+        const by = y1 - uy * headLen;
+        const perpX = -uy;
+        const perpY = ux;
+        const hw = headLen * 0.55;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = lineW;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(bx + perpX * hw, by + perpY * hw);
+        ctx.lineTo(bx - perpX * hw, by - perpY * hw);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawLabelWithHalo(ctx, text, px, py, fill, stroke) {
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const padX = 4;
+        const padY = 3;
+        const tw = ctx.measureText(text).width;
+        const th = 12;
+        const bx = px - tw / 2 - padX;
+        const by = py - th / 2 - padY;
+        const bw = tw + padX * 2;
+        const bh = th + padY * 2;
+        const rr = 4;
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(bx, by, bw, bh, rr);
+        } else {
+            ctx.rect(bx, by, bw, bh);
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = fill || '#212529';
+        ctx.fillText(text, px, py);
+    }
+
     function drawDiagram(data) {
-        if (!canvas || !data || !data.wp1) return;
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const w = canvas.width;
         const h = canvas.height;
         ctx.clearRect(0, 0, w, h);
+        if (!data || !data.wp1) return;
 
         const points = [data.wp1, data.wp2, data.wp3, data.wp4];
         const lats = points.map(p => p.lat);
@@ -146,6 +208,66 @@
         const x4 = toX(data.wp4.lon);
         const y4 = toY(data.wp4.lat);
 
+        const cx = (x1 + x2 + x3 + x4) / 4;
+        const cy = (y1 + y2 + y3 + y4) / 4;
+        const bxMin = Math.min(x1, x2, x3, x4);
+        const bxMax = Math.max(x1, x2, x3, x4);
+        const byMin = Math.min(y1, y2, y3, y4);
+        const byMax = Math.max(y1, y2, y3, y4);
+        const patCx = (bxMin + bxMax) / 2;
+        const patCy = (byMin + byMax) / 2;
+        const boxPad = 14;
+        const xmin = bxMin - boxPad;
+        const xmax = bxMax + boxPad;
+        const ymin = byMin - boxPad;
+        const ymax = byMax + boxPad;
+
+        function rayExitDistAlongRay(px, py, ux, uy, xmin0, xmax0, ymin0, ymax0) {
+            let tMin = Infinity;
+            if (Math.abs(ux) > 1e-9) {
+                for (let xv = 0; xv < 2; xv++) {
+                    const xb = xv === 0 ? xmin0 : xmax0;
+                    const t = (xb - px) / ux;
+                    if (t > 0) {
+                        const yy = py + t * uy;
+                        if (yy >= ymin0 - 1e-6 && yy <= ymax0 + 1e-6) tMin = Math.min(tMin, t);
+                    }
+                }
+            }
+            if (Math.abs(uy) > 1e-9) {
+                for (let yv = 0; yv < 2; yv++) {
+                    const yb = yv === 0 ? ymin0 : ymax0;
+                    const t = (yb - py) / uy;
+                    if (t > 0) {
+                        const xx = px + t * ux;
+                        if (xx >= xmin0 - 1e-6 && xx <= xmax0 + 1e-6) tMin = Math.min(tMin, t);
+                    }
+                }
+            }
+            return tMin === Infinity ? Math.max(xmax0 - xmin0, ymax0 - ymin0) * 0.25 : tMin;
+        }
+
+        const markerR = 5;
+        const waveBodyLen = 22;
+
+        function drawSegmentDirectionArrow(ax, ay, bx, by, color, lineW, headLen, along) {
+            const frac = along == null ? 0.5 : along;
+            const dx = bx - ax;
+            const dy = by - ay;
+            const len = Math.hypot(dx, dy);
+            if (len < 8) return;
+            const ux = dx / len;
+            const uy = dy / len;
+            const cap = Math.min(18, Math.max(10, len * 0.2));
+            const mx = ax + (bx - ax) * frac;
+            const my = ay + (by - ay) * frac;
+            const s0x = mx - ux * cap * 0.5;
+            const s0y = my - uy * cap * 0.5;
+            const s1x = mx + ux * cap * 0.5;
+            const s1y = my + uy * cap * 0.5;
+            drawArrow(ctx, s0x, s0y, s1x, s1y, color, lineW, headLen);
+        }
+
         ctx.strokeStyle = '#e85d04';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -156,33 +278,69 @@
         ctx.closePath();
         ctx.stroke();
 
+        const travelColor = '#198754';
+        const edgeLens = [
+            Math.hypot(x2 - x1, y2 - y1),
+            Math.hypot(x3 - x2, y3 - y2),
+            Math.hypot(x4 - x3, y4 - y3),
+            Math.hypot(x1 - x4, y1 - y4)
+        ];
+        const edgeOrder = [0, 1, 2, 3].sort(function (a, b) {
+            return edgeLens[b] - edgeLens[a];
+        });
+        const long1 = edgeOrder[0];
+        const long2 = edgeOrder[1];
+        const alongFor = function (idx) {
+            if (idx === long1) return 0.30;
+            if (idx === long2) return 0.70;
+            return 0.5;
+        };
+        drawSegmentDirectionArrow(x1, y1, x2, y2, travelColor, 2, 7, alongFor(0));
+        drawSegmentDirectionArrow(x2, y2, x3, y3, travelColor, 2, 7, alongFor(1));
+        drawSegmentDirectionArrow(x3, y3, x4, y4, travelColor, 2, 7, alongFor(2));
+        drawSegmentDirectionArrow(x4, y4, x1, y1, travelColor, 2, 7, alongFor(3));
+
         ctx.fillStyle = '#000';
-        [[x1, y1, 'WP 1'], [x2, y2, 'WP 2'], [x3, y3, 'WP 3'], [x4, y4, 'WP 4']].forEach(function (a) {
-            const [x, y, label] = a;
+        [[x1, y1], [x2, y2], [x3, y3], [x4, y4]].forEach(function (pt) {
             ctx.beginPath();
-            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.arc(pt[0], pt[1], markerR, 0, Math.PI * 2);
             ctx.fill();
-            ctx.font = '12px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(label, x, y + 18);
+        });
+
+        const labels = [[x1, y1, 'WP 1'], [x2, y2, 'WP 2'], [x3, y3, 'WP 3'], [x4, y4, 'WP 4']];
+        labels.forEach(function (a) {
+            const vx = a[0] - cx;
+            const vy = a[1] - cy;
+            const vlen = Math.hypot(vx, vy) || 1;
+            const ox = (vx / vlen) * (markerR + 22);
+            const oy = (vy / vlen) * (markerR + 22);
+            drawLabelWithHalo(ctx, a[2], a[0] + ox, a[1] + oy);
         });
 
         const deg = getWaveDirectionDeg();
         if (deg != null) {
-            const cx = (x1 + x2 + x3 + x4) / 4;
-            const cy = (y1 + y2 + y3 + y4) / 4;
-            const rad = (90 - deg) * Math.PI / 180;
-            const len = 40;
-            ctx.strokeStyle = '#0d6efd';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.lineTo(cx + len * Math.cos(rad), cy - len * Math.sin(rad));
-            ctx.stroke();
-            ctx.fillStyle = '#0d6efd';
-            ctx.font = '10px sans-serif';
-            ctx.textAlign = 'left';
-            ctx.fillText('Wave from ' + Math.round(deg) + '\u00B0', cx + len * Math.cos(rad) + 4, cy - len * Math.sin(rad));
+            const waveFrom = bearingFromDegToCanvasUnit(deg);
+            const tExit = rayExitDistAlongRay(patCx, patCy, waveFrom.ux, waveFrom.uy, xmin, xmax, ymin, ymax);
+            const tipDist = tExit + 6;
+            const tailDist = tipDist + waveBodyLen;
+            const tailX = patCx + tailDist * waveFrom.ux;
+            const tailY = patCy + tailDist * waveFrom.uy;
+            const tipX = patCx + tipDist * waveFrom.ux;
+            const tipY = patCy + tipDist * waveFrom.uy;
+            drawArrow(ctx, tailX, tailY, tipX, tipY, '#0d6efd', 2.5, 9);
+            const waveLabel = 'Waves from ' + Math.round(deg) + '\u00B0';
+            const margin = 12;
+            const clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
+            const midWx = (tipX + tailX) / 2;
+            const midWy = (tipY + tailY) / 2;
+            const lxo = waveFrom.uy * 12;
+            const lyo = -waveFrom.ux * 12;
+            drawLabelWithHalo(
+                ctx, waveLabel,
+                clamp(midWx + lxo, margin, w - margin),
+                clamp(midWy + lyo, margin, h - margin),
+                '#0d6efd'
+            );
         }
     }
 
@@ -192,7 +350,9 @@
             updateOutput(data);
             drawDiagram(data);
         }).catch(function () {
+            state.waypoints = null;
             updateOutput(null);
+            drawDiagram(null);
         });
     }
 
