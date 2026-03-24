@@ -34,9 +34,11 @@ class Settings(BaseSettings):
 
     # --- App URL / HTTP(S) (for production) ---
     # Public URL of the app. Used for links, redirects, KML network links, etc.
-    # Local: http://localhost:8000  |  Production: http://192.168.1.18:8080 or https://...
+    # Must match the origin users open (scheme + host + port). See .env.example.
+    # Local: http://localhost:8000  |  Production: https://your-host (prefer hostname over raw IP)
     app_base_url: str = "http://localhost:8000"
-    # Set True when the app is served over HTTPS (enables Secure flag on cookies).
+    # True when the browser URL is https:// — sets Secure on cookies and https_only on session middleware.
+    # Not inferred from reverse-proxy headers; set APP_USE_HTTPS explicitly. See .env.example.
     app_use_https: bool = False
     # Path where SQLAdmin is mounted (default /admin). Use e.g. /app/admin if app is under a prefix.
     app_admin_base_url: str = "/admin"

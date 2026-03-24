@@ -66,7 +66,12 @@ async def login_for_access_token(
 @router.post("/logout")
 async def logout_user(response: Response):
     """Clears the authentication cookie."""
-    response.delete_cookie(key="access_token_cookie", path="/")
+    response.delete_cookie(
+        key="access_token_cookie",
+        path="/",
+        samesite="lax",
+        secure=settings.app_use_https,
+    )
     return {"message": "Logged out successfully"}
 
 
