@@ -2,20 +2,23 @@ import { apiRequest, showToast } from '/static/js/api.js';
 
 document.addEventListener('DOMContentLoaded', async function () { // Made async for getUserProfile
     // --- Theme Switcher Logic ---
-    // This is placed at the top to run immediately and prevent a flash of unstyled content (FOUC).
+    // Single source of truth for theme state.
     const themeSwitch = document.getElementById('themeSwitch');
     const htmlEl = document.documentElement;
+    const themeAttributeNames = ['data-theme', 'data-bs-theme'];
 
     const getPreferredTheme = () => {
-        if (localStorage.getItem('theme')) {
-            return localStorage.getItem('theme');
-        }
-        // Default to dark theme if no preference is set
-        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) return savedTheme;
+
+        const existingTheme = htmlEl.getAttribute('data-theme') || htmlEl.getAttribute('data-bs-theme');
+        if (existingTheme) return existingTheme;
+
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     };
 
     const setTheme = (theme) => {
-        htmlEl.setAttribute('data-bs-theme', theme);
+        themeAttributeNames.forEach((attributeName) => htmlEl.setAttribute(attributeName, theme));
         if (themeSwitch) {
             themeSwitch.checked = (theme === 'dark');
         }

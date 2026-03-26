@@ -1,9 +1,23 @@
 <!DOCTYPE html>
-<html data-theme="light">
+<html data-theme="light" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Wave Glider Buddy System{% endblock %}</title>
+    <script>
+      (function() {
+        var rootEl = document.documentElement;
+        if (!rootEl) return;
+
+        var storedTheme = null;
+        try { storedTheme = localStorage.getItem('theme'); } catch (e) {}
+        var systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var initialTheme = storedTheme || (systemPrefersDark ? 'dark' : 'light');
+
+        rootEl.setAttribute('data-theme', initialTheme);
+        rootEl.setAttribute('data-bs-theme', initialTheme);
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Raleway:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">

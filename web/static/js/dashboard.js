@@ -3404,7 +3404,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Observer to watch for theme changes on the <html> element
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'data-bs-theme') {
+            if (mutation.type === 'attributes' && (mutation.attributeName === 'data-bs-theme' || mutation.attributeName === 'data-theme')) {
                 // A brief delay allows the browser to compute the new CSS variable values
                 setTimeout(() => {
                     updateChartColorVariables(); // Get new colors from CSS
