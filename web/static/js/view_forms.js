@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     const noFormsMessage = document.getElementById('noFormsMessage');
     const formDetailsModal = new bootstrap.Modal(document.getElementById('formDetailsModal'));
     const formDetailsContentElement = document.getElementById('formDetailsContent'); // Updated ID
-    const backToDashboardBtn = document.getElementById('backToDashboardBtn');
     const userRole = document.body.dataset.userRole; // Get user role
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -186,12 +185,4 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Initial load
     fetchAndDisplayForms();
-
-    // Event listener for the "Close Page" button
-    if (backToDashboardBtn) { // Keep close button as requested
-        backToDashboardBtn.addEventListener('click', function(event) {
-            event.preventDefault(); // Prevent default anchor behavior
-            window.close();
-        });
-    }
 });

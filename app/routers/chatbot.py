@@ -30,9 +30,13 @@ async def chatbot_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """Chatbot main page (Wave Glider)."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "chatbot.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 
@@ -42,9 +46,13 @@ async def slocum_chatbot_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """Chatbot page for Slocum platform."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "slocum"
+    context["platform_home_url"] = "/slocum/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "chatbot.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 
@@ -54,9 +62,13 @@ async def admin_faqs_page(
     current_user: models.User = Depends(get_current_admin_user)
 ):
     """FAQ management page (admin only)."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_faqs.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 
@@ -66,9 +78,13 @@ async def slocum_admin_faqs_page(
     current_user: models.User = Depends(get_current_admin_user)
 ):
     """FAQ management page for Slocum platform (admin only)."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "slocum"
+    context["platform_home_url"] = "/slocum/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_faqs.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 

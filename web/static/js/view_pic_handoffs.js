@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     const tableContainer = document.getElementById('recentPicHandoffsTableContainer');
     const tableBody = document.getElementById('recentPicHandoffsTableBody');
     const noFormsMessage = document.getElementById('noRecentPicHandoffsMessage');
-    const closeButton = document.getElementById('closeRecentHandoffsBtn');
 
     const modalElement = document.getElementById('recentPicHandoffsFormDetailsModal');
     const modalTitle = document.getElementById('recentPicHandoffsFormDetailsModalLabel');
@@ -24,13 +23,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     let formDetailsModal;
     if (modalElement) {
         formDetailsModal = new bootstrap.Modal(modalElement);
-    }
-
-    if (closeButton) {
-        closeButton.addEventListener('click', () => { // Keep close button as requested
-            window.close(); // Consider providing a fallback if window.close() is blocked
-            // Fallback: window.location.href = '/wave-glider/home';
-        });
     }
 
     const urlParams = new URLSearchParams(window.location.search);

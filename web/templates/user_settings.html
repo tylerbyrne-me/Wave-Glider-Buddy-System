@@ -131,7 +131,7 @@
                                     {% if current_user.color %}
                                         <div class="d-flex align-items-center">
                                             <div class="user-color-indicator me-2" 
-                                                 style="width: 24px; height: 24px; background-color: {{ current_user.color }}; border: 1px solid #ccc; border-radius: 4px;" 
+                                                 style="width: 24px; height: 24px; background-color: {{ current_user.color }}; border: 1px solid var(--app-border-subtle, var(--bs-border-color)); border-radius: 4px;" 
                                                  title="Your color in the schedule: {{ current_user.color }}"></div>
                                             <code>{{ current_user.color }}</code>
                                         </div>
@@ -171,12 +171,12 @@
 <style>
     .user-color-indicator {
         display: inline-block;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        box-shadow: 0 1px 3px var(--app-shadow-soft);
         transition: transform 0.2s ease;
     }
     .user-color-indicator:hover {
         transform: scale(1.1);
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        box-shadow: 0 2px 6px var(--app-shadow-medium);
     }
 </style>
 {% endblock %}

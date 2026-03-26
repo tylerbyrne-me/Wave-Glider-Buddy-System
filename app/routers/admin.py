@@ -69,4 +69,8 @@ async def get_scheduler_jobs():
 @router.get("/scheduler_status.html", response_class=HTMLResponse, include_in_schema=False)
 async def get_scheduler_status_page(request: Request, current_user: models.User = Depends(get_current_admin_user)):
     """Serves the HTML page for viewing scheduler status (admin only)."""
-    return templates.TemplateResponse("admin/scheduler_status.html", get_template_context(request=request, current_user=current_user))
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
+    return templates.TemplateResponse("admin/scheduler_status.html", context)

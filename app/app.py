@@ -3223,6 +3223,9 @@ async def get_mission_form_page(
             form_type=form_type,
             current_user=actual_current_user,  # Pass to template
         )
+        context["platform"] = "wave_glider"
+        context["platform_home_url"] = "/wave-glider/home"
+        context["show_banner_nav"] = True
 
         response = templates.TemplateResponse(template_name, context)
         logger.info(f"Successfully prepared TemplateResponse for {template_name}.")
@@ -3258,12 +3261,16 @@ async def get_view_station_status_page(
         f"User '{username_for_log}' (role: {user_role_for_log}) "
         f"accessing /view_station_status.html."
     )
+    context = get_template_context(
+        request=request,
+        current_user=current_user, # Removed show_mission_selector
+    )
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "view_station_status.html",
-        get_template_context(
-            request=request,
-            current_user=current_user, # Removed show_mission_selector
-        )
+        context
     )
 
 
@@ -3286,12 +3293,16 @@ async def get_admin_user_management_page(
         f"User '{username_for_log}' (role: {user_role_for_log}) accessing "
         f"/admin/user_management.html. JS will verify admin role via API."
     )
+    context = get_template_context(
+        request=request,
+        current_user=current_user, # Removed show_mission_selector
+    )
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_user_management.html",
-        get_template_context(
-            request=request,
-            current_user=current_user, # Removed show_mission_selector
-        )
+        context
     )
 
 from fastapi.exception_handlers import http_exception_handler as original_http_exception_handler

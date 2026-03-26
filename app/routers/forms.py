@@ -772,9 +772,13 @@ async def get_view_forms_page(
     logger.info(
         f"User '{username_for_log}' (role: {user_role_for_log}) accessing /view_forms.html."
     )
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "view_forms.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/my_pic_handoffs.html", response_class=HTMLResponse)
@@ -783,9 +787,13 @@ async def get_my_pic_handoffs_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /my_pic_handoffs.html.")
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "my_pic_handoffs.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/view_pic_handoffs.html", response_class=HTMLResponse)
@@ -794,7 +802,11 @@ async def get_view_pic_handoffs_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     logger.info(f"User '{current_user.username if current_user else 'anonymous'}' accessing /view_pic_handoffs.html.")
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "view_pic_handoffs.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     ) 

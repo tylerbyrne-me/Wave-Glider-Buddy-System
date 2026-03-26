@@ -1,41 +1,67 @@
-:root[data-theme="light"] {
-  /* Base palette */
-  --text: #212529;
-  --background: #ffffff;
-  --primary: rgb(18, 52, 102);
-  --secondary: #6c757d;
-  --accent: #20c997;
+/* Theme token system
+   - semantic app tokens are the source of truth
+   - legacy app vars are preserved as aliases for compatibility
+   - Bootstrap vars are bridged to semantic tokens for consistency */
 
-  /* Custom app variables used in custom.css */
-  --text-color: var(--text);
-  --secondary-color: #6c757d;
-  --highlight-bg: #fff3cd;
+:root[data-theme="light"],
+:root[data-bs-theme="light"] {
+  /* Semantic app tokens */
+  --app-text: #212529;
+  --app-bg: #f0f0f4;
+  --app-primary: rgb(18, 52, 102);
+  --app-secondary: #6c757d;
+  --app-accent: #20c997;
+  --app-highlight-bg: #fff3cd;
 
-  /* Navbar */
-  /* Slightly lighter than Bootstrap bg-dark (#212529) as requested */
-  --navbar-bg: rgb(18, 52, 102);
-  --navbar-link-color: #f8f9fa;
-  /* Footer */
-  --footer-bg: rgb(18, 52, 102);
-  --footer-text: #f8f9fa;
-  --dropdown-bg: #ffffff;
-  --dropdown-text: #212529;
-  --dropdown-hover-bg: #f8f9fa;
+  /* Layout surfaces */
+  --app-navbar-bg: rgb(18, 52, 102);
+  --app-navbar-text: #f8f9fa;
+  --app-footer-bg: rgb(18, 52, 102);
+  --app-footer-text: #f8f9fa;
+  --app-dropdown-bg: #ffffff;
+  --app-dropdown-text: #212529;
+  --app-dropdown-hover-bg: #f8f9fa;
 
   /* Cards */
-  --card-border: #dee2e6;
-  --card-hover-bg: #f8f9fa;
-  --card-hover-border: #ced4da;
+  --app-card-border: #dee2e6;
+  --app-card-hover-bg: #f8f9fa;
+  --app-card-hover-border: #ced4da;
 
   /* Active summary card */
-  --active-card-bg: #e7f1ff;
-  --active-card-border: #b6d4fe;
-  --active-card-accent: rgb(18, 52, 102);
-  --active-card-text: #0d1b2a;
+  --app-active-card-bg: #e7f1ff;
+  --app-active-card-border: #b6d4fe;
+  --app-active-card-accent: rgb(18, 52, 102);
+  --app-active-card-text: #0d1b2a;
 
-  /* Bootstrap-adjacent helpers used in custom.css */
-  --bs-primary: rgb(18, 52, 102);
-  --bs-secondary: #6c757d;
+  /* Legacy aliases used throughout custom.css */
+  --text: var(--app-text);
+  --background: var(--app-bg);
+  --primary: var(--app-primary);
+  --secondary: var(--app-secondary);
+  --accent: var(--app-accent);
+  --text-color: var(--app-text);
+  --secondary-color: var(--app-secondary);
+  --highlight-bg: var(--app-highlight-bg);
+  --navbar-bg: var(--app-navbar-bg);
+  --navbar-link-color: var(--app-navbar-text);
+  --footer-bg: var(--app-footer-bg);
+  --footer-text: var(--app-footer-text);
+  --dropdown-bg: var(--app-dropdown-bg);
+  --dropdown-text: var(--app-dropdown-text);
+  --dropdown-hover-bg: var(--app-dropdown-hover-bg);
+  --card-border: var(--app-card-border);
+  --card-hover-bg: var(--app-card-hover-bg);
+  --card-hover-border: var(--app-card-hover-border);
+  --active-card-bg: var(--app-active-card-bg);
+  --active-card-border: var(--app-active-card-border);
+  --active-card-accent: var(--app-active-card-accent);
+  --active-card-text: var(--app-active-card-text);
+
+  /* Bootstrap bridges */
+  --bs-body-bg: var(--app-bg);
+  --bs-body-color: var(--app-text);
+  --bs-primary: var(--app-primary);
+  --bs-secondary: var(--app-secondary);
   --bs-primary-dark: rgb(14, 40, 79);
   --bs-secondary-dark: #5c636a;
 }
@@ -67,43 +93,64 @@
   border-color: var(--card-border);
 }
 
-:root[data-theme="dark"] {
-  /* Base palette */
-  --text: #e9ecef;
-  --background: #0b0f14;
-  --primary: rgb(18, 52, 102);
-  --secondary: #adb5bd;
-  --accent: #23855e;
+:root[data-theme="dark"],
+:root[data-bs-theme="dark"] {
+  /* Semantic app tokens */
+  --app-text: #e9ecef;
+  --app-bg: #0b0f14;
+  --app-primary: rgb(18, 52, 102);
+  --app-secondary: #adb5bd;
+  --app-accent: #23855e;
+  --app-highlight-bg: #2a2f33;
 
-  /* Custom app variables used in custom.css */
-  --text-color: var(--text);
-  --secondary-color: #adb5bd;
-  --highlight-bg: #2a2f33;
-
-  /* Navbar */
-  /* Slightly lighter than Bootstrap bg-dark to match note in custom.css */
-  --navbar-bg: rgb(18, 52, 102);
-  --navbar-link-color: #f8f9fa;
-  /* Footer */
-  --footer-bg: rgb(18, 52, 102);
-  --footer-text: #f8f9fa;
-  --dropdown-bg: #343a40;
-  --dropdown-text: #f8f9fa;
-  --dropdown-hover-bg: #495057;
+  /* Layout surfaces */
+  --app-navbar-bg: rgb(18, 52, 102);
+  --app-navbar-text: #f8f9fa;
+  --app-footer-bg: rgb(18, 52, 102);
+  --app-footer-text: #f8f9fa;
+  --app-dropdown-bg: #343a40;
+  --app-dropdown-text: #f8f9fa;
+  --app-dropdown-hover-bg: #495057;
 
   /* Cards */
-  --card-border: #343a40;
-  --card-hover-bg: #2d3237;
-  --card-hover-border: #3a4046;
+  --app-card-border: #343a40;
+  --app-card-hover-bg: #2d3237;
+  --app-card-hover-border: #3a4046;
 
   /* Active summary card */
-  --active-card-bg: #0d1b2a;
-  --active-card-border: #1b3a57;
-  --active-card-accent: rgb(18, 52, 102);
-  --active-card-text: #e9f2ff;
+  --app-active-card-bg: #0d1b2a;
+  --app-active-card-border: #1b3a57;
+  --app-active-card-accent: rgb(18, 52, 102);
+  --app-active-card-text: #e9f2ff;
 
-  /* Bootstrap-adjacent helpers used in custom.css */
-  --bs-primary: rgb(18, 52, 102);
+  /* Legacy aliases used throughout custom.css */
+  --text: var(--app-text);
+  --background: var(--app-bg);
+  --primary: var(--app-primary);
+  --secondary: var(--app-secondary);
+  --accent: var(--app-accent);
+  --text-color: var(--app-text);
+  --secondary-color: var(--app-secondary);
+  --highlight-bg: var(--app-highlight-bg);
+  --navbar-bg: var(--app-navbar-bg);
+  --navbar-link-color: var(--app-navbar-text);
+  --footer-bg: var(--app-footer-bg);
+  --footer-text: var(--app-footer-text);
+  --dropdown-bg: var(--app-dropdown-bg);
+  --dropdown-text: var(--app-dropdown-text);
+  --dropdown-hover-bg: var(--app-dropdown-hover-bg);
+  --card-border: var(--app-card-border);
+  --card-hover-bg: var(--app-card-hover-bg);
+  --card-hover-border: var(--app-card-hover-border);
+  --active-card-bg: var(--app-active-card-bg);
+  --active-card-border: var(--app-active-card-border);
+  --active-card-accent: var(--app-active-card-accent);
+  --active-card-text: var(--app-active-card-text);
+
+  /* Bootstrap bridges */
+  --bs-body-bg: var(--app-bg);
+  --bs-body-color: var(--app-text);
+  --bs-primary: var(--app-primary);
   --bs-secondary: #6c757d;
   --bs-primary-dark: rgb(14, 40, 79);
   --bs-secondary-dark: #5c636a;

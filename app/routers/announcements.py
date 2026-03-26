@@ -36,10 +36,11 @@ async def get_admin_announcements_page(
     logger.info(
         f"User '{username_for_log}' accessing /admin/announcements.html. JS will verify admin role."
     )
-    return templates.TemplateResponse(
-        "admin_announcements.html",
-        get_template_context(request=request, current_user=current_user),
-    )
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
+    return templates.TemplateResponse("admin_announcements.html", context)
 
 # --- API Endpoints ---
 @router.post("/api/admin/announcements", response_model=AnnouncementRead, status_code=status.HTTP_201_CREATED)

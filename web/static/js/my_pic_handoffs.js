@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     const tableContainer = document.getElementById('myPicHandoffsTableContainer');
     const tableBody = document.getElementById('myPicHandoffsTableBody');
     const noFormsMessage = document.getElementById('noMyPicHandoffsMessage');
-    const closeButton = document.getElementById('closeMyHandoffsBtn');
 
     const modalElement = document.getElementById('myPicHandoffsFormDetailsModal');
     const modalTitle = document.getElementById('myPicHandoffsFormDetailsModalLabel');
@@ -24,13 +23,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     let formDetailsModal;
     if (modalElement) {
         formDetailsModal = new bootstrap.Modal(modalElement);
-    }
-
-    if (closeButton) {
-        closeButton.addEventListener('click', () => { // Keep close button as requested
-            window.close(); // Consider providing a fallback if window.close() is blocked
-            // Fallback: window.location.href = '/wave-glider/home';
-        });
     }
 
     async function fetchMyPicHandoffs() {

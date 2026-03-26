@@ -648,9 +648,13 @@ async def get_payroll_submit_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "payroll_submit.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/payroll/my_timesheets.html", response_class=HTMLResponse)
@@ -658,9 +662,13 @@ async def get_my_timesheets_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "my_timesheets.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/admin/pay_periods.html", response_class=HTMLResponse)
@@ -668,9 +676,13 @@ async def get_admin_pay_periods_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_pay_periods.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/admin/timesheets.html", response_class=HTMLResponse)
@@ -678,9 +690,13 @@ async def get_admin_view_timesheets_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_view_timesheets.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 @router.get("/admin/reports.html", response_class=HTMLResponse)
@@ -688,7 +704,11 @@ async def get_admin_reports_page(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_reports.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     ) 

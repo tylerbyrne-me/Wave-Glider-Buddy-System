@@ -282,14 +282,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
-    // Event listener for the "Close Page" button
-    if (closeUserManagementPageBtn) { // Keep close button as requested
-        closeUserManagementPageBtn.addEventListener('click', function(event) {
-            event.preventDefault(); // Prevent default anchor behavior if any
-            window.close();
-        });
-    }
-
     // Initial load
     fetchAndDisplayUsers();
 });

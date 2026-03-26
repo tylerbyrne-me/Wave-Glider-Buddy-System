@@ -356,7 +356,11 @@ document.addEventListener('DOMContentLoaded', async function () {
             showToast('Form submitted successfully!', 'success');
             submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
             missionReportForm.reset();
-            setTimeout(() => { window.close(); }, 1500);
+            const platform = (window.APP_PLATFORM || '').toLowerCase();
+            const dashboardUrl = platform === 'slocum' ? '/slocum/home' : '/wave-glider/home';
+            setTimeout(() => {
+                window.location.assign(dashboardUrl);
+            }, 1500);
         } catch (error) {
             showToast(`Error submitting form: ${error.message}`, 'danger');
             submissionStatusDiv.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;

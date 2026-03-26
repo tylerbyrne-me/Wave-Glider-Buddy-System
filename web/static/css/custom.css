@@ -100,14 +100,14 @@ h5.mt-3 {
   font-weight: bold;
   line-height: 1;
   color: var(--bs-info, #0dcaf0);
-  background: rgba(13, 202, 240, 0.2);
+  background: var(--app-info-soft-bg);
   border: 1px solid var(--bs-info, #0dcaf0);
   border-radius: 50%;
   cursor: help;
   vertical-align: middle;
 }
 .sampling-hint-icon:hover {
-  background: rgba(13, 202, 240, 0.35);
+  background: var(--app-info-soft-bg-hover);
   color: var(--bs-info, #0dcaf0);
 }
 
@@ -234,9 +234,9 @@ html {
 }
 
 body {
-  /* You can set a global font family here if you want to override Bootstrap's default */
-  background-color: var(--bs-body-bg);
-  color: var(--bs-body-color);
+  /* Prefer app tokens, with Bootstrap vars as fallback for compatibility */
+  background-color: var(--app-bg, var(--bs-body-bg));
+  color: var(--app-text, var(--bs-body-color));
   font-family: 'Inter Tight', sans-serif;
 }
 /* Apply Inter Tight to all elements across the site */
@@ -268,7 +268,7 @@ h6 { font-weight: 500; }
 /* This hover effect is subtle, might need adjustment for light theme */
 .card:hover {
   transform: translateY(-1px); /* Scaled: -2px * 0.67 = -1.34px, rounded to -1px */
-  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15); /* Slightly more pronounced shadow on hover */
+  box-shadow: 0 0.25rem 0.5rem var(--app-shadow-medium); /* Slightly more pronounced shadow on hover */
 }
 
 .card-header h2, .card-header h5 {
@@ -541,7 +541,7 @@ footer .text-muted {
   border: 1px solid var(--bs-border-color);
   border-radius: var(--bs-card-border-radius); /* Use Bootstrap's border radius for consistency */
   padding: 1rem; /* Add some internal padding */
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.075); /* A subtle inner shadow for depth */
+  box-shadow: inset 0 1px 2px var(--app-shadow-inset); /* A subtle inner shadow for depth */
 }
 
 .power-summary-column .text-center .power-summary-header {
@@ -866,14 +866,14 @@ footer .text-muted {
     /* Special styling for merged consecutive shift events */
     font-weight: 600;
     border-width: 2px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px var(--app-shadow-soft);
 }
 
 /* LRI Block merged events - keep LRI styling */
 .fc-event-lri-block.fc-event-merged {
-    background: linear-gradient(135deg, #ADD8E6 0%, #87CEEB 100%) !important;
-    color: #333 !important;
-    border: 2px solid #4682B4;
+    background: linear-gradient(135deg, var(--app-lri-merged-start) 0%, var(--app-lri-merged-end) 100%) !important;
+    color: var(--app-lri-merged-text) !important;
+    border: 2px solid var(--app-lri-merged-border);
     font-weight: 700;
     letter-spacing: 0.5px;
 }
@@ -885,7 +885,7 @@ footer .text-muted {
     font-weight: 600;
     border-width: 2px;
     border-radius: 4px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px var(--app-shadow-soft);
 }
 
 /* Month view specific merged event styling (appearance, not colors) */

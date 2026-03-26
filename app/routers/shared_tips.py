@@ -29,9 +29,13 @@ async def shared_tips_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """Shared tips main page (Wave Glider)."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "shared_tips.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 
@@ -41,9 +45,13 @@ async def slocum_shared_tips_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """Shared tips page for Slocum platform."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "slocum"
+    context["platform_home_url"] = "/slocum/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "shared_tips.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 

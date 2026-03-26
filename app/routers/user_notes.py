@@ -27,9 +27,13 @@ async def my_notes_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """User notes main page (Wave Glider)."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "my_notes.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 
@@ -39,9 +43,13 @@ async def slocum_my_notes_page(
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     """User notes page for Slocum platform."""
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "slocum"
+    context["platform_home_url"] = "/slocum/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "my_notes.html",
-        get_template_context(request=request, current_user=current_user)
+        context
     )
 
 

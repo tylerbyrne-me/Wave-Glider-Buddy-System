@@ -289,9 +289,13 @@ async def get_admin_mission_overviews_page(
     logger.info(
         f"User '{username_for_log}' accessing /admin/mission_overviews.html. JS will verify admin role."
     )
+    context = get_template_context(request=request, current_user=current_user)
+    context["platform"] = "wave_glider"
+    context["platform_home_url"] = "/wave-glider/home"
+    context["show_banner_nav"] = True
     return templates.TemplateResponse(
         "admin_mission_overviews.html",
-        get_template_context(request=request, current_user=current_user),
+        context,
     )
 
 # --- Helper ---
