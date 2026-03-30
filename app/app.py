@@ -161,7 +161,8 @@ app.add_middleware(
     https_only=settings.app_use_https,
 )
 
-# HTTPS behind reverse proxy: so request.url.scheme and url_for('static', ...) match the browser (fixes mixed content).
+# HTTPS behind reverse proxy: correct request.url.scheme for server-side url_for() when TLS terminates before the app.
+# Templates use root-relative /static/... for script/link hrefs so browsers never see http:// static URLs on an https:// page.
 try:
     from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 except ImportError:

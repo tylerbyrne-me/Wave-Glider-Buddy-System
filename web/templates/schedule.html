@@ -6,7 +6,7 @@
 
 {% block head_extra_css %}
     {# FullCalendar CSS served locally #}
-    <link href="{{ url_for('static', path='fullcalendar/main.min.css') }}" rel="stylesheet" />
+    <link href="/static/fullcalendar/main.min.css" rel="stylesheet" />
     <style>
         /* Custom styles for FullCalendar (general) */
         #calendar {
@@ -247,7 +247,7 @@
 
 {% block body_extra_js %}
     {# FullCalendar JS served locally #}
-    <script src="{{ url_for('static', path='fullcalendar/main.min.js') }}"></script>
+    <script src="/static/fullcalendar/main.min.js"></script>
     {# Schedule.js as ES6 module #}
     <script type="module" src="/static/js/schedule.js"></script>
 {% endblock %}

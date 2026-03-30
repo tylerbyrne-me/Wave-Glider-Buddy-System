@@ -511,6 +511,6 @@
 {% block body_extra_js %}
   <!-- Include the Showdown library for Markdown rendering in announcements -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-    <script src="{{ url_for('static', path='js/home.js') }}" type="module"></script>
-    <script src="{{ url_for('static', path='js/map_generator.js') }}" type="module"></script>
+    <script src="/static/js/home.js" type="module"></script>
+    <script src="/static/js/map_generator.js" type="module"></script>
 {% endblock %}
