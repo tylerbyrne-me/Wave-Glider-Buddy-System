@@ -47,7 +47,7 @@ os.makedirs('logs', exist_ok=True)
 # Initialize dedicated loggers
 user_activity_logger, cache_stats_logger, mission_usage_logger = setup_dedicated_loggers()
 
-from typing import Annotated, Dict, List, Optional, Tuple, Any
+from typing import Annotated, Dict, List, Optional, Tuple, Any, Union
 from collections import defaultdict 
 
 import httpx  # For async client in load_data_source
@@ -160,6 +160,17 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.app_use_https,
 )
+
+# HTTPS behind reverse proxy: so request.url.scheme and url_for('static', ...) match the browser (fixes mixed content).
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+
+_proxy_trusted_raw = settings.proxy_trusted_hosts.strip()
+if _proxy_trusted_raw == "*" or not _proxy_trusted_raw:
+    _proxy_trusted_hosts: Union[str, List[str]] = "*"
+else:
+    _hosts = [h.strip() for h in _proxy_trusted_raw.split(",") if h.strip()]
+    _proxy_trusted_hosts = _hosts if _hosts else "*"
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_proxy_trusted_hosts)
 
 
 # Ensure static .js files are revalidated so production gets updated PIC/form scripts after deploy

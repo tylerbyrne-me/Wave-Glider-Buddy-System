@@ -1,9 +1,12 @@
 # c:\Users\ty225269\Documents\Python Playground\Wave Glider Project\app\config.py
 import json
+import logging
 from typing import Any, Optional  # Import Any and Optional
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
+
+_settings_log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -40,6 +43,9 @@ class Settings(BaseSettings):
     # True when the browser URL is https:// — sets Secure on cookies and https_only on session middleware.
     # Not inferred from reverse-proxy headers; set APP_USE_HTTPS explicitly. See .env.example.
     app_use_https: bool = False
+    # Comma-separated hosts trusted to set X-Forwarded-Proto / Host (or "*" behind a locked-down reverse proxy).
+    # Enables correct https URLs from url_for() when TLS terminates before uvicorn.
+    proxy_trusted_hosts: str = "*"
     # Path where SQLAdmin is mounted (default /admin). Use e.g. /app/admin if app is under a prefix.
     app_admin_base_url: str = "/admin"
 
@@ -144,6 +150,20 @@ class Settings(BaseSettings):
         """Post-initialization hook to parse JSON strings."""
         self.remote_mission_folder_map = json.loads(self.remote_mission_folder_map_json)
         self.feature_toggles = json.loads(self.feature_toggles_json)
+        base = self.app_base_url.strip()
+        base_l = base.lower()
+        if self.app_use_https and not base_l.startswith("https://"):
+            _settings_log.warning(
+                "APP_USE_HTTPS=true but APP_BASE_URL=%r does not start with https:// — "
+                "set APP_BASE_URL to the public HTTPS origin (e.g. https://glider-buddy.ceotr.ca) "
+                "so KML network links and other absolute URLs are correct.",
+                self.app_base_url,
+            )
+        if not self.app_use_https and base_l.startswith("https://"):
+            _settings_log.warning(
+                "APP_BASE_URL uses HTTPS but APP_USE_HTTPS=false — session and auth cookies "
+                "will not be marked Secure; use APP_USE_HTTPS=true when users load the site over HTTPS.",
+            )
 
     class Config:
         env_file = ".env"

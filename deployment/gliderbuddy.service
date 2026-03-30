@@ -8,8 +8,8 @@ User=gliderbuddy
 Group=gliderbuddy
 WorkingDirectory=/path/to/Wave-Glider-Buddy-System
 Environment="PATH=/path/to/venv/bin"
-# Place a `.env` in WorkingDirectory (copy from .env.example). For HTTPS production set APP_USE_HTTPS=true
-# and APP_BASE_URL to the exact public URL so Chrome/Safari receive correct cookie flags and KML links.
+# Place a `.env` in WorkingDirectory (copy from .env.example). For HTTPS production set APP_USE_HTTPS=true,
+# APP_BASE_URL to the public https:// origin, and ensure the reverse proxy sends X-Forwarded-Proto (see .env.example).
 # Increase -w (workers) for more concurrency; 4 is the README default.
 ExecStart=/path/to/venv/bin/gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.app:app -b 0.0.0.0:8000
 Restart=always
