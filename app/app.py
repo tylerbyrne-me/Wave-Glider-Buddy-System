@@ -162,7 +162,11 @@ app.add_middleware(
 )
 
 # HTTPS behind reverse proxy: so request.url.scheme and url_for('static', ...) match the browser (fixes mixed content).
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+try:
+    from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+except ImportError:
+    # Compatibility for environments where this middleware is provided by uvicorn.
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 _proxy_trusted_raw = settings.proxy_trusted_hosts.strip()
 if _proxy_trusted_raw == "*" or not _proxy_trusted_raw:
