@@ -239,6 +239,36 @@ async def get_form_template(
         from app.core.data_service import get_data_service
         from app.core import summaries
 
+        def _user_display_name(user_in_db: models.UserInDB) -> str:
+            name = (user_in_db.full_name or user_in_db.username or "").strip()
+            return name or (user_in_db.username or "").strip()
+
+        def _inject_pic_handoff_rosters(schema_dict: dict) -> None:
+            """Inject MOS/PIC rosters into PIC handoff dropdowns from the users table."""
+            if schema_dict.get("form_type") != "pic_handoff_checklist":
+                return
+
+            users_in_db = session.exec(
+                select(models.UserInDB).where(models.UserInDB.disabled == False)  # noqa: E712
+            ).all()
+
+            mos_options = sorted(
+                {_user_display_name(u) for u in users_in_db if getattr(u, "is_mos", False)},
+                key=lambda s: s.casefold(),
+            )
+            pic_options = sorted(
+                {_user_display_name(u) for u in users_in_db if getattr(u, "is_pic", False)},
+                key=lambda s: s.casefold(),
+            )
+
+            for section in schema_dict.get("sections", []) or []:
+                for item in section.get("items", []) or []:
+                    iid = item.get("id")
+                    if iid == "current_mos_val":
+                        item["options"] = mos_options
+                    if iid in ("current_pic_val", "last_pic_val"):
+                        item["options"] = pic_options
+
         # Resolve mission overview (support compound ids like "1070-m216" -> try "m216" if not found)
         mission_overview = session.get(models.MissionOverview, mission_id)
         if mission_overview is None and "-" in mission_id:
@@ -556,6 +586,7 @@ async def get_form_template(
                         insert_idx += 1
                 break
 
+        _inject_pic_handoff_rosters(schema)
         return schema
     except Exception as e:
         logger.exception("Error in get_form_template")

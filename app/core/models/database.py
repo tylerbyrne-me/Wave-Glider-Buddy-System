@@ -38,6 +38,16 @@ class UserInDB(SQLModel, table=True):
         default=None, description="User's assigned color for UI elements."
     )
     disabled: Optional[bool] = SQLModelField(default=False, description="Whether the user account is disabled.")
+    is_mos: bool = SQLModelField(
+        default=False,
+        index=True,
+        description="Whether this user is eligible to be selected as Master on Standby (MOS).",
+    )
+    is_pic: bool = SQLModelField(
+        default=False,
+        index=True,
+        description="Whether this user is eligible to be selected as Pilot in Command (PIC).",
+    )
     sensor_tracker_token: Optional[str] = SQLModelField(
         default=None,
         sa_column=Column(Text),

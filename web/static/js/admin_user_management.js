@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     const editEmailInput = document.getElementById('editEmail');
     const editRoleSelect = document.getElementById('editRole');
     const editDisabledCheckbox = document.getElementById('editDisabled');
+    const editIsMosCheckbox = document.getElementById('editIsMos');
+    const editIsPicCheckbox = document.getElementById('editIsPic');
     const saveUserChangesBtn = document.getElementById('saveUserChangesBtn');
     const editUserErrorDiv = document.getElementById('editUserError');
 
@@ -73,6 +75,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                     row.insertCell().textContent = user.full_name || 'N/A';
                     row.insertCell().textContent = user.email || 'N/A';
                     row.insertCell().textContent = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+                    row.insertCell().innerHTML = user.is_mos ? '<span class="badge bg-info sm-badge">MOS</span>' : '<span class="text-muted">—</span>';
+                    row.insertCell().innerHTML = user.is_pic ? '<span class="badge bg-info sm-badge">PIC</span>' : '<span class="text-muted">—</span>';
                     
                     // Color cell with visual indicator
                     const colorCell = row.insertCell();
@@ -109,7 +113,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 userManagementTableContainer.style.display = 'block';
             }
         } catch (error) {
-            usersTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
+            usersTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
             userManagementTableContainer.style.display = 'block';
             noUsersMessage.style.display = 'none';
         } finally {
@@ -126,6 +130,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         editEmailInput.value = user.email || '';
         editRoleSelect.value = user.role;
         editDisabledCheckbox.checked = user.disabled;
+        if (editIsMosCheckbox) editIsMosCheckbox.checked = !!user.is_mos;
+        if (editIsPicCheckbox) editIsPicCheckbox.checked = !!user.is_pic;
 
         // Disable role change and disable checkbox for the current admin if they are editing themselves
         // to prevent self-lockout from the last admin account.
@@ -160,7 +166,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             full_name: editFullNameInput.value || null,
             email: editEmailInput.value || null,
             role: editRoleSelect.value,
-            disabled: editDisabledCheckbox.checked
+            disabled: editDisabledCheckbox.checked,
+            is_mos: editIsMosCheckbox ? editIsMosCheckbox.checked : false,
+            is_pic: editIsPicCheckbox ? editIsPicCheckbox.checked : false,
         };
 
         try {

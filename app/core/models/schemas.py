@@ -167,6 +167,8 @@ class User(UserBase):
     """User response model."""
     id: int
     disabled: Optional[bool] = Field(None, description="Whether the user account is disabled.")
+    is_mos: bool = Field(False, description="Whether the user is eligible for MOS roster selection.")
+    is_pic: bool = Field(False, description="Whether the user is eligible for PIC roster selection.")
 
 
 class UserUpdateForAdmin(BaseModel):
@@ -175,6 +177,8 @@ class UserUpdateForAdmin(BaseModel):
     email: Optional[str] = Field(None, description="New email for the user. Must be unique if changed.")
     role: Optional[UserRoleEnum] = Field(None, description="New role for the user.")
     disabled: Optional[bool] = Field(None, description="New disabled status for the user account.")
+    is_mos: Optional[bool] = Field(None, description="Set whether this user is included in the MOS roster.")
+    is_pic: Optional[bool] = Field(None, description="Set whether this user is included in the PIC roster.")
 
 
 class PasswordUpdate(BaseModel):

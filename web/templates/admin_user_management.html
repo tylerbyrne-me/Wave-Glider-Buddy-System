@@ -52,6 +52,8 @@
                         <th>Full Name</th>
                         <th>Email</th>
                         <th>Role</th>
+                        <th>MOS</th>
+                        <th>PIC</th>
                         <th>Color <small class="text-muted">(for schedule)</small></th>
                         <th>Status</th>
                         <th>Actions</th>
@@ -95,6 +97,18 @@
                             <input class="form-check-input" type="checkbox" id="editDisabled">
                             <label class="form-check-label" for="editDisabled">
                                 Disabled
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="editIsMos">
+                            <label class="form-check-label" for="editIsMos">
+                                Add as MOS
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="editIsPic">
+                            <label class="form-check-label" for="editIsPic">
+                                Add as PIC
                             </label>
                         </div>
                         <div id="editUserError" class="alert alert-danger" style="display: none;"></div>

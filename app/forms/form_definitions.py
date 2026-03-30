@@ -64,9 +64,9 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                     items=[
                         models.FormItem(id="glider_id_val", label="Glider ID", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value="N/A"), # Placeholder
                         models.FormItem(id="mission_title_val", label="Mission Title", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="Mission Not Assigned"),
-                        models.FormItem(id="current_mos_val", label="Current MOS", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Sue L", "Tyler B", "Matt M", "Adam C"], required=True),
-                        models.FormItem(id="current_pic_val", label="Current PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], required=True),
-                        models.FormItem(id="last_pic_val", label="Last PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=["Adam S", "Laura R", "Sue L", "Tyler B", "Adam C", "Poppy K", "LRI", "Matt M", "Noa W", "Nicole N"], required=True),
+                        models.FormItem(id="current_mos_val", label="Current MOS", item_type=models.FormItemTypeEnum.DROPDOWN, options=[], placeholder="Select MOS", required=True),
+                        models.FormItem(id="current_pic_val", label="Current PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=[], placeholder="Select PIC", required=True),
+                        models.FormItem(id="last_pic_val", label="Last PIC", item_type=models.FormItemTypeEnum.DROPDOWN, options=[], placeholder="Select last PIC", required=True),
                         models.FormItem(id="mission_status_val", label="Mission Status", item_type=models.FormItemTypeEnum.DROPDOWN, options=["In Transit", "Avoiding Ship", "Holding for Storm", "Offloading", "In Recovery Hold", "Surveying"], required=True),
                         models.FormItem(id="total_battery_val", label="Total Battery Capacity (Wh)", item_type=models.FormItemTypeEnum.STATIC_TEXT, value="2775 Wh"),
                         models.FormItem(id="current_battery_wh_val", label="Current Glider Battery (Wh)", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value="N/A"), # Placeholder

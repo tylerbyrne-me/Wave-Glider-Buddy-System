@@ -160,6 +160,40 @@ document.addEventListener('DOMContentLoaded', async function () {
             const targetWaypointLabel = document.querySelector('label[for="target_waypoint_val"]');
             const waypointDetailsInput = document.getElementById('waypoint_details_val');
             const waypointDetailsLabel = document.querySelector('label[for="waypoint_details_val"]');
+            const navModeItem = document.querySelector('.form-item[data-item-id="navigation_mode_val"]');
+
+            function removeHoldLastWaypointField() {
+                const existingItem = document.querySelector('.form-item[data-item-id="hold_last_wp_val"]');
+                if (existingItem) existingItem.remove();
+            }
+
+            function addHoldLastWaypointField() {
+                if (!navModeItem) return;
+                if (document.querySelector('.form-item[data-item-id="hold_last_wp_val"]')) return;
+
+                const holdLastWaypointItem = document.createElement('div');
+                holdLastWaypointItem.classList.add('form-item', 'mb-3', 'conditional-form-item');
+                holdLastWaypointItem.dataset.itemId = 'hold_last_wp_val';
+                holdLastWaypointItem.innerHTML = `
+                    <div class="row align-items-center">
+                        <div class="col-md-3">
+                            <label for="hold_last_wp_val" class="form-label mb-0">Hold Last WP<span class="text-danger">*</span></label>
+                        </div>
+                        <div class="col-md-4">
+                            <select class="form-select" id="hold_last_wp_val" name="hold_last_wp_val" required>
+                                <option value="" disabled selected>Select True or False</option>
+                                <option value="True">True</option>
+                                <option value="False">False</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <textarea class="form-control form-control-sm" name="hold_last_wp_val_comment" rows="1" placeholder="Comment..."></textarea>
+                        </div>
+                        <div class="col-md-2"></div>
+                    </div>
+                `;
+                navModeItem.insertAdjacentElement('afterend', holdLastWaypointItem);
+            }
 
             function updateNavFields(selectedMode) {
                 if (!targetWaypointInput || !targetWaypointLabel || !waypointDetailsInput || !waypointDetailsLabel) {
@@ -173,6 +207,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                         targetWaypointInput.placeholder = 'Enter target waypoint';
                         waypointDetailsLabel.textContent = 'Waypoint Start to Finish Details';
                         waypointDetailsInput.placeholder = 'e.g., 1 - 5';
+                        addHoldLastWaypointField();
                         break;
                     case 'FFB': // Follow Fixed Bearing
                         targetWaypointLabel.textContent = 'Bearing';
@@ -204,8 +239,11 @@ document.addEventListener('DOMContentLoaded', async function () {
                         targetWaypointInput.placeholder = 'Enter value';
                         waypointDetailsLabel.textContent = 'Details / Parameter 2';
                         waypointDetailsInput.placeholder = 'Enter value';
+                        removeHoldLastWaypointField();
                         break;
                 }
+
+                if (selectedMode !== 'FSC') removeHoldLastWaypointField();
             }
 
             if (navModeSelect) {
