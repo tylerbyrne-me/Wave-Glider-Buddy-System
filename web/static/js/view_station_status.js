@@ -6,6 +6,39 @@
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 
+function debounce(callback, delayMs) {
+    let timeoutId;
+    return (...args) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => callback(...args), delayMs);
+    };
+}
+
+function escapeHtml(s) {
+    if (s == null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function isoToDatetimeLocal(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 16);
+}
+
+function isoDateOnly(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+}
+
+let currentHistoryContext = { mode: 'station', stationId: null };
+
 document.addEventListener('DOMContentLoaded', async function () { 
     const stationStatusTableBody = document.getElementById('stationStatusTableBody');
     const searchInput = document.getElementById('searchInput');
@@ -16,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Modal and form elements
     const editLogStationModalEl = document.getElementById('editLogStationModal');
+    const historyModalEl = document.getElementById('historyModal');
     const uploadCsvModalEl = document.getElementById('uploadCsvModal');
     const submitUploadBtn = document.getElementById('submitUploadBtn');
     const csvFile = document.getElementById('csvFile');
@@ -38,6 +72,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     let currentSort = { column: 'station_id', order: 'asc' };
     let isAdmin = false;
 
+    let activeSeason = null;
+    let allSeasons = [];
+    let selectedSeasonYear = null; // null = active season
+
     const stationInfoResult = document.getElementById('stationInfoResult'); // For displaying save/add result
     // Function to initialize the page: check role, then fetch data
     async function initializePage() {
@@ -48,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         if (typeof checkAuth !== 'function' || !checkAuth()) {
-            if (stationStatusTableBody) stationStatusTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Authentication required. Please log in.</td></tr>';
+            if (stationStatusTableBody) stationStatusTableBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Authentication required. Please log in.</td></tr>';
             if (loadingSpinner) loadingSpinner.style.display = 'none';
             return;
         }
@@ -85,6 +123,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Initialize season management if admin
         if (isAdmin) {
             await initializeSeasonManagement();
+            await loadAndRenderArrayGroups();
+            await loadStationAnalytics();
+            await loadConflictQueue();
         }
     }
 
@@ -146,6 +187,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             editButton.innerHTML = `<i class="fas fa-edit"></i> Edit`;
             editButton.onclick = () => openEditLogModal(station.station_id, station);
             actionsCell.appendChild(editButton);
+
+            const historyButton = document.createElement('button');
+            historyButton.classList.add('btn', 'btn-sm', 'btn-outline-info', 'me-1');
+            historyButton.title = `History for ${station.station_id}`;
+            historyButton.innerHTML = `<i class="fas fa-clock-rotate-left"></i> History`;
+            historyButton.onclick = () => openHistoryModal('station', station.station_id);
+            actionsCell.appendChild(historyButton);
 
             // The "Delete" button is restricted to admins.
             if (isAdmin) {
@@ -245,9 +293,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         renderTable(filteredStations);
     }
 
+    const debouncedFilterRender = debounce((term) => filterAndRender(term), 200);
     if (searchInput) {
         searchInput.addEventListener('input', function () {
-            filterAndRender(this.value.toLowerCase());
+            debouncedFilterRender(this.value.toLowerCase());
         });
     }
 
@@ -344,6 +393,159 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (uploadCsvModalEl) {
         uploadCsvModalInstance = new bootstrap.Modal(uploadCsvModalEl);
     }
+    let historyModalInstance = null;
+    if (historyModalEl) {
+        historyModalInstance = new bootstrap.Modal(historyModalEl);
+    }
+
+    function renderStationHistoryTimeline(data, adminUser) {
+        const stats = data.stats || {};
+        let html = `
+            <div class="row mb-3 small">
+                <div class="col-md-4"><strong>Logs (scope):</strong> ${stats.total_offload_logs ?? 0}</div>
+                <div class="col-md-4"><strong>Success rate:</strong> ${typeof stats.success_rate === 'number' ? stats.success_rate.toFixed(1) : stats.success_rate ?? '—'}%</div>
+                <div class="col-md-4"><strong>Avg time at station:</strong> ${stats.average_time_at_station_hours != null ? `${Number(stats.average_time_at_station_hours).toFixed(2)} h` : '—'}</div>
+            </div>`;
+        const timeline = data.timeline || [];
+        if (!timeline.length) {
+            html += '<p class="text-muted">No timeline events in this view.</p>';
+            return html;
+        }
+        for (const ev of timeline) {
+            if (ev.event_type === 'offload_log') {
+                const p = ev.payload;
+                const ok = p.was_offloaded === true;
+                const bad = p.was_offloaded === false;
+                const border = ok ? 'success' : bad ? 'danger' : 'secondary';
+                const src = p.created_by_source || 'user';
+                const when = escapeHtml(ev.sort_ts || '');
+                const vrl = escapeHtml(p.vrl_file_name || '—');
+                const pn = escapeHtml(p.parser_notes || '');
+                const un = escapeHtml(p.user_notes || '');
+                const rh = [
+                    p.remote_health_temperature_c != null ? `Temp ${p.remote_health_temperature_c}°C` : null,
+                    p.remote_health_humidity != null ? `RH ${p.remote_health_humidity}%` : null,
+                ].filter(Boolean).join(', ');
+                html += `
+                    <div class="card mb-2 border-${border} bg-dark text-light">
+                        <div class="card-body py-2">
+                            <div class="d-flex justify-content-between flex-wrap gap-2">
+                                <strong><i class="fas fa-download me-1"></i>Offload log #${p.id}</strong>
+                                <span class="badge bg-${border}">${ok ? 'Success' : bad ? 'Failed' : 'Unknown'}</span>
+                            </div>
+                            <div class="small text-muted mt-1">${when} · ${escapeHtml(src)} · Season ${p.field_season_year ?? '—'}</div>
+                            <div class="small mt-1"><strong>VRL:</strong> ${vrl}</div>
+                            ${rh ? `<div class="small mt-1 text-info">Remote health: ${escapeHtml(rh)}</div>` : ''}
+                            ${pn ? `<div class="small mt-1"><strong>Parser notes:</strong> ${pn}</div>` : ''}
+                            ${un ? `<div class="small mt-1"><strong>User notes:</strong> ${un}</div>` : ''}
+                            ${adminUser ? `
+                            <details class="mt-2 small">
+                                <summary class="text-warning">Edit log (admin)</summary>
+                                <label class="form-label mt-1">User notes</label>
+                                <textarea class="form-control form-control-sm hist-user-notes" data-log-id="${p.id}" rows="2">${p.user_notes || ''}</textarea>
+                                <div class="form-check mt-1">
+                                    <input class="form-check-input hist-was-offloaded" type="checkbox" data-log-id="${p.id}" id="histwo-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
+                                    <label class="form-check-label" for="histwo-${p.id}">Offloaded successfully</label>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-primary mt-2" data-action="save-hist-log" data-log-id="${p.id}" data-station-id="${escapeHtml(data.station_id)}">Save</button>
+                            </details>` : ''}
+                        </div>
+                    </div>`;
+            } else if (ev.event_type === 'hardware_change') {
+                const h = ev.payload;
+                html += `
+                    <div class="card mb-2 border-info bg-dark text-light">
+                        <div class="card-body py-2">
+                            <strong><i class="fas fa-microchip me-1"></i>Hardware change</strong>
+                            <div class="small text-muted mt-1">${escapeHtml(ev.sort_ts || '')}</div>
+                            <div class="small">Serial ${escapeHtml(h.serial_number ?? '—')} · Modem ${h.modem_address ?? '—'}</div>
+                            <div class="small text-muted">${escapeHtml(h.change_note || '')} (${escapeHtml(h.changed_by_username || '')})</div>
+                        </div>
+                    </div>`;
+            } else if (ev.event_type === 'season_snapshot') {
+                const sy = ev.field_season_year;
+                html += `
+                    <div class="card mb-2 border-warning bg-dark text-light">
+                        <div class="card-body py-2">
+                            <strong><i class="fas fa-camera me-1"></i>Season snapshot</strong>
+                            <div class="small mt-1">Field season <strong>${sy}</strong> · created ${escapeHtml(ev.sort_ts || '')}</div>
+                        </div>
+                    </div>`;
+            }
+        }
+        return html;
+    }
+
+    function renderArrayHistoryView(data) {
+        const ag = data.array_group;
+        let html = '';
+        if (ag) {
+            html += `<div class="mb-3 p-2 bg-secondary bg-opacity-25 rounded"><strong>${escapeHtml(ag.code)}</strong> ${escapeHtml(ag.display_name || '')}<div class="small mt-1">${escapeHtml(ag.notes || '') || '<span class="text-muted">No array notes</span>'}</div></div>`;
+        }
+        const agg = data.aggregate_stats || {};
+        html += `<div class="row small mb-3"><div class="col-md-6"><strong>Logs in filter:</strong> ${agg.total_offload_logs ?? 0}</div><div class="col-md-6"><strong>Success rate:</strong> ${agg.success_rate != null ? Number(agg.success_rate).toFixed(1) : '—'}%</div></div>`;
+        const lbs = data.logs_by_season || {};
+        html += `<div class="mb-2"><strong>Logs by season</strong><ul class="small">${Object.entries(lbs).map(([y, c]) => `<li>${y}: ${c}</li>`).join('')}</ul></div>`;
+        const sums = data.station_summaries || [];
+        if (sums.length) {
+            html += `<div class="table-responsive mb-3"><table class="table table-sm table-dark"><thead><tr><th>Station</th><th>Status</th><th>Logs</th><th>Serial</th></tr></thead><tbody>`;
+            for (const s of sums) {
+                html += `<tr><td>${escapeHtml(s.station_id)}</td><td>${escapeHtml(s.status_text)}</td><td>${s.log_count}</td><td>${escapeHtml(s.serial_number || '—')}</td></tr>`;
+            }
+            html += `</tbody></table></div>`;
+        }
+        const statusMap = data.stations_by_status || {};
+        html += `<div class="small mb-2"><strong>By status:</strong> ${Object.entries(statusMap).map(([st, ids]) => `${escapeHtml(st)} (${ids.length})`).join(' · ') || '—'}</div>`;
+        return html;
+    }
+
+    async function openHistoryModal(mode, key) {
+        const modalBody = document.getElementById('historyModalBody');
+        const modalTitle = document.getElementById('historyModalLabel');
+        if (!historyModalInstance || !modalBody || !modalTitle) return;
+        modalTitle.textContent = mode === 'array' ? `Array History: ${key}` : `Station History: ${key}`;
+        modalBody.innerHTML = '<p class="text-muted">Loading…</p>';
+        currentHistoryContext = mode === 'array' ? { mode: 'array', key } : { mode: 'station', stationId: key };
+        historyModalInstance.show();
+        try {
+            const url = mode === 'array'
+                ? `/api/arrays/${encodeURIComponent(key)}/history`
+                : `/api/stations/${encodeURIComponent(key)}/history`;
+            const data = await apiRequest(url, 'GET');
+            if (mode === 'array') {
+                modalBody.innerHTML = renderArrayHistoryView(data);
+            } else {
+                modalBody.innerHTML = renderStationHistoryTimeline(data, isAdmin);
+            }
+        } catch (err) {
+            modalBody.innerHTML = `<p class="text-danger">Error loading history: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    if (historyModalEl) {
+        historyModalEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('[data-action="save-hist-log"]');
+            if (!btn || !isAdmin) return;
+            const logId = btn.getAttribute('data-log-id');
+            const stationId = btn.getAttribute('data-station-id');
+            if (!logId || !stationId) return;
+            const ta = historyModalEl.querySelector(`.hist-user-notes[data-log-id="${logId}"]`);
+            const cb = historyModalEl.querySelector(`.hist-was-offloaded[data-log-id="${logId}"]`);
+            const payload = {
+                user_notes: ta ? ta.value.trim() || null : null,
+                was_offloaded: cb ? cb.checked : null,
+            };
+            Object.keys(payload).forEach((k) => { if (payload[k] === null || payload[k] === undefined) delete payload[k]; });
+            try {
+                await apiRequest(`/api/station_metadata/${encodeURIComponent(stationId)}/offload_logs/${logId}`, 'PUT', payload);
+                showToast('Offload log updated', 'success');
+                await openHistoryModal('station', stationId);
+                await fetchStationStatuses();
+            } catch (err) {
+                showToast(err.message || 'Save failed', 'danger');
+            }
+        });
+    }
 
     async function openEditLogModal(stationId, stationRow) {
         // Any authenticated user can open the modal to log an offload.
@@ -408,6 +610,43 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('formOffloadNotesFileSize').value = '';
             document.getElementById('formWasOffloaded').checked = false;
 
+            const swapBtn = document.getElementById('swapHardwareBtn');
+            if (swapBtn) swapBtn.style.display = isAdmin ? 'inline-block' : 'none';
+
+            const acc = document.getElementById('recentOffloadsAccordion');
+            const accBody = document.getElementById('recentOffloadsBody');
+            if (acc && accBody) {
+                const rawLogs = Array.isArray(stationData.offload_logs) ? stationData.offload_logs : [];
+                const logs = [...rawLogs]
+                    .sort((a, b) => new Date(b.log_timestamp_utc) - new Date(a.log_timestamp_utc))
+                    .slice(0, 10);
+                if (logs.length) {
+                    acc.style.display = 'block';
+                    accBody.innerHTML = logs.map((p) => {
+                        const ok = p.was_offloaded === true;
+                        const bad = p.was_offloaded === false;
+                        const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
+                        const sym = ok ? 'Yes' : bad ? 'No' : '?';
+                        return `
+<div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
+  <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
+  <div class="small mt-1"><strong>VRL:</strong> ${escapeHtml(p.vrl_file_name || '—')}</div>
+  ${p.parser_notes ? `<div class="small text-warning mt-1"><strong>Parser:</strong> ${escapeHtml(p.parser_notes)}</div>` : ''}
+  <label class="form-label small mb-0 mt-1">User notes</label>
+  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
+  <div class="form-check mt-1">
+    <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
+    <label class="form-check-label small" for="rw-${p.id}">Offloaded successfully</label>
+  </div>
+  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
+</div>`;
+                    }).join('');
+                } else {
+                    acc.style.display = 'none';
+                    accBody.innerHTML = '';
+                }
+            }
+
             editLogStationModalInstance.show();
         } catch (error) {
 
@@ -416,6 +655,110 @@ document.addEventListener('DOMContentLoaded', async function () {
         } finally {
             if (loadingSpinner) loadingSpinner.style.display = 'none';
         }
+    }
+
+    if (editLogStationModalEl) {
+        editLogStationModalEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.recent-save-log');
+            if (!btn || !currentEditingStationId) return;
+            const logId = btn.getAttribute('data-log-id');
+            const wrap = btn.closest('.recent-log-edit');
+            if (!wrap || !logId) return;
+            const ta = wrap.querySelector('.recent-user-notes');
+            const cb = wrap.querySelector('.recent-was-offloaded');
+            const payload = {
+                user_notes: ta ? ta.value.trim() || null : null,
+                was_offloaded: cb ? cb.checked : null,
+            };
+            Object.keys(payload).forEach((k) => { if (payload[k] === null) delete payload[k]; });
+            try {
+                await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}/offload_logs/${logId}`, 'PUT', payload);
+                showToast('Offload log updated', 'success');
+                const st = await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`, 'GET');
+                const acc = document.getElementById('recentOffloadsAccordion');
+                const accBody = document.getElementById('recentOffloadsBody');
+                if (acc && accBody && Array.isArray(st.offload_logs)) {
+                    const logs = [...st.offload_logs]
+                        .sort((a, b) => new Date(b.log_timestamp_utc) - new Date(a.log_timestamp_utc))
+                        .slice(0, 10);
+                    accBody.innerHTML = logs.map((p) => {
+                        const ok = p.was_offloaded === true;
+                        const bad = p.was_offloaded === false;
+                        const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
+                        const sym = ok ? 'Yes' : bad ? 'No' : '?';
+                        return `
+<div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
+  <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
+  <div class="small mt-1"><strong>VRL:</strong> ${escapeHtml(p.vrl_file_name || '—')}</div>
+  ${p.parser_notes ? `<div class="small text-warning mt-1"><strong>Parser:</strong> ${escapeHtml(p.parser_notes)}</div>` : ''}
+  <label class="form-label small mb-0 mt-1">User notes</label>
+  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
+  <div class="form-check mt-1">
+    <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw2-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
+    <label class="form-check-label small" for="rw2-${p.id}">Offloaded successfully</label>
+  </div>
+  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
+</div>`;
+                    }).join('');
+                }
+                await fetchStationStatuses();
+            } catch (err) {
+                showToast(err.message || 'Save failed', 'danger');
+            }
+        });
+    }
+
+    const swapHardwareModalEl = document.getElementById('swapHardwareModal');
+    let swapHardwareModalInstance = null;
+    if (swapHardwareModalEl) {
+        swapHardwareModalInstance = new bootstrap.Modal(swapHardwareModalEl);
+    }
+    const swapHardwareBtn = document.getElementById('swapHardwareBtn');
+    if (swapHardwareBtn && swapHardwareModalInstance) {
+        swapHardwareBtn.addEventListener('click', () => {
+            if (!currentEditingStationId) return;
+            const si = document.getElementById('swapSerialInput');
+            const mi = document.getElementById('swapModemInput');
+            const nr = document.getElementById('swapHardwareResult');
+            if (si) si.value = document.getElementById('formSerialNumber')?.value || '';
+            if (mi) mi.value = document.getElementById('formModemAddress')?.value || '';
+            const noteEl = document.getElementById('swapNoteInput');
+            if (noteEl) noteEl.value = '';
+            if (nr) nr.innerHTML = '';
+            swapHardwareModalInstance.show();
+        });
+    }
+    const confirmSwapHardwareBtn = document.getElementById('confirmSwapHardwareBtn');
+    if (confirmSwapHardwareBtn) {
+        confirmSwapHardwareBtn.addEventListener('click', async () => {
+            if (!currentEditingStationId) return;
+            const serialRaw = document.getElementById('swapSerialInput')?.value?.trim() || '';
+            const modemRaw = document.getElementById('swapModemInput')?.value?.trim() || '';
+            const note = document.getElementById('swapNoteInput')?.value?.trim() || null;
+            const body = {};
+            if (serialRaw) body.serial_number = serialRaw;
+            if (modemRaw !== '') {
+                const m = parseInt(modemRaw, 10);
+                if (!Number.isNaN(m)) body.modem_address = m;
+            }
+            if (note) body.change_note = note;
+            const nr = document.getElementById('swapHardwareResult');
+            try {
+                await apiRequest(`/api/stations/${encodeURIComponent(currentEditingStationId)}/swap_hardware`, 'POST', body);
+                showToast('Hardware swap recorded', 'success');
+                swapHardwareModalInstance?.hide();
+                const st = await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`, 'GET');
+                const fs = document.getElementById('formSerialNumber');
+                const fm = document.getElementById('formModemAddress');
+                if (fs) fs.value = st.serial_number || '';
+                if (fm) fm.value = st.modem_address != null ? st.modem_address : '';
+                await fetchStationStatuses();
+            } catch (err) {
+                const msg = err.message || 'Swap failed';
+                if (nr) nr.innerHTML = `<div class="alert alert-danger py-1 small mb-0">${escapeHtml(msg)}</div>`;
+                showToast(msg, 'danger');
+            }
+        });
     }
 
     // Helper to convert datetime-local string to UTC ISO string or null
@@ -755,6 +1098,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
             // Hide the "Log New Offload" section, as it's not applicable for a new station
             if (logNewOffloadSection) logNewOffloadSection.style.display = 'none';
+            const accNew = document.getElementById('recentOffloadsAccordion');
+            if (accNew) accNew.style.display = 'none';
+            const swapBtnNew = document.getElementById('swapHardwareBtn');
+            if (swapBtnNew) swapBtnNew.style.display = 'none';
 
             // Show the modal
             if (editLogStationModalInstance) {
@@ -785,10 +1132,264 @@ document.addEventListener('DOMContentLoaded', async function () {
     // ============================================================================
     // Field Season Management Functions
     // ============================================================================
-    
-    let activeSeason = null;
-    let allSeasons = [];
-    let selectedSeasonYear = null; // null = active season
+
+    async function loadAndRenderArrayGroups() {
+        const section = document.getElementById('arrayGroupsSection');
+        const body = document.getElementById('arrayGroupsBody');
+        if (!section || !body || !isAdmin) {
+            return;
+        }
+        section.style.display = 'block';
+        body.innerHTML = '<p class="text-muted mb-0"><i class="fas fa-spinner fa-spin me-2"></i>Loading array groups…</p>';
+        try {
+            const groups = await apiRequest('/api/station_array_groups/', 'GET');
+            body.innerHTML = '';
+            const table = document.createElement('table');
+            table.className = 'table table-sm table-dark table-bordered mb-0';
+            const thead = document.createElement('thead');
+            thead.innerHTML = '<tr><th style="width:10rem">Group</th><th>Notes (shared across seasons)</th><th style="width:6rem"></th></tr>';
+            table.appendChild(thead);
+            const tbody = document.createElement('tbody');
+            groups.forEach((g) => {
+                const tr = document.createElement('tr');
+                const tdCode = document.createElement('td');
+                tdCode.className = 'align-middle fw-bold';
+                tdCode.textContent = g.code;
+                if (g.display_name && g.display_name !== g.code) {
+                    const sub = document.createElement('div');
+                    sub.className = 'small text-muted fw-normal';
+                    sub.textContent = g.display_name;
+                    tdCode.appendChild(sub);
+                }
+                const tdNotes = document.createElement('td');
+                const ta = document.createElement('textarea');
+                ta.className = 'form-control form-control-sm';
+                ta.rows = 2;
+                ta.value = g.notes || '';
+                tdNotes.appendChild(ta);
+                const tdBtn = document.createElement('td');
+                tdBtn.className = 'align-middle';
+                const historyBtn = document.createElement('button');
+                historyBtn.type = 'button';
+                historyBtn.className = 'btn btn-sm btn-outline-info me-1';
+                historyBtn.textContent = 'History';
+                historyBtn.addEventListener('click', () => openHistoryModal('array', g.code));
+                tdBtn.appendChild(historyBtn);
+                const saveBtn = document.createElement('button');
+                saveBtn.type = 'button';
+                saveBtn.className = 'btn btn-sm btn-primary';
+                saveBtn.textContent = 'Save';
+                saveBtn.addEventListener('click', async () => {
+                    try {
+                        await apiRequest(
+                            `/api/station_array_groups/${encodeURIComponent(g.code)}`,
+                            'PUT',
+                            { notes: ta.value },
+                        );
+                        showToast(`Saved notes for ${g.code}`, 'success');
+                    } catch (err) {
+                        showToast(`Could not save: ${err.message}`, 'danger');
+                    }
+                });
+                tdBtn.appendChild(saveBtn);
+                tr.appendChild(tdCode);
+                tr.appendChild(tdNotes);
+                tr.appendChild(tdBtn);
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            body.appendChild(table);
+        } catch (err) {
+            body.innerHTML = `<p class="text-danger mb-0">Could not load array groups: ${err.message}</p>`;
+        }
+    }
+
+    async function loadStationAnalytics() {
+        const section = document.getElementById('stationAnalyticsSection');
+        const body = document.getElementById('stationAnalyticsBody');
+        const hint = document.getElementById('analyticsConflictHint');
+        if (!isAdmin || !section || !body) return;
+        section.style.display = 'block';
+        body.innerHTML = '<p class="text-muted mb-0"><i class="fas fa-spinner fa-spin me-2"></i>Loading analytics…</p>';
+        try {
+            const stats = await apiRequest('/api/stations/analytics/overview', 'GET');
+            if (hint) {
+                const n = stats.conflict_logs_pending ?? 0;
+                hint.innerHTML = n > 0
+                    ? `<a href="#conflictQueueSection" class="text-warning">${n} open parser conflict(s)</a>`
+                    : '';
+            }
+            const recentRows = Array.isArray(stats.recent_offloaded_stations_48h)
+                ? stats.recent_offloaded_stations_48h
+                    .map((item) => `
+                        <tr>
+                            <td>${escapeHtml(item.station_id ?? '---')}</td>
+                            <td>${escapeHtml(String(item.timestamp_utc ?? '---'))}</td>
+                            <td>${escapeHtml(item.vrl_file_name ?? '---')}</td>
+                            <td>${escapeHtml(item.logged_by_username ?? '---')}</td>
+                            <td>${escapeHtml(item.source ?? '---')}</td>
+                        </tr>
+                    `)
+                    .join('')
+                : '';
+            const live = stats.live_season_station_counts || {};
+            const byPrefix = stats.by_array_prefix || {};
+            const prefixRows = Object.entries(byPrefix)
+                .sort((a, b) => (b[1].logs || 0) - (a[1].logs || 0))
+                .slice(0, 12)
+                .map(([code, d]) => `<tr><td>${escapeHtml(code)}</td><td>${d.logs ?? 0}</td><td>${(d.success_rate_pct ?? 0).toFixed(1)}%</td><td>${d.last_30d_logs ?? 0}</td></tr>`)
+                .join('');
+            const activeRows = Array.isArray(stats.most_active_stations)
+                ? stats.most_active_stations.map((r) => `<tr><td>${escapeHtml(r.station_id)}</td><td>${r.log_count}</td></tr>`).join('')
+                : '';
+            const failRows = Array.isArray(stats.stations_most_failed_logs)
+                ? stats.stations_most_failed_logs.map((r) => `<tr><td>${escapeHtml(r.station_id)}</td><td>${r.failed_log_count}</td></tr>`).join('')
+                : '';
+            const missionRows = Array.isArray(stats.mission_summary)
+                ? stats.mission_summary.map((m) => `<tr><td>${escapeHtml(m.mission_or_source)}</td><td>${m.log_count}</td><td>${m.successful}</td><td>${m.unique_station_count}</td></tr>`).join('')
+                : '';
+            const seasonSplit = stats.user_vs_parser_by_season || {};
+            const seasonRows = Object.entries(seasonSplit)
+                .map(([y, c]) => `<tr><td>${escapeHtml(y)}</td><td>${c.user ?? 0}</td><td>${c.parser ?? 0}</td></tr>`)
+                .join('');
+            body.innerHTML = `
+                <div class="row g-2 mb-3">
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Live stations</div><div class="fs-5">${live.total_stations ?? '—'}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Offloaded</div><div class="fs-5 text-success">${live.display_offloaded ?? '—'}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Failed</div><div class="fs-5 text-danger">${live.display_failed_offload ?? '—'}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Skipped</div><div class="fs-5 text-warning">${live.display_skipped ?? '—'}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Total logs</div><div class="fs-5">${stats.total_logs ?? 0}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Conflicts</div><div class="fs-5 text-warning">${stats.conflict_logs_pending ?? 0}</div></div></div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-2"><strong>User logs:</strong> ${stats.user_logs ?? 0}</div>
+                    <div class="col-md-3 mb-2"><strong>Parser logs:</strong> ${stats.parser_logs ?? 0}</div>
+                    <div class="col-md-3 mb-2"><strong>Hardware changes:</strong> ${stats.hardware_change_events ?? 0}</div>
+                    <div class="col-md-3 mb-2"><strong>Parser review queue:</strong> ${stats.logs_with_parser_notes_without_user_notes ?? 0}</div>
+                    <div class="col-md-12 mt-1"><strong>Last 24h:</strong> ${stats.daily?.total_logs ?? 0} logs, ${stats.daily?.successful_logs ?? 0} ok, ${stats.daily?.failed_logs ?? 0} failed</div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-lg-6 mb-3">
+                        <div class="card bg-dark border-secondary h-100">
+                            <div class="card-header py-2"><strong>By array prefix</strong></div>
+                            <div class="card-body p-0 table-responsive">
+                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Prefix</th><th>Logs</th><th>OK %</th><th>30d</th></tr></thead><tbody>${prefixRows || '<tr><td colspan="4" class="text-muted">No data</td></tr>'}</tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6 mb-3">
+                        <div class="card bg-dark border-secondary h-100">
+                            <div class="card-header py-2"><strong>User vs parser by season</strong></div>
+                            <div class="card-body p-0 table-responsive">
+                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Season</th><th>User</th><th>Parser</th></tr></thead><tbody>${seasonRows || '<tr><td colspan="3" class="text-muted">No data</td></tr>'}</tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-lg-6 mb-3">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header py-2"><strong>Most active stations</strong></div>
+                            <div class="card-body p-0 table-responsive">
+                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Station</th><th>Logs</th></tr></thead><tbody>${activeRows || '<tr><td colspan="2" class="text-muted">—</td></tr>'}</tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6 mb-3">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header py-2"><strong>Most failed logs</strong></div>
+                            <div class="card-body p-0 table-responsive">
+                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Station</th><th>Failed</th></tr></thead><tbody>${failRows || '<tr><td colspan="2" class="text-muted">—</td></tr>'}</tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card bg-dark border-secondary mb-3">
+                    <div class="card-header py-2"><strong>Mission / glider activity (from parser run id)</strong></div>
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-sm table-dark mb-0"><thead><tr><th>Mission</th><th>Logs</th><th>OK</th><th>Stations</th></tr></thead><tbody>${missionRows || '<tr><td colspan="4" class="text-muted">—</td></tr>'}</tbody></table>
+                    </div>
+                </div>
+                <div class="card bg-dark border-secondary">
+                    <div class="card-header py-2"><strong>Stations offloaded (48h)</strong></div>
+                    <div class="card-body p-0 table-responsive">
+                        <table class="table table-sm table-dark table-striped mb-0">
+                            <thead><tr><th>Station</th><th>UTC</th><th>VRL</th><th>By</th><th>Src</th></tr></thead>
+                            <tbody>${recentRows || '<tr><td colspan="5" class="text-muted">No successful offloads in last 48h.</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } catch (err) {
+            body.innerHTML = `<p class="text-danger mb-0">Could not load analytics: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    async function loadConflictQueue() {
+        const section = document.getElementById('conflictQueueSection');
+        const body = document.getElementById('conflictQueueBody');
+        if (!isAdmin || !section || !body) return;
+        section.style.display = 'block';
+        body.innerHTML = '<p class="text-muted mb-0"><i class="fas fa-spinner fa-spin me-2"></i>Loading…</p>';
+        try {
+            const data = await apiRequest('/api/stations/conflict_queue', 'GET');
+            const items = data.items || [];
+            if (!items.length) {
+                body.innerHTML = '<p class="text-muted mb-0">No open parser conflicts.</p>';
+                return;
+            }
+            body.innerHTML = items.map((it) => {
+                const sid = escapeHtml(it.station_id);
+                const notes = escapeHtml(it.parser_notes || '');
+                return `
+<div class="border border-warning rounded p-3 mb-3 bg-dark text-light" data-conflict-log-id="${it.offload_log_id}">
+  <div class="small text-muted">Log #${it.offload_log_id} · ${sid} · ${escapeHtml(String(it.updated_at_utc || it.log_timestamp_utc || ''))}</div>
+  <pre class="small text-wrap bg-black p-2 rounded mt-2 mb-2" style="white-space:pre-wrap;max-height:180px;overflow:auto">${notes}</pre>
+  <div class="mb-2">
+    <label class="form-label small mb-0">Manual merge — user notes</label>
+    <input type="text" class="form-control form-control-sm conf-merge-notes" placeholder="Optional resolution text" data-id="${it.offload_log_id}">
+  </div>
+  <div class="btn-group btn-group-sm flex-wrap">
+    <button type="button" class="btn btn-outline-light conf-resolve" data-id="${it.offload_log_id}" data-action="accept_user">Keep user values</button>
+    <button type="button" class="btn btn-outline-warning conf-resolve" data-id="${it.offload_log_id}" data-action="accept_parser">Accept parser values</button>
+    <button type="button" class="btn btn-outline-info conf-resolve" data-id="${it.offload_log_id}" data-action="manual_merge">Save manual merge</button>
+  </div>
+</div>`;
+            }).join('');
+            body.querySelectorAll('.conf-resolve').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    const action = btn.getAttribute('data-action');
+                    const wrap = body.querySelector(`[data-conflict-log-id="${id}"]`);
+                    const mergeInput = wrap?.querySelector('.conf-merge-notes');
+                    const payload = { resolution_action: action };
+                    if (action === 'manual_merge') {
+                        const txt = mergeInput?.value?.trim();
+                        if (!txt) {
+                            showToast('Enter text for manual merge', 'warning');
+                            return;
+                        }
+                        payload.resolved_notes = txt;
+                    }
+                    try {
+                        await apiRequest(`/api/stations/conflict_queue/${id}/resolve`, 'POST', payload);
+                        showToast('Conflict resolved', 'success');
+                        await loadConflictQueue();
+                        await loadStationAnalytics();
+                    } catch (e) {
+                        showToast(e.message || 'Resolve failed', 'danger');
+                    }
+                });
+            });
+        } catch (e) {
+            body.innerHTML = `<p class="text-danger mb-0">${escapeHtml(e.message || 'Could not load conflicts')}</p>`;
+        }
+    }
+
+    const refreshConflictQueueBtn = document.getElementById('refreshConflictQueueBtn');
+    if (refreshConflictQueueBtn) {
+        refreshConflictQueueBtn.addEventListener('click', () => loadConflictQueue());
+    }
 
     // Initialize season management UI
     async function initializeSeasonManagement() {
@@ -1074,10 +1675,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         preview.style.display = 'block';
         previewList.innerHTML = `
             <li><strong>Season Year:</strong> ${selectedYear}</li>
-            <li>All stations for ${selectedYear} will be archived</li>
-            <li>All offload logs for ${selectedYear} will be archived</li>
-            <li>Season statistics will be generated</li>
-            <li>Further modifications to archived data will be prevented</li>
+            <li>Freeze a snapshot of every registry row into season snapshots (audit)</li>
+            <li>Stamp open offload logs with season ${selectedYear} where needed</li>
+            <li>Compute and store season statistics</li>
+            <li>Live station registry rows stay editable; use &quot;retired&quot; to retire an ID</li>
         `;
     }
 
@@ -1095,10 +1696,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Final confirmation
         const confirmMessage = `Are you sure you want to close the ${year} field season?\n\n` +
             `This will:\n` +
-            `- Archive all stations and offload logs for ${year}\n` +
-            `- Generate season statistics\n` +
-            `- Prevent further modifications to archived data\n\n` +
-            `This action cannot be undone.`;
+            `- Write roster snapshots for audit\n` +
+            `- Tag remaining open offload logs to ${year}\n` +
+            `- Save season statistics\n\n` +
+            `The live registry is not mass-archived.`;
 
         if (!confirm(confirmMessage)) {
             return;
@@ -1154,7 +1755,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.body.removeChild(link);
             window.URL.revokeObjectURL(downloadUrl);
 
-            showToast('Master list exported successfully! Edit and re-upload to create next season.', 'success');
+            showToast('Registry CSV exported. Edit and re-import to bulk-update the live registry (optional).', 'success');
         } catch (error) {
             showToast(`Error preparing master list: ${error.message}`, 'danger');
             console.error('Error preparing master list:', error);
@@ -2036,8 +2637,8 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         const finalConfirm = confirm(
             `FINAL WARNING: Delete season ${year}?\n\n` +
-            `This will delete the season record only.\n` +
-            `Stations and offload logs will remain in the database.\n\n` +
+            `This removes the season record and purges offload logs and snapshots for that year.\n` +
+            `Station registry rows are not deleted.\n\n` +
             `This action cannot be undone.`
         );
 
@@ -2079,7 +2680,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (!processVm4SeasonYear) return;
 
         // Keep the default option
-        processVm4SeasonYear.innerHTML = '<option value="">Use station\'s season or active season (default)</option>';
+        processVm4SeasonYear.innerHTML = '<option value="">Use active field season (default)</option>';
         
         // Add all seasons
         if (allSeasons && allSeasons.length > 0) {

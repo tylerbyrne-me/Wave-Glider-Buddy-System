@@ -3,7 +3,7 @@ Pydantic request/response model schemas for the Wave Glider Buddy System.
 """
 
 from datetime import datetime, date
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import SQLModel
@@ -224,17 +224,29 @@ class StationMetadataBase(StationMetadataCore):
         default=None,
         description="Outcome of the last offload attempt"
     )
+    is_retired: bool = Field(
+        default=False,
+        description="Station ID no longer in use; row retained for offload history.",
+    )
+    registry_confirmed_at_utc: Optional[datetime] = Field(
+        default=None,
+        description="Optional audit timestamp when the registry row was confirmed.",
+    )
+    registry_confirmed_by_username: Optional[str] = Field(
+        default=None,
+        description="Optional username for registry confirmation audit.",
+    )
     field_season_year: Optional[int] = Field(
         default=None,
-        description="Field season year this station record belongs to (NULL = current/active season)",
+        description="Deprecated: season lives on offload logs; do not set for new workflows.",
     )
     is_archived: bool = Field(
         default=False,
-        description="Whether this station record is archived (read-only)",
+        description="Legacy read-only flag from old season rollover; prefer is_retired.",
     )
     archived_at_utc: Optional[datetime] = Field(
         default=None,
-        description="UTC timestamp when this station was archived",
+        description="Legacy UTC timestamp when is_archived was set.",
     )
 
 
@@ -295,6 +307,46 @@ class OffloadLogCreate(SQLModel):
     remote_health_temperature_c: Optional[float] = None
     remote_health_tilt_rad: Optional[float] = None
     remote_health_humidity: Optional[int] = None
+    parser_notes: Optional[str] = None
+    user_notes: Optional[str] = None
+    parser_run_id: Optional[str] = None
+    parser_session_ref: Optional[str] = None
+
+
+class OffloadLogUpdate(SQLModel):
+    """Partial update for offload logs; parser-only fields are not accepted."""
+
+    user_notes: Optional[str] = None
+    was_offloaded: Optional[bool] = None
+    arrival_date: Optional[datetime] = None
+    departure_date: Optional[datetime] = None
+    distance_command_sent_m: Optional[float] = None
+    time_first_command_sent_utc: Optional[datetime] = None
+    offload_start_time_utc: Optional[datetime] = None
+    offload_end_time_utc: Optional[datetime] = None
+    vrl_file_name: Optional[str] = None
+    offload_notes_file_size: Optional[str] = None
+    remote_health_model_id: Optional[str] = None
+    remote_health_serial_number: Optional[str] = None
+    remote_health_modem_address: Optional[int] = None
+    remote_health_temperature_c: Optional[float] = None
+    remote_health_tilt_rad: Optional[float] = None
+    remote_health_humidity: Optional[int] = None
+
+
+class ConflictResolutionRequest(SQLModel):
+    """Admin resolution for parser vs user offload log conflicts."""
+
+    resolution_action: Literal["accept_user", "accept_parser", "manual_merge"]
+    resolved_notes: Optional[str] = None
+
+
+class StationHardwareSwapRequest(SQLModel):
+    """Admin request to record a deliberate hardware swap on a station."""
+
+    serial_number: Optional[str] = None
+    modem_address: Optional[int] = None
+    change_note: Optional[str] = None
 
 
 class OffloadLogRead(SQLModel):
@@ -319,6 +371,25 @@ class OffloadLogRead(SQLModel):
     remote_health_temperature_c: Optional[float] = None
     remote_health_tilt_rad: Optional[float] = None
     remote_health_humidity: Optional[int] = None
+    parser_notes: Optional[str] = None
+    user_notes: Optional[str] = None
+    created_by_source: str
+    updated_by_source: Optional[str] = None
+    updated_at_utc: Optional[datetime] = None
+    parser_run_id: Optional[str] = None
+    parser_session_ref: Optional[str] = None
+
+
+class StationHardwareHistoryRead(SQLModel):
+    id: int
+    station_id: str
+    serial_number: Optional[str] = None
+    modem_address: Optional[int] = None
+    effective_start_utc: datetime
+    effective_end_utc: Optional[datetime] = None
+    changed_by_username: Optional[str] = None
+    change_source: str
+    change_note: Optional[str] = None
 
 
 # ============================================================================
@@ -383,6 +454,23 @@ class MasterListExport(SQLModel):
     deployment_latitude: Optional[float] = None
     deployment_longitude: Optional[float] = None
     notes: Optional[str] = None
+
+
+class StationArrayGroupRead(SQLModel):
+    """Array group (HFX, NCAT, …) for shared notes."""
+    id: int
+    code: str
+    display_name: Optional[str] = None
+    notes: Optional[str] = None
+    sort_order: int = 0
+    updated_at_utc: datetime
+
+
+class StationArrayGroupUpdate(SQLModel):
+    """Partial update for array group (admin)."""
+    display_name: Optional[str] = None
+    notes: Optional[str] = None
+    sort_order: Optional[int] = None
 
 
 # ============================================================================

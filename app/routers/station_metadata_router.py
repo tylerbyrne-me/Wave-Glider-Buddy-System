@@ -1,6 +1,8 @@
 # station_metadata_router.py
 import logging
-from datetime import datetime, timezone
+import re
+from collections import Counter, defaultdict
+from datetime import datetime, timezone, timedelta
 from typing import Annotated, Any, Dict, List, Optional
 import io
 
@@ -16,12 +18,138 @@ from ..core import models
 from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
 from ..core.db import SQLModelSession, get_db_session
+from ..services.station_overview import build_status_overview_row
 from ..services.station_season_service import StationSeasonService
+from ..services.station_history_service import (
+    aggregate_offload_stats,
+    build_station_timeline,
+    group_stations_by_status,
+    logs_by_season_counts,
+    station_mini_summary,
+)
+from ..core.station_registry_policy import (
+    station_blocks_edits,
+    offload_log_matches_season_year,
+)
 
 logger = logging.getLogger(__name__)
 
 # Create an APIRouter instance
 router = APIRouter()
+
+
+def _offload_log_sort_key(log: models.OffloadLog) -> datetime:
+    ts = log.offload_end_time_utc or log.offload_start_time_utc or log.log_timestamp_utc
+    if ts is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
+def _refresh_station_last_offload_from_all_logs(
+    session: SQLModelSession, station_id: str
+) -> None:
+    """Recompute StationMetadata last offload fields from all logs for this station."""
+    stmt = select(models.OffloadLog).where(models.OffloadLog.station_id == station_id)
+    logs = list(session.exec(stmt).all())
+    station = session.get(models.StationMetadata, station_id)
+    if not station or not logs:
+        return
+    latest = max(logs, key=_offload_log_sort_key)
+    ts = latest.offload_end_time_utc or latest.offload_start_time_utc or latest.log_timestamp_utc
+    if ts:
+        station.last_offload_timestamp_utc = ts
+    if latest.was_offloaded is not None:
+        station.was_last_offload_successful = latest.was_offloaded
+    session.add(station)
+
+
+def _last_conflict_detail_from_parser_notes(parser_notes: Optional[str]) -> Optional[str]:
+    if not parser_notes:
+        return None
+    best: Optional[str] = None
+    for line in parser_notes.split("\n"):
+        if "[CONFLICT" in line:
+            idx = line.find("] ")
+            if idx != -1:
+                best = line[idx + 2 :].strip()
+    return best
+
+
+def _coerce_offload_field_from_conflict_string(field_name: str, s: str) -> Any:
+    if s in ("None", ""):
+        return None
+    if field_name == "was_offloaded":
+        sl = s.lower()
+        if sl in ("true", "1", "yes"):
+            return True
+        if sl in ("false", "0", "no"):
+            return False
+        return None
+    if field_name == "distance_command_sent_m":
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    if field_name in (
+        "arrival_date",
+        "departure_date",
+        "time_first_command_sent_utc",
+        "offload_start_time_utc",
+        "offload_end_time_utc",
+    ):
+        try:
+            s_clean = s.strip()
+            if " " in s_clean and "T" not in s_clean and "+" not in s_clean and "Z" not in s_clean:
+                s_clean = s_clean.replace(" ", "T", 1)
+            return datetime.fromisoformat(s_clean.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return s
+
+
+def _apply_parser_values_from_conflict_detail(
+    log: models.OffloadLog, conflict_detail: Optional[str]
+) -> None:
+    if not conflict_detail:
+        return
+    for part in conflict_detail.split(" | "):
+        part = part.strip()
+        m = re.match(r"^(\w+): existing='(.*)' parser='(.*)'$", part)
+        if not m:
+            continue
+        field_name, parser_str = m.group(1), m.group(3)
+        if field_name in ("parser_notes", "parser_run_id", "parser_session_ref"):
+            continue
+        val = _coerce_offload_field_from_conflict_string(field_name, parser_str)
+        setattr(log, field_name, val)
+
+
+def _mark_conflict_resolved_in_parser_notes(
+    parser_notes: Optional[str],
+    admin_username: str,
+    resolution: str,
+) -> str:
+    """Turn the latest [CONFLICT ...] line into [RESOLVED ...] so the queue filter drops it."""
+    stamp = datetime.now(timezone.utc).isoformat()
+    if not parser_notes:
+        return f"[RESOLVED {stamp}] by={admin_username} action={resolution}\n"
+    lines = parser_notes.split("\n")
+    last_i: Optional[int] = None
+    for i, line in enumerate(lines):
+        if "[CONFLICT" in line:
+            last_i = i
+    if last_i is None:
+        return (
+            parser_notes
+            + f"\n[RESOLVED {stamp}] by={admin_username} action={resolution} (no CONFLICT line)"
+        )
+    line = lines[last_i]
+    line = line.replace("[CONFLICT", "[RESOLVED", 1)
+    line = f"{line} | resolved_by={admin_username} | resolution={resolution}"
+    lines[last_i] = line
+    return "\n".join(lines)
 # logger.debug(f"station_metadata_router.py - APIRouter instance created: {type(router)}") # Changed to logger
 
 # --- Station Metadata Endpoints ---
@@ -45,23 +173,13 @@ async def create_or_update_station_metadata_on_router(
         f"create/update station: {station_data.station_id}"
     )
     
-    # Check if updating an existing archived station
     existing_station = session.get(models.StationMetadata, station_data.station_id)
-    if existing_station and existing_station.is_archived:
+    if existing_station and station_blocks_edits(existing_station):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Station {station_data.station_id} is archived and cannot be modified",
+            detail=f"Station {station_data.station_id} is retired or archived and cannot be modified",
         )
-    
-    # Set field_season_year if not provided (use active season)
-    if not hasattr(station_data, 'field_season_year') or station_data.field_season_year is None:
-        active_season = StationSeasonService.get_active_season(session)
-        if active_season:
-            # Set field_season_year on the station_data object
-            station_data_dict = station_data.model_dump()
-            station_data_dict['field_season_year'] = active_season.year
-            station_data = models.StationMetadataCreate(**station_data_dict)
-    
+
     # The original logic is now in a reusable CRUD function
     db_station, is_created = station_metadata_crud.create_or_update_station(
         session=session, station_data=station_data
@@ -91,7 +209,12 @@ async def get_station_metadata_by_id_on_router(
         f"ROUTER: User '{current_user.username}' fetching station metadata "
         f"for ID: {station_id}"
     )
-    station = session.get(models.StationMetadata, station_id)
+    statement = (
+        select(models.StationMetadata)
+        .where(models.StationMetadata.station_id == station_id)
+        .options(selectinload(models.StationMetadata.offload_logs))
+    )
+    station = session.exec(statement).first()
     if not station:
         logger.warning(f"ROUTER: Station with ID '{station_id}' not found.")
         raise HTTPException(
@@ -233,126 +356,126 @@ async def upload_station_metadata_csv(
                 })
                 logger.info(f"CSV Upload: Serial numbers that already exist: {existing_serials_list}")
 
-    # Determine which season year to assign
     target_season_year = season_year
-    is_historical_season = False
-    
-    if target_season_year is None:
-        # Use active season if no season specified
-        active_season = StationSeasonService.get_active_season(session)
-        target_season_year = active_season.year if active_season else None
-        is_historical_season = False  # Active season is not historical
-    else:
-        # Verify the specified season exists
+    if target_season_year is not None:
         specified_season = StationSeasonService.get_season_by_year(session, target_season_year)
         if not specified_season:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Season {target_season_year} does not exist. Please create it first or use an existing season.",
             )
-        # Check if it's a closed/historical season
-        is_historical_season = not specified_season.is_active or specified_season.closed_at_utc is not None
 
     processed_count = 0
     errors = []
     for index, row in df.iterrows():
         try:
-            # Convert row to dict - keep None values for fields we need to explicitly set
             row_dict = row.to_dict()
-            # Remove None values only for optional fields that shouldn't override existing data
-            # But keep fields we need to explicitly set
-            row_dict = {k: v for k, v in row_dict.items() if v is not None or k in ['field_season_year', 'is_archived', 'archived_at_utc']}
-            
-            # Always set field_season_year and archive status based on target season
-            if target_season_year is not None:
-                row_dict['field_season_year'] = target_season_year
-                # For historical/closed seasons, mark as archived
-                if is_historical_season:
-                    row_dict['is_archived'] = True
-                    row_dict['archived_at_utc'] = datetime.now(timezone.utc)
-                else:
-                    # For active season, ensure not archived
-                    row_dict['is_archived'] = False
-                    row_dict['archived_at_utc'] = None
-            else:
-                # For active season (when no season specified), ensure not archived
-                row_dict['field_season_year'] = None
-                row_dict['is_archived'] = False
-                row_dict['archived_at_utc'] = None
-            
-            # Create station data - this will include field_season_year and archive status
+            row_dict = {k: v for k, v in row_dict.items() if v is not None}
+            row_dict.pop("field_season_year", None)
+            row_dict["is_archived"] = False
+            row_dict["archived_at_utc"] = None
+
             station_data = models.StationMetadataCreate(**row_dict)
-            
-            # Get existing station if it exists
-            existing_station = session.get(models.StationMetadata, station_data.station_id)
-            
+            existing_station = session.get(
+                models.StationMetadata, station_data.station_id
+            )
+
             if existing_station:
-                logger.info(
-                    f"Updating existing station {station_data.station_id}: "
-                    f"field_season_year={station_data.field_season_year}, "
-                    f"is_archived={station_data.is_archived}"
-                )
-                # Update existing station - ensure season fields are always updated
+                if station_blocks_edits(existing_station):
+                    raise ValueError(
+                        f"Station {existing_station.station_id} is retired or archived; "
+                        "re-activate or un-retire before CSV update."
+                    )
+                old_serial = existing_station.serial_number
+                old_modem = existing_station.modem_address
                 update_data = station_data.model_dump(exclude_unset=True)
-                # Always explicitly set season-related fields (don't rely on defaults)
-                update_data['field_season_year'] = station_data.field_season_year
-                update_data['is_archived'] = station_data.is_archived
-                update_data['archived_at_utc'] = station_data.archived_at_utc
-                
+                update_data.pop("field_season_year", None)
+                update_data["is_archived"] = False
+                update_data["archived_at_utc"] = None
+                # Preserve user notes when CSV sends empty / whitespace only
+                if "notes" in update_data:
+                    new_notes = update_data["notes"]
+                    if (
+                        new_notes is None
+                        or (isinstance(new_notes, str) and not str(new_notes).strip())
+                    ) and existing_station.notes:
+                        del update_data["notes"]
                 for key, value in update_data.items():
                     setattr(existing_station, key, value)
-                
+                if old_serial != existing_station.serial_number or old_modem != existing_station.modem_address:
+                    open_stmt = (
+                        select(models.StationHardwareHistory)
+                        .where(
+                            models.StationHardwareHistory.station_id
+                            == existing_station.station_id,
+                            models.StationHardwareHistory.effective_end_utc.is_(None),
+                        )
+                        .order_by(models.StationHardwareHistory.effective_start_utc.desc())
+                    )
+                    open_segment = session.exec(open_stmt).first()
+                    now_utc = datetime.now(timezone.utc)
+                    if open_segment:
+                        open_segment.effective_end_utc = now_utc
+                        session.add(open_segment)
+                    session.add(
+                        models.StationHardwareHistory(
+                            station_id=existing_station.station_id,
+                            serial_number=existing_station.serial_number,
+                            modem_address=existing_station.modem_address,
+                            effective_start_utc=now_utc,
+                            changed_by_username=current_user.username,
+                            change_source="user",
+                            change_note="Updated via station CSV upload",
+                        )
+                    )
+                    warnings.append(
+                        {
+                            "type": "csv_hardware_change",
+                            "message": (
+                                f"Station {existing_station.station_id}: serial/modem changed via CSV upload "
+                                f"(previous serial={old_serial!r}, modem={old_modem!r})"
+                            ),
+                        }
+                    )
                 session.add(existing_station)
-                session.commit()
-                session.refresh(existing_station)
-                logger.info(
-                    f"Station {existing_station.station_id} updated: "
-                    f"field_season_year={existing_station.field_season_year}, "
-                    f"is_archived={existing_station.is_archived}"
-                )
             else:
-                logger.info(
-                    f"Creating new station {station_data.station_id}: "
-                    f"field_season_year={station_data.field_season_year}, "
-                    f"is_archived={station_data.is_archived}"
+                station_metadata_crud.create_or_update_station(
+                    session=session,
+                    station_data=station_data,
+                    commit=False,
                 )
-                # New station - use CRUD function
-                new_station, _ = station_metadata_crud.create_or_update_station(
-                    session=session, station_data=station_data
-                )
-                logger.info(
-                    f"Station {new_station.station_id} created: "
-                    f"field_season_year={new_station.field_season_year}, "
-                    f"is_archived={new_station.is_archived}"
-                )
-            
             processed_count += 1
         except Exception as e:
             error_detail = f"Row {index + 2}: {e}"
             logger.error(f"ROUTER: CSV Upload - {error_detail}")
             errors.append(error_detail)
 
-    # Build response message
-    season_info = f" for season {target_season_year}" if target_season_year else " (active season)"
-    response_content = {
-        "message": f"Successfully created or updated {processed_count} stations from {file.filename}{season_info}.",
-    }
-    
-    # Add warnings if any
-    if warnings:
-        response_content["warnings"] = warnings
-    
-    # Add errors if any
+    season_info = (
+        f" (season {target_season_year} validated)"
+        if target_season_year
+        else " (registry sync)"
+    )
     if errors:
-        response_content["errors"] = errors
-        # Return 207 Multi-Status if there are partial successes
+        session.rollback()
+        response_content = {
+            "message": f"No stations were saved ({len(errors)} row error(s); entire upload rolled back).",
+            "errors": errors,
+        }
+        if warnings:
+            response_content["warnings"] = warnings
         return JSONResponse(
-            status_code=status.HTTP_207_MULTI_STATUS,
+            status_code=status.HTTP_400_BAD_REQUEST,
             content=response_content,
         )
 
-    # If there are warnings but no errors, still return success but include warnings
+    session.commit()
+
+    response_content = {
+        "message": f"Successfully created or updated {processed_count} stations from {file.filename}{season_info}.",
+    }
+
     if warnings:
+        response_content["warnings"] = warnings
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=response_content,
@@ -383,12 +506,11 @@ async def update_station_metadata_fields(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Station metadata not found"
         )
-    
-    # Check if station is archived
-    if db_station_metadata.is_archived:
+
+    if station_blocks_edits(db_station_metadata):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Station {station_id} is archived and cannot be modified",
+            detail=f"Station {station_id} is retired or archived and cannot be modified",
         )
 
     update_data = station_update_data.model_dump(exclude_unset=True)
@@ -397,10 +519,42 @@ async def update_station_metadata_fields(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No update data provided"
         )
 
+    old_serial = db_station_metadata.serial_number
+    old_modem = db_station_metadata.modem_address
+
     for key, value in update_data.items():
         setattr(db_station_metadata, key, value)
 
     session.add(db_station_metadata)
+    if (
+        old_serial != db_station_metadata.serial_number
+        or old_modem != db_station_metadata.modem_address
+    ):
+        # Close previous open hardware segment for this station.
+        open_stmt = (
+            select(models.StationHardwareHistory)
+            .where(
+                models.StationHardwareHistory.station_id == station_id,
+                models.StationHardwareHistory.effective_end_utc.is_(None),
+            )
+            .order_by(models.StationHardwareHistory.effective_start_utc.desc())
+        )
+        open_segment = session.exec(open_stmt).first()
+        now_utc = datetime.now(timezone.utc)
+        if open_segment:
+            open_segment.effective_end_utc = now_utc
+            session.add(open_segment)
+        session.add(
+            models.StationHardwareHistory(
+                station_id=station_id,
+                serial_number=db_station_metadata.serial_number,
+                modem_address=db_station_metadata.modem_address,
+                effective_start_utc=now_utc,
+                changed_by_username=current_user.username,
+                change_source="user",
+                change_note="Updated via station metadata edit",
+            )
+        )
     session.commit()
     session.refresh(db_station_metadata)
     logger.info(
@@ -408,6 +562,77 @@ async def update_station_metadata_fields(
         f"'{current_user.username}'."
     )
     return db_station_metadata
+
+
+@router.post(
+    "/stations/{station_id}/swap_hardware",
+    response_model=models.StationMetadataRead,
+    tags=["Station Offload Management"],
+)
+async def swap_station_hardware(
+    station_id: str,
+    body: models.StationHardwareSwapRequest,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    """Record a deliberate serial/modem change with hardware history (admin only)."""
+    db_station = session.get(models.StationMetadata, station_id)
+    if not db_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Station metadata not found",
+        )
+    if station_blocks_edits(db_station):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Station {station_id} is retired or archived",
+        )
+    payload = body.model_dump(exclude_unset=True)
+    if "serial_number" not in payload and "modem_address" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide at least one of serial_number or modem_address",
+        )
+    old_serial = db_station.serial_number
+    old_modem = db_station.modem_address
+    if "serial_number" in payload:
+        db_station.serial_number = payload["serial_number"]
+    if "modem_address" in payload:
+        db_station.modem_address = payload["modem_address"]
+    if old_serial == db_station.serial_number and old_modem == db_station.modem_address:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hardware change compared to current values",
+        )
+    note = payload.get("change_note") or "Hardware swap (admin)"
+    open_stmt = (
+        select(models.StationHardwareHistory)
+        .where(
+            models.StationHardwareHistory.station_id == station_id,
+            models.StationHardwareHistory.effective_end_utc.is_(None),
+        )
+        .order_by(models.StationHardwareHistory.effective_start_utc.desc())
+    )
+    open_segment = session.exec(open_stmt).first()
+    now_utc = datetime.now(timezone.utc)
+    if open_segment:
+        open_segment.effective_end_utc = now_utc
+        session.add(open_segment)
+    session.add(
+        models.StationHardwareHistory(
+            station_id=station_id,
+            serial_number=db_station.serial_number,
+            modem_address=db_station.modem_address,
+            effective_start_utc=now_utc,
+            changed_by_username=current_user.username,
+            change_source="user",
+            change_note=note,
+        )
+    )
+    session.add(db_station)
+    session.commit()
+    session.refresh(db_station)
+    return db_station
 
 
 # logger.debug("station_metadata_router.py - Defining GET /station_metadata/ (on router)") # Changed to logger
@@ -508,12 +733,11 @@ async def create_offload_log_for_station(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Station metadata not found for logging offload",
         )
-    
-    # Check if station is archived
-    if db_station_metadata.is_archived:
+
+    if station_blocks_edits(db_station_metadata):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Station {station_id} is archived and cannot be modified",
+            detail=f"Station {station_id} is retired or archived and cannot be modified",
         )
 
     # Get active season to set field_season_year
@@ -524,6 +748,11 @@ async def create_offload_log_for_station(
     offload_log_data["logged_by_username"] = current_user.username
     offload_log_data["station_id"] = station_id
     offload_log_data["field_season_year"] = field_season_year
+    offload_log_data["created_by_source"] = "user"
+    offload_log_data["updated_by_source"] = "user"
+    offload_log_data["updated_at_utc"] = datetime.now(timezone.utc)
+    if offload_log_data.get("offload_notes_file_size"):
+        offload_log_data["user_notes"] = offload_log_data.get("offload_notes_file_size")
 
     db_offload_log = models.OffloadLog.model_validate(offload_log_data)
     session.add(db_offload_log)
@@ -555,6 +784,63 @@ async def create_offload_log_for_station(
     return db_offload_log
 
 
+@router.put(
+    "/station_metadata/{station_id}/offload_logs/{log_id}",
+    response_model=models.OffloadLogRead,
+    tags=["Station Offload Management"],
+)
+async def update_offload_log_for_station(
+    station_id: str,
+    log_id: int,
+    offload_update: models.OffloadLogUpdate,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+):
+    logger.info(
+        f"ROUTER: User '{current_user.username}' updating offload log {log_id} "
+        f"for station '{station_id}'."
+    )
+    db_station = session.get(models.StationMetadata, station_id)
+    if not db_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Station metadata not found",
+        )
+    if station_blocks_edits(db_station):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Station {station_id} is retired or archived and cannot be modified",
+        )
+
+    db_log = session.get(models.OffloadLog, log_id)
+    if not db_log or db_log.station_id != station_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offload log not found for this station",
+        )
+
+    update_data = offload_update.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No update data provided",
+        )
+
+    for key, value in update_data.items():
+        setattr(db_log, key, value)
+
+    db_log.updated_by_source = "user"
+    db_log.updated_at_utc = datetime.now(timezone.utc)
+    session.add(db_log)
+    _refresh_station_last_offload_from_all_logs(session, station_id)
+    session.commit()
+    session.refresh(db_log)
+    logger.info(
+        f"ROUTER: Offload log {log_id} updated for station '{station_id}'."
+    )
+    return db_log
+
+
 @router.get(
     "/stations/status_overview",
     response_model=List[Dict[str, Any]],
@@ -563,211 +849,641 @@ async def create_offload_log_for_station(
 async def get_station_offload_status_overview(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_active_user)],
-    season_year: Optional[int] = Query(None, description="Filter by field season year (None = active season)"),
+    season_year: Optional[int] = Query(
+        None,
+        description="Season tag for offload logs (None = active season context). Registry rows are always live.",
+    ),
 ):
     logger.info(
         f"User '{current_user.username}' requesting station offload status overview"
         f"{f' for season {season_year}' if season_year else ' (active season)'}."
     )
 
-    # Filter by season year if provided
-    if season_year is not None:
-        # For specific seasons, include all stations (archived and non-archived)
-        # Eagerly load offload_logs relationship
-        statement = (
-            select(models.StationMetadata)
-            .options(selectinload(models.StationMetadata.offload_logs))
-            .where(models.StationMetadata.field_season_year == season_year)
-            .order_by(models.StationMetadata.station_id)
+    statement = (
+        select(models.StationMetadata)
+        .options(selectinload(models.StationMetadata.offload_logs))
+        .where(
+            models.StationMetadata.is_retired == False,
+            models.StationMetadata.is_archived == False,
         )
-    else:
-        # Active season - get stations with NULL field_season_year and not archived
-        # Eagerly load offload_logs relationship
-        statement = (
-            select(models.StationMetadata)
-            .options(selectinload(models.StationMetadata.offload_logs))
-            .where(
-                models.StationMetadata.field_season_year.is_(None),
-                models.StationMetadata.is_archived == False,
-            )
-            .order_by(models.StationMetadata.station_id)
-        )
-    
-    stations_metadata = list(session.exec(statement).all())
-    logger.info(
-        f"Found {len(stations_metadata)} stations for season "
-        f"{season_year if season_year else 'active (NULL)'}"
+        .order_by(models.StationMetadata.station_id)
     )
-    
-    overview_list = []
-    # now_utc = datetime.now(timezone.utc)
+    stations_metadata = list(session.exec(statement).all())
 
+    if season_year is None:
+        active = StationSeasonService.get_active_season(session)
+        target_year: Optional[int] = active.year if active else None
+        season_is_closed = False
+    else:
+        target_year = season_year
+        season_row = StationSeasonService.get_season_by_year(session, season_year)
+        season_is_closed = bool(season_row and season_row.closed_at_utc) or (
+            season_row is None
+        )
+
+    overview_list: List[Dict[str, Any]] = []
     for station in stations_metadata:
-        status_text = "Unknown"  # Default if no conditions met
-        status_color_key = "grey"  # Default color key
-        last_offload_timestamp_str = "N/A"
-        latest_vrl_file_name = "---"
-        latest_arrival_date_str = "---"
-        latest_distance_command_sent_m_str = "---"
-        latest_time_first_command_sent_utc_str = "---"
-        latest_offload_start_time_utc_str = "---"
-        latest_offload_end_time_utc_str = "---"
-        latest_departure_date_str = "---"
-        latest_was_offloaded_str = "---"
-        latest_offload_notes_file_size_str = "---"
-        latest_remote_health_model_id = None
-        latest_remote_health_serial_number = None
-        latest_remote_health_modem_address = None
-        latest_remote_health_temperature_c = None
-        latest_remote_health_tilt_rad = None
-        latest_remote_health_humidity = None
-
-        if station.last_offload_timestamp_utc:
-            retrieved_ts = station.last_offload_timestamp_utc
-            if (
-                retrieved_ts.tzinfo is None
-                or retrieved_ts.tzinfo.utcoffset(retrieved_ts) is None
-            ):
-                retrieved_ts_aware = retrieved_ts.replace(tzinfo=timezone.utc)
+        if season_year is None:
+            if target_year is None:
+                relevant_logs = [
+                    log for log in station.offload_logs if log.field_season_year is None
+                ]
             else:
-                retrieved_ts_aware = retrieved_ts
-
-            last_offload_timestamp_str = retrieved_ts_aware.strftime(
-                "%Y-%m-%d %H:%M:%S UTC"
-            )
-
-        # Get latest VRL file name from offload logs
-        # Filter logs by season if viewing a specific season
-        relevant_logs = station.offload_logs
-        if season_year is not None:
-            # When viewing a specific season, only show logs from that season
-            relevant_logs = [log for log in station.offload_logs if log.field_season_year == season_year]
-        elif season_year is None:
-            # For active season, only show logs without a season year (active season logs)
-            relevant_logs = [log for log in station.offload_logs if log.field_season_year is None]
-        
-        if relevant_logs:
-            # Sort logs by log_timestamp_utc descending to get the most recent
-            sorted_logs = sorted(
-                relevant_logs,
-                key=lambda log: log.log_timestamp_utc,
-                reverse=True,
-            )
-            if sorted_logs:
-                latest_log = sorted_logs[0]
-                if latest_log.vrl_file_name:
-                    latest_vrl_file_name = latest_log.vrl_file_name
-
-                # Helper to format datetime or return "---"
-                def format_dt(dt_val):
-                    if dt_val:
-                        if (
-                            dt_val.tzinfo is None
-                            or dt_val.tzinfo.utcoffset(dt_val) is None
-                        ):
-                            return dt_val.replace(tzinfo=timezone.utc).strftime(
-                                "%Y-%m-%d %H:%M:%S UTC"
-                            )
-                        return dt_val.strftime("%Y-%m-%d %H:%M:%S UTC")
-                    return "---"
-
-                latest_arrival_date_str = format_dt(latest_log.arrival_date)
-                latest_distance_command_sent_m_str = (
-                    str(latest_log.distance_command_sent_m)
-                    if latest_log.distance_command_sent_m is not None
-                    else "---" # noqa
+                relevant_logs = [
+                    log
+                    for log in station.offload_logs
+                    if offload_log_matches_season_year(
+                        log_season=log.field_season_year,
+                        target_year=target_year,
+                        season_is_closed=False,
+                    )
+                ]
+        else:
+            relevant_logs = [
+                log
+                for log in station.offload_logs
+                if target_year is not None
+                and offload_log_matches_season_year(
+                    log_season=log.field_season_year,
+                    target_year=target_year,
+                    season_is_closed=season_is_closed,
                 )
-                latest_time_first_command_sent_utc_str = format_dt(
-                    latest_log.time_first_command_sent_utc
-                )
-                latest_offload_start_time_utc_str = format_dt(
-                    latest_log.offload_start_time_utc
-                )
-                # This is also the basis for last_offload_timestamp_str if this
-                # log is the one that set it
-                latest_offload_end_time_utc_str = format_dt(latest_log.offload_end_time_utc)
-                latest_departure_date_str = format_dt(latest_log.departure_date)
-                latest_was_offloaded_str = (
-                    "Yes"
-                    if latest_log.was_offloaded is True
-                    else ("No" if latest_log.was_offloaded is False else "---")
-                )
-                latest_offload_notes_file_size_str = (
-                    latest_log.offload_notes_file_size or "---"
-                )
-                # VM4 Remote Health snapshot at connection (from Vemco VM4 Remote Health.csv)
-                if getattr(latest_log, "remote_health_model_id", None) is not None:
-                    latest_remote_health_model_id = latest_log.remote_health_model_id
-                if getattr(latest_log, "remote_health_serial_number", None) is not None:
-                    latest_remote_health_serial_number = latest_log.remote_health_serial_number
-                if getattr(latest_log, "remote_health_modem_address", None) is not None:
-                    latest_remote_health_modem_address = latest_log.remote_health_modem_address
-                if getattr(latest_log, "remote_health_temperature_c", None) is not None:
-                    latest_remote_health_temperature_c = latest_log.remote_health_temperature_c
-                if getattr(latest_log, "remote_health_tilt_rad", None) is not None:
-                    latest_remote_health_tilt_rad = latest_log.remote_health_tilt_rad
-                if getattr(latest_log, "remote_health_humidity", None) is not None:
-                    latest_remote_health_humidity = latest_log.remote_health_humidity
-        # New status logic
-        if station.display_status_override:
-            if station.display_status_override.upper() == "SKIPPED":
-                status_text = "Skipped"
-                status_color_key = "yellow"  # For orange/yellowish color
-            # Potentially handle other override values here
-            # else:
-            #     status_text = station.display_status_override # Display the override text directly
-            #     status_color_key = "blue" # A generic color for other overrides
+            ]
+        overview_list.append(build_status_overview_row(station, relevant_logs))
 
-        elif station.was_last_offload_successful is True:
-            status_text = "Offloaded"
-            status_color_key = "green"  # For green/blue success color
-        elif station.was_last_offload_successful is False:
-            status_text = "Failed Offload"
-            status_color_key = "red"
-        elif station.last_offload_timestamp_utc is None:  # No logs yet, and no override
-            status_text = "Awaiting Offload"
-            status_color_key = "grey"
-        else:  # Has logs, but was_last_offload_successful is None (should be rare), and no override
-            status_text = "Awaiting Status"  # Or "Awaiting Offload" if preferred
-            status_color_key = "grey"
+    logger.info(
+        f"Built status overview for {len(stations_metadata)} registry stations "
+        f"(season context={season_year!r})."
+    )
+    return overview_list
 
-        overview_list.append(
+
+# ============================================================================
+# Station array groups (HFX, NCAT, shared notes)
+# ============================================================================
+
+
+@router.get(
+    "/station_array_groups/",
+    response_model=List[models.StationArrayGroupRead],
+    tags=["Station Array Groups"],
+)
+async def list_station_array_groups(
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+):
+    statement = select(models.StationArrayGroup).order_by(
+        models.StationArrayGroup.sort_order,
+        models.StationArrayGroup.code,
+    )
+    rows = list(session.exec(statement).all())
+    return [
+        models.StationArrayGroupRead(
+            id=r.id,
+            code=r.code,
+            display_name=r.display_name,
+            notes=r.notes,
+            sort_order=r.sort_order,
+            updated_at_utc=r.updated_at_utc,
+        )
+        for r in rows
+    ]
+
+
+@router.put(
+    "/station_array_groups/{code}",
+    response_model=models.StationArrayGroupRead,
+    tags=["Station Array Groups"],
+)
+async def update_station_array_group(
+    code: str,
+    body: models.StationArrayGroupUpdate,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    code_key = code.strip().upper()
+    statement = select(models.StationArrayGroup).where(
+        models.StationArrayGroup.code == code_key
+    )
+    row = session.exec(statement).first()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Array group '{code_key}' not found",
+        )
+    update_data = body.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No update fields provided",
+        )
+    for key, value in update_data.items():
+        setattr(row, key, value)
+    row.updated_at_utc = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return models.StationArrayGroupRead(
+        id=row.id,
+        code=row.code,
+        display_name=row.display_name,
+        notes=row.notes,
+        sort_order=row.sort_order,
+        updated_at_utc=row.updated_at_utc,
+    )
+
+
+# ============================================================================
+# Station/array history and analytics endpoints
+# ============================================================================
+
+
+@router.get(
+    "/stations/{station_id}/history",
+    tags=["Station History"],
+)
+async def get_station_history(
+    station_id: str,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+    season_year: Optional[int] = Query(
+        None,
+        description="If set, only offload logs for this season included in stats/timeline",
+    ),
+):
+    station = session.get(models.StationMetadata, station_id)
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Station {station_id} not found",
+        )
+    log_stmt = select(models.OffloadLog).where(
+        models.OffloadLog.station_id == station_id
+    )
+    all_logs = list(session.exec(log_stmt).all())
+    logs_for_scope = all_logs
+    if season_year is not None:
+        logs_for_scope = [l for l in all_logs if l.field_season_year == season_year]
+    hw_stmt = (
+        select(models.StationHardwareHistory)
+        .where(models.StationHardwareHistory.station_id == station_id)
+        .order_by(models.StationHardwareHistory.effective_start_utc.desc())
+    )
+    hardware = list(session.exec(hw_stmt).all())
+    snap_stmt = (
+        select(models.StationMetadataSeasonSnapshot)
+        .where(models.StationMetadataSeasonSnapshot.station_id == station_id)
+        .order_by(models.StationMetadataSeasonSnapshot.field_season_year.desc())
+    )
+    snapshots = list(session.exec(snap_stmt).all())
+    timeline = build_station_timeline(logs_for_scope, hardware, snapshots)
+    stats = aggregate_offload_stats(logs_for_scope)
+    return {
+        "station_id": station_id,
+        "season_filter": season_year,
+        "station": station.model_dump(),
+        "stats": stats,
+        "timeline": timeline,
+        "season_snapshots": [s.model_dump() for s in snapshots],
+        "hardware_history": [h.model_dump() for h in hardware],
+        "offload_logs": [l.model_dump() for l in all_logs],
+    }
+
+
+@router.get(
+    "/arrays/{array_code}/history",
+    tags=["Station History"],
+)
+async def get_array_history(
+    array_code: str,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+    season_year: Optional[int] = Query(None),
+):
+    code = array_code.upper()
+    ag_stmt = select(models.StationArrayGroup).where(
+        models.StationArrayGroup.code == code
+    )
+    array_group = session.exec(ag_stmt).first()
+    stations_stmt = select(models.StationMetadata).where(
+        models.StationMetadata.station_id.ilike(f"{code}%")
+    )
+    stations = list(session.exec(stations_stmt).all())
+    station_ids = [s.station_id for s in stations]
+    if not station_ids:
+        return {
+            "array_code": code,
+            "array_group": (
+                {
+                    "code": array_group.code,
+                    "display_name": array_group.display_name,
+                    "notes": array_group.notes,
+                }
+                if array_group
+                else None
+            ),
+            "stations": [],
+            "station_summaries": [],
+            "stations_by_status": {},
+            "offload_logs": [],
+            "hardware_history": [],
+            "logs_by_season": {},
+            "aggregate_stats": aggregate_offload_stats([]),
+        }
+    logs_stmt = select(models.OffloadLog).where(
+        models.OffloadLog.station_id.in_(station_ids)
+    )
+    if season_year is not None:
+        logs_stmt = logs_stmt.where(models.OffloadLog.field_season_year == season_year)
+    logs_stmt = logs_stmt.order_by(models.OffloadLog.log_timestamp_utc.desc())
+    hw_stmt = (
+        select(models.StationHardwareHistory)
+        .where(models.StationHardwareHistory.station_id.in_(station_ids))
+        .order_by(models.StationHardwareHistory.effective_start_utc.desc())
+    )
+    logs = list(session.exec(logs_stmt).all())
+    hardware = list(session.exec(hw_stmt).all())
+    logs_by_station: Dict[str, List[Any]] = defaultdict(list)
+    for log in logs:
+        logs_by_station[log.station_id].append(log)
+    summaries = [
+        station_mini_summary(st, logs_by_station.get(st.station_id, []))
+        for st in stations
+    ]
+    all_logs_unfiltered = list(
+        session.exec(
+            select(models.OffloadLog)
+            .where(models.OffloadLog.station_id.in_(station_ids))
+            .order_by(models.OffloadLog.log_timestamp_utc.desc())
+        ).all()
+    )
+    return {
+        "array_code": code,
+        "array_group": (
             {
-                "station_id": station.station_id,
-                "serial_number": station.serial_number,
-                "modem_address": station.modem_address,
-                "station_settings": station.station_settings
-                or "---",  # Add station settings
-                "deployment_latitude": station.deployment_latitude,
-                "deployment_longitude": station.deployment_longitude,
-                # "last_offload_by_glider": station.last_offload_by_glider,
-                # No longer directly in table
-                "last_offload_timestamp_str": last_offload_timestamp_str,
-                "status_text": status_text,
-                # Send the key for JS to map to CSS class
-                "status_color": status_color_key,
-                # For modal pre-fill
-                "display_status_override": station.display_status_override,
-                "vrl_file_name": latest_vrl_file_name,  # Add latest VRL file name
-                # Add other latest log details
-                "latest_arrival_date": latest_arrival_date_str,
-                "latest_distance_command_sent_m": latest_distance_command_sent_m_str,
-                "latest_time_first_command_sent_utc": latest_time_first_command_sent_utc_str,
-                "latest_offload_start_time_utc": latest_offload_start_time_utc_str,
-                "latest_offload_end_time_utc": latest_offload_end_time_utc_str,
-                "latest_departure_date": latest_departure_date_str,
-                "latest_was_offloaded": latest_was_offloaded_str,
-                "latest_offload_notes_file_size": latest_offload_notes_file_size_str,
-                "remote_health_model_id": latest_remote_health_model_id,
-                "remote_health_serial_number": latest_remote_health_serial_number,
-                "remote_health_modem_address": latest_remote_health_modem_address,
-                "remote_health_temperature_c": latest_remote_health_temperature_c,
-                "remote_health_tilt_rad": latest_remote_health_tilt_rad,
-                "remote_health_humidity": latest_remote_health_humidity,
+                "code": array_group.code,
+                "display_name": array_group.display_name,
+                "notes": array_group.notes,
+            }
+            if array_group
+            else None
+        ),
+        "season_filter": season_year,
+        "stations": [s.model_dump() for s in stations],
+        "station_summaries": summaries,
+        "stations_by_status": group_stations_by_status(summaries),
+        "offload_logs": [l.model_dump() for l in logs],
+        "hardware_history": [h.model_dump() for h in hardware],
+        "logs_by_season": logs_by_season_counts(all_logs_unfiltered)
+        if season_year is None
+        else logs_by_season_counts(logs),
+        "aggregate_stats": aggregate_offload_stats(logs),
+    }
+
+
+def _ensure_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalize datetimes for comparison (DB may return naive UTC from SQLite)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _log_activity_ts(log: models.OffloadLog, fallback: datetime) -> datetime:
+    """Latest activity timestamp for analytics windows (log create or last update)."""
+    for candidate in (log.log_timestamp_utc, log.updated_at_utc):
+        t = _ensure_aware_utc(candidate)
+        if t is not None:
+            return t
+    return fallback
+
+
+def _station_id_array_prefix(station_id: str) -> str:
+    i = 0
+    while i < len(station_id) and station_id[i].isalpha():
+        i += 1
+    return station_id[:i].upper() if i else station_id.upper()
+
+
+def _mission_key_from_log(log: models.OffloadLog) -> str:
+    if log.parser_run_id and ":" in (log.parser_run_id or ""):
+        return str(log.parser_run_id).split(":", 1)[0]
+    return "unknown"
+
+
+@router.get(
+    "/stations/analytics/overview",
+    tags=["Station History"],
+)
+async def get_station_analytics_overview(
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+):
+    logs = list(session.exec(select(models.OffloadLog)).all())
+    now_utc = datetime.now(timezone.utc)
+    daily_cutoff = now_utc - timedelta(hours=24)
+    last_48h_cutoff = now_utc - timedelta(hours=48)
+    last_30d_cutoff = now_utc - timedelta(days=30)
+    total_logs = len(logs)
+    user_logs = sum(
+        1 for l in logs if getattr(l, "created_by_source", "user") == "user"
+    )
+    parser_logs = sum(
+        1 for l in logs if getattr(l, "created_by_source", "user") == "parser"
+    )
+    successful = sum(1 for l in logs if l.was_offloaded is True)
+    failed = sum(1 for l in logs if l.was_offloaded is False)
+    unresolved = sum(
+        1
+        for l in logs
+        if (getattr(l, "parser_notes", None) and not getattr(l, "user_notes", None))
+    )
+    conflict_logs_pending = sum(
+        1
+        for l in logs
+        if getattr(l, "parser_notes", None)
+        and "[CONFLICT" in l.parser_notes
+    )
+    daily_logs = [
+        l for l in logs if _log_activity_ts(l, now_utc) >= daily_cutoff
+    ]
+    daily_successful = sum(1 for l in daily_logs if l.was_offloaded is True)
+    daily_failed = sum(1 for l in daily_logs if l.was_offloaded is False)
+    recent_offloaded_logs = []
+    for log in logs:
+        if log.was_offloaded is not True:
+            continue
+        ts = _ensure_aware_utc(
+            log.offload_end_time_utc
+            or log.offload_start_time_utc
+            or log.log_timestamp_utc
+        )
+        if ts is not None and ts >= last_48h_cutoff:
+            recent_offloaded_logs.append((ts, log))
+    recent_offloaded_logs.sort(key=lambda x: x[0], reverse=True)
+    seen_stations = set()
+    recent_offloaded_stations = []
+    for ts, log in recent_offloaded_logs:
+        if log.station_id in seen_stations:
+            continue
+        seen_stations.add(log.station_id)
+        recent_offloaded_stations.append(
+            {
+                "station_id": log.station_id,
+                "timestamp_utc": ts,
+                "vrl_file_name": log.vrl_file_name,
+                "logged_by_username": log.logged_by_username,
+                "source": getattr(log, "created_by_source", "user"),
+            }
+        )
+    hw_changes = list(session.exec(select(models.StationHardwareHistory)).all())
+
+    by_prefix: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {"logs": 0, "successful": 0, "failed": 0, "last_30d_logs": 0}
+    )
+    for log in logs:
+        pref = _station_id_array_prefix(log.station_id)
+        by_prefix[pref]["logs"] += 1
+        if log.was_offloaded is True:
+            by_prefix[pref]["successful"] += 1
+        elif log.was_offloaded is False:
+            by_prefix[pref]["failed"] += 1
+        ts = _ensure_aware_utc(
+            log.offload_end_time_utc
+            or log.offload_start_time_utc
+            or log.log_timestamp_utc
+        )
+        if ts is not None and ts >= last_30d_cutoff:
+            by_prefix[pref]["last_30d_logs"] += 1
+    by_prefix_out = {}
+    for pref, d in by_prefix.items():
+        total = d["logs"]
+        by_prefix_out[pref] = {
+            **d,
+            "success_rate_pct": (d["successful"] / total * 100.0) if total else 0.0,
+        }
+
+    log_counts_by_station = Counter(l.station_id for l in logs)
+    most_active_stations = [
+        {"station_id": sid, "log_count": c}
+        for sid, c in log_counts_by_station.most_common(20)
+    ]
+    failure_by_station = Counter()
+    for log in logs:
+        if log.was_offloaded is False:
+            failure_by_station[log.station_id] += 1
+    stations_most_failures = [
+        {"station_id": sid, "failed_log_count": c}
+        for sid, c in failure_by_station.most_common(20)
+    ]
+
+    user_parser_by_season: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: {"user": 0, "parser": 0}
+    )
+    for log in logs:
+        key = str(log.field_season_year)
+        src = (
+            "parser"
+            if getattr(log, "created_by_source", "user") == "parser"
+            else "user"
+        )
+        user_parser_by_season[key][src] += 1
+
+    mission_summary: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "log_count": 0,
+            "successful": 0,
+            "failed": 0,
+            "unique_stations": set(),
+        }
+    )
+    for log in logs:
+        m = _mission_key_from_log(log)
+        mission_summary[m]["log_count"] += 1
+        mission_summary[m]["unique_stations"].add(log.station_id)
+        if log.was_offloaded is True:
+            mission_summary[m]["successful"] += 1
+        elif log.was_offloaded is False:
+            mission_summary[m]["failed"] += 1
+    mission_summary_out = []
+    for mid, d in sorted(
+        mission_summary.items(), key=lambda x: x[1]["log_count"], reverse=True
+    )[:40]:
+        mission_summary_out.append(
+            {
+                "mission_or_source": mid,
+                "log_count": d["log_count"],
+                "successful": d["successful"],
+                "failed": d["failed"],
+                "unique_station_count": len(d["unique_stations"]),
             }
         )
 
-    return overview_list
+    live_stmt = select(models.StationMetadata).where(
+        models.StationMetadata.is_retired == False,
+        models.StationMetadata.is_archived == False,
+    )
+    live_stations = list(session.exec(live_stmt).all())
+    n_live = len(live_stations)
+    n_offloaded_display = sum(
+        1 for s in live_stations if s.was_last_offload_successful is True
+    )
+    n_failed_display = sum(
+        1 for s in live_stations if s.was_last_offload_successful is False
+    )
+    n_skipped = sum(
+        1
+        for s in live_stations
+        if s.display_status_override
+        and str(s.display_status_override).upper() == "SKIPPED"
+    )
+    n_awaiting = sum(
+        1
+        for s in live_stations
+        if s.last_offload_timestamp_utc is None
+        and not (
+            s.display_status_override
+            and str(s.display_status_override).upper() == "SKIPPED"
+        )
+    )
+
+    return {
+        "total_logs": total_logs,
+        "user_logs": user_logs,
+        "parser_logs": parser_logs,
+        "successful_logs": successful,
+        "failed_logs": failed,
+        "logs_with_parser_notes_without_user_notes": unresolved,
+        "conflict_logs_pending": conflict_logs_pending,
+        "hardware_change_events": len(hw_changes),
+        "daily": {
+            "total_logs": len(daily_logs),
+            "successful_logs": daily_successful,
+            "failed_logs": daily_failed,
+        },
+        "recent_offloaded_stations_48h": recent_offloaded_stations,
+        "by_array_prefix": by_prefix_out,
+        "most_active_stations": most_active_stations,
+        "stations_most_failed_logs": stations_most_failures,
+        "user_vs_parser_by_season": dict(user_parser_by_season),
+        "mission_summary": mission_summary_out,
+        "live_season_station_counts": {
+            "total_stations": n_live,
+            "display_offloaded": n_offloaded_display,
+            "display_failed_offload": n_failed_display,
+            "display_skipped": n_skipped,
+            "display_awaiting_or_other": max(
+                0, n_live - n_offloaded_display - n_failed_display - n_skipped
+            ),
+            "awaiting_offload_estimate": n_awaiting,
+        },
+    }
+
+
+@router.get(
+    "/stations/conflict_queue",
+    tags=["Station History"],
+)
+async def get_station_conflict_queue(
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    """
+    Admin-only conflict queue.
+    Returns offload logs where parser captured mismatch/conflict notes.
+    """
+    logs_stmt = (
+        select(models.OffloadLog)
+        .where(
+            models.OffloadLog.parser_notes.isnot(None),
+            models.OffloadLog.parser_notes.ilike("%[CONFLICT%"),
+        )
+        .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+    )
+    logs = list(session.exec(logs_stmt).all())
+    items = []
+    for log in logs:
+        items.append(
+            {
+                "offload_log_id": log.id,
+                "station_id": log.station_id,
+                "log_timestamp_utc": log.log_timestamp_utc,
+                "updated_at_utc": log.updated_at_utc,
+                "parser_run_id": log.parser_run_id,
+                "parser_session_ref": log.parser_session_ref,
+                "parser_notes": log.parser_notes,
+                "user_notes": log.user_notes,
+                "was_offloaded": log.was_offloaded,
+                "vrl_file_name": log.vrl_file_name,
+            }
+        )
+    return {
+        "count": len(items),
+        "items": items,
+    }
+
+
+@router.post(
+    "/stations/conflict_queue/{log_id}/resolve",
+    response_model=models.OffloadLogRead,
+    tags=["Station History"],
+)
+async def resolve_station_conflict(
+    log_id: int,
+    body: models.ConflictResolutionRequest,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+):
+    """
+    Resolve a parser/user field conflict on an offload log (admin only).
+    """
+    log = session.get(models.OffloadLog, log_id)
+    if not log:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offload log not found",
+        )
+    st = session.get(models.StationMetadata, log.station_id)
+    if st and station_blocks_edits(st):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Station {log.station_id} is retired or archived",
+        )
+    if not log.parser_notes or "[CONFLICT" not in log.parser_notes:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending conflict on this log",
+        )
+
+    action = body.resolution_action
+    if action == "manual_merge":
+        if not body.resolved_notes or not str(body.resolved_notes).strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="resolved_notes is required for manual_merge",
+            )
+        log.user_notes = body.resolved_notes.strip()
+
+    if action == "accept_parser":
+        detail = _last_conflict_detail_from_parser_notes(log.parser_notes)
+        _apply_parser_values_from_conflict_detail(log, detail)
+
+    log.parser_notes = _mark_conflict_resolved_in_parser_notes(
+        log.parser_notes,
+        current_user.username,
+        action,
+    )
+    log.updated_by_source = "user"
+    log.updated_at_utc = datetime.now(timezone.utc)
+    session.add(log)
+    _refresh_station_last_offload_from_all_logs(session, log.station_id)
+    session.commit()
+    session.refresh(log)
+    logger.info(
+        f"Conflict resolved on log {log_id} by {current_user.username} action={action}"
+    )
+    return log
 
 
 # ============================================================================
@@ -947,7 +1663,7 @@ async def delete_field_season(
 ):
     """
     TESTING ONLY: Delete a field season.
-    This does NOT delete associated stations or offload logs, only the season record.
+    By default, this now purges associated season data for cleaner testing resets.
     """
     if not confirm:
         raise HTTPException(
@@ -972,17 +1688,33 @@ async def delete_field_season(
             detail="Cannot delete the active season. Set another season as active first.",
         )
     
+    from sqlmodel import delete
+
+    # Purge season-tagged logs and audit snapshots only (registry rows are shared).
+    delete_logs_stmt = delete(models.OffloadLog).where(
+        models.OffloadLog.field_season_year == year
+    )
+    session.exec(delete_logs_stmt)
+
+    delete_snapshots_stmt = delete(models.StationMetadataSeasonSnapshot).where(
+        models.StationMetadataSeasonSnapshot.field_season_year == year
+    )
+    session.exec(delete_snapshots_stmt)
+
     session.delete(season)
     session.commit()
     
     logger.warning(
-        f"TESTING: Season {year} deleted by '{current_user.username}'. "
-        f"Note: Associated stations and offload logs remain in database."
+        f"TESTING: Season {year} and associated season data deleted by "
+        f"'{current_user.username}'."
     )
     
     return {
-        "message": f"Season {year} deleted. Associated stations and offload logs remain in database.",
-        "warning": "This was a testing operation. Station data was not deleted."
+        "message": (
+            f"Season {year} deleted; offload logs and snapshots for that year "
+            f"were purged. Station registry rows were not deleted."
+        ),
+        "warning": "This was a testing operation with destructive cleanup.",
     }
 
 
@@ -996,7 +1728,7 @@ async def close_field_season(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_admin_user)],
 ):
-    """Close a field season, archiving all stations and offload logs (admin only)."""
+    """Close a field season: snapshot registry, stamp logs, compute stats (admin only)."""
     logger.info(
         f"Admin '{current_user.username}' closing field season {year}."
     )
@@ -1184,7 +1916,7 @@ async def get_master_list(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_active_user)],
 ):
-    """Get master list of stations for a season (clean data for next season preparation)."""
+    """Export current live registry (non-retired) for CSV. Year in path is legacy only."""
     logger.info(
         f"User '{current_user.username}' requesting master list for season {year}."
     )
@@ -1215,7 +1947,7 @@ async def export_master_list(
     if not master_list:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No stations found for season {year}",
+            detail="No non-retired stations in the registry to export",
         )
     
     # Create DataFrame and convert to CSV
@@ -1244,7 +1976,7 @@ async def import_master_list(
     current_user: Annotated[UserModel, Depends(get_current_admin_user)],
     file: UploadFile = File(...),
 ):
-    """Import master list CSV to create stations for a new season (admin only)."""
+    """Bulk upsert registry rows from CSV (admin only). Season record is created if missing."""
     logger.info(
         f"Admin '{current_user.username}' importing master list for season {year}."
     )
@@ -1349,55 +2081,58 @@ async def import_master_list(
                     "duplicates": existing_serials_list
                 })
     
-    # Ensure season exists
     season = StationSeasonService.get_season_by_year(session, year)
     if not season:
-        season = StationSeasonService.create_season(session, year, is_active=True)
+        StationSeasonService.create_season(session, year, is_active=False)
     
     processed_count = 0
     errors = []
     for index, row in df.iterrows():
         try:
             row_dict = {k: v for k, v in row.to_dict().items() if v is not None}
-            # Set field_season_year for new season
-            row_dict["field_season_year"] = year
+            row_dict.pop("field_season_year", None)
             row_dict["is_archived"] = False
             row_dict["archived_at_utc"] = None
-            
+            row_dict.setdefault("is_retired", False)
+
             station_data = models.StationMetadataCreate(**row_dict)
             station_metadata_crud.create_or_update_station(
-                session=session, station_data=station_data
+                session=session,
+                station_data=station_data,
+                commit=False,
             )
             processed_count += 1
         except Exception as e:
             error_detail = f"Row {index + 2}: {e}"
             logger.error(f"Master list import - {error_detail}")
             errors.append(error_detail)
-    
-    # Build response message
+
+    if errors:
+        session.rollback()
+        response_content = {
+            "message": f"No stations were imported ({len(errors)} row error(s); entire import rolled back).",
+            "errors": errors,
+        }
+        if warnings:
+            response_content["warnings"] = warnings
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=response_content,
+        )
+
+    session.commit()
+
     response_content = {
         "message": f"Successfully imported {processed_count} stations from {file.filename} for season {year}.",
     }
-    
-    # Add warnings if any
+
     if warnings:
         response_content["warnings"] = warnings
-    
-    # Add errors if any
-    if errors:
-        response_content["errors"] = errors
-        return JSONResponse(
-            status_code=status.HTTP_207_MULTI_STATUS,
-            content=response_content,
-        )
-    
-    # If there are warnings but no errors, still return success but include warnings
-    if warnings:
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=response_content,
         )
-    
+
     return response_content
 
 
@@ -1426,14 +2161,19 @@ async def clear_all_stations_testing(
     )
     
     try:
-        # Delete all offload logs
+        # Delete all station/offload/season-related data for clean testing reset.
         from sqlmodel import delete
-        delete_logs_stmt = delete(models.OffloadLog)
-        session.exec(delete_logs_stmt)
-        
-        # Delete all station metadata
-        delete_stations_stmt = delete(models.StationMetadata)
-        session.exec(delete_stations_stmt)
+        session.exec(delete(models.AnnouncementAcknowledgement))
+        session.exec(
+            delete(models.Announcement).where(
+                models.Announcement.created_by_username == "wg_vm4_auto"
+            )
+        )
+        session.exec(delete(models.OffloadLog))
+        session.exec(delete(models.StationHardwareHistory))
+        session.exec(delete(models.StationMetadataSeasonSnapshot))
+        session.exec(delete(models.StationMetadata))
+        session.exec(delete(models.FieldSeason))
         
         session.commit()
         
@@ -1442,8 +2182,11 @@ async def clear_all_stations_testing(
         )
         
         return {
-            "message": "All stations and offload logs have been cleared. This was a testing operation.",
-            "warning": "All data has been permanently deleted without archiving."
+            "message": (
+                "All season/station/offload testing data has been cleared "
+                "(including snapshots and hardware history)."
+            ),
+            "warning": "All cleared data has been permanently deleted."
         }
     except Exception as e:
         session.rollback()
@@ -1464,12 +2207,15 @@ async def process_vm4_offloads_for_mission(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_admin_user)],
     force: bool = Query(False, description="Force processing even if mission is historical"),
-    field_season_year: Optional[int] = Query(None, description="Field season year to assign to offload logs (overrides station's season)"),
+    field_season_year: Optional[int] = Query(
+        None,
+        description="Field season year assigned to new offload logs from VM4 (overrides active season default)",
+    ),
 ):
     """
     TESTING: Manually trigger VM4 offload processing for a mission.
     This allows processing historical mission data for testing purposes.
-    If field_season_year is specified, all offload logs will be assigned to that season.
+    If field_season_year is specified, parsed offload logs use that season tag.
     """
     logger.warning(
         f"TESTING: Admin '{current_user.username}' manually triggering VM4 processing for mission {mission_id}."

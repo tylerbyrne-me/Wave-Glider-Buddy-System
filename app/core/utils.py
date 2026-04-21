@@ -36,6 +36,28 @@ def mission_storage_dir_name(mission_id: str, suffix: str) -> str:
     return f"{safe_mission_id}_{safe_suffix}" if safe_suffix else safe_mission_id
 
 
+_DEPLOYMENT_MISSION_CODE_PATTERN = re.compile(r"\b[mM](\d+)\b")
+
+
+def deployment_mission_code_from_mission_id(mission_id: str) -> str:
+    """
+    Extract the Sensor Tracker deployment mission code (e.g. ``m219``) from a folder-style mission id.
+
+    Legacy ids use a trailing segment (``1121-m171`` → ``m171``). New platform deployment ids put the
+    code first (``m219-SV3-1121`` → ``m219``). If no ``m`` + digits token exists, falls back to the
+    substring after the last hyphen, or the whole string when there is no hyphen.
+    """
+    if not mission_id or not mission_id.strip():
+        return mission_id
+    trimmed = mission_id.strip()
+    match = _DEPLOYMENT_MISSION_CODE_PATTERN.search(trimmed)
+    if match:
+        return f"m{match.group(1)}"
+    if "-" in trimmed:
+        return trimmed.split("-")[-1]
+    return trimmed
+
+
 def _ensure_utc(ts: pd.Timestamp) -> pd.Timestamp:
     """
     Helper function to ensure a timestamp is UTC-aware.

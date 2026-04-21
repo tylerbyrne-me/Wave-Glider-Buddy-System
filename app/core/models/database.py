@@ -5,6 +5,7 @@ SQLModel database table definitions for the Wave Glider Buddy System.
 from datetime import datetime, timezone, date
 from typing import List, Optional, TYPE_CHECKING, Dict
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import JSON, Column, Text
 from sqlmodel import Field as SQLModelField
 from sqlmodel import Relationship, SQLModel
@@ -78,6 +79,20 @@ class StationMetadata(SQLModel, table=True):
     deployment_longitude: Optional[float] = SQLModelField(default=None, description="Longitude of the station deployment location in decimal degrees.")
     notes: Optional[str] = SQLModelField(default=None, description="General notes or comments about the station.")
 
+    is_retired: bool = SQLModelField(
+        default=False,
+        index=True,
+        description="Station ID no longer deployed; registry row kept for history and FK integrity.",
+    )
+    registry_confirmed_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="When the registry row was last explicitly confirmed (optional audit).",
+    )
+    registry_confirmed_by_username: Optional[str] = SQLModelField(
+        default=None,
+        description="Username who confirmed the registry row (optional audit).",
+    )
+
     last_offload_timestamp_utc: Optional[datetime] = SQLModelField(
         default=None,
         index=True,
@@ -95,12 +110,12 @@ class StationMetadata(SQLModel, table=True):
     field_season_year: Optional[int] = SQLModelField(
         default=None,
         index=True,
-        description="Field season year this station record belongs to (NULL = current/active season)",
+        description="Deprecated: season is carried on offload logs. Do not use for roster/scope.",
     )
     is_archived: bool = SQLModelField(
         default=False,
         index=True,
-        description="Whether this station record is archived (read-only)",
+        description="Legacy season-close archive flag; prefer is_retired. Cleared by migration; do not set on season close.",
     )
     archived_at_utc: Optional[datetime] = SQLModelField(
         default=None,
@@ -129,6 +144,40 @@ class OffloadLogBase(SQLModel):
     offload_notes_file_size: Optional[str] = SQLModelField(
         default=None,
         description="Notes about the offload and/or file size"
+    )
+    parser_notes: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="Machine-generated parser notes and confidence caveats.",
+    )
+    user_notes: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="User-authored notes. Parser must not overwrite this field.",
+    )
+    created_by_source: str = SQLModelField(
+        default="user",
+        index=True,
+        description="Origin of the record create action: user or parser.",
+    )
+    updated_by_source: Optional[str] = SQLModelField(
+        default=None,
+        index=True,
+        description="Most recent writer source: user or parser.",
+    )
+    updated_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        index=True,
+        description="UTC timestamp of most recent update",
+    )
+    parser_run_id: Optional[str] = SQLModelField(
+        default=None,
+        index=True,
+        description="Parser run identifier for traceability",
+    )
+    parser_session_ref: Optional[str] = SQLModelField(
+        default=None,
+        description="Parser session reference (e.g. mission:serial:start)",
     )
     # VM4 Remote Health snapshot at time of connection (from Vemco VM4 Remote Health.csv)
     remote_health_model_id: Optional[str] = SQLModelField(default=None, description="Model ID from station remote health (e.g. 1538).")
@@ -192,6 +241,94 @@ class FieldSeason(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         description="UTC timestamp when this season record was created",
     )
+
+
+# --- Station metadata snapshot (immutable roster at season close) ---
+class StationMetadataSeasonSnapshot(SQLModel, table=True):
+    """
+    Frozen copy of station metadata when a field season is closed.
+    Preserves per-season roster and notes after live station_metadata rows roll forward.
+    """
+    __tablename__ = "station_metadata_season_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "field_season_year",
+            "station_id",
+            name="uq_station_metadata_snapshot_season_station",
+        ),
+    )
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    field_season_year: int = SQLModelField(index=True)
+    station_id: str = SQLModelField(index=True)
+    serial_number: Optional[str] = SQLModelField(default=None)
+    modem_address: Optional[int] = SQLModelField(default=None)
+    bottom_depth_m: Optional[float] = SQLModelField(default=None)
+    waypoint_number: Optional[str] = SQLModelField(default=None)
+    last_offload_by_glider: Optional[str] = SQLModelField(default=None)
+    station_settings: Optional[str] = SQLModelField(default=None)
+    deployment_latitude: Optional[float] = SQLModelField(default=None)
+    deployment_longitude: Optional[float] = SQLModelField(default=None)
+    notes: Optional[str] = SQLModelField(default=None)
+    last_offload_timestamp_utc: Optional[datetime] = SQLModelField(default=None)
+    was_last_offload_successful: Optional[bool] = SQLModelField(default=None)
+    display_status_override: Optional[str] = SQLModelField(default=None)
+    is_archived: bool = SQLModelField(default=True)
+    archived_at_utc: Optional[datetime] = SQLModelField(default=None)
+    snapshot_created_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="UTC when this snapshot row was written (season close)",
+    )
+
+
+# --- Array / station group (HFX, NCAT, shared notes across seasons) ---
+class StationArrayGroup(SQLModel, table=True):
+    """Logical array group for station prefixes (e.g. HFX); notes persist across seasons."""
+    __tablename__ = "station_array_groups"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    code: str = SQLModelField(unique=True, index=True, description="Short code, e.g. HFX, NCAT")
+    display_name: Optional[str] = SQLModelField(
+        default=None, description="Optional longer label for operators"
+    )
+    notes: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="Shared notes for this array; roll forward until edited",
+    )
+    sort_order: int = SQLModelField(default=0, index=True)
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+
+# --- Station hardware history (serial/modem changes over time) ---
+class StationHardwareHistory(SQLModel, table=True):
+    """
+    Time-ranged serial/modem history for each station_id.
+    station_id remains the operational identity anchor.
+    """
+    __tablename__ = "station_hardware_history"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    station_id: str = SQLModelField(
+        foreign_key="station_metadata.station_id",
+        index=True,
+    )
+    serial_number: Optional[str] = SQLModelField(default=None, index=True)
+    modem_address: Optional[int] = SQLModelField(default=None, index=True)
+    effective_start_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    effective_end_utc: Optional[datetime] = SQLModelField(default=None, index=True)
+    changed_by_username: Optional[str] = SQLModelField(default=None, index=True)
+    change_source: str = SQLModelField(
+        default="user",
+        index=True,
+        description="Source of hardware change event: user or parser",
+    )
+    change_note: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
 
 
 # --- Submitted Form Database Model ---

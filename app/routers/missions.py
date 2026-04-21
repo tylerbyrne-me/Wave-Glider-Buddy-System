@@ -343,8 +343,8 @@ async def _get_mission_info(
     media = [_build_media_read(item) for item in media_items]
     
     # Get Sensor Tracker deployment data
-    # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")
-    mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+    # Try both full mission_id and deployment mission code (e.g., "1070-m216" and "m216")
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
     sensor_tracker_deployment = session.exec(
         select(models.SensorTrackerDeployment).where(
             or_(
@@ -1115,7 +1115,7 @@ async def resync_remote_deleted_outbox_item(
             detail="Only deployment comments are supported for resync.",
         )
 
-    mission_base = item.mission_id.split("-")[-1] if "-" in item.mission_id else item.mission_id
+    mission_base = utils.deployment_mission_code_from_mission_id(item.mission_id)
     deployment = session.exec(
         select(models.SensorTrackerDeployment).where(
             or_(
@@ -1188,7 +1188,7 @@ async def sync_sensortracker_outbox_item(
             detail="Only deployment comments are supported for manual sync.",
         )
 
-    mission_base = item.mission_id.split("-")[-1] if "-" in item.mission_id else item.mission_id
+    mission_base = utils.deployment_mission_code_from_mission_id(item.mission_id)
     deployment = session.exec(
         select(models.SensorTrackerDeployment).where(
             or_(
@@ -1258,7 +1258,7 @@ async def sync_all_approved_outbox_items(
     if not items:
         return {"synced": 0}
 
-    mission_base = mission_id.split("-")[-1] if "-" in mission_id else mission_id
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
     deployment = session.exec(
         select(models.SensorTrackerDeployment).where(
             or_(
@@ -1334,7 +1334,7 @@ async def reconcile_sensortracker_outbox(
         return {"reconciled": 0, "remote_deleted": 0, "message": "No synced items to reconcile."}
     
     # Get the deployment record
-    mission_base = mission_id.split("-")[-1] if "-" in mission_id else mission_id
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
     deployment = session.exec(
         select(models.SensorTrackerDeployment).where(
             or_(

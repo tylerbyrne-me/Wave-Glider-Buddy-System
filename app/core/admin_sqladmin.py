@@ -36,7 +36,10 @@ from app.core.models.database import (
     SensorTrackerOutbox,
     SharedTip,
     ShiftAssignment,
+    StationArrayGroup,
+    StationHardwareHistory,
     StationMetadata,
+    StationMetadataSeasonSnapshot,
     SubmittedForm,
     Timesheet,
     TipComment,
@@ -78,11 +81,12 @@ class StationMetadataAdmin(ModelView, model=StationMetadata):
         StationMetadata.serial_number,
         StationMetadata.deployment_latitude,
         StationMetadata.deployment_longitude,
-        StationMetadata.field_season_year,
+        StationMetadata.is_retired,
         StationMetadata.is_archived,
+        StationMetadata.field_season_year,
     ]
     column_searchable_list = [StationMetadata.station_id, StationMetadata.serial_number]
-    column_sortable_list = [StationMetadata.station_id, StationMetadata.field_season_year]
+    column_sortable_list = [StationMetadata.station_id, StationMetadata.is_retired]
     name = "Station"
     name_plural = "Stations"
     icon = "fa fa-map-marker"
@@ -117,6 +121,62 @@ class FieldSeasonAdmin(ModelView, model=FieldSeason):
     name = "Field Season"
     name_plural = "Field Seasons"
     icon = "fa fa-calendar"
+
+
+class StationMetadataSeasonSnapshotAdmin(ModelView, model=StationMetadataSeasonSnapshot):
+    """Read-only view of roster frozen at season close."""
+    can_create = False
+    can_edit = False
+    can_delete = False
+    column_list = [
+        StationMetadataSeasonSnapshot.field_season_year,
+        StationMetadataSeasonSnapshot.station_id,
+        StationMetadataSeasonSnapshot.serial_number,
+        StationMetadataSeasonSnapshot.snapshot_created_at_utc,
+    ]
+    column_searchable_list = [
+        StationMetadataSeasonSnapshot.station_id,
+    ]
+    column_sortable_list = [
+        StationMetadataSeasonSnapshot.field_season_year,
+        StationMetadataSeasonSnapshot.station_id,
+    ]
+    name = "Station Season Snapshot"
+    name_plural = "Station Season Snapshots"
+    icon = "fa fa-camera"
+
+
+class StationArrayGroupAdmin(ModelView, model=StationArrayGroup):
+    """Array group notes (HFX, NCAT, …)."""
+    column_list = [
+        StationArrayGroup.code,
+        StationArrayGroup.display_name,
+        StationArrayGroup.sort_order,
+        StationArrayGroup.updated_at_utc,
+    ]
+    column_searchable_list = [StationArrayGroup.code, StationArrayGroup.display_name]
+    column_sortable_list = [StationArrayGroup.sort_order, StationArrayGroup.code]
+    name = "Station Array Group"
+    name_plural = "Station Array Groups"
+    icon = "fa fa-layer-group"
+
+
+class StationHardwareHistoryAdmin(ModelView, model=StationHardwareHistory):
+    """Hardware changes (serial/modem timeline per station)."""
+    column_list = [
+        StationHardwareHistory.station_id,
+        StationHardwareHistory.serial_number,
+        StationHardwareHistory.modem_address,
+        StationHardwareHistory.effective_start_utc,
+        StationHardwareHistory.effective_end_utc,
+        StationHardwareHistory.change_source,
+        StationHardwareHistory.changed_by_username,
+    ]
+    column_searchable_list = [StationHardwareHistory.station_id, StationHardwareHistory.serial_number]
+    column_sortable_list = [StationHardwareHistory.station_id, StationHardwareHistory.effective_start_utc]
+    name = "Station Hardware History"
+    name_plural = "Station Hardware History"
+    icon = "fa fa-microchip"
 
 
 class MissionOverviewAdmin(ModelView, model=MissionOverview):
@@ -492,6 +552,9 @@ def setup_sqladmin(app: FastAPI):
         # Core operational models
         admin.add_view(UserAdmin)
         admin.add_view(StationMetadataAdmin)
+        admin.add_view(StationMetadataSeasonSnapshotAdmin)
+        admin.add_view(StationArrayGroupAdmin)
+        admin.add_view(StationHardwareHistoryAdmin)
         admin.add_view(OffloadLogAdmin)
         admin.add_view(FieldSeasonAdmin)
         admin.add_view(MissionOverviewAdmin)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional, Dict, List
-from ..core import models
+from ..core import models, utils
 from ..core.auth import get_current_active_user, get_optional_current_user
 from ..core.db import get_db_session, SQLModelSession
 from app.core.templates import templates
@@ -87,8 +87,8 @@ async def _get_wave_glider_home_response(
             ]
         
         # Get Sensor Tracker deployment data
-        # Try both full mission_id and mission base (e.g., "1070-m216" and "m216")
-        mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        # Try both full mission_id and deployment mission code (e.g., "1070-m216" and "m216")
+        mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
         sensor_tracker_deployment = session.exec(
             select(models.SensorTrackerDeployment).where(
                 or_(

@@ -11,6 +11,7 @@ Usage:
 Examples:
     python scripts/test_sensor_tracker_sync.py 1070-m216
     python scripts/test_sensor_tracker_sync.py m216
+    python scripts/test_sensor_tracker_sync.py m219-SV3-1121
 """
 
 import asyncio
@@ -23,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.services.sensor_tracker_sync_service import SensorTrackerSyncService, SENSOR_TRACKER_AVAILABLE
 from app.core.db import get_db_session
 from sqlmodel import select
-from app.core import models
+from app.core import models, utils
 
 
 async def test_sync(mission_id: str, force_refresh: bool = True):
@@ -49,7 +50,7 @@ async def test_sync(mission_id: str, force_refresh: bool = True):
     
     try:
         # Check if deployment already exists
-        mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
         existing = session.exec(
             select(models.SensorTrackerDeployment).where(
                 models.SensorTrackerDeployment.mission_id == mission_id

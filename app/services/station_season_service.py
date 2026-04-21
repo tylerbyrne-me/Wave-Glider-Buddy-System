@@ -5,16 +5,49 @@ Handles field season management, statistics calculation, and season closing work
 """
 import logging
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
-from sqlmodel import select, func
+from sqlmodel import select
 from sqlmodel import Session as SQLModelSession
 
 from ..core import models
-from ..core.models import FieldSeason, StationMetadata, OffloadLog
+from ..core.models import (
+    FieldSeason,
+    OffloadLog,
+    StationMetadata,
+    StationMetadataSeasonSnapshot,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _season_row(
+    session: SQLModelSession, year: int
+) -> Optional[FieldSeason]:
+    return StationSeasonService.get_season_by_year(session, year)
+
+
+def _season_is_closed(session: SQLModelSession, year: int) -> bool:
+    row = _season_row(session, year)
+    return bool(row and row.closed_at_utc)
+
+
+def _season_logs_query(year: int, season_is_closed: bool):
+    if season_is_closed:
+        return select(OffloadLog).where(OffloadLog.field_season_year == year)
+    return select(OffloadLog).where(
+        (OffloadLog.field_season_year == year) | (OffloadLog.field_season_year.is_(None))
+    )
+
+
+def _minimal_station_for_stats(station_id: str) -> Any:
+    return SimpleNamespace(
+        station_id=station_id,
+        display_status_override=None,
+        last_offload_by_glider=None,
+    )
 
 
 class StationSeasonService:
@@ -65,43 +98,47 @@ class StationSeasonService:
         """
         Calculate comprehensive statistics for a field season.
 
+        Roster: For a closed year, prefers `station_metadata_season_snapshots` if present;
+        otherwise unique `station_id` values from that season's logs (with live registry
+        fill-in when available). For the active (not-yet-closed) year, uses the live
+        registry (non-retired, non-archived).
+
         Assumption: If a command was sent and we never have a confirmed offload
         response (was_offloaded True), the station is counted as failed.
-
-        Logic:
-        - Command/attempt sent = any log with offload_start_time_utc or time_first_command_sent_utc
-        - Confirmed offload = at least one log with was_offloaded is True
-        - Command sent and no confirmed offload → Failed
-        - No logs or no attempt timestamps → Skipped (unless explicitly marked)
-        - Break down success by station type and mission ID
-
-        Returns:
-            Dictionary containing detailed season statistics
         """
-        # Get all stations for this season (where field_season_year matches or is NULL for active)
-        if year is None:
-            # Active season - get stations with NULL field_season_year
-            station_statement = select(StationMetadata).where(
-                StationMetadata.field_season_year.is_(None)
-            )
-        else:
-            station_statement = select(StationMetadata).where(
-                StationMetadata.field_season_year == year
-            )
-        
-        stations = list(session.exec(station_statement).all())
-        
-        # Get all offload logs for this season
-        if year is None:
-            offload_statement = select(OffloadLog).where(
-                OffloadLog.field_season_year.is_(None)
-            )
-        else:
-            offload_statement = select(OffloadLog).where(
-                OffloadLog.field_season_year == year
-            )
-        
+        season_is_closed = _season_is_closed(session, year)
+        offload_statement = _season_logs_query(year, season_is_closed)
         offload_logs = list(session.exec(offload_statement).all())
+
+        if season_is_closed:
+            snap_stmt = (
+                select(StationMetadataSeasonSnapshot)
+                .where(StationMetadataSeasonSnapshot.field_season_year == year)
+                .order_by(StationMetadataSeasonSnapshot.station_id)
+            )
+            stations = list(session.exec(snap_stmt).all())
+            if not stations:
+                ids = sorted({log.station_id for log in offload_logs})
+                if not ids:
+                    stations = []
+                else:
+                    live_stmt = select(StationMetadata).where(
+                        StationMetadata.station_id.in_(ids)
+                    )
+                    by_id = {r.station_id: r for r in session.exec(live_stmt).all()}
+                    stations = [
+                        by_id.get(sid) or _minimal_station_for_stats(sid) for sid in ids
+                    ]
+        else:
+            station_statement = (
+                select(StationMetadata)
+                .where(
+                    StationMetadata.is_retired == False,
+                    StationMetadata.is_archived == False,
+                )
+                .order_by(StationMetadata.station_id)
+            )
+            stations = list(session.exec(station_statement).all())
         
         # Create a mapping of station_id to its logs for efficient lookup
         logs_by_station = defaultdict(list)
@@ -384,83 +421,70 @@ class StationSeasonService:
         session: SQLModelSession, year: int, closed_by_username: str
     ) -> FieldSeason:
         """
-        Close a field season by archiving all stations and offload logs.
-        
-        Args:
-            session: Database session
-            year: Year of the season to close
-            closed_by_username: Username of the user closing the season
-            
-        Returns:
-            The closed FieldSeason record
+        Close a field season: freeze registry rows into season snapshots, stamp offload
+        logs with the season year, persist summary statistics. Live registry rows are not
+        mass-archived.
         """
-        # Get or create the season record
         season = StationSeasonService.get_season_by_year(session, year)
         if not season:
             season = StationSeasonService.create_season(session, year, is_active=False)
-        
+
         if season.closed_at_utc:
             raise ValueError(f"Season {year} is already closed")
-        
-        # Calculate statistics before closing
+
         statistics = StationSeasonService.calculate_season_statistics(session, year)
-        
-        # Archive all stations for this season
-        # For active season (year=None), archive stations with NULL field_season_year
-        if year is None:
-            station_statement = select(StationMetadata).where(
-                StationMetadata.field_season_year.is_(None),
-                StationMetadata.is_archived == False,
-            )
-        else:
-            station_statement = select(StationMetadata).where(
-                StationMetadata.field_season_year == year,
-                StationMetadata.is_archived == False,
-            )
-        
-        stations = list(session.exec(station_statement).all())
+
         archive_time = datetime.now(timezone.utc)
-        
+        station_statement = select(StationMetadata).order_by(StationMetadata.station_id)
+        stations = list(session.exec(station_statement).all())
+
         for station in stations:
-            station.is_archived = True
-            station.archived_at_utc = archive_time
-            if station.field_season_year is None:
-                # Set the year for active season stations
-                station.field_season_year = season.year
-            session.add(station)
-        
-        # Archive all offload logs for this season
-        if year is None:
-            offload_statement = select(OffloadLog).where(
-                OffloadLog.field_season_year.is_(None)
+            snapshot_row = StationMetadataSeasonSnapshot(
+                field_season_year=season.year,
+                station_id=station.station_id,
+                serial_number=station.serial_number,
+                modem_address=station.modem_address,
+                bottom_depth_m=station.bottom_depth_m,
+                waypoint_number=station.waypoint_number,
+                last_offload_by_glider=station.last_offload_by_glider,
+                station_settings=station.station_settings,
+                deployment_latitude=station.deployment_latitude,
+                deployment_longitude=station.deployment_longitude,
+                notes=station.notes,
+                last_offload_timestamp_utc=station.last_offload_timestamp_utc,
+                was_last_offload_successful=station.was_last_offload_successful,
+                display_status_override=station.display_status_override,
+                is_archived=True,
+                archived_at_utc=archive_time,
+                snapshot_created_at_utc=archive_time,
             )
-        else:
-            offload_statement = select(OffloadLog).where(
-                OffloadLog.field_season_year == year
-            )
-        
+            session.add(snapshot_row)
+
+        offload_statement = select(OffloadLog).where(
+            (OffloadLog.field_season_year.is_(None))
+            | (OffloadLog.field_season_year == year)
+        )
         offload_logs = list(session.exec(offload_statement).all())
-        
+
         for log in offload_logs:
             if log.field_season_year is None:
                 log.field_season_year = season.year
             session.add(log)
-        
-        # Update season record
+
         season.is_active = False
         season.closed_at_utc = archive_time
         season.closed_by_username = closed_by_username
         season.summary_statistics = statistics
         session.add(season)
-        
+
         session.commit()
         session.refresh(season)
-        
+
         logger.info(
             f"Season {year} closed by {closed_by_username}. "
-            f"Archived {len(stations)} stations and {len(offload_logs)} offload logs."
+            f"Snapshotted {len(stations)} registry rows; stamped {len(offload_logs)} offload logs."
         )
-        
+
         return season
 
     @staticmethod
@@ -495,64 +519,51 @@ class StationSeasonService:
 
     @staticmethod
     def prepare_master_list_for_next_season(
-        session: SQLModelSession, current_year: int
+        session: SQLModelSession, _current_year: int
     ) -> List[Dict[str, Any]]:
         """
-        Prepare a clean master list of stations for the next season.
-        Removes season-specific data but keeps essential station info.
-        
-        Args:
-            session: Database session
-            current_year: Current season year
-            
-        Returns:
-            List of station dictionaries ready for export
+        Export current live registry (non-retired) for CSV editing.
+        The ``_current_year`` parameter is kept for URL compatibility only.
         """
-        # Get all stations from the current season (including archived)
-        station_statement = select(StationMetadata).where(
-            StationMetadata.field_season_year == current_year
+        station_statement = (
+            select(StationMetadata)
+            .where(
+                StationMetadata.is_retired == False,
+                StationMetadata.is_archived == False,
+            )
+            .order_by(StationMetadata.station_id)
         )
         stations = list(session.exec(station_statement).all())
-        
-        master_list = []
-        for station in stations:
-            master_list.append({
-                "station_id": station.station_id,
-                "serial_number": station.serial_number,
-                "modem_address": station.modem_address,
-                "bottom_depth_m": station.bottom_depth_m,
-                "waypoint_number": station.waypoint_number,
-                "station_settings": station.station_settings,
-                "deployment_latitude": station.deployment_latitude,
-                "deployment_longitude": station.deployment_longitude,
-                "notes": station.notes,
-                # Note: We intentionally exclude:
-                # - last_offload_by_glider (season-specific)
-                # - last_offload_timestamp_utc (season-specific)
-                # - was_last_offload_successful (season-specific)
-                # - display_status_override (season-specific)
-                # - field_season_year (will be set for new season)
-                # - is_archived (will be False for new season)
-            })
-        
-        return master_list
+        return [
+            {
+                "station_id": s.station_id,
+                "serial_number": s.serial_number,
+                "modem_address": s.modem_address,
+                "bottom_depth_m": s.bottom_depth_m,
+                "waypoint_number": s.waypoint_number,
+                "station_settings": s.station_settings,
+                "deployment_latitude": s.deployment_latitude,
+                "deployment_longitude": s.deployment_longitude,
+                "notes": s.notes,
+            }
+            for s in stations
+        ]
 
     @staticmethod
     def get_stations_for_season(
-        session: SQLModelSession, year: Optional[int]
-    ) -> List[StationMetadata]:
-        """Get all stations for a given season."""
-        if year is None:
-            # Active season
-            statement = select(StationMetadata).where(
-                StationMetadata.field_season_year.is_(None)
+        session: SQLModelSession, _year: Optional[int]
+    ) -> List[models.StationMetadataRead]:
+        """Live registry stations in ops (non-retired). Path ``year`` is informational only."""
+        statement = (
+            select(StationMetadata)
+            .where(
+                StationMetadata.is_retired == False,
+                StationMetadata.is_archived == False,
             )
-        else:
-            statement = select(StationMetadata).where(
-                StationMetadata.field_season_year == year
-            )
-        
-        return list(session.exec(statement).all())
+            .order_by(StationMetadata.station_id)
+        )
+        rows = list(session.exec(statement).all())
+        return [models.StationMetadataRead.model_validate(s) for s in rows]
 
     @staticmethod
     def get_offload_logs_for_season(
@@ -568,15 +579,22 @@ class StationSeasonService:
             year: Season year (None for active season)
             station_type: Optional station type prefix to filter by (e.g., 'CBS', 'NCAT')
         """
+        season_row = _season_row(session, year) if year is not None else None
+        season_is_closed = bool(season_row and season_row.closed_at_utc)
         if year is None:
-            statement = select(OffloadLog).where(
-                OffloadLog.field_season_year.is_(None)
-            )
+            active = StationSeasonService.get_active_season(session)
+            if active and not active.closed_at_utc:
+                statement = select(OffloadLog).where(
+                    (OffloadLog.field_season_year == active.year)
+                    | (OffloadLog.field_season_year.is_(None))
+                )
+            else:
+                statement = select(OffloadLog).where(
+                    OffloadLog.field_season_year.is_(None)
+                )
         else:
-            statement = select(OffloadLog).where(
-                OffloadLog.field_season_year == year
-            )
-        
+            statement = _season_logs_query(year, season_is_closed)
+
         logs = list(session.exec(statement).all())
         
         # Filter by station type if provided

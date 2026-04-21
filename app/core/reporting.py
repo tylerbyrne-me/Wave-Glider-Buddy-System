@@ -15,6 +15,7 @@ import numpy as np
 from textwrap import wrap
 
 from sqlmodel import Session as SQLModelSession, select
+from sqlalchemy import or_
 
 from . import models, utils
 from .plotting import (plot_ctd_for_report, plot_errors_for_report,
@@ -448,8 +449,8 @@ async def generate_weekly_report(
         # --- Page 3: Sensor Tracker Metadata (if available) ---
         if sensor_tracker_deployment:
             try:
-                # Extract mission base to query instruments
-                mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+                # Deployment mission code for instrument rows (matches missions router lookups)
+                mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
                 
                 # Query instruments and sensors from database
                 from ..core.db import get_db_session
@@ -458,7 +459,10 @@ async def generate_weekly_report(
                 try:
                     instruments = session.exec(
                         select(models.MissionInstrument).where(
-                            models.MissionInstrument.mission_id == mission_base
+                            or_(
+                                models.MissionInstrument.mission_id == mission_id,
+                                models.MissionInstrument.mission_id == mission_base,
+                            )
                         ).order_by(
                             models.MissionInstrument.data_logger_type,
                             models.MissionInstrument.is_platform_direct,

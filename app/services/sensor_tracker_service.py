@@ -367,7 +367,8 @@ class SensorTrackerService:
             deployment_id: Sensor Tracker deployment ID
 
         Returns:
-            List of image dictionaries
+            List of image dictionaries. Empty list when none exist or the API
+            responds with 404 (Sensor Tracker often uses 404 instead of an empty list).
         """
         if not deployment_id:
             return []
@@ -393,6 +394,13 @@ class SensorTrackerService:
             if response.status_code == 404:
                 # Some deployments may use different filter key
                 response = await client.get(url, params={"deployment": deployment_id})
+            if response.status_code == 404:
+                logger.info(
+                    "Sensor Tracker apiimage returned 404 for deployment %s "
+                    "(no images or listing not available; skipping image sync).",
+                    deployment_id,
+                )
+                return []
             response.raise_for_status()
             data = response.json()
             return self._normalize_api_results(data)

@@ -59,7 +59,7 @@ class SensorTrackerSyncService:
         Get Sensor Tracker deployment data for a mission, syncing if needed.
         
         Args:
-            mission_id: Mission ID (e.g., "1070-m216" or "m216")
+            mission_id: Mission ID (e.g., "1070-m216", "m216", or "m219-SV3-1121")
             force_refresh: If True, force a refresh even if data exists
             session: Database session (will create one if not provided)
             
@@ -70,8 +70,8 @@ class SensorTrackerSyncService:
             logger.warning("Sensor Tracker service not available. Cannot sync.")
             return None
         
-        # Extract mission base from "1070-m216" format to get "m216" or "216"
-        mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        # Resolve Sensor Tracker mission code (e.g. m216 from 1070-m216 or m219 from m219-SV3-1121)
+        mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
         
         # Use provided session or create a new one
         if session is None:

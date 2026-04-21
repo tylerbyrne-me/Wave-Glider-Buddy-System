@@ -141,7 +141,7 @@ class WgVm4StationService:
         Args:
             events: List of parsed OffloadEvent objects
             mission_id: Mission identifier
-            field_season_year: Optional field season year to assign to offload logs (overrides station's season)
+            field_season_year: Optional field season year to assign to offload logs (overrides active season)
             
         Returns:
             Dictionary with processing statistics
@@ -216,7 +216,7 @@ class WgVm4StationService:
             session: Parsed offload session dictionary
             station: Station metadata object
             mission_id: Mission identifier
-            override_field_season_year: Optional field season year to override station's season
+            override_field_season_year: Optional field season year to override active season default
             
         Returns:
             True if log was created successfully
@@ -229,9 +229,6 @@ class WgVm4StationService:
             
             # Check if we already have a log for this time period
             existing_log = self._find_existing_log(station.station_id, session['start_time'])
-            if existing_log:
-                logger.debug(f"Offload log already exists for station {station.station_id} at {session['start_time']}")
-                return False
             
             # Extract session data
             start_time = session['start_time']
@@ -252,19 +249,19 @@ class WgVm4StationService:
             # Determine if offload was successful
             was_offloaded = session['status'] == 'completed'
             
-            # Determine field_season_year with priority:
-            # 1. Override parameter (explicitly specified for historical processing)
-            # 2. Station's field_season_year (if set)
-            # 3. Active season (fallback)
+            # field_season_year: override, else active FieldSeason (registry no longer carries season)
             if override_field_season_year is not None:
                 field_season_year = override_field_season_year
-            elif station.field_season_year is not None:
-                field_season_year = station.field_season_year
             else:
                 from ...services.station_season_service import StationSeasonService
                 active_season = StationSeasonService.get_active_season(self.session)
                 field_season_year = active_season.year if active_season else None
             
+            parser_notes = (
+                f"Auto-generated from WG-VM4 data. VRL: "
+                f"{session.get('vrl_file_name', 'N/A')}"
+            )
+
             # Create offload log
             offload_log_data = {
                 'station_id': station.station_id,
@@ -277,13 +274,68 @@ class WgVm4StationService:
                 'was_offloaded': was_offloaded,
                 'vrl_file_name': session.get('vrl_file_name'),
                 'offload_notes_file_size': f"Auto-generated from WG-VM4 data. VRL: {session.get('vrl_file_name', 'N/A')}",
+                'parser_notes': parser_notes,
+                'created_by_source': 'parser',
+                'updated_by_source': 'parser',
+                'updated_at_utc': datetime.now(timezone.utc),
+                'parser_run_id': f"{mission_id}:{start_time.isoformat()}",
+                'parser_session_ref': f"{mission_id}:{session.get('serial_number')}:{start_time.isoformat()}",
                 'logged_by_username': 'wg_vm4_auto',
                 'field_season_year': field_season_year
             }
-            
-            # Create the offload log
-            offload_log = models.OffloadLog.model_validate(offload_log_data)
-            self.session.add(offload_log)
+
+            if existing_log:
+                # User-wins merge: parser fills only missing fields.
+                parser_fields = [
+                    "arrival_date",
+                    "departure_date",
+                    "distance_command_sent_m",
+                    "time_first_command_sent_utc",
+                    "offload_start_time_utc",
+                    "offload_end_time_utc",
+                    "was_offloaded",
+                    "vrl_file_name",
+                    "offload_notes_file_size",
+                    "parser_notes",
+                    "parser_run_id",
+                    "parser_session_ref",
+                ]
+                conflict_messages: List[str] = []
+                for field_name in parser_fields:
+                    existing_value = getattr(existing_log, field_name)
+                    parser_value = offload_log_data[field_name]
+                    if existing_value in (None, ""):
+                        setattr(existing_log, field_name, parser_value)
+                        continue
+                    if parser_value in (None, ""):
+                        continue
+                    if str(existing_value) != str(parser_value):
+                        conflict_messages.append(
+                            f"{field_name}: existing='{existing_value}' parser='{parser_value}'"
+                        )
+                # Never overwrite user_notes.
+                if conflict_messages:
+                    conflict_text = " | ".join(conflict_messages)
+                    note_prefix = f"[CONFLICT {datetime.now(timezone.utc).isoformat()}]"
+                    merged_note = f"{note_prefix} {conflict_text}"
+                    if existing_log.parser_notes:
+                        existing_log.parser_notes = (
+                            f"{existing_log.parser_notes}\n{merged_note}"
+                        )
+                    else:
+                        existing_log.parser_notes = merged_note
+                    self._notify_conflict_via_admin_announcement(
+                        station_id=station.station_id,
+                        mission_id=mission_id,
+                        parser_session_ref=offload_log_data["parser_session_ref"],
+                        conflict_text=conflict_text,
+                    )
+                existing_log.updated_by_source = "parser"
+                existing_log.updated_at_utc = datetime.now(timezone.utc)
+                offload_log = existing_log
+            else:
+                offload_log = models.OffloadLog.model_validate(offload_log_data)
+                self.session.add(offload_log)
             
             # Update station metadata
             station.last_offload_timestamp_utc = end_time
@@ -295,13 +347,48 @@ class WgVm4StationService:
             self.session.commit()
             self.session.refresh(offload_log)
             
-            logger.info(f"Created offload log for station {station.station_id} from WG-VM4 data")
+            logger.info(
+                f"Upserted offload log for station {station.station_id} from WG-VM4 data"
+            )
             return True
             
         except Exception as e:
             logger.error(f"Error creating offload log for station {station.station_id}: {e}")
             self.session.rollback()
             return False
+
+    def _notify_conflict_via_admin_announcement(
+        self,
+        station_id: str,
+        mission_id: str,
+        parser_session_ref: Optional[str],
+        conflict_text: str,
+    ) -> None:
+        """Create an admin-targeted system announcement for parser/user conflicts."""
+        try:
+            ref = parser_session_ref or f"{mission_id}:{station_id}"
+            existing_stmt = select(models.Announcement).where(
+                models.Announcement.is_active == True,
+                models.Announcement.target_roles == "admin",
+                models.Announcement.announcement_type == "system",
+                models.Announcement.content.ilike(f"%{ref}%"),
+            )
+            if self.session.exec(existing_stmt).first():
+                return
+            content = (
+                f"Conflict Queue Alert [{ref}] station={station_id} mission={mission_id}. "
+                f"Parser detected field mismatch and preserved user values. "
+                f"Details: {conflict_text}"
+            )
+            ann = models.Announcement(
+                content=content,
+                created_by_username="wg_vm4_auto",
+                announcement_type="system",
+                target_roles="admin",
+            )
+            self.session.add(ann)
+        except Exception as exc:
+            logger.warning(f"Unable to create conflict announcement: {exc}")
     
     def _find_existing_log(
         self, 
@@ -343,7 +430,7 @@ class WgVm4StationService:
         Args:
             df: WG-VM4 info DataFrame
             mission_id: Mission identifier
-            field_season_year: Optional field season year to assign to offload logs (overrides station's season)
+            field_season_year: Optional field season year to assign to offload logs (overrides active season)
             
         Returns:
             Processing statistics
@@ -402,7 +489,7 @@ def process_wg_vm4_info_for_mission(
         session: Database session
         df: WG-VM4 info DataFrame
         mission_id: Mission identifier
-        field_season_year: Optional field season year to assign to offload logs (overrides station's season)
+        field_season_year: Optional field season year to assign to offload logs (overrides active season)
         
     Returns:
         Processing statistics

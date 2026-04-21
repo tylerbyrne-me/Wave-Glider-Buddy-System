@@ -594,8 +594,8 @@ async def _load_from_remote_sources(
         
         # Fallback: try fuzzy matching (for legacy "m169" format)
         if remote_mission_folder is None:
-            # Extract mission base (e.g., "m169" from "1071-m169" or just "m169")
-            mission_base = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+            # Extract deployment mission code (e.g., "m169" from "1071-m169" or "m219" from "m219-SV3-1121")
+            mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
             
             for key, value in settings.remote_mission_folder_map.items():
                 if (key.endswith(f" {mission_base}") or 

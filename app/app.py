@@ -1192,8 +1192,8 @@ async def refresh_active_mission_cache():
     # Handle both "m169" and "1071-m169" formats
     filtered_missions = []
     for mission_id in active_missions:
-        # Extract base mission ID (e.g., "m169" from "1071-m169" or just "m169")
-        base_mission_id = mission_id.split('-')[-1] if '-' in mission_id else mission_id
+        # Extract deployment mission code (e.g., "m169" from "1071-m169" or "m219" from "m219-SV3-1121")
+        base_mission_id = utils.deployment_mission_code_from_mission_id(mission_id)
         
         # Check if this is an active real-time mission
         if base_mission_id in active_realtime_missions_set or mission_id in active_realtime_missions_set:

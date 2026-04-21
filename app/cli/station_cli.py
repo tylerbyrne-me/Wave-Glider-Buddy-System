@@ -75,8 +75,9 @@ def import_station_metadata(
     ],
 ):
     """
-    Imports station metadata from a CSV file into the database via the API.
-    Expected CSV headers: station_id,serial_number,modem_address,bottom_depth_m,waypoint_number,last_offload_by_glider,station_settings,notes
+    Imports station registry rows from a CSV via the admin API (upsert by station_id).
+    Expected columns include station_id plus optional registry fields
+    (serial_number, modem_address, …).
     """
     console.print(
         f"Attempting to import station metadata from: [cyan]{csv_file}[/cyan]"

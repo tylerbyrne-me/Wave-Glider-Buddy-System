@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 from sqlmodel import select, or_
-from ..core import models
+from ..core import models, utils
 from ..core.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_optional_current_user
 from ..config import settings
@@ -272,7 +272,7 @@ async def get_form_template(
         # Resolve mission overview (support compound ids like "1070-m216" -> try "m216" if not found)
         mission_overview = session.get(models.MissionOverview, mission_id)
         if mission_overview is None and "-" in mission_id:
-            mission_base = mission_id.split("-")[-1]
+            mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
             mission_overview = session.get(models.MissionOverview, mission_base)
         battery_apu = getattr(mission_overview, "battery_apu_count", None) if mission_overview else None
         theoretical_max_wh = summaries.theoretical_max_wh(battery_apu)
@@ -324,7 +324,7 @@ async def get_form_template(
             )
 
         # Mission title from Sensor Tracker deployment
-        mission_base = mission_id.split("-")[-1] if "-" in mission_id else mission_id
+        mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
         st_deployment = session.exec(
             select(models.SensorTrackerDeployment).where(
                 or_(
@@ -761,7 +761,9 @@ async def submit_form(
         # Persist vessel standoff (m) and sensor sampling rates to mission overview when present in form
         mission_overview = session.get(models.MissionOverview, mission_id)
         if mission_overview is None and "-" in mission_id:
-            mission_overview = session.get(models.MissionOverview, mission_id.split("-")[-1])
+            mission_overview = session.get(
+                models.MissionOverview, utils.deployment_mission_code_from_mission_id(mission_id)
+            )
         if mission_overview is not None:
             updated = False
             standoff_m = _parse_vessel_standoff_from_sections(sections_data)
