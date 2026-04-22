@@ -180,8 +180,6 @@ export function initializeWgVm4OffloadSection() {
                     title: "Offload Results & Notes",
                     items: [
                         {id: "offloaded_status_log", label: "Offloaded", item_type: "dropdown", options: ["Yes", "No", "Partial"], required: true},
-                        {id: "elapsed_time_offload_log_display", label: "Elapsed Time for Offload", item_type: "static_text", value: "N/A"},
-                        {id: "total_time_station_log_display", label: "Total time at Station", item_type: "static_text", value: "N/A"},
                         {id: "comments_log", label: "Comments", item_type: "text_area", placeholder: "Offload details..."},
                         {id: "vrl_file_name_log", label: "VRL File Name", item_type: "text_input", placeholder: "e.g., VR4-UWM_XXXXXX.vrl"},
                         {id: "vrl_file_size_log", label: "VRL File Size (bytes)", item_type: "text_input", placeholder: "e.g., 5161"},
@@ -259,43 +257,6 @@ export function initializeWgVm4OffloadSection() {
                 offloadLogFormFieldsContainer.appendChild(formGroup);
             });
         });
-        addTimeCalculationListeners();
-    }
-
-    function calculateTimeDifference(startStr, endStr) {
-        if (!startStr || !endStr) return "N/A";
-        const startIso = getIsoFromUtcDatetimeLocal(startStr);
-        const endIso = getIsoFromUtcDatetimeLocal(endStr);
-        if (!startIso || !endIso) return "Invalid dates";
-        const startDate = new Date(startIso);
-        const endDate = new Date(endIso);
-        if (isNaN(startDate) || isNaN(endDate) || endDate < startDate) return "Invalid dates";
-
-        let diffMs = endDate - startDate;
-        const hours = Math.floor(diffMs / 3600000);
-        diffMs %= 3600000;
-        const minutes = Math.floor(diffMs / 60000);
-        return `${hours}h ${minutes}m`;
-    }
-
-    function addTimeCalculationListeners() {
-        const startTimeOffload = document.getElementById('start_time_remote_offload_utc_log');
-        const endTimeOffload = document.getElementById('end_time_offload_completed_utc_log');
-        const arrivalTime = document.getElementById('arrival_date_log');
-        const departureTime = document.getElementById('departure_date_log');
-
-        const elapsedDisplay = document.getElementById('elapsed_time_offload_log_display');
-        const totalTimeDisplay = document.getElementById('total_time_station_log_display');
-
-        function updateElapsed() {
-            if (elapsedDisplay) elapsedDisplay.textContent = calculateTimeDifference(startTimeOffload?.value, endTimeOffload?.value);
-        }
-        function updateTotal() {
-            if (totalTimeDisplay) totalTimeDisplay.textContent = calculateTimeDifference(arrivalTime?.value, departureTime?.value);
-        }
-
-        [startTimeOffload, endTimeOffload].forEach(el => el?.addEventListener('change', updateElapsed));
-        [arrivalTime, departureTime].forEach(el => el?.addEventListener('change', updateTotal));
     }
 
     function getIsoFromUtcDatetimeLocal(value) {
