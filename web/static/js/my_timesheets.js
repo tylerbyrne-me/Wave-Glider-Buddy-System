@@ -5,6 +5,7 @@
 
 import { checkAuth } from '/static/js/auth.js';
 import { apiRequest, showToast } from '/static/js/api.js';
+import { formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -25,7 +26,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
             let tableHtml = '';
             timesheets.forEach(ts => {
-                const submissionDate = new Date(ts.submission_timestamp).toLocaleString();
+                const submissionDate = formatUtcDateTime(ts.submission_timestamp);
                 
                 let statusBadge;
                 let actionButton = '';

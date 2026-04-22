@@ -1,5 +1,6 @@
 import { getUserProfile, checkAuth } from "/static/js/auth.js";
 import { fetchWithAuth, showToast, apiRequest } from "/static/js/api.js";
+import { formatUtcDate, formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', function() {
     const FEAT = (window.APP_FEATURES || {});
@@ -183,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         </div>
                                         <hr class="my-2">
                                         <p class="mb-0 small text-muted">
-                                            Posted by ${a.created_by_username} on ${new Date(a.created_at_utc).toLocaleDateString()}
+                                            Posted by ${a.created_by_username} on ${formatUtcDate(a.created_at_utc)}
                                         </p>
                                     </div>
                                 `;
@@ -210,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 content.innerHTML = '<ul class="list-group list-group-flush">' + shifts.map(s => `
                     <li class="list-group-item">
                         <strong>Mission ${s.mission_id}</strong><br>
-                        <small>${new Date(s.start_time_utc).toLocaleString()} - ${new Date(s.end_time_utc).toLocaleString()}</small>
+                        <small>${formatUtcDateTime(s.start_time_utc)} - ${formatUtcDateTime(s.end_time_utc)}</small>
                     </li>
                 `).join('') + '</ul>';
             } else {
@@ -501,7 +502,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 goalItem.appendChild(completedBadge); // Append it to the list item
             }
             completedBadge.textContent = `By: ${updatedGoal.completed_by_username}`;
-            completedBadge.title = `Completed at ${new Date(updatedGoal.completed_at_utc).toLocaleString()}`;
+            completedBadge.title = `Completed at ${formatUtcDateTime(updatedGoal.completed_at_utc)}`;
         } else if (completedBadge) {
             completedBadge.remove();
         }
@@ -539,7 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         let completedBadge = '';
         if (isCompleted && goal.completed_by_username) {
-            const completedDate = goal.completed_at_utc ? new Date(goal.completed_at_utc).toLocaleString() : '';
+            const completedDate = goal.completed_at_utc ? formatUtcDateTime(goal.completed_at_utc) : '';
             completedBadge = `
                 <span class="badge bg-success rounded-pill small ms-2" title="Completed at ${completedDate}">
                     By: ${goal.completed_by_username}
@@ -588,7 +589,7 @@ document.addEventListener('DOMContentLoaded', function() {
         li.innerHTML = `
             <div>
                 <p class="mb-1">${escapeHTML(note.content)}</p>
-                <small class="text-muted">&mdash; ${note.created_by_username || 'Unknown'} on ${new Date(note.created_at_utc).toLocaleString()}</small>
+                <small class="text-muted">&mdash; ${note.created_by_username || 'Unknown'} on ${formatUtcDateTime(note.created_at_utc)}</small>
             </div>
             ${deleteButton}
         `;

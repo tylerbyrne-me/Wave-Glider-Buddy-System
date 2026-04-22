@@ -5,6 +5,7 @@
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
+import { formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 function debounce(callback, delayMs) {
     let timeoutId;
@@ -75,8 +76,34 @@ document.addEventListener('DOMContentLoaded', async function () {
     let activeSeason = null;
     let allSeasons = [];
     let selectedSeasonYear = null; // null = active season
+    let activeMissions = [];
 
     const stationInfoResult = document.getElementById('stationInfoResult'); // For displaying save/add result
+    const formOffloadMissionId = document.getElementById('formOffloadMissionId');
+
+    function populateOffloadMissionDropdown(selectedMissionId = '') {
+        if (!formOffloadMissionId) return;
+        const normalizedSelected = (selectedMissionId || '').trim();
+        formOffloadMissionId.innerHTML = '<option value="">Select active mission (optional)</option>';
+        activeMissions.forEach((missionId) => {
+            const option = document.createElement('option');
+            option.value = missionId;
+            option.textContent = missionId;
+            formOffloadMissionId.appendChild(option);
+        });
+        formOffloadMissionId.value = activeMissions.includes(normalizedSelected) ? normalizedSelected : '';
+    }
+
+    async function loadActiveMissionsForOffloadDropdown() {
+        try {
+            const missions = await apiRequest('/api/available_missions', 'GET');
+            activeMissions = Array.isArray(missions) ? missions.filter((m) => typeof m === 'string' && m.trim()) : [];
+        } catch (error) {
+            activeMissions = [];
+            showToast(`Unable to load active missions: ${error.message}`, 'warning');
+        }
+        populateOffloadMissionDropdown();
+    }
     // Function to initialize the page: check role, then fetch data
     async function initializePage() {
         if (loadingSpinner) loadingSpinner.style.display = 'block'; // Show spinner early
@@ -118,6 +145,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         await fetchStationStatuses(); // Now fetch data
+        await loadActiveMissionsForOffloadDropdown();
         if (loadingSpinner) loadingSpinner.style.display = 'none';
         
         // Initialize season management if admin
@@ -606,6 +634,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('formOffloadStartTime').value = '';
             document.getElementById('formOffloadEndTime').value = '';
             document.getElementById('formDepartureDate').value = '';
+            populateOffloadMissionDropdown(stationData.last_offload_by_glider || '');
             document.getElementById('formVrlFileName').value = '';
             document.getElementById('formOffloadNotesFileSize').value = '';
             document.getElementById('formWasOffloaded').checked = false;
@@ -777,6 +806,23 @@ document.addEventListener('DOMContentLoaded', async function () {
         return null;
     }
 
+    function getUtcNowDatetimeLocalValue() {
+        return new Date().toISOString().slice(0, 16);
+    }
+
+    if (editLogStationModalEl) {
+        editLogStationModalEl.addEventListener('click', (event) => {
+            const nowBtn = event.target.closest('.station-now-btn');
+            if (!nowBtn) return;
+            const targetInputId = nowBtn.dataset.targetInputId;
+            if (!targetInputId) return;
+            const input = document.getElementById(targetInputId);
+            if (!input || input.type !== 'datetime-local') return;
+            input.value = getUtcNowDatetimeLocalValue();
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    }
+
     const saveStationInfoBtn = document.getElementById('saveStationInfoBtn');
     if (saveStationInfoBtn) {
         saveStationInfoBtn.addEventListener('click', async () => {
@@ -890,23 +936,30 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (loadingSpinner) loadingSpinner.style.display = 'block';
 
             const payload = {
-                // For 'date' inputs, the value is already in 'YYYY-MM-DD' format, which FastAPI handles.
-                arrival_date: document.getElementById('formArrivalDate').value || null,
+                arrival_date: getIsoFromDatetimeLocal('formArrivalDate'),
                 distance_command_sent_m: parseFloat(document.getElementById('formDistanceSent').value) || null,
                 time_first_command_sent_utc: getIsoFromDatetimeLocal('formTimeFirstCommand'),
                 offload_start_time_utc: getIsoFromDatetimeLocal('formOffloadStartTime'),
                 offload_end_time_utc: getIsoFromDatetimeLocal('formOffloadEndTime'),
-                departure_date: document.getElementById('formDepartureDate').value || null,
+                departure_date: getIsoFromDatetimeLocal('formDepartureDate'),
                 was_offloaded: document.getElementById('formWasOffloaded').checked,
                 vrl_file_name: document.getElementById('formVrlFileName').value.trim() || null,
                 offload_notes_file_size: document.getElementById('formOffloadNotesFileSize').value.trim() || null,
             };
+            const manualMissionId = (document.getElementById('formOffloadMissionId').value || '').trim();
              // Filter out null values if backend expects only provided fields
             Object.keys(payload).forEach(key => payload[key] === null && delete payload[key]);
              if (payload.distance_command_sent_m && isNaN(payload.distance_command_sent_m)) delete payload.distance_command_sent_m;
 
             try {
                 await apiRequest(`/api/station_metadata/${currentEditingStationId}/offload_logs/`, 'POST', payload);
+                if (manualMissionId) {
+                    await apiRequest(
+                        `/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`,
+                        'PUT',
+                        { last_offload_by_glider: manualMissionId }
+                    );
+                }
                 await fetchStationStatuses(); // Refresh table
                 showToast('New offload logged successfully!', 'success');
                 // Clear only the offload log form fields
@@ -916,6 +969,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 document.getElementById('formOffloadStartTime').value = '';
                 document.getElementById('formOffloadEndTime').value = '';
                 document.getElementById('formDepartureDate').value = '';
+                populateOffloadMissionDropdown();
                 document.getElementById('formVrlFileName').value = '';
                 document.getElementById('formOffloadNotesFileSize').value = '';
                 document.getElementById('formWasOffloaded').checked = false;
@@ -1903,8 +1957,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <h6 class="text-info">Timing</h6>
                         <ul class="list-unstyled">
                             <li><strong>Average Time at Station:</strong> ${statistics.average_time_at_station_hours ? statistics.average_time_at_station_hours.toFixed(2) + ' hours' : 'N/A'}</li>
-                            <li><strong>First Offload:</strong> ${statistics.first_offload_date ? new Date(statistics.first_offload_date).toLocaleString() : 'N/A'}</li>
-                            <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? new Date(statistics.last_offload_date).toLocaleString() : 'N/A'}</li>
+                            <li><strong>First Offload:</strong> ${statistics.first_offload_date ? formatUtcDateTime(statistics.first_offload_date) : 'N/A'}</li>
+                            <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? formatUtcDateTime(statistics.last_offload_date) : 'N/A'}</li>
                         </ul>
                     </div>
                 </div>
@@ -2043,7 +2097,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                                                         <td>
                                                             <small>
                                                                 ${details.attempt_timestamps.map(ts => 
-                                                                    new Date(ts).toLocaleString()
+                                                                    formatUtcDateTime(ts)
                                                                 ).join('<br>')}
                                                             </small>
                                                         </td>
@@ -2129,8 +2183,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                             <h6>Timing</h6>
                             <ul class="list-unstyled">
                                 <li><strong>Average Time at Station:</strong> ${statistics.average_time_at_station_hours ? statistics.average_time_at_station_hours.toFixed(2) + ' hours' : 'N/A'}</li>
-                                <li><strong>First Offload:</strong> ${statistics.first_offload_date ? new Date(statistics.first_offload_date).toLocaleString() : 'N/A'}</li>
-                                <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? new Date(statistics.last_offload_date).toLocaleString() : 'N/A'}</li>
+                                <li><strong>First Offload:</strong> ${statistics.first_offload_date ? formatUtcDateTime(statistics.first_offload_date) : 'N/A'}</li>
+                                <li><strong>Last Offload:</strong> ${statistics.last_offload_date ? formatUtcDateTime(statistics.last_offload_date) : 'N/A'}</li>
                             </ul>
                         </div>
                     </div>
@@ -2294,7 +2348,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                                                             <td>
                                                                 <small>
                                                                     ${details.attempt_timestamps.map(ts => 
-                                                                        new Date(ts).toLocaleString()
+                                                                        formatUtcDateTime(ts)
                                                                     ).join('<br>')}
                                                                 </small>
                                                             </td>
@@ -2419,8 +2473,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <ul class="list-unstyled mb-0">
                             <li><strong>Year:</strong> ${season.year}</li>
                             <li><strong>Status:</strong> ${season.is_active ? 'Active' : 'Closed'}</li>
-                            <li><strong>Created:</strong> ${new Date(season.created_at_utc).toLocaleString()}</li>
-                            ${season.closed_at_utc ? `<li><strong>Closed:</strong> ${new Date(season.closed_at_utc).toLocaleString()}</li>` : ''}
+                            <li><strong>Created:</strong> ${formatUtcDateTime(season.created_at_utc)}</li>
+                            ${season.closed_at_utc ? `<li><strong>Closed:</strong> ${formatUtcDateTime(season.closed_at_utc)}</li>` : ''}
                             ${season.closed_by_username ? `<li><strong>Closed By:</strong> ${season.closed_by_username}</li>` : ''}
                         </ul>
                     </div>

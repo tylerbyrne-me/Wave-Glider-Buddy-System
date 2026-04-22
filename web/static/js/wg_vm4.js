@@ -21,6 +21,9 @@ export function initializeWgVm4OffloadSection() {
     const submitOffloadLogBtn = document.getElementById('submitOffloadLogBtn');
     const offloadSubmissionStatus = document.getElementById('offloadSubmissionStatus');
     const stationSearchResultsContainer = document.getElementById('stationSearchResults');
+    if (!stationIdSearchInput || !fetchStationDataBtn || !wgVm4OffloadForm || !offloadLogFormFieldsContainer) return;
+    if (wgVm4OffloadForm.dataset.vm4Initialized === 'true') return;
+    wgVm4OffloadForm.dataset.vm4Initialized = 'true';
 
     let currentStationData = null; // To store fetched station metadata
     let searchTimeout; // For debouncing search
@@ -30,6 +33,7 @@ export function initializeWgVm4OffloadSection() {
      * @param {string} query - Search query (minimum 2 characters)
      */
     async function searchStations(query) {
+        if (!stationSearchResultsContainer) return;
         if (!query || query.length < 2) { // Min 2 chars to search
             stationSearchResultsContainer.innerHTML = '';
             stationSearchResultsContainer.style.display = 'none';
@@ -68,8 +72,8 @@ export function initializeWgVm4OffloadSection() {
      */
     async function fetchStationMetadata(stationId) {
         if (!stationId) return;
-        stationMetadataError.style.display = 'none';
-        stationMetadataDisplay.style.display = 'none';
+        if (stationMetadataError) stationMetadataError.style.display = 'none';
+        if (stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
         currentStationData = null;
         if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
 
@@ -80,66 +84,77 @@ export function initializeWgVm4OffloadSection() {
             if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = false;
         } catch (error) {
             showToast(`Error fetching station metadata: ${error.message}`, 'danger');
-            stationMetadataError.textContent = `Error: ${error.message}`;
-            stationMetadataError.style.display = 'block';
+            if (stationMetadataError) {
+                stationMetadataError.textContent = `Error: ${error.message}`;
+                stationMetadataError.style.display = 'block';
+            }
         }
+    }
+
+    function toUtcDisplay(value) {
+        if (!value) return 'N/A';
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.valueOf())) return String(value);
+        return parsed.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+    }
+
+    function formatUtcMinutePrecision(value) {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.valueOf())) return '';
+        return parsed.toISOString().slice(0, 16).replace('T', ' ');
     }
 
     function displayStationMetadata(data) {
         if (!data) return;
-        document.getElementById('metaSerial').textContent = data.serial_number || 'N/A';
-        document.getElementById('metaModemAddr').textContent = data.modem_address !== null ? data.modem_address : 'N/A';
-        document.getElementById('metaDepth').textContent = data.bottom_depth_m !== null ? data.bottom_depth_m : 'N/A';
-        document.getElementById('metaWp').textContent = data.waypoint_number || 'N/A';
-                // Display last_offload_timestamp_utc if available in station metadata
+        const metaSerial = document.getElementById('metaSerial');
+        const metaModemAddr = document.getElementById('metaModemAddr');
+        const metaDepth = document.getElementById('metaDepth');
+        const metaWp = document.getElementById('metaWp');
+        const metaLastOffload = document.getElementById('metaLastOffload');
+        const metaSettings = document.getElementById('metaSettings');
+        if (metaSerial) metaSerial.textContent = data.serial_number || 'N/A';
+        if (metaModemAddr) metaModemAddr.textContent = data.modem_address !== null ? data.modem_address : 'N/A';
+        if (metaDepth) metaDepth.textContent = data.bottom_depth_m !== null ? data.bottom_depth_m : 'N/A';
+        if (metaWp) metaWp.textContent = data.waypoint_number || 'N/A';
         const metaLastOffloadTimestampElement = document.getElementById('metaLastOffloadTimestamp');
-        if (metaLastOffloadTimestampElement) { // Check if the element exists
-            metaLastOffloadTimestampElement.textContent = data.last_offload_timestamp_utc ?
-                new Date(data.last_offload_timestamp_utc).toLocaleString() : 'N/A';
-        }
-        document.getElementById('metaLastOffload').textContent = data.last_offload_by_glider || 'N/A';
-        document.getElementById('metaSettings').textContent = data.station_settings || 'N/A';
-        document.getElementById('metaLastOffload').textContent = data.last_offload_by_glider || 'N/A';
-        document.getElementById('metaSettings').textContent = data.station_settings || 'N/A';
+        if (metaLastOffloadTimestampElement) metaLastOffloadTimestampElement.textContent = toUtcDisplay(data.last_offload_timestamp_utc);
+        if (metaLastOffload) metaLastOffload.textContent = data.last_offload_by_glider || 'N/A';
+        if (metaSettings) metaSettings.textContent = data.station_settings || 'N/A';
         
         const notesContainer = document.getElementById('metaNotesContainer');
         const notesSpan = document.getElementById('metaNotes');
-        if (data.notes) {
+        if (data.notes && notesContainer && notesSpan) {
             notesSpan.textContent = data.notes;
             notesContainer.style.display = 'block';
-        } else {
+        } else if (notesContainer) {
             notesContainer.style.display = 'none';
         }
-        stationMetadataDisplay.style.display = 'block';
+        if (stationMetadataDisplay) stationMetadataDisplay.style.display = 'block';
     }
 
-    if (stationIdSearchInput) {
-        stationIdSearchInput.addEventListener('keyup', (e) => {
-            clearTimeout(searchTimeout);
-            if (e.key === 'Enter') {
-                fetchStationMetadata(stationIdSearchInput.value.trim());
-                if(stationSearchResultsContainer) stationSearchResultsContainer.style.display = 'none';
-            } else {
-                searchTimeout = setTimeout(() => {
-                    searchStations(stationIdSearchInput.value.trim());
-                }, 300);
-            }
-        });
-        document.addEventListener('click', function(event) {
-            if (stationSearchResultsContainer && stationIdSearchInput &&
-                !stationIdSearchInput.contains(event.target) && 
-                !stationSearchResultsContainer.contains(event.target)) {
-                stationSearchResultsContainer.style.display = 'none';
-            }
-        });
-    }
-
-    if (fetchStationDataBtn) {
-        fetchStationDataBtn.addEventListener('click', () => {
-            if(stationIdSearchInput) fetchStationMetadata(stationIdSearchInput.value.trim());
+    stationIdSearchInput.addEventListener('keyup', (e) => {
+        clearTimeout(searchTimeout);
+        if (e.key === 'Enter') {
+            fetchStationMetadata(stationIdSearchInput.value.trim());
             if(stationSearchResultsContainer) stationSearchResultsContainer.style.display = 'none';
-        });
-    }
+        } else {
+            searchTimeout = setTimeout(() => {
+                searchStations(stationIdSearchInput.value.trim());
+            }, 300);
+        }
+    });
+    document.addEventListener('click', function(event) {
+        if (stationSearchResultsContainer && stationIdSearchInput &&
+            !stationIdSearchInput.contains(event.target) && 
+            !stationSearchResultsContainer.contains(event.target)) {
+            stationSearchResultsContainer.style.display = 'none';
+        }
+    });
+
+    fetchStationDataBtn.addEventListener('click', () => {
+        fetchStationMetadata(stationIdSearchInput.value.trim());
+        if(stationSearchResultsContainer) stationSearchResultsContainer.style.display = 'none';
+    });
 
     // --- Form Building & Submission ---
     function buildOffloadLogFormFields(stationData) { // stationData can be null to clear/init form
@@ -193,7 +208,11 @@ export function initializeWgVm4OffloadSection() {
                 let inputElement;
                 if (item.item_type === 'datetime-local') {
                     inputElement = document.createElement('input');
-                    inputElement.type = 'datetime-local';
+                    inputElement.type = 'text';
+                    inputElement.inputMode = 'numeric';
+                    inputElement.placeholder = 'YYYY-MM-DD HH:mm';
+                    inputElement.pattern = '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$';
+                    inputElement.title = 'Use UTC 24hr format: YYYY-MM-DD HH:mm';
                 } else if (item.item_type === 'text_input') {
                     inputElement = document.createElement('input');
                     inputElement.type = 'text';
@@ -221,8 +240,21 @@ export function initializeWgVm4OffloadSection() {
                     if (item.placeholder) inputElement.placeholder = item.placeholder;
                     if (item.required) inputElement.required = true;
                 }
-                
-                if (inputElement) inputContainer.appendChild(inputElement);
+
+                if (inputElement && item.item_type === 'datetime-local') {
+                    const inputGroup = document.createElement('div');
+                    inputGroup.classList.add('input-group', 'input-group-sm');
+                    inputGroup.appendChild(inputElement);
+                    const nowBtn = document.createElement('button');
+                    nowBtn.type = 'button';
+                    nowBtn.classList.add('btn', 'btn-outline-secondary', 'vm4-now-btn');
+                    nowBtn.textContent = 'Now';
+                    nowBtn.dataset.targetInputId = item.id;
+                    inputGroup.appendChild(nowBtn);
+                    inputContainer.appendChild(inputGroup);
+                } else if (inputElement) {
+                    inputContainer.appendChild(inputElement);
+                }
                 formGroup.appendChild(inputContainer);
                 offloadLogFormFieldsContainer.appendChild(formGroup);
             });
@@ -232,8 +264,11 @@ export function initializeWgVm4OffloadSection() {
 
     function calculateTimeDifference(startStr, endStr) {
         if (!startStr || !endStr) return "N/A";
-        const startDate = new Date(startStr);
-        const endDate = new Date(endStr);
+        const startIso = getIsoFromUtcDatetimeLocal(startStr);
+        const endIso = getIsoFromUtcDatetimeLocal(endStr);
+        if (!startIso || !endIso) return "Invalid dates";
+        const startDate = new Date(startIso);
+        const endDate = new Date(endIso);
         if (isNaN(startDate) || isNaN(endDate) || endDate < startDate) return "Invalid dates";
 
         let diffMs = endDate - startDate;
@@ -263,89 +298,105 @@ export function initializeWgVm4OffloadSection() {
         [arrivalTime, departureTime].forEach(el => el?.addEventListener('change', updateTotal));
     }
 
-    if (wgVm4OffloadForm) {
-        wgVm4OffloadForm.addEventListener('submit', async function(event) {
-            event.preventDefault();
-            if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = '<div class="alert alert-info">Submitting log...</div>';
-            if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
-
-            if (!currentStationData) {
-                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = '<div class="alert alert-danger">No station data loaded. Please load station first.</div>';
-                if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = false;
-                return;
-            }
-
-            const formData = new FormData(wgVm4OffloadForm);
-            const missionId = document.body.dataset.missionId;
-            // Ensure fetchCurrentUserDetailsAndUpdateUI is available (e.g., from dashboard.js)
-            const currentUser = typeof fetchCurrentUserDetailsAndUpdateUI === 'function' ? await fetchCurrentUserDetailsAndUpdateUI() : null;
-            const username = currentUser ? currentUser.username : 'unknown_user';
-
-            const sections_data = [
-                { 
-                    id: "station_identification", title: "Station Identification", items: [
-                        {id: "station_id_for_offload", label: "Station ID", item_type: "autofilled_value", value: currentStationData.station_id},
-                        {id: "serial_number_log", label: "Serial Number", item_type: "autofilled_value", value: currentStationData.serial_number},
-                        {id: "modem_address_log", label: "Modem Address", item_type: "autofilled_value", value: String(currentStationData.modem_address)},
-                        {id: "bottom_depth_m_log", label: "Bottom Depth (m)", item_type: "autofilled_value", value: String(currentStationData.bottom_depth_m)},
-                        {id: "waypoint_number_log", label: "WP #", item_type: "autofilled_value", value: currentStationData.waypoint_number},
-                        {id: "last_offload_by_glider_log", label: "Last Offload by Glider", item_type: "autofilled_value", value: currentStationData.last_offload_by_glider},
-                        {id: "station_settings_log", label: "Station Settings", item_type: "autofilled_value", value: currentStationData.station_settings},
-                    ]
-                },
-                { 
-                    id: "offload_parameters", title: "Offload Parameters & Timings", items: [
-                        {id: "arrival_date_log", label: "Arrival Date/Time (UTC)", item_type: "datetime-local", value: formData.get('arrival_date_log')},
-                        {id: "distance_cmd_sent_m_log", label: "Distance when command sent (m)", item_type: "text_input", value: formData.get('distance_cmd_sent_m_log')},
-                        {id: "time_first_cmd_sent_utc_log", label: "Time first command sent (UTC)", item_type: "datetime-local", value: formData.get('time_first_cmd_sent_utc_log')},
-                        {id: "start_time_remote_offload_utc_log", label: "Start Time - remote offload (UTC)", item_type: "datetime-local", value: formData.get('start_time_remote_offload_utc_log')},
-                        {id: "end_time_offload_completed_utc_log", label: "End Time - Offload completed (UTC)", item_type: "datetime-local", value: formData.get('end_time_offload_completed_utc_log')},
-                        {id: "departure_date_log", label: "Departure Date/Time (UTC)", item_type: "datetime-local", value: formData.get('departure_date_log')},
-                    ]
-                },
-                { 
-                    id: "offload_results", title: "Offload Results & Notes", items: [
-                        {id: "offloaded_status_log", label: "Offloaded", item_type: "dropdown", value: formData.get('offloaded_status_log')},
-                        {id: "elapsed_time_offload_log", label: "Elapsed Time for Offload", item_type: "static_text", value: document.getElementById('elapsed_time_offload_log_display')?.textContent || 'N/A'},
-                        {id: "total_time_station_log", label: "Total time at Station", item_type: "static_text", value: document.getElementById('total_time_station_log_display')?.textContent || 'N/A'},
-                        {id: "comments_log", label: "Comments", item_type: "text_area", value: formData.get('comments_log')},
-                        {id: "vrl_file_name_log", label: "VRL File Name", item_type: "text_input", value: formData.get('vrl_file_name_log')},
-                        {id: "vrl_file_size_log", label: "VRL File Size (bytes)", item_type: "text_input", value: formData.get('vrl_file_size_log')},
-                        {id: "otn_metadata_notes_log", label: "OTN Metadata Notes", item_type: "text_area", value: formData.get('otn_metadata_notes_log')},
-                    ]
-                },
-                { 
-                    id: "sign_off", title: "Sign Off", items: [
-                        {id: "logged_by_log", label: "Logged By", item_type: "autofilled_value", value: username }
-                    ]
-                }
-            ];
-
-            const payload = {
-                mission_id: missionId,
-                form_type: "wg_vm4_offload_log",
-                form_title: `VM4 Offload Log: ${currentStationData.station_id} - Mission ${missionId}`,
-                sections_data: sections_data
-            };
-
-            try {
-                const result = await apiRequest(`/api/forms/${missionId}`, 'POST', payload);
-                showToast(`Log for station ${currentStationData.station_id} submitted successfully!`, 'success');
-                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-success">Log for station ${currentStationData.station_id} submitted successfully!</div>`;
-                wgVm4OffloadForm.reset();
-                if(stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
-                currentStationData = null;
-                if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
-                if(stationIdSearchInput) stationIdSearchInput.value = '';
-                buildOffloadLogFormFields(null); 
-            } catch (error) {
-                showToast(`Error submitting offload log: ${error.message}`, 'danger');
-                if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;
-            } finally {
-                if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = !currentStationData; 
-            }
-        });
+    function getIsoFromUtcDatetimeLocal(value) {
+        if (!value) return null;
+        const normalized = String(value).trim().replace(' ', 'T');
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) return null;
+        const parsed = new Date(`${normalized}Z`);
+        if (Number.isNaN(parsed.valueOf())) return null;
+        return parsed.toISOString();
     }
+
+    function getUtcNowDatetimeLocalValue() {
+        return formatUtcMinutePrecision(new Date().toISOString());
+    }
+
+    function toNullableTrimmed(value) {
+        const normalized = typeof value === 'string' ? value.trim() : '';
+        return normalized || null;
+    }
+
+    function buildUserNotes(baseComments, otnNotes, offloadedStatus) {
+        const notes = [];
+        if (baseComments) notes.push(baseComments);
+        if (otnNotes) notes.push(`OTN: ${otnNotes}`);
+        if (offloadedStatus === 'Partial') notes.push('[VM4] Marked Partial in dashboard form.');
+        return notes.length ? notes.join('\n\n') : null;
+    }
+
+    wgVm4OffloadForm.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = '<div class="alert alert-info">Submitting log...</div>';
+        if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
+
+        if (!currentStationData || !currentStationData.station_id) {
+            if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = '<div class="alert alert-danger">No station data loaded. Please load station first.</div>';
+            if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = false;
+            return;
+        }
+
+        const formData = new FormData(wgVm4OffloadForm);
+        const offloadedStatus = String(formData.get('offloaded_status_log') || '').trim();
+        const normalizedWasOffloaded = offloadedStatus === 'Yes' ? true : offloadedStatus === 'No' || offloadedStatus === 'Partial' ? false : null;
+        const notes = buildUserNotes(
+            toNullableTrimmed(formData.get('comments_log')),
+            toNullableTrimmed(formData.get('otn_metadata_notes_log')),
+            offloadedStatus
+        );
+        const distanceRaw = String(formData.get('distance_cmd_sent_m_log') || '').trim();
+        const parsedDistance = distanceRaw ? Number(distanceRaw) : null;
+        const payload = {
+            arrival_date: getIsoFromUtcDatetimeLocal(formData.get('arrival_date_log')),
+            distance_command_sent_m: Number.isNaN(parsedDistance) ? null : parsedDistance,
+            time_first_command_sent_utc: getIsoFromUtcDatetimeLocal(formData.get('time_first_cmd_sent_utc_log')),
+            offload_start_time_utc: getIsoFromUtcDatetimeLocal(formData.get('start_time_remote_offload_utc_log')),
+            offload_end_time_utc: getIsoFromUtcDatetimeLocal(formData.get('end_time_offload_completed_utc_log')),
+            departure_date: getIsoFromUtcDatetimeLocal(formData.get('departure_date_log')),
+            was_offloaded: normalizedWasOffloaded,
+            vrl_file_name: toNullableTrimmed(formData.get('vrl_file_name_log')),
+            offload_notes_file_size: toNullableTrimmed(formData.get('vrl_file_size_log')),
+            user_notes: notes,
+        };
+        Object.keys(payload).forEach((key) => {
+            if (payload[key] === null || payload[key] === '') delete payload[key];
+        });
+
+        try {
+            await apiRequest(`/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}/offload_logs/`, 'POST', payload);
+            const missionId = (document.body.dataset.missionId || '').trim();
+            if (missionId) {
+                await apiRequest(
+                    `/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}`,
+                    'PUT',
+                    { last_offload_by_glider: missionId }
+                );
+            }
+            showToast(`Log for station ${currentStationData.station_id} submitted successfully!`, 'success');
+            if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-success">Log for station ${currentStationData.station_id} submitted successfully!</div>`;
+            wgVm4OffloadForm.reset();
+            if(stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
+            currentStationData = null;
+            if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
+            if(stationIdSearchInput) stationIdSearchInput.value = '';
+            buildOffloadLogFormFields(null); 
+        } catch (error) {
+            showToast(`Error submitting offload log: ${error.message}`, 'danger');
+            if(offloadSubmissionStatus) offloadSubmissionStatus.innerHTML = `<div class="alert alert-danger">Submission failed: ${error.message}</div>`;
+        } finally {
+            if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = !currentStationData; 
+        }
+    });
+
+    wgVm4OffloadForm.addEventListener('click', function(event) {
+        const nowBtn = event.target.closest('.vm4-now-btn');
+        if (!nowBtn) return;
+        const targetInputId = nowBtn.dataset.targetInputId;
+        if (!targetInputId) return;
+        const input = document.getElementById(targetInputId);
+        if (!input) return;
+        input.value = getUtcNowDatetimeLocalValue();
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     // Initial call to clear/setup form fields
     buildOffloadLogFormFields(null);
 }

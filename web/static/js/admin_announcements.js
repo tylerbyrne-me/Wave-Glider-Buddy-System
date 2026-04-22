@@ -5,6 +5,7 @@
 
 import { checkAuth } from '/static/js/auth.js';
 import { apiRequest, showToast } from '/static/js/api.js';
+import { formatUtcDate, formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -65,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     <div>${statusBadge}</div>
                 </div>
                 <p class="mb-1 small text-muted">
-                    Posted by ${ann.created_by_username} on ${new Date(ann.created_at_utc).toLocaleDateString()}
+                    Posted by ${ann.created_by_username} on ${formatUtcDate(ann.created_at_utc)}
                 </p>
                 <div class="d-flex justify-content-between align-items-center">
                     <button class="btn btn-sm btn-outline-info view-acks-btn" data-acks='${JSON.stringify(ann.acknowledged_by)}' title="View who has acknowledged this announcement">
@@ -252,7 +253,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 acks.forEach(ack => {
                     const li = document.createElement('li');
                     li.className = 'list-group-item';
-                    li.textContent = `${ack.username} (at ${new Date(ack.acknowledged_at_utc).toLocaleString()})`;
+                    li.textContent = `${ack.username} (at ${formatUtcDateTime(ack.acknowledged_at_utc)})`;
                     acknowledgedByList.appendChild(li);
                 });
             } else {

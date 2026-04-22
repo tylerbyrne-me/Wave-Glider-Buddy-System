@@ -4,6 +4,7 @@
  * Active datasets: auto-refresh (countdown + full page reload) like Wave Glider. Historical: no auto-refresh.
  */
 import { apiRequest, showToast } from '/static/js/api.js';
+import { datetimeLocalToUtcIso } from '/static/js/datetime_utils.js';
 
 const VARIABLES = ['m_depth', 'm_altitude', 'm_raw_altitude', 'm_water_depth'];
 const DEFAULT_HOURS = 24;
@@ -193,9 +194,10 @@ function getSlocumDateRange() {
     const startVal = startEl?.value?.trim();
     const endVal = endEl?.value?.trim();
     if (!startVal || !endVal) return null;
-    const startDate = new Date(startVal);
-    const endDate = new Date(endVal);
-    return { startISO: startDate.toISOString(), endISO: endDate.toISOString() };
+    const startISO = datetimeLocalToUtcIso(startVal);
+    const endISO = datetimeLocalToUtcIso(endVal);
+    if (!startISO || !endISO) return null;
+    return { startISO, endISO };
 }
 
 function isSlocumDateRangeActive() {
@@ -224,8 +226,18 @@ function handleSlocumDateRangeChange() {
     const startVal = startEl?.value?.trim();
     const endVal = endEl?.value?.trim();
     if (!startVal || !endVal) return;
-    const startDate = new Date(startVal);
-    const endDate = new Date(endVal);
+    const startISO = datetimeLocalToUtcIso(startVal);
+    const endISO = datetimeLocalToUtcIso(endVal);
+    if (!startISO || !endISO) {
+        const rangeInfoEl = document.getElementById('slocumDateRangeInfo');
+        if (rangeInfoEl) {
+            rangeInfoEl.textContent = 'Invalid UTC date range.';
+            rangeInfoEl.className = 'text-danger small';
+        }
+        return;
+    }
+    const startDate = new Date(startISO);
+    const endDate = new Date(endISO);
     if (startDate >= endDate) {
         showToast('Start date must be before end date.', 'warning');
         return;

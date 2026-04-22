@@ -5,8 +5,15 @@
 
 import { getUserProfile, checkAuth } from "/static/js/auth.js";
 import { apiRequest, fetchWithAuth, showToast } from "/static/js/api.js";
+import { formatUtcDate, formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function () {
+    const formatUtcTime = (value) => {
+        const formatted = formatUtcDateTime(value);
+        if (formatted === '-') return '-';
+        return formatted.replace(/^(\d{4}-\d{2}-\d{2}) /, '').replace(' UTC', '');
+    };
+
     // This function was moved from schedule.html to make this script more self-contained.
     const LRI_PILOT_USERNAME = "LRI_PILOT"; // Must match the username in auth_utils.py
 
@@ -79,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     // --- FullCalendar Initialization ---
     mainCalendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth', // Default view is month
-        timeZone: 'America/Halifax', // Force display in Atlantic Daylight Time (ADT)
+        timeZone: 'UTC',
         headerToolbar: {
             left: 'prev,next today', // Navigation buttons
             center: 'title', // Month/Week/Day title
@@ -90,9 +97,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         slotDuration: '03:00:00', // Set the duration of each time slot to 3 hours
         slotLabelInterval: '03:00', // Display a label for each 3-hour slot
         slotLabelFormat: {
-            hour: 'numeric',
+            hour: '2-digit',
             minute: '2-digit',
-            meridiem: 'short'
+            hour12: false
         }, // Format the slot labels to show the start time of the 3-hour block
         eventMinHeight: 25, // Increased from 20 for better visibility
         height: 'auto', // Let the content define the height to avoid rendering bugs with vh units
@@ -160,7 +167,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     sequenceInfo = '\nPart of 2 consecutive shifts';
                 }
                 
-                tooltipText = `Pilot: ${originalTitle}${sequenceInfo}\n${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                tooltipText = `Pilot: ${originalTitle}${sequenceInfo}\n${formatUtcTime(event.start)} - ${formatUtcTime(event.end)} UTC`;
                 
                 // Add visual class for consecutive shifts
                 info.el.classList.add('fc-event-consecutive');
@@ -169,16 +176,16 @@ document.addEventListener('DOMContentLoaded', async function () {
             } else if (eventType === "shift") {
                 // For shifts, combine pilot name and time range
                 const originalTitle = event.extendedProps.originalTitle;
-                tooltipText = `Pilot: ${originalTitle}\n${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                tooltipText = `Pilot: ${originalTitle}\n${formatUtcTime(event.start)} - ${formatUtcTime(event.end)} UTC`;
             }
 
             // Enhanced tooltip for merged events
             if (event.id && event.id.startsWith('merged-')) {
                 const totalLength = event.extendedProps.totalSequenceLength;
-                const startTime = event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                const endTime = event.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                const startDate = event.start.toLocaleDateString();
-                const endDate = event.end.toLocaleDateString();
+                const startTime = formatUtcTime(event.start);
+                const endTime = formatUtcTime(event.end);
+                const startDate = formatUtcDate(event.start);
+                const endDate = formatUtcDate(event.end);
                 
                 if (eventType === 'lri_block') {
                     if (startDate === endDate) {
@@ -223,7 +230,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 return; // Should not happen if logic is correct
             }
 
-            const modalTitle = `Sign up for shift on ${slot.start.toLocaleDateString()} from ${slot.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} to ${slot.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}?`;
+            const modalTitle = `Sign up for shift on ${formatUtcDate(slot.start)} from ${formatUtcTime(slot.start)} to ${formatUtcTime(slot.end)} UTC?`;
             if (confirm(modalTitle)) {
                 // Add a flag to prevent multiple submissions.
                 if (this.isSubmitting) return; // If already submitting, ignore click
@@ -298,7 +305,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     }
                 } // End confirm
             } else { // Clicked someone else's shift
-                let modalContent = `<b>Shift Details:</b><br/>Pilot: ${originalTitle}<br/>Start: ${event.start.toLocaleString()}<br/>End: ${event.end.toLocaleString()}`;
+                let modalContent = `<b>Shift Details:</b><br/>Pilot: ${originalTitle}<br/>Start: ${formatUtcDateTime(event.start)}<br/>End: ${formatUtcDateTime(event.end)}`;
 
                 try {
                     const handoffForms = await apiRequest(`/api/schedule/events/${event.id}/pic_handoffs`, 'GET');
@@ -307,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                         handoffForms.forEach(form => {
                             const submissionTime = new Date(form.submission_timestamp);
                             const viewUrl = `/view_pic_handoffs.html?form_id=${form.form_db_id}&mission_id=${form.mission_id}`;
-                            modalContent += `<li><a href="${viewUrl}" target="_blank">${form.mission_id} - PIC Handoff (${submissionTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})</a> by ${form.submitted_by_username}</li>`;
+                            modalContent += `<li><a href="${viewUrl}" target="_blank">${form.mission_id} - PIC Handoff (${formatUtcTime(submissionTime)} UTC)</a> by ${form.submitted_by_username}</li>`;
                         });
                         modalContent += `</ul>`;
                     } else {
@@ -544,8 +551,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         // FullCalendar's `end` is exclusive, so subtract one day for display
         const displayEnd = new Date(end.getTime() - 1);
         const options = { month: 'long', day: 'numeric', year: 'numeric' };
-        const startStr = start.toLocaleDateString(undefined, options);
-        const endStr = displayEnd.toLocaleDateString(undefined, options);
+        const startStr = formatUtcDate(start);
+        const endStr = formatUtcDate(displayEnd);
 
         if (dateRangeDisplay) {
             dateRangeDisplay.textContent = `${startStr} - ${endStr}`;
@@ -604,8 +611,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         blockTimeBtn.addEventListener('click', () => {
             // Pre-fill dates based on current view in main calendar
             const currentView = mainCalendar.view;
-            unavailabilityStartDateInput.value = currentView.currentStart.toISOString().split('T')[0];
-            unavailabilityEndDateInput.value = currentView.currentEnd.toISOString().split('T')[0];
+            unavailabilityStartDateInput.value = formatUtcDate(currentView.currentStart);
+            unavailabilityEndDateInput.value = formatUtcDate(currentView.currentEnd);
             unavailabilityReasonInput.value = '';
             blockTimeErrorDiv.style.display = 'none'; // Hide previous errors
             blockTimeModal.show();
@@ -659,8 +666,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         blockLriTimeBtn.addEventListener('click', () => {
             // Pre-fill dates based on current view in main calendar
             const currentView = mainCalendar.view;
-            lriBlockStartDateInput.value = currentView.currentStart.toISOString().split('T')[0];
-            lriBlockEndDateInput.value = currentView.currentEnd.toISOString().split('T')[0];
+            lriBlockStartDateInput.value = formatUtcDate(currentView.currentStart);
+            lriBlockEndDateInput.value = formatUtcDate(currentView.currentEnd);
             blockLriTimeErrorDiv.style.display = 'none'; // Hide previous errors
             blockLriTimeModal.show();
         });
@@ -708,9 +715,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         clearRangeBtn.addEventListener('click', () => {
             // Pre-fill dates based on current view in main calendar
             const currentView = mainCalendar.view;
-            clearStartDateInput.value = currentView.currentStart.toISOString().split('T')[0];
+            clearStartDateInput.value = formatUtcDate(currentView.currentStart);
             // Default end date to be same as start date for convenience
-            clearEndDateInput.value = currentView.currentStart.toISOString().split('T')[0];
+            clearEndDateInput.value = formatUtcDate(currentView.currentStart);
             clearRangeErrorDiv.style.display = 'none'; // Hide previous errors
             clearRangeModal.show();
         });

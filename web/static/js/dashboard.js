@@ -6,6 +6,8 @@
 import { checkAuth, logout } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
+import { initializeWgVm4OffloadSection } from '/static/js/wg_vm4.js';
+import { formatUtcDateTime, datetimeLocalToUtcIso } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     // --- Authentication Check ---
@@ -90,16 +92,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const formatTimestamp = (value) => {
         if (!value) return '-';
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return '-';
-        return date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZoneName: 'short'
-        });
+        return formatUtcDateTime(value);
     };
 
     const renderMediaEmpty = (message) => {
@@ -220,23 +213,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const formatUtcTimestampForTable = (timestampValue) => {
         if (!timestampValue) return 'N/A';
-        const submissionTimestampStr = String(timestampValue).endsWith('Z')
-            ? String(timestampValue)
-            : `${timestampValue}Z`;
-        const submissionDate = new Date(submissionTimestampStr);
-        if (Number.isNaN(submissionDate.getTime())) return 'N/A';
-        const datePart = submissionDate.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            timeZone: 'UTC'
-        });
-        const timePart = submissionDate.toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'UTC'
-        });
-        return `${datePart.replace(',', '')} ${timePart} UTC`;
+        const formattedValue = formatUtcDateTime(String(timestampValue).endsWith('Z') ? String(timestampValue) : `${timestampValue}Z`);
+        return formattedValue === '-' ? 'N/A' : formattedValue;
     };
 
     const displayPicFormDetailsInModal = (form, changedItemIds = []) => {
@@ -669,8 +647,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                 overviewSensorTrackerContainer.style.display = 'block';
                 overviewSensorTrackerEmpty.style.display = 'none';
                 if (overviewStTitle) overviewStTitle.textContent = deployment.title || '-';
-                if (overviewStStart) overviewStStart.textContent = deployment.start_time ? new Date(deployment.start_time).toLocaleString() : '-';
-                if (overviewStEnd) overviewStEnd.textContent = deployment.end_time ? new Date(deployment.end_time).toLocaleString() : '-';
+                if (overviewStStart) overviewStStart.textContent = deployment.start_time ? formatUtcDateTime(deployment.start_time) : '-';
+                if (overviewStEnd) overviewStEnd.textContent = deployment.end_time ? formatUtcDateTime(deployment.end_time) : '-';
                 if (overviewStPlatform) overviewStPlatform.textContent = deployment.platform_name || '-';
                 if (overviewStDataRepo) {
                     if (deployment.data_repository_link) {
@@ -900,8 +878,14 @@ document.addEventListener('DOMContentLoaded', async function() {
             
             // Check if both dates are provided
             if (startValue && endValue) {
-                const startDate = new Date(startValue);
-                const endDate = new Date(endValue);
+                const startIso = datetimeLocalToUtcIso(startValue);
+                const endIso = datetimeLocalToUtcIso(endValue);
+                if (!startIso || !endIso) {
+                    displayGlobalError('Invalid UTC date range provided.');
+                    return;
+                }
+                const startDate = new Date(startIso);
+                const endDate = new Date(endIso);
                 
                 // Validate date range
                 if (startDate >= endDate) {
@@ -1197,10 +1181,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 apiUrl = `/api/data/${reportType}/${mission}?granularity_minutes=${granularity}`;
                 
                 // Add date range parameters
-                const startDate = new Date(startInput.value);
-                const endDate = new Date(endInput.value);
-                const startISO = startDate.toISOString();
-                const endISO = endDate.toISOString();
+                const startISO = datetimeLocalToUtcIso(startInput.value);
+                const endISO = datetimeLocalToUtcIso(endInput.value);
+                if (!startISO || !endISO) throw new Error('Invalid UTC date range values.');
                 apiUrl += `&start_date=${encodeURIComponent(startISO)}&end_date=${encodeURIComponent(endISO)}`;
                 
                 // Date range mode
@@ -1652,10 +1635,12 @@ document.addEventListener('DOMContentLoaded', async function() {
             const startInput = document.getElementById('start-date-weather');
             const endInput = document.getElementById('end-date-weather');
             if (startInput && endInput && startInput.value && endInput.value) {
-                const startDate = new Date(startInput.value);
-                const endDate = new Date(endInput.value);
-                forecastParams.append('start_date', startDate.toISOString());
-                forecastParams.append('end_date', endDate.toISOString());
+                const startISO = datetimeLocalToUtcIso(startInput.value);
+                const endISO = datetimeLocalToUtcIso(endInput.value);
+                if (startISO && endISO) {
+                    forecastParams.append('start_date', startISO);
+                    forecastParams.append('end_date', endISO);
+                }
             }
             const forecastData = await apiRequest(`${forecastApiUrl}?${forecastParams.toString()}`, 'GET');
             return forecastData;
@@ -1745,7 +1730,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 tableHtml += '<tbody>';
 
                 for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
-                    const time = new Date(hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const time = formatUtcDateTime(hourly.time[i]).replace(/^\d{4}-\d{2}-\d{2} /, '').replace(' UTC', '');
                     
                     const weatherCode = (hourly.weathercode && hourly.weathercode[i] !== null) ? hourly.weathercode[i] : 'N/A';
                     const weatherDisplay = getWeatherDescription(weatherCode);
@@ -1809,18 +1794,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (metaInfoContainer) {
             if (forecastData && forecastData.fetched_at_utc && forecastData.latitude_used !== undefined && forecastData.longitude_used !== undefined) {
                 const fetchedDate = new Date(forecastData.fetched_at_utc);
-                const formattedTime = fetchedDate.toLocaleString('en-GB', { // en-GB for 24-hour format
-                    timeZone: 'UTC',
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit', // Corrected: Use forecastData
-                    minute: '2-digit', // Corrected: Use forecastData
-                    hour12: false // Corrected: Use forecastData
-                }); // Corrected: Use forecastData
+                const formattedTime = formatUtcDateTime(fetchedDate);
                 const lat = parseFloat(forecastData.latitude_used).toFixed(3); // Corrected: Use forecastData
                 const lon = parseFloat(forecastData.longitude_used).toFixed(3); // Corrected: Use forecastData
-            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${lat}, Lon: ${lon}`;
+            metaInfoContainer.textContent = `Forecast fetched: ${formattedTime} for Lat: ${lat}, Lon: ${lon}`;
              metaInfoContainer.style.display = 'block';
             } else {
                 metaInfoContainer.textContent = ''; // Clear if no data
@@ -1861,10 +1838,12 @@ document.addEventListener('DOMContentLoaded', async function() {
             const startInput = document.getElementById('start-date-waves');
             const endInput = document.getElementById('end-date-waves');
             if (startInput && endInput && startInput.value && endInput.value) {
-                const startDate = new Date(startInput.value);
-                const endDate = new Date(endInput.value);
-                forecastParams.append('start_date', startDate.toISOString());
-                forecastParams.append('end_date', endDate.toISOString());
+                const startISO = datetimeLocalToUtcIso(startInput.value);
+                const endISO = datetimeLocalToUtcIso(endInput.value);
+                if (startISO && endISO) {
+                    forecastParams.append('start_date', startISO);
+                    forecastParams.append('end_date', endISO);
+                }
             }
             const marineForecastData = await apiRequest(`${marineForecastApiUrl}?${forecastParams.toString()}`, 'GET');
             return marineForecastData;
@@ -2011,7 +1990,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             tableHtml += '<tbody>';
 
             for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
-                const time = new Date(hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const time = formatUtcDateTime(hourly.time[i]).replace(/^\d{4}-\d{2}-\d{2} /, '').replace(' UTC', '');
                 const waveHeightVal = (hourly.wave_height && hourly.wave_height[i] !== null) ? hourly.wave_height[i] : null;
                 const waveHeight = waveHeightVal !== null ? waveHeightVal.toFixed(1) : 'N/A';
                 const essState = getEssStateFromWaveHeight(waveHeightVal);
@@ -2050,7 +2029,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         if (marineForecastData.fetched_at_utc && marineForecastData.latitude_used !== undefined) {
             const fetchedDate = new Date(marineForecastData.fetched_at_utc);
-            metaInfoContainer.textContent = `Forecast fetched: ${fetchedDate.toLocaleTimeString('en-GB', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
+            metaInfoContainer.textContent = `Forecast fetched: ${formatUtcDateTime(fetchedDate)} for Lat: ${parseFloat(marineForecastData.latitude_used).toFixed(3)}, Lon: ${parseFloat(marineForecastData.longitude_used).toFixed(3)}`;
             metaInfoContainer.style.display = 'block';
         } else {
             metaInfoContainer.style.display = 'none';
@@ -2279,10 +2258,12 @@ document.addEventListener('DOMContentLoaded', async function() {
             const startInput = document.getElementById('start-date-waves');
             const endInput = document.getElementById('end-date-waves');
             if (startInput && endInput && startInput.value && endInput.value) {
-                const startDate = new Date(startInput.value);
-                const endDate = new Date(endInput.value);
-                spectrumParams.append('start_date', startDate.toISOString());
-                spectrumParams.append('end_date', endDate.toISOString());
+                const startISO = datetimeLocalToUtcIso(startInput.value);
+                const endISO = datetimeLocalToUtcIso(endInput.value);
+                if (startISO && endISO) {
+                    spectrumParams.append('start_date', startISO);
+                    spectrumParams.append('end_date', endISO);
+                }
             }
             // Note: We are NOT passing a specific timestamp here, relying on the backend to get the latest
             // unless a specific timestamp selection UI is added later.
@@ -3073,6 +3054,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Track which sensor categories have been loaded so we can refresh all when Resample/hours/date changes
     const loadedCategories = new Set();
+    let isWgVm4OffloadSectionInitialized = false;
 
     // --- NEW: Left Panel Click Handler ---
     function handleLeftPanelClicks() {
@@ -3097,7 +3079,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                         fetchMarineForecastData(missionId).then(data => renderMarineForecast(data));
                     } else if (category === 'wg_vm4') {
                         // Initialize the offload log section specific to WG-VM4
-                        if (typeof initializeWgVm4OffloadSection === 'function') initializeWgVm4OffloadSection();
+                        if (!isWgVm4OffloadSectionInitialized) {
+                            initializeWgVm4OffloadSection();
+                            isWgVm4OffloadSectionInitialized = true;
+                        }
                     }
                     // Generic loader for all cards to ensure data is refreshed on click
                     const loader = getSensorLoader(category);
@@ -3236,10 +3221,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         const startInput = document.getElementById(`start-date-${reportType}`);
         const endInput = document.getElementById(`end-date-${reportType}`);
         if (startInput && endInput && startInput.value && endInput.value) {
-            const startDate = new Date(startInput.value);
-            const endDate = new Date(endInput.value);
-            const startISO = startDate.toISOString();
-            const endISO = endDate.toISOString();
+            const startISO = datetimeLocalToUtcIso(startInput.value);
+            const endISO = datetimeLocalToUtcIso(endInput.value);
+            if (!startISO || !endISO) throw new Error('Invalid UTC date range values.');
             apiUrl += `&start_date=${encodeURIComponent(startISO)}&end_date=${encodeURIComponent(endISO)}`;
         }
 

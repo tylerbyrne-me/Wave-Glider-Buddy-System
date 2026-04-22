@@ -464,7 +464,7 @@ async def download_recent_errors_csv(
                 category_desc = 'Unknown error type'
             
             csv_writer.writerow([
-                error.get('Timestamp', '').strftime('%Y-%m-%d %H:%M:%S') if error.get('Timestamp') else '',
+                error.get('Timestamp', '').strftime('%Y-%m-%d %H:%M:%S UTC') if error.get('Timestamp') else '',
                 error.get('VehicleName', ''),
                 category_name,
                 error.get('ErrorMessage', ''),
@@ -475,7 +475,7 @@ async def download_recent_errors_csv(
         
         output.seek(0)
         content = output.getvalue()
-        filename = f"recent_errors_{mission}_{hours}h_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"recent_errors_{mission}_{hours}h_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")), 
@@ -546,7 +546,7 @@ async def download_all_errors_csv(
                 category_desc = 'Unknown error type'
             
             csv_writer.writerow([
-                timestamp.strftime('%Y-%m-%d %H:%M:%S') if timestamp else '',
+                timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if timestamp else '',
                 row.get('VehicleName') or row.get('vehicleName', ''),
                 category_name,
                 error_message or '',
@@ -557,7 +557,7 @@ async def download_all_errors_csv(
         
         output.seek(0)
         content = output.getvalue()
-        filename = f"all_errors_{mission}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"all_errors_{mission}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")), 

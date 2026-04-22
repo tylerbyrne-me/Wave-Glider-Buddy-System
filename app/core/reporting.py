@@ -4,7 +4,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.image as mpimg
 import cartopy.crs as ccrs
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from datetime import date, timedelta
 import logging
@@ -211,7 +211,7 @@ async def generate_weekly_report(
     Returns:
         The URL path to the generated PDF report.
     """
-    report_timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H%M%S")
+    report_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     safe_mission_id = utils.sanitize_path_segment(mission_id)
     report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
     report_dir = REPORTS_ROOT / report_dir_name
@@ -431,7 +431,7 @@ async def generate_weekly_report(
 
         fig.text(0.5, current_y, date_range_str, ha='center', size=16, wrap=True)
         current_y -= 0.05
-        fig.text(0.5, current_y, f"Generated on: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}", ha='center', size=12, wrap=True)
+        fig.text(0.5, current_y, f"Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}", ha='center', size=12, wrap=True)
 
         add_footer_and_save(fig)
 

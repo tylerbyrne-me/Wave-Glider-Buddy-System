@@ -329,7 +329,7 @@ async def get_mission_kml(
         kml_content = generate_kml_from_track_points(track_data["track_points"], mission_id)
         
         # Generate filename with timestamp
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"mission_{mission_id}_track_{timestamp}.kml"
         
         logger.info(f"Generated KML file for mission {mission_id} with {track_data['point_count']} points")

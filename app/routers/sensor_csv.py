@@ -120,7 +120,7 @@ async def download_sensor_csv(
         
         # Generate filename
         sensor_name = SENSOR_NAMES[sensor_type].lower().replace(' ', '_')
-        filename = f"{sensor_name}_{mission}_{hours_back}h_{granularity_minutes}min_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"{sensor_name}_{mission}_{hours_back}h_{granularity_minutes}min_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode("utf-8")), 

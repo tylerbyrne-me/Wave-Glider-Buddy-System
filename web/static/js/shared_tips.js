@@ -5,6 +5,7 @@
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, showToast, appendPlatformParam, getPlatform } from '/static/js/api.js';
+import { formatUtcDate, formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -295,8 +296,8 @@ function initializePage(user) {
         const tagsHtml = tip.tags ? tip.tags.split(',').map(tag => 
             `<span class="badge bg-light text-dark me-1">${tag.trim()}</span>`
         ).join('') : '';
-        const createdDate = new Date(tip.created_at_utc).toLocaleDateString();
-        const updatedDate = new Date(tip.updated_at_utc).toLocaleDateString();
+        const createdDate = formatUtcDate(tip.created_at_utc);
+        const updatedDate = formatUtcDate(tip.updated_at_utc);
         const isEdited = tip.last_edited_by_username && tip.last_edited_by_username !== tip.created_by_username;
         
         card.innerHTML = `
@@ -391,8 +392,8 @@ function initializePage(user) {
             const tagsHtml = tip.tags ? tip.tags.split(',').map(tag => 
                 `<span class="badge bg-light text-dark me-1">${tag.trim()}</span>`
             ).join('') : '';
-            const createdDate = new Date(tip.created_at_utc).toLocaleDateString();
-            const updatedDate = new Date(tip.updated_at_utc).toLocaleDateString();
+            const createdDate = formatUtcDate(tip.created_at_utc);
+            const updatedDate = formatUtcDate(tip.updated_at_utc);
             
             modalBody.innerHTML = `
                 <div class="mb-3">
@@ -490,7 +491,7 @@ function initializePage(user) {
             `<span class="badge ${comment.is_resolved ? 'bg-success' : 'bg-primary'} me-2">
                 <i class="fas fa-question-circle"></i> ${comment.is_resolved ? 'Resolved' : 'Question'}
             </span>` : '';
-        const date = new Date(comment.created_at_utc).toLocaleString();
+        const date = formatUtcDateTime(comment.created_at_utc);
         const isOwnComment = comment.commented_by_username === window.currentUser.username;
         
         card.innerHTML = `

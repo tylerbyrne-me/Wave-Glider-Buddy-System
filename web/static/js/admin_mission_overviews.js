@@ -5,6 +5,7 @@
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, showToast, fetchWithAuth } from '/static/js/api.js';
+import { formatUtcDateTime } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -72,16 +73,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         const formatTimestamp = (value) => {
             if (!value) return '-';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return '-';
-            return date.toLocaleString('en-US', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZoneName: 'short'
-            });
+            return formatUtcDateTime(value);
         };
 
         // Report Generation Elements
@@ -367,29 +359,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                 document.getElementById('stTitle').textContent = deployment.title || '-';
 
                 if (deployment.start_time) {
-                    const startDate = new Date(deployment.start_time);
-                    document.getElementById('stStart').textContent = startDate.toLocaleString('en-US', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZoneName: 'short'
-                    });
+                    document.getElementById('stStart').textContent = formatUtcDateTime(deployment.start_time);
                 } else {
                     document.getElementById('stStart').textContent = '-';
                 }
 
                 if (deployment.end_time) {
-                    const endDate = new Date(deployment.end_time);
-                    document.getElementById('stEnd').textContent = endDate.toLocaleString('en-US', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZoneName: 'short'
-                    });
+                    document.getElementById('stEnd').textContent = formatUtcDateTime(deployment.end_time);
                 } else {
                     document.getElementById('stEnd').textContent = '-';
                 }
