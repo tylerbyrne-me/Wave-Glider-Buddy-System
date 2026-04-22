@@ -1,5 +1,6 @@
 import logging
 import re
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Union
 
@@ -229,10 +230,41 @@ def parse_timestamp_column(
     # Try to parse all at once first (faster if format is consistent)
     # Strategy: Try bulk parsing with different methods before falling back to row-by-row
     
-    # 1. Try pandas' flexible parser first (handles ISO8601 and many formats via dateutil)
-    # This should handle both ISO8601 and AM/PM formats efficiently
+    # 1. Try explicit mixed-format parsing first (pandas >= 2.0).
+    # This avoids repeated "could not infer format" warnings on mixed feeds.
     try:
-        parsed = pd.to_datetime(series, errors='coerce', utc=True)
+        parsed = pd.to_datetime(series, format='mixed', errors='coerce', utc=True)
+        success_rate = parsed.notna().sum() / len(series) if len(series) > 0 else 0
+        
+        # If most succeed, use bulk result and only fix failures individually
+        if success_rate >= 0.95:  # 95% threshold - tolerate some failures
+            # Only parse the failed ones individually (much faster than all row-by-row)
+            failed_mask = parsed.isna() & series.notna()  # Only process actual failures, not NaNs
+            if failed_mask.any():
+                failed_indices = series[failed_mask].index
+                for idx in failed_indices:
+                    try:
+                        parsed[idx] = parse_timestamp_robust(series[idx], errors=errors)
+                    except Exception:
+                        if errors == 'coerce':
+                            parsed[idx] = pd.NaT
+            return parsed
+    except (TypeError, ValueError):
+        # Fallback for pandas versions that do not support format='mixed'
+        pass
+    except Exception:
+        pass
+
+    # 1b. Flexible parser fallback (dateutil-backed).
+    # Suppress noisy warning because per-element fallback is acceptable here.
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually.*",
+                category=UserWarning,
+            )
+            parsed = pd.to_datetime(series, errors='coerce', utc=True)
         success_rate = parsed.notna().sum() / len(series) if len(series) > 0 else 0
         
         # If most succeed, use bulk result and only fix failures individually

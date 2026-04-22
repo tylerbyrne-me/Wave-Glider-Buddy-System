@@ -71,6 +71,25 @@ cache_stats = {
     "by_mission": defaultdict(lambda: {"hits": 0, "misses": 0, "refreshes": 0, "data_volume_mb": 0.0}),
 }
 
+# Raw timestamp columns by report type (before preprocessing to "Timestamp")
+RAW_TIMESTAMP_COLUMNS = {
+    "telemetry": "lastLocationFix",
+    "power": "gliderTimeStamp",
+    "solar": "gliderTimeStamp",
+    "ctd": "gliderTimeStamp",
+    "weather": "gliderTimeStamp",
+    "waves": "gliderTimeStamp",
+    "vr2c": "gliderTimeStamp",
+    "fluorometer": "gliderTimeStamp",
+    "wg_vm4": "gliderTimeStamp",
+    "wg_vm4_info": "gliderTimeStamp",
+    "wg_vm4_remote_health": "timeStamp",
+    "ais": "lastSeenTimestamp",
+    "errors": "gliderTimeStamp",
+    "wave_frequency_spectrum": "timeStamp",
+    "wave_energy_spectrum": "timeStamp",
+}
+
 # ============================================================================
 # Cache Utility Functions
 # ============================================================================
@@ -344,6 +363,62 @@ def trim_data_to_range(
         return df[df["Timestamp"] >= cutoff]
     
     return df
+
+
+def _extract_last_data_timestamp(df: pd.DataFrame, report_type: str) -> Optional[datetime]:
+    """Extract the latest valid timestamp from either processed or raw data."""
+    if df is None or df.empty:
+        return None
+
+    timestamp_column = "Timestamp"
+    if timestamp_column not in df.columns:
+        timestamp_column = RAW_TIMESTAMP_COLUMNS.get(report_type) or ""
+    if not timestamp_column or timestamp_column not in df.columns:
+        return None
+
+    timestamp_series = df[timestamp_column]
+    if not pd.api.types.is_datetime64_any_dtype(timestamp_series):
+        timestamp_series = utils.parse_timestamp_column(timestamp_series, errors="coerce", utc=True)
+
+    timestamp_series = timestamp_series[timestamp_series.notna()]
+    if timestamp_series.empty:
+        return None
+
+    timestamp_series = timestamp_series[timestamp_series >= utils.MIN_VALID_TIMESTAMP]
+    if timestamp_series.empty:
+        return None
+
+    latest = timestamp_series.max()
+    if hasattr(latest, "to_pydatetime"):
+        latest = latest.to_pydatetime()
+    elif isinstance(latest, (int, float)):
+        latest = datetime.fromtimestamp(latest, tz=timezone.utc)
+    elif not isinstance(latest, datetime):
+        latest = pd.to_datetime(latest, utc=True)
+
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    return latest
+
+
+def _ensure_timestamp_column(df: pd.DataFrame, report_type: str) -> pd.DataFrame:
+    """Ensure DataFrame has a standardized 'Timestamp' column when possible."""
+    if df is None or df.empty or "Timestamp" in df.columns:
+        return df
+
+    raw_timestamp_column = RAW_TIMESTAMP_COLUMNS.get(report_type)
+    if not raw_timestamp_column or raw_timestamp_column not in df.columns:
+        return df
+
+    try:
+        normalized_df = df.copy()
+        normalized_df["Timestamp"] = utils.parse_timestamp_column(
+            normalized_df[raw_timestamp_column], errors="coerce", utc=True
+        )
+        return normalized_df
+    except Exception as exc:
+        logger.debug("Failed to normalize Timestamp for %s: %s", report_type, exc)
+        return df
 
 
 def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
@@ -905,14 +980,10 @@ class DataService:
                     if new_df is not None and not new_df.empty:
                         # Merge with existing cached data
                         if not cached_df.empty:
-                            # Ensure both DataFrames have "Timestamp" column before merging
-                            # If new_df doesn't have "Timestamp", it needs preprocessing
-                            if "Timestamp" not in new_df.columns:
-                                # Preprocess the new data to ensure it has "Timestamp"
-                                from .processor_framework import get_processor
-                                preprocess_func = get_processor(report_type)
-                                if preprocess_func:
-                                    new_df = preprocess_func(new_df)
+                            # Ensure both DataFrames have "Timestamp" columns before merging.
+                            # Background refresh loads raw files, so normalization is required.
+                            new_df = _ensure_timestamp_column(new_df, report_type)
+                            cached_df = _ensure_timestamp_column(cached_df, report_type)
                             
                             # Only merge if both have "Timestamp" column
                             if "Timestamp" in cached_df.columns and "Timestamp" in new_df.columns:
@@ -926,16 +997,7 @@ class DataService:
                             combined_df = new_df
                         
                         # Update last_data_timestamp
-                        if "Timestamp" in combined_df.columns:
-                            updated_last_data_timestamp = combined_df["Timestamp"].max()
-                            if hasattr(updated_last_data_timestamp, 'to_pydatetime'):
-                                updated_last_data_timestamp = updated_last_data_timestamp.to_pydatetime()
-                            elif isinstance(updated_last_data_timestamp, (int, float)):
-                                updated_last_data_timestamp = datetime.fromtimestamp(updated_last_data_timestamp, tz=timezone.utc)
-                            elif not isinstance(updated_last_data_timestamp, datetime):
-                                updated_last_data_timestamp = pd.to_datetime(updated_last_data_timestamp, utc=True)
-                        else:
-                            updated_last_data_timestamp = last_data_timestamp
+                        updated_last_data_timestamp = _extract_last_data_timestamp(combined_df, report_type) or last_data_timestamp
                         
                         # Update cache with merged data and new file modification time
                         # Always update cache_timestamp to indicate a refresh attempt was made
@@ -988,23 +1050,12 @@ class DataService:
         
         # Store in cache with enhanced structure
         if df is not None and not df.empty:
-            last_data_timestamp = None
-            if "Timestamp" in df.columns and not df.empty:
-                last_data_timestamp = df["Timestamp"].max()
+            last_data_timestamp = _extract_last_data_timestamp(df, report_type)
             
             logger.debug(
                 f"CACHE STORE: Storing {report_type} for {mission_id} "
                 f"(from {actual_source_path}) into cache with overlap."
             )
-            # Ensure last_data_timestamp is a proper datetime object
-            if last_data_timestamp is not None:
-                if hasattr(last_data_timestamp, 'to_pydatetime'):
-                    last_data_timestamp = last_data_timestamp.to_pydatetime()
-                elif isinstance(last_data_timestamp, (int, float)):
-                    last_data_timestamp = datetime.fromtimestamp(last_data_timestamp, tz=timezone.utc)
-                elif not isinstance(last_data_timestamp, datetime):
-                    last_data_timestamp = pd.to_datetime(last_data_timestamp, utc=True)
-            
             data_cache[cache_key] = (
                 df, actual_source_path, datetime.now(timezone.utc), last_data_timestamp, file_modification_time
             )

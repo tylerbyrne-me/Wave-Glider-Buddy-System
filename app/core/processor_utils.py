@@ -22,6 +22,10 @@ def standardize_timestamp_column(
     """Renames the first found common timestamp column"""
     if df.empty:
         return df
+    # If the preferred column already exists, do not rename any other timestamp-like
+    # columns into it. This avoids duplicate "Timestamp" columns.
+    if preferred in df.columns:
+        return df
     for col in df.columns:
         lower_col = col.lower()
         if "time" in lower_col or col in [
