@@ -39,19 +39,6 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
     latest_remote_health_tilt_rad = None
     latest_remote_health_humidity = None
 
-    if station.last_offload_timestamp_utc:
-        retrieved_ts = station.last_offload_timestamp_utc
-        if (
-            retrieved_ts.tzinfo is None
-            or retrieved_ts.tzinfo.utcoffset(retrieved_ts) is None
-        ):
-            retrieved_ts_aware = retrieved_ts.replace(tzinfo=timezone.utc)
-        else:
-            retrieved_ts_aware = retrieved_ts
-        last_offload_timestamp_str = retrieved_ts_aware.strftime(
-            "%Y-%m-%d %H:%M:%S UTC"
-        )
-
     if relevant_logs:
         sorted_logs = sorted(
             relevant_logs,
@@ -60,6 +47,20 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
         )
         if sorted_logs:
             latest_log = sorted_logs[0]
+            relevant_ts = (
+                latest_log.offload_end_time_utc
+                or latest_log.offload_start_time_utc
+                or latest_log.log_timestamp_utc
+            )
+            if relevant_ts:
+                if (
+                    relevant_ts.tzinfo is None
+                    or relevant_ts.tzinfo.utcoffset(relevant_ts) is None
+                ):
+                    relevant_ts = relevant_ts.replace(tzinfo=timezone.utc)
+                last_offload_timestamp_str = relevant_ts.strftime(
+                    "%Y-%m-%d %H:%M:%S UTC"
+                )
             if latest_log.vrl_file_name:
                 latest_vrl_file_name = latest_log.vrl_file_name
             latest_arrival_date_str = _format_overview_dt(latest_log.arrival_date)
@@ -98,23 +99,26 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
                 latest_remote_health_tilt_rad = latest_log.remote_health_tilt_rad
             if getattr(latest_log, "remote_health_humidity", None) is not None:
                 latest_remote_health_humidity = latest_log.remote_health_humidity
+            if latest_log.was_offloaded is True:
+                status_text = "Offloaded"
+                status_color_key = "green"
+            elif latest_log.was_offloaded is False:
+                status_text = "Failed Offload"
+                status_color_key = "red"
+            else:
+                status_text = "Awaiting Status"
+                status_color_key = "grey"
+        else:
+            status_text = "Awaiting Offload"
+            status_color_key = "grey"
+    else:
+        status_text = "Awaiting Offload"
+        status_color_key = "grey"
 
     if station.display_status_override:
         if station.display_status_override.upper() == "SKIPPED":
             status_text = "Skipped"
             status_color_key = "yellow"
-    elif station.was_last_offload_successful is True:
-        status_text = "Offloaded"
-        status_color_key = "green"
-    elif station.was_last_offload_successful is False:
-        status_text = "Failed Offload"
-        status_color_key = "red"
-    elif station.last_offload_timestamp_utc is None:
-        status_text = "Awaiting Offload"
-        status_color_key = "grey"
-    else:
-        status_text = "Awaiting Status"
-        status_color_key = "grey"
 
     return {
         "station_id": station.station_id,
