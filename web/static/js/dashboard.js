@@ -26,6 +26,54 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Get enabled sensors from backend configuration
     const enabledSensorsStr = document.body.dataset.enabledSensors || '';
     const enabledSensors = enabledSensorsStr ? enabledSensorsStr.split(',') : [];
+
+    const UTC_TICK_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'UTC',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+
+    function formatUtcChartTick(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return UTC_TICK_FORMATTER.format(date).replace(',', '');
+    }
+
+    function ensureUtcTimeDisplayForChart(chart) {
+        if (!chart?.options?.scales) return;
+        Object.entries(chart.options.scales).forEach(([scaleId, scale]) => {
+            if (!scale || scale.type !== 'time') return;
+            if (!scale.ticks) scale.ticks = {};
+            scale.ticks.callback = (tickValue) => formatUtcChartTick(tickValue);
+        });
+
+        if (!chart.options.plugins) chart.options.plugins = {};
+        if (!chart.options.plugins.tooltip) chart.options.plugins.tooltip = {};
+        if (!chart.options.plugins.tooltip.callbacks) chart.options.plugins.tooltip.callbacks = {};
+
+        const existingTitleCallback = chart.options.plugins.tooltip.callbacks.title;
+        chart.options.plugins.tooltip.callbacks.title = (tooltipItems) => {
+            const firstPoint = tooltipItems && tooltipItems.length > 0 ? tooltipItems[0] : null;
+            if (!firstPoint || !firstPoint.parsed || firstPoint.parsed.x == null) return '';
+            const utcTitle = formatUtcDateTime(firstPoint.parsed.x);
+            return utcTitle || (existingTitleCallback ? existingTitleCallback(tooltipItems) : '');
+        };
+    }
+
+    if (typeof Chart !== 'undefined' && !Chart.registry.plugins.get('forceUtcTimeDisplay')) {
+        Chart.register({
+            id: 'forceUtcTimeDisplay',
+            beforeInit(chart) {
+                ensureUtcTimeDisplayForChart(chart);
+            },
+            beforeUpdate(chart) {
+                ensureUtcTimeDisplayForChart(chart);
+            },
+        });
+    }
     
     // Helper function to check if a sensor is enabled
     function isSensorEnabled(sensorName) {
