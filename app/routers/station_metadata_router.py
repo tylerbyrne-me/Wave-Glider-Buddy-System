@@ -8,7 +8,7 @@ import io
 
 import pandas as pd
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import select  # Import select for queries
 from sqlalchemy.orm import selectinload  # For eager loading relationships
@@ -17,7 +17,7 @@ from ..core.auth import get_current_active_user, get_current_admin_user
 from ..core import models
 from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
-from ..core.db import SQLModelSession, get_db_session
+from ..core.db import SQLModelSession, get_db_session, sqlite_engine
 from ..services.station_overview import build_status_overview_row
 from ..services.station_season_service import StationSeasonService
 from ..services.station_history_service import (
@@ -2204,9 +2204,11 @@ async def clear_all_stations_testing(
 )
 async def process_vm4_offloads_for_mission(
     mission_id: str,
+    background_tasks: BackgroundTasks,
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_admin_user)],
     force: bool = Query(False, description="Force processing even if mission is historical"),
+    wait_for_completion: bool = Query(False, description="Run immediately and return stats instead of background queue"),
     field_season_year: Optional[int] = Query(
         None,
         description="Field season year assigned to new offload logs from VM4 (overrides active season default)",
@@ -2218,81 +2220,53 @@ async def process_vm4_offloads_for_mission(
     If field_season_year is specified, parsed offload logs use that season tag.
     """
     logger.warning(
-        f"TESTING: Admin '{current_user.username}' manually triggering VM4 processing for mission {mission_id}."
+        f"TESTING: Admin '{current_user.username}' triggering VM4 processing for mission {mission_id} "
+        f"(force={force}, wait_for_completion={wait_for_completion})."
     )
     
+    from ..core.wg_vm4_station_service import run_vm4_background_pipeline
+
+    async def _run_vm4_pipeline_job(job_mission_id: str, job_field_season_year: Optional[int]) -> None:
+        with SQLModelSession(sqlite_engine) as job_session:
+            try:
+                result = await run_vm4_background_pipeline(
+                    session=job_session,
+                    mission_id=job_mission_id,
+                    field_season_year=job_field_season_year,
+                )
+                logger.info("VM4 background job finished mission=%s result=%s", job_mission_id, result)
+            except Exception as exc:
+                job_session.rollback()
+                logger.error("VM4 background job failed mission=%s error=%s", job_mission_id, exc)
+
     try:
-        from ..core.wg_vm4_station_service import process_wg_vm4_info_for_mission
-        from ..core.processors import preprocess_wg_vm4_info_df
-        from ..core.data_service import get_data_service
-        
-        # Load WG-VM4 info data for the mission
-        data_service = get_data_service()
-        try:
-            df, source_path, file_mod_time = await data_service.load(
-                "wg_vm4_info",
-                mission_id,
-                hours_back=None,  # Load all available data
-            )
-        except Exception as load_error:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Error loading WG-VM4 info data for mission {mission_id}: {str(load_error)}",
-            )
-        
-        if df is None or df.empty:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"WG-VM4 info DataFrame is empty for mission {mission_id}",
-            )
-        
-        # Preprocess the data
-        processed_df = preprocess_wg_vm4_info_df(df)
-        
-        # Validate field_season_year if provided
         if field_season_year is not None:
-            from ..services.station_season_service import StationSeasonService
             season = StationSeasonService.get_season_by_year(session, field_season_year)
             if not season:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Field season {field_season_year} not found",
                 )
-            logger.info(f"Assigning VM4 offload logs to field season {field_season_year}")
-        
-        # Process for automatic offload logging
-        stats = process_wg_vm4_info_for_mission(session, processed_df, mission_id, field_season_year)
-        
-        # Load and attach Vemco VM4 Remote Health to offload logs when available
-        health_stats = {}
-        try:
-            from ..core.wg_vm4_station_service import attach_remote_health_to_offload_logs
-            from ..core.processors import preprocess_wg_vm4_remote_health_df
-            rh_df, _, _ = await data_service.load(
-                "wg_vm4_remote_health",
-                mission_id,
-                hours_back=None,
+        if wait_for_completion:
+            result = await run_vm4_background_pipeline(
+                session=session,
+                mission_id=mission_id,
+                field_season_year=field_season_year,
             )
-            if rh_df is not None and not rh_df.empty:
-                rh_processed = preprocess_wg_vm4_remote_health_df(rh_df)
-                health_stats = attach_remote_health_to_offload_logs(session, rh_processed)
-                logger.info(f"VM4 remote health attached for mission {mission_id}: {health_stats}")
-        except Exception as rh_err:
-            logger.debug(f"VM4 remote health not loaded or attach failed for mission {mission_id}: {rh_err}")
-        
-        logger.warning(
-            f"TESTING: VM4 processing complete for mission {mission_id}: {stats}, field_season_year={field_season_year}"
-        )
-        
+            return {
+                "message": f"VM4 offload processing completed for mission {mission_id}",
+                "mission_id": mission_id,
+                "field_season_year": field_season_year,
+                **result,
+            }
+
+        background_tasks.add_task(_run_vm4_pipeline_job, mission_id, field_season_year)
         return {
-            "message": f"VM4 offload processing completed for mission {mission_id}",
-            "statistics": stats,
+            "message": f"VM4 offload processing queued for mission {mission_id}",
             "mission_id": mission_id,
-            "rows_processed": len(processed_df),
             "field_season_year": field_season_year,
-            "remote_health": health_stats,
+            "queued": True,
         }
-        
     except HTTPException:
         raise
     except Exception as e:

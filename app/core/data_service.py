@@ -82,7 +82,7 @@ RAW_TIMESTAMP_COLUMNS = {
     "vr2c": "gliderTimeStamp",
     "fluorometer": "gliderTimeStamp",
     "wg_vm4": "gliderTimeStamp",
-    "wg_vm4_info": "gliderTimeStamp",
+    "wg_vm4_info": "timeStamp",
     "wg_vm4_remote_health": "timeStamp",
     "ais": "lastSeenTimestamp",
     "errors": "gliderTimeStamp",
@@ -131,6 +131,30 @@ def create_time_aware_cache_key(
         time_key = "full_dataset"
     
     return (report_type, mission_id, time_key, source_preference, custom_local_path)
+
+
+def _bound_cache_df_for_key(df: pd.DataFrame, cache_key: Tuple, report_type: str) -> pd.DataFrame:
+    """
+    Prevent unbounded cache growth for hour-window keys by retaining only the
+    requested window plus overlap buffer.
+    """
+    if df is None or df.empty:
+        return df
+    normalized_df = _ensure_timestamp_column(df, report_type)
+    if "Timestamp" not in normalized_df.columns:
+        return normalized_df
+
+    time_key = cache_key[2] if len(cache_key) >= 3 else None
+    if not isinstance(time_key, str) or not time_key.startswith("hours_"):
+        return normalized_df
+    try:
+        requested_hours = int(time_key.replace("hours_", ""))
+    except ValueError:
+        return normalized_df
+
+    retention_hours = requested_hours + max(2, get_cache_strategy(report_type).get("overlap_hours", 1))
+    trimmed = trim_data_to_range(normalized_df, None, None, retention_hours)
+    return trimmed if trimmed is not None else normalized_df
 
 
 def is_static_data_source(source_path: str, report_type: str, mission_id: str) -> bool:
@@ -408,7 +432,25 @@ def _ensure_timestamp_column(df: pd.DataFrame, report_type: str) -> pd.DataFrame
 
     raw_timestamp_column = RAW_TIMESTAMP_COLUMNS.get(report_type)
     if not raw_timestamp_column or raw_timestamp_column not in df.columns:
-        return df
+        # Fallback: discover common timestamp-like columns to avoid merge failures
+        fallback_candidates = [
+            "timeStamp",
+            "gliderTimeStamp",
+            "lastLocationFix",
+            "lastSeenTimestamp",
+            "timestamp",
+        ]
+        raw_timestamp_column = next(
+            (col for col in fallback_candidates if col in df.columns),
+            None,
+        )
+        if raw_timestamp_column is None:
+            for col in df.columns:
+                if "time" in str(col).lower():
+                    raw_timestamp_column = col
+                    break
+        if not raw_timestamp_column:
+            return df
 
     try:
         normalized_df = df.copy()
@@ -842,7 +884,10 @@ async def load_incremental_data_with_overlap(
         last_known_timestamp = datetime.fromtimestamp(last_known_timestamp, tz=timezone.utc)
     elif hasattr(last_known_timestamp, 'to_pydatetime'):
         # Convert pandas timestamp to datetime
-        last_known_timestamp = last_known_timestamp.to_pydatetime()
+        try:
+            last_known_timestamp = last_known_timestamp.to_pydatetime(warn=False)
+        except TypeError:
+            last_known_timestamp = last_known_timestamp.to_pydatetime()
     elif not isinstance(last_known_timestamp, datetime):
         # Try to parse as datetime
         last_known_timestamp = pd.to_datetime(last_known_timestamp, utc=True)
@@ -943,6 +988,7 @@ class DataService:
         # Check cache first (unless force refresh)
         if not force_refresh and cache_key in data_cache:
             cached_df, cached_source_path, cache_timestamp, last_data_timestamp, cached_file_mod_time = data_cache[cache_key]
+            cached_df = _ensure_timestamp_column(cached_df, report_type)
             
             # Determine if this is a static data source
             is_static = is_static_data_source(cached_source_path, report_type, mission_id)
@@ -978,6 +1024,8 @@ class DataService:
                     
                     # Update cache with new data and file modification time
                     if new_df is not None and not new_df.empty:
+                        fetched_row_count = len(new_df)
+                        cached_row_count = len(cached_df) if cached_df is not None else 0
                         # Merge with existing cached data
                         if not cached_df.empty:
                             # Ensure both DataFrames have "Timestamp" columns before merging.
@@ -989,12 +1037,24 @@ class DataService:
                             if "Timestamp" in cached_df.columns and "Timestamp" in new_df.columns:
                                 # Combine old and new data, removing duplicates
                                 combined_df = pd.concat([cached_df, new_df]).drop_duplicates(subset=["Timestamp"], keep="last").sort_values("Timestamp")
+                                merged_row_count = len(combined_df)
+                                deduped_row_delta = (cached_row_count + fetched_row_count) - merged_row_count
+                                logger.info(
+                                    "Incremental merge stats report_type=%s mission_id=%s cached_rows=%s fetched_rows=%s merged_rows=%s deduped_rows=%s",
+                                    report_type,
+                                    mission_id,
+                                    cached_row_count,
+                                    fetched_row_count,
+                                    merged_row_count,
+                                    deduped_row_delta,
+                                )
                             else:
                                 # If columns don't match, just use new data
                                 logger.warning(f"Cannot merge {report_type} data: column mismatch. Using new data only.")
                                 combined_df = new_df
                         else:
                             combined_df = new_df
+                        combined_df = _bound_cache_df_for_key(combined_df, cache_key, report_type)
                         
                         # Update last_data_timestamp
                         updated_last_data_timestamp = _extract_last_data_timestamp(combined_df, report_type) or last_data_timestamp
@@ -1008,12 +1068,15 @@ class DataService:
                     else:
                         # No new data found, but still update cache_timestamp to indicate refresh attempt
                         # This ensures frontend polling can detect that a refresh cycle occurred
+                        cached_df = _bound_cache_df_for_key(cached_df, cache_key, report_type)
                         data_cache[cache_key] = (
                             cached_df, cached_source_path, refresh_timestamp, last_data_timestamp, cached_file_mod_time
                         )
                         logger.debug(f"Cache timestamp updated (no new data): {report_type} for {mission_id}, cache_timestamp={refresh_timestamp.isoformat()}, new_data=False")
                     
-                    return trim_data_to_range(combined_df if new_df is not None and not new_df.empty else cached_df, start_date, end_date, hours_back), new_source_path if new_df is not None else cached_source_path, new_file_mod_time if new_df is not None else cached_file_mod_time
+                    active_df = combined_df if new_df is not None and not new_df.empty else cached_df
+                    active_df = _ensure_timestamp_column(active_df, report_type)
+                    return trim_data_to_range(active_df, start_date, end_date, hours_back), new_source_path if new_df is not None else cached_source_path, new_file_mod_time if new_df is not None else cached_file_mod_time
                 else:
                     # No existing data or not incremental - return cached data
                     logger.debug(
@@ -1024,6 +1087,7 @@ class DataService:
                     data_size_mb = len(cached_df) * cached_df.memory_usage(deep=True).sum() / (1024 * 1024) if not cached_df.empty else 0
                     update_cache_stats(report_type, mission_id, cache_hit=True, data_size_mb=data_size_mb)
                     # Trim to requested range and return
+                    cached_df = _ensure_timestamp_column(cached_df, report_type)
                     return trim_data_to_range(cached_df, start_date, end_date, hours_back), cached_source_path, cached_file_mod_time
         
         # Load data with overlap to prevent gaps
@@ -1050,6 +1114,8 @@ class DataService:
         
         # Store in cache with enhanced structure
         if df is not None and not df.empty:
+            df = _ensure_timestamp_column(df, report_type)
+            df = _bound_cache_df_for_key(df, cache_key, report_type)
             last_data_timestamp = _extract_last_data_timestamp(df, report_type)
             
             logger.debug(

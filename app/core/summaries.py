@@ -113,21 +113,10 @@ def _get_common_status_data(
         return result_shell, None, None
 
     if not df_processed.empty and "Timestamp" in df_processed.columns:
-        # Use last_update_timestamp (when data was fetched from server) if provided,
-        # otherwise fall back to max timestamp in the data
-        if last_update_timestamp is not None:
-            # Ensure timezone-aware
-            if last_update_timestamp.tzinfo is None:
-                last_update_timestamp = last_update_timestamp.replace(tzinfo=timezone.utc)
-            
-            result_shell["latest_timestamp_str"] = last_update_timestamp.strftime(
-                "%Y-%m-%d %H:%M:%S UTC"
-            )
-            result_shell["time_ago_str"] = time_ago(last_update_timestamp)
-        else:
-            # Fall back to max timestamp in data (legacy behavior)
-            update_info = utils.get_df_latest_update_info(df_processed, "Timestamp")
-            result_shell.update(update_info)
+        # Always prefer the latest timestamp in the data for "Last data" display.
+        # Remote file metadata can lag or be inconsistent with actual sensor row timestamps.
+        update_info = utils.get_df_latest_update_info(df_processed, "Timestamp")
+        result_shell.update(update_info)
         
         last_row = df_processed.loc[df_processed["Timestamp"].idxmax()]
         return result_shell, df_processed, last_row

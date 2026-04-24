@@ -7,7 +7,7 @@ from WG-VM4 info data.
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import math
 
 import pandas as pd
@@ -17,6 +17,34 @@ from . import models
 from .wg_vm4_payload_parser import WgVm4PayloadParser, OffloadEvent, OffloadEventType
 
 logger = logging.getLogger(__name__)
+
+MAX_PARSER_NOTES_LENGTH = 32000
+PRIMARY_MATCH_WINDOW_MINUTES = 5
+FALLBACK_MATCH_WINDOW_MINUTES = 10
+BLANK_PLACEHOLDERS = {"---", "n/a", "na", "none", "null", "unknown"}
+
+
+def _truncate_parser_notes(notes: Optional[str], max_length: int = MAX_PARSER_NOTES_LENGTH) -> Optional[str]:
+    """Keep parser notes bounded to prevent oversized DB writes."""
+    if not notes:
+        return notes
+    if len(notes) <= max_length:
+        return notes
+    suffix = "\n[TRUNCATED] parser notes exceeded storage limit."
+    keep = max_length - len(suffix)
+    if keep <= 0:
+        return suffix[:max_length]
+    return f"{notes[-keep:]}{suffix}"
+
+
+def _is_blank_value(value: Any) -> bool:
+    """Treat empty values and UI placeholders as parser-fill eligible."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized == "" or normalized in BLANK_PLACEHOLDERS
+    return False
 
 
 class WgVm4StationService:
@@ -162,6 +190,7 @@ class WgVm4StationService:
                     events_by_serial[event.serial_number] = []
                 events_by_serial[event.serial_number].append(event)
         
+        has_pending_writes = False
         # Process each station's events
         for serial_number, station_events in events_by_serial.items():
             try:
@@ -184,12 +213,15 @@ class WgVm4StationService:
                     if self._create_offload_log_from_session(session, station, mission_id, field_season_year):
                         stats['offload_logs_created'] += 1
                         stats['stations_updated'] += 1
+                        has_pending_writes = True
                         
             except Exception as e:
                 logger.error(f"Error processing events for serial {serial_number}: {e}")
                 stats['errors'] += 1
                 continue
         
+        if has_pending_writes:
+            self.session.commit()
         return stats
     
     def _group_events_by_serial(self, events: List[OffloadEvent]) -> Dict[str, List[OffloadEvent]]:
@@ -227,12 +259,11 @@ class WgVm4StationService:
                 logger.debug(f"Skipping incomplete session for station {station.station_id} (status: {session['status']})")
                 return False
             
-            # Check if we already have a log for this time period
-            existing_log = self._find_existing_log(station.station_id, session['start_time'])
-            
             # Extract session data
             start_time = session['start_time']
             end_time = session.get('end_time', start_time)
+            # Check if we already have a log for this time period
+            existing_log = self._find_existing_log(station.station_id, start_time, end_time)
             
             # Calculate distance if we have GPS data
             distance_m = None
@@ -253,7 +284,7 @@ class WgVm4StationService:
             if override_field_season_year is not None:
                 field_season_year = override_field_season_year
             else:
-                from ...services.station_season_service import StationSeasonService
+                from ..services.station_season_service import StationSeasonService
                 active_season = StationSeasonService.get_active_season(self.session)
                 field_season_year = active_season.year if active_season else None
             
@@ -261,6 +292,7 @@ class WgVm4StationService:
                 f"Auto-generated from WG-VM4 data. VRL: "
                 f"{session.get('vrl_file_name', 'N/A')}"
             )
+            parser_notes = _truncate_parser_notes(parser_notes)
 
             # Create offload log
             offload_log_data = {
@@ -301,13 +333,15 @@ class WgVm4StationService:
                     "parser_session_ref",
                 ]
                 conflict_messages: List[str] = []
+                backfilled_fields: List[str] = []
                 for field_name in parser_fields:
                     existing_value = getattr(existing_log, field_name)
                     parser_value = offload_log_data[field_name]
-                    if existing_value in (None, ""):
+                    if _is_blank_value(existing_value):
                         setattr(existing_log, field_name, parser_value)
+                        backfilled_fields.append(field_name)
                         continue
-                    if parser_value in (None, ""):
+                    if _is_blank_value(parser_value):
                         continue
                     if str(existing_value) != str(parser_value):
                         conflict_messages.append(
@@ -316,19 +350,32 @@ class WgVm4StationService:
                 # Never overwrite user_notes.
                 if conflict_messages:
                     conflict_text = " | ".join(conflict_messages)
+                    conflict_signature = f"[CONFLICT] {conflict_text}"
                     note_prefix = f"[CONFLICT {datetime.now(timezone.utc).isoformat()}]"
                     merged_note = f"{note_prefix} {conflict_text}"
-                    if existing_log.parser_notes:
-                        existing_log.parser_notes = (
-                            f"{existing_log.parser_notes}\n{merged_note}"
-                        )
-                    else:
-                        existing_log.parser_notes = merged_note
+                    existing_notes = existing_log.parser_notes or ""
+                    if conflict_signature not in existing_notes:
+                        if existing_notes:
+                            existing_log.parser_notes = (
+                                f"{existing_notes}\n{merged_note}"
+                            )
+                        else:
+                            existing_log.parser_notes = merged_note
+                        existing_log.parser_notes = _truncate_parser_notes(existing_log.parser_notes)
                     self._notify_conflict_via_admin_announcement(
                         station_id=station.station_id,
                         mission_id=mission_id,
                         parser_session_ref=offload_log_data["parser_session_ref"],
                         conflict_text=conflict_text,
+                    )
+                if backfilled_fields:
+                    existing_notes = existing_log.parser_notes or ""
+                    note = (
+                        f"[BACKFILLED {datetime.now(timezone.utc).isoformat()}] "
+                        f"fields={', '.join(sorted(set(backfilled_fields)))}"
+                    )
+                    existing_log.parser_notes = _truncate_parser_notes(
+                        f"{existing_notes}\n{note}".strip()
                     )
                 existing_log.updated_by_source = "parser"
                 existing_log.updated_at_utc = datetime.now(timezone.utc)
@@ -342,10 +389,6 @@ class WgVm4StationService:
             station.was_last_offload_successful = was_offloaded
             station.last_offload_by_glider = mission_id
             self.session.add(station)
-            
-            # Commit changes
-            self.session.commit()
-            self.session.refresh(offload_log)
             
             logger.info(
                 f"Upserted offload log for station {station.station_id} from WG-VM4 data"
@@ -391,9 +434,10 @@ class WgVm4StationService:
             logger.warning(f"Unable to create conflict announcement: {exc}")
     
     def _find_existing_log(
-        self, 
-        station_id: str, 
-        start_time: datetime
+        self,
+        station_id: str,
+        start_time: datetime,
+        end_time: Optional[datetime] = None,
     ) -> Optional[models.OffloadLog]:
         """
         Check if an offload log already exists for this station and time period
@@ -405,18 +449,45 @@ class WgVm4StationService:
         Returns:
             Existing OffloadLog or None
         """
-        # Look for logs within 1 hour of the start time
-        time_window = 3600  # 1 hour in seconds
-        start_window = start_time - timedelta(seconds=time_window)
-        end_window = start_time + timedelta(seconds=time_window)
-        
+        start_window = start_time - timedelta(minutes=PRIMARY_MATCH_WINDOW_MINUTES)
+        end_window = start_time + timedelta(minutes=PRIMARY_MATCH_WINDOW_MINUTES)
         statement = select(models.OffloadLog).where(
             models.OffloadLog.station_id == station_id,
+            models.OffloadLog.created_by_source == "user",
             models.OffloadLog.offload_start_time_utc >= start_window,
-            models.OffloadLog.offload_start_time_utc <= end_window
-        )
-        
-        return self.session.exec(statement).first()
+            models.OffloadLog.offload_start_time_utc <= end_window,
+        ).order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+        log = self.session.exec(statement).first()
+        if log:
+            return log
+
+        # Fallback: broaden timestamp matching for user-entered logs that omitted offload_start_time_utc.
+        fallback_window_start = start_time - timedelta(minutes=FALLBACK_MATCH_WINDOW_MINUTES)
+        fallback_window_end = start_time + timedelta(minutes=FALLBACK_MATCH_WINDOW_MINUTES)
+        fallback_columns = [
+            models.OffloadLog.arrival_date,
+            models.OffloadLog.time_first_command_sent_utc,
+            models.OffloadLog.offload_end_time_utc,
+        ]
+        for fallback_column in fallback_columns:
+            fallback_stmt = select(models.OffloadLog).where(
+                models.OffloadLog.station_id == station_id,
+                models.OffloadLog.created_by_source == "user",
+                fallback_column.isnot(None),
+                fallback_column >= fallback_window_start,
+                fallback_column <= fallback_window_end,
+            ).order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+            log = self.session.exec(fallback_stmt).first()
+            if log:
+                return log
+
+        # Last resort: allow parser-generated records for idempotent re-runs.
+        parser_stmt = select(models.OffloadLog).where(
+            models.OffloadLog.station_id == station_id,
+            models.OffloadLog.offload_start_time_utc >= start_window,
+            models.OffloadLog.offload_start_time_utc <= end_window,
+        ).order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+        return self.session.exec(parser_stmt).first()
     
     def process_wg_vm4_dataframe(
         self, 
@@ -455,18 +526,6 @@ class WgVm4StationService:
             # Process events and create logs
             stats = self.process_wg_vm4_events(events, mission_id, field_season_year)
             
-            # Debug: Show session statistics
-            all_sessions = []
-            for serial_number, station_events in self._group_events_by_serial(events).items():
-                sessions = self.parser.get_offload_sessions(station_events)
-                all_sessions.extend(sessions)
-            
-            session_statuses = {}
-            for session in all_sessions:
-                status = session['status']
-                session_statuses[status] = session_statuses.get(status, 0) + 1
-            logger.info(f"Session status distribution: {session_statuses}")
-            
             logger.info(f"WG-VM4 processing complete: {stats}")
             return stats
             
@@ -496,6 +555,98 @@ def process_wg_vm4_info_for_mission(
     """
     service = WgVm4StationService(session)
     return service.process_wg_vm4_dataframe(df, mission_id, field_season_year)
+
+
+async def run_vm4_background_pipeline(
+    session: SQLModelSession,
+    mission_id: str,
+    field_season_year: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Process VM4 offloads in a background-safe pipeline with durable checkpoint updates.
+    """
+    from .data_service import get_data_service
+    from .processors import preprocess_wg_vm4_info_df, preprocess_wg_vm4_remote_health_df
+
+    run_started_at = datetime.now(timezone.utc)
+    data_service = get_data_service()
+    checkpoint_for_mission_stmt = select(models.Vm4ProcessingCheckpoint).where(
+        models.Vm4ProcessingCheckpoint.mission_id == mission_id,
+        models.Vm4ProcessingCheckpoint.report_type == "wg_vm4_info",
+    ).order_by(models.Vm4ProcessingCheckpoint.updated_at_utc.desc())
+    previous_checkpoint = session.exec(checkpoint_for_mission_stmt).first()
+    start_date = None
+    if previous_checkpoint and previous_checkpoint.last_processed_timestamp_utc:
+        start_date = previous_checkpoint.last_processed_timestamp_utc - timedelta(hours=2)
+
+    df, source_path, file_mod_time = await data_service.load(
+        "wg_vm4_info",
+        mission_id,
+        start_date=start_date,
+        end_date=datetime.now(timezone.utc) if start_date else None,
+        hours_back=None if start_date is None else None,
+    )
+    if df is None or df.empty:
+        return {
+            "mission_id": mission_id,
+            "source_path": source_path,
+            "rows_processed": 0,
+            "stats": {"events_processed": 0, "stations_matched": 0, "offload_logs_created": 0, "stations_updated": 0, "errors": 0},
+            "remote_health": {},
+            "duration_seconds": (datetime.now(timezone.utc) - run_started_at).total_seconds(),
+            "updated_checkpoint": False,
+        }
+
+    processed_df = preprocess_wg_vm4_info_df(df)
+    stats = process_wg_vm4_info_for_mission(session, processed_df, mission_id, field_season_year)
+
+    health_stats: Dict[str, int] = {}
+    rh_df, _, _ = await data_service.load("wg_vm4_remote_health", mission_id, hours_back=None)
+    if rh_df is not None and not rh_df.empty:
+        rh_processed = preprocess_wg_vm4_remote_health_df(rh_df)
+        health_stats = attach_remote_health_to_offload_logs(session, rh_processed)
+
+    checkpoint_stmt = select(models.Vm4ProcessingCheckpoint).where(
+        models.Vm4ProcessingCheckpoint.mission_id == mission_id,
+        models.Vm4ProcessingCheckpoint.report_type == "wg_vm4_info",
+        models.Vm4ProcessingCheckpoint.source_path == (source_path or "unknown"),
+    )
+    checkpoint = session.exec(checkpoint_stmt).first()
+    if not checkpoint:
+        checkpoint = models.Vm4ProcessingCheckpoint(
+            mission_id=mission_id,
+            report_type="wg_vm4_info",
+            source_path=source_path or "unknown",
+        )
+    checkpoint.last_processed_timestamp_utc = run_started_at
+    checkpoint.last_file_modification_time_utc = file_mod_time
+    checkpoint.last_parser_run_id = f"{mission_id}:{run_started_at.isoformat()}"
+    checkpoint.last_rows_processed = len(processed_df)
+    checkpoint.last_events_processed = int(stats.get("events_processed", 0))
+    checkpoint.last_offload_logs_upserted = int(stats.get("offload_logs_created", 0))
+    session.add(checkpoint)
+    session.commit()
+
+    duration_seconds = (datetime.now(timezone.utc) - run_started_at).total_seconds()
+    result = {
+        "mission_id": mission_id,
+        "source_path": source_path,
+        "start_date_used": start_date.isoformat() if start_date else None,
+        "rows_processed": len(processed_df),
+        "stats": stats,
+        "remote_health": health_stats,
+        "duration_seconds": duration_seconds,
+        "updated_checkpoint": True,
+    }
+    logger.info(
+        "VM4 background pipeline completed mission=%s rows=%s events=%s logs=%s duration_s=%.2f",
+        mission_id,
+        result["rows_processed"],
+        stats.get("events_processed", 0),
+        stats.get("offload_logs_created", 0),
+        duration_seconds,
+    )
+    return result
 
 
 def attach_remote_health_to_offload_logs(

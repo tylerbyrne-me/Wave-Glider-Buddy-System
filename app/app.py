@@ -2076,10 +2076,6 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
             if sensor_card == "power" and "solar" not in report_types_to_load:
                 report_types_to_load.append("solar")
     
-    # Always include WG-VM4 info data for automatic offload logging (background processing)
-    if "wg_vm4_info" not in report_types_to_load:
-        report_types_to_load.append("wg_vm4_info")
-    
     logger.info(f"DASHBOARD: Loading data for mission {mission} with report types: {report_types_to_load}")
     
     hours = 24  # Default time window for summaries/mini-trends
@@ -2103,56 +2099,7 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
         return_exceptions=True
     )
 
-    # Process WG-VM4 info data for automatic offload logging
-    # Skip processing for historical missions to prevent overwriting current offload logs
-    if "wg_vm4_info" in report_types_to_load and not is_historical:
-        try:
-            from .core.wg_vm4_station_service import process_wg_vm4_info_for_mission
-            from .core.processors import preprocess_wg_vm4_info_df
-            
-            # Find the WG-VM4 info data in results
-            wg_vm4_info_index = report_types_to_load.index("wg_vm4_info")
-            wg_vm4_info_result = results[wg_vm4_info_index]
-            
-            if not isinstance(wg_vm4_info_result, Exception) and wg_vm4_info_result is not None:
-                # Unpack the tuple from load_data_source (dataframe, source_path, file_mod_time)
-                if isinstance(wg_vm4_info_result, tuple) and len(wg_vm4_info_result) == 3:
-                    df, source_path, _ = wg_vm4_info_result
-                elif isinstance(wg_vm4_info_result, tuple) and len(wg_vm4_info_result) == 2:
-                    # Backward compatibility
-                    df, source_path = wg_vm4_info_result
-                else:
-                    logger.error(f"Unexpected wg_vm4_info_result format: {wg_vm4_info_result}")
-                    df, source_path = None, None
-                if df is not None and not df.empty:
-                    # Preprocess the data
-                    processed_df = preprocess_wg_vm4_info_df(df)
-                    
-                    # Process for automatic offload logging
-                    stats = process_wg_vm4_info_for_mission(session, processed_df, mission)
-                    logger.info(f"WG-VM4 auto-processing for mission {mission}: {stats}")
-                    
-                    # Load and attach Vemco VM4 Remote Health to offload logs when available
-                    try:
-                        from .core.wg_vm4_station_service import attach_remote_health_to_offload_logs
-                        from .core.processors import preprocess_wg_vm4_remote_health_df
-                        remote_health_result = await load_data_source("wg_vm4_remote_health", mission, current_user=current_user)
-                        if isinstance(remote_health_result, tuple) and len(remote_health_result) >= 2:
-                            rh_df = remote_health_result[0]
-                            if rh_df is not None and not rh_df.empty:
-                                rh_processed = preprocess_wg_vm4_remote_health_df(rh_df)
-                                health_stats = attach_remote_health_to_offload_logs(session, rh_processed)
-                                logger.info(f"WG-VM4 remote health attached for mission {mission}: {health_stats}")
-                    except Exception as rh_err:
-                        logger.debug(f"WG-VM4 remote health not loaded or attach failed for mission {mission}: {rh_err}")
-                else:
-                    logger.debug(f"No WG-VM4 info data available for mission {mission}")
-            else:
-                logger.debug(f"WG-VM4 info data loading failed for mission {mission}")
-        except Exception as e:
-            logger.error(f"Error processing WG-VM4 info data for mission {mission}: {e}")
-    elif "wg_vm4_info" in report_types_to_load and is_historical:
-        logger.info(f"Skipping WG-VM4 offload log processing for historical mission {mission} to prevent overwriting current logs")
+    # VM4 offload parsing now runs through background/manual routes to keep dashboard render fast.
 
     # Battery theoretical max from mission overview (980 + APU*980 Wh)
     mission_overview_for_battery = session.get(models.MissionOverview, mission)
@@ -2445,6 +2392,29 @@ async def get_report_data_for_plotting(
             processed_df = processors.preprocess_wg_vm4_df(df)
         elif report_type == "telemetry":  # Telemetry data for charts
             processed_df = processors.preprocess_telemetry_df(df)
+        elif report_type == "ais":
+            processed_df = processors.preprocess_ais_df(df)
+        elif report_type == "errors":
+            processed_df = processors.preprocess_error_df(df)
+        else:
+            logger.warning(
+                "Unsupported report type for preprocessing: %s (mission %s)",
+                report_type.value,
+                mission_id,
+            )
+            response_data = {
+                "data": [],
+                "cache_metadata": {
+                    "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
+                    "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
+                    "file_modification_time": file_mod_time.isoformat() if file_mod_time else None,
+                },
+            }
+            response = JSONResponse(content=response_data)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
 
         if processed_df.empty or "Timestamp" not in processed_df.columns:
             logger.warning(
@@ -2607,10 +2577,11 @@ async def get_report_data_for_plotting(
             )  # Ensure sorted for correct diff
             resampled_data["PingCountDelta"] = resampled_data["PingCount"].diff()
             # The first PingCountDelta will be NaN, which is fine for plotting (Chart.js handles nulls)
-        # Convert Timestamp objects to ISO 8601 strings for JSON serialization
+        # Convert Timestamp objects to explicit UTC ISO 8601 strings for JSON serialization.
+        # Include trailing "Z" to prevent browser/local-time reinterpretation in inspector views.
         if "Timestamp" in resampled_data.columns:
             resampled_data["Timestamp"] = resampled_data["Timestamp"].dt.strftime(
-                "%Y-%m-%dT%H:%M:%S"
+                "%Y-%m-%dT%H:%M:%SZ"
             )
 
         # Replace NaN with None for JSON compatibility
@@ -2648,6 +2619,22 @@ async def get_report_data_for_plotting(
 @app.get("/api/cache-status/{mission_id}")
 async def get_cache_status(
     mission_id: str,
+    report_types: Optional[str] = Query(
+        None,
+        description="Comma-separated report types to check (e.g. ctd,weather,waves)",
+    ),
+    source: Optional[str] = Query(
+        None,
+        description="Source preference context for cache lookup (local/remote).",
+    ),
+    local_path: Optional[str] = Query(
+        None,
+        description="Local path context when source=local.",
+    ),
+    hours_back: Optional[int] = Query(
+        None,
+        description="Primary hours_back context for cache lookup.",
+    ),
     current_user: models.User = Depends(get_current_active_user),
 ):
     """
@@ -2655,32 +2642,77 @@ async def get_cache_status(
     Used by frontend to detect when data has been updated.
     """
     # Note: create_time_aware_cache_key, data_cache, and CACHE_STRATEGIES are already imported at top of file
-    
+    requested_report_types = list(CACHE_STRATEGIES.keys())
+    if report_types:
+        parsed_report_types = [
+            report_type.strip()
+            for report_type in report_types.split(",")
+            if report_type and report_type.strip() in CACHE_STRATEGIES
+        ]
+        if parsed_report_types:
+            requested_report_types = parsed_report_types
+
+    candidate_hours = []
+    if hours_back is not None:
+        candidate_hours.append(hours_back)
+    candidate_hours.extend([None, 24, 72])
+    candidate_hours = list(dict.fromkeys(candidate_hours))
+
+    candidate_sources = []
+    if source:
+        candidate_sources.append(source)
+    candidate_sources.extend([None, "remote"])
+    candidate_sources = list(dict.fromkeys(candidate_sources))
+
     cache_status = {}
-    
-    # Check cache status for all incremental report types
-    for report_type in CACHE_STRATEGIES.keys():
-        # Try to find cache entry (check common time ranges)
-        cache_timestamp = None
-        last_data_timestamp = None
-        
-        # Check multiple possible cache keys (different time ranges)
-        # Also check with "remote" source preference since that's what background refresh uses
-        for hours_back in [None, 24, 72]:
-            for source_pref in [None, "remote"]:
+
+    # Check cache status for selected incremental report types
+    for report_type in requested_report_types:
+        matched_cache_timestamp = None
+        matched_last_data_timestamp = None
+        matched_cache_key = None
+        matched_last_data_epoch = float("-inf")
+        matched_cache_epoch = float("-inf")
+
+        for candidate_hour in candidate_hours:
+            for candidate_source in candidate_sources:
+                candidate_local_path = local_path if candidate_source == "local" else None
                 cache_key = create_time_aware_cache_key(
-                    report_type, mission_id, None, None, hours_back, source_pref, None
+                    report_type,
+                    mission_id,
+                    None,
+                    None,
+                    candidate_hour,
+                    candidate_source,
+                    candidate_local_path,
                 )
-                if cache_key in data_cache:
-                    _, _, cache_timestamp, last_data_timestamp, _ = data_cache[cache_key]
-                    break
-            if cache_timestamp:
-                break
-        
+                if cache_key not in data_cache:
+                    continue
+
+                _, _, cache_timestamp, last_data_timestamp, _ = data_cache[cache_key]
+                last_data_epoch = (
+                    last_data_timestamp.timestamp() if last_data_timestamp else float("-inf")
+                )
+                cache_epoch = cache_timestamp.timestamp() if cache_timestamp else float("-inf")
+
+                should_update = False
+                if last_data_epoch > matched_last_data_epoch:
+                    should_update = True
+                elif last_data_epoch == matched_last_data_epoch and cache_epoch > matched_cache_epoch:
+                    should_update = True
+
+                if should_update:
+                    matched_last_data_epoch = last_data_epoch
+                    matched_cache_epoch = cache_epoch
+                    matched_cache_timestamp = cache_timestamp
+                    matched_last_data_timestamp = last_data_timestamp
+                    matched_cache_key = cache_key
+
         cache_status[report_type] = {
-            "cache_timestamp": cache_timestamp.isoformat() if cache_timestamp else None,
-            "last_data_timestamp": last_data_timestamp.isoformat() if last_data_timestamp else None,
-            "cached": cache_timestamp is not None,
+            "cache_timestamp": matched_cache_timestamp.isoformat() if matched_cache_timestamp else None,
+            "last_data_timestamp": matched_last_data_timestamp.isoformat() if matched_last_data_timestamp else None,
+            "cached": matched_cache_timestamp is not None,
+            "cache_key": matched_cache_key,
         }
     
     response = JSONResponse(content=cache_status)
@@ -3141,13 +3173,9 @@ async def download_all_ais_csv(
 
 @app.get("/api/cache/stats")
 async def get_cache_statistics(
-    current_user: models.User = Depends(get_current_active_user)
+    current_user: models.User = Depends(get_current_admin_user)
 ):
     """Get cache statistics and performance metrics (admin only)"""
-    # Check if user is admin
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
     try:
         stats = get_cache_stats()
         return {
@@ -3162,13 +3190,9 @@ async def get_cache_statistics(
 
 @app.post("/api/cache/reset")
 async def reset_cache_statistics(
-    current_user: models.User = Depends(get_current_active_user)
+    current_user: models.User = Depends(get_current_admin_user)
 ):
     """Reset cache statistics (admin only)"""
-    # Check if user is admin
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
     try:
         global cache_stats
         cache_stats = {
@@ -3195,13 +3219,9 @@ async def reset_cache_statistics(
 
 @app.get("/api/usage/summary")
 async def get_usage_summary_report(
-    current_user: models.User = Depends(get_current_active_user)
+    current_user: models.User = Depends(get_current_admin_user)
 ):
     """Get usage summary report from dedicated log files (admin only)"""
-    # Check if user is admin
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
     try:
         summary = generate_usage_summary_report()
         return {

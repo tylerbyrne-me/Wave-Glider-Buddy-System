@@ -1015,6 +1015,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // --- Auto-Refresh Toggle Logic ---
     const autoRefreshToggle = document.getElementById('autoRefreshToggleBanner');
+    // Store cache timestamps for each report type
+    const cacheTimestamps = new Map(); // reportType -> { cache_timestamp, last_data_timestamp, file_modification_time }
 
     // Cache polling for real-time missions
     // Note: Background cache refresh runs every 10 minutes (configured in .env)
@@ -1035,7 +1037,31 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         try {
             console.debug(`Polling cache status for mission ${missionId}...`);
-            const cacheStatus = await apiRequest(`/api/cache-status/${missionId}`, 'GET');
+            // Always include core Wave Glider report types so science updates can trigger reloads
+            // even before a user manually opens each science detail card in this session.
+            const defaultPolledReportTypes = [
+                'telemetry',
+                'power',
+                'solar',
+                'ctd',
+                'weather',
+                'waves',
+                'fluorometer',
+                'wg_vm4',
+                'vr2c',
+            ];
+            const polledReportTypes = Array.from(
+                new Set([...defaultPolledReportTypes, ...Array.from(cacheTimestamps.keys())])
+            );
+            const cacheStatusQueryParams = new URLSearchParams();
+            if (polledReportTypes.length > 0) cacheStatusQueryParams.set('report_types', polledReportTypes.join(','));
+            if (currentSource) cacheStatusQueryParams.set('source', currentSource);
+            if (currentSource === 'local' && currentLocalPath) cacheStatusQueryParams.set('local_path', currentLocalPath);
+
+            const cacheStatusEndpoint = cacheStatusQueryParams.toString()
+                ? `/api/cache-status/${missionId}?${cacheStatusQueryParams.toString()}`
+                : `/api/cache-status/${missionId}`;
+            const cacheStatus = await apiRequest(cacheStatusEndpoint, 'GET');
             console.debug('Cache status received:', cacheStatus);
             
             // Track if any cache has been updated
@@ -1050,11 +1076,26 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (stored && status.cache_timestamp) {
                     const storedTime = new Date(stored.cache_timestamp);
                     const serverTime = new Date(status.cache_timestamp);
+                    const storedLastDataTime = stored.last_data_timestamp ? new Date(stored.last_data_timestamp) : null;
+                    const serverLastDataTime = status.last_data_timestamp ? new Date(status.last_data_timestamp) : null;
+                    const hasDataAdvanced =
+                        storedLastDataTime instanceof Date &&
+                        !Number.isNaN(storedLastDataTime.getTime()) &&
+                        serverLastDataTime instanceof Date &&
+                        !Number.isNaN(serverLastDataTime.getTime()) &&
+                        serverLastDataTime > storedLastDataTime;
                     
-                    // If server cache timestamp is newer, data has been updated
-                    if (serverTime > storedTime) {
+                    // Prefer true data progression signal over cache refresh-attempt signal.
+                    // Fallback to cache timestamp only if we do not yet have last_data_timestamp.
+                    const shouldReloadFromCacheTimestamp = !storedLastDataTime && serverTime > storedTime;
+                    if (hasDataAdvanced || shouldReloadFromCacheTimestamp) {
                         const timeDiff = (serverTime - storedTime) / 1000; // seconds
-                        console.log(`Cache updated for ${reportType}: stored=${stored.cache_timestamp}, server=${status.cache_timestamp}, diff=${timeDiff.toFixed(1)}s`);
+                        console.log(
+                            `Cache updated for ${reportType}: stored=${stored.cache_timestamp}, `
+                            + `server=${status.cache_timestamp}, diff=${timeDiff.toFixed(1)}s, `
+                            + `stored_last_data=${stored.last_data_timestamp || 'none'}, `
+                            + `server_last_data=${status.last_data_timestamp || 'none'}`
+                        );
                         cacheUpdated = true;
                         updatedReportTypes.push(reportType);
                         // Update stored timestamp
@@ -1154,9 +1195,6 @@ document.addEventListener('DOMContentLoaded', async function() {
      * @param {number} hours - The number of hours back to fetch data for.
      * @returns {Promise<Array<Object>|null>} A promise that resolves with the chart data array or null if fetching fails.
      */
-    // Store cache timestamps for each report type
-    const cacheTimestamps = new Map(); // reportType -> { cache_timestamp, last_data_timestamp }
-
     async function fetchChartData(reportType, mission) {
         const chartCanvas = document.getElementById(`${reportType}Chart`); 
         const spinner = chartCanvas ? chartCanvas.parentElement.querySelector('.chart-spinner') : null;

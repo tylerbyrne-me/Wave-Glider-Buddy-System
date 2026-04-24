@@ -314,6 +314,15 @@ def parse_timestamp_column(
             raise
     
     result = series.apply(parse_single)
+    total_values = len(series)
+    failed_values = int(result.isna().sum()) if total_values > 0 else 0
+    if total_values > 0 and failed_values > 0:
+        logger.info(
+            "Timestamp parse fallback had failures: failed=%s total=%s success_rate=%.4f",
+            failed_values,
+            total_values,
+            (total_values - failed_values) / total_values,
+        )
     
     return result
 

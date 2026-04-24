@@ -3,9 +3,27 @@ Template context processor for adding global context variables to all templates.
 """
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .feature_toggles import get_feature_context
 from ..config import settings
+
+
+def _get_static_version_token() -> str:
+    """Build a cache-busting token from key Wave Glider JS file mtimes."""
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        tracked_files = [
+            repo_root / "web" / "static" / "js" / "dashboard.js",
+            repo_root / "web" / "static" / "js" / "datetime_utils.js",
+            repo_root / "web" / "static" / "js" / "wg_vm4.js",
+        ]
+        mtimes = [str(int(path.stat().st_mtime)) for path in tracked_files if path.exists()]
+        if mtimes:
+            return "-".join(mtimes)
+    except Exception:
+        pass
+    return "1.0.0"
 
 
 def get_platform_context_from_request(request: Any) -> Dict[str, Any]:
@@ -39,8 +57,8 @@ def get_global_template_context() -> Dict[str, Any]:
     context.update({
         # Application metadata
         "app_name": "Wave Glider Buddy System",
-        # Bump when deploying frontend/static fixes so cache-busted script URLs (e.g. PIC form) load new JS
-        "app_version": "1.0.0",
+        # Cache-bust key static files automatically when they change.
+        "app_version": _get_static_version_token(),
         "current_year": datetime.now().year,
         "current_utc": datetime.now(timezone.utc),
         

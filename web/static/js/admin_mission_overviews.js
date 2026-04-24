@@ -103,6 +103,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         const mediaEditDisplayOrder = document.getElementById('mediaEditDisplayOrder');
         const mediaEditFeatured = document.getElementById('mediaEditFeatured');
         const mediaEditSaveBtn = document.getElementById('mediaEditSaveBtn');
+        const cacheInspectorSource = document.getElementById('cacheInspectorSource');
+        const cacheInspectorLocalPath = document.getElementById('cacheInspectorLocalPath');
+        const cacheInspectorHoursBack = document.getElementById('cacheInspectorHoursBack');
+        const runCacheInspectorBtn = document.getElementById('runCacheInspectorBtn');
+        const refreshCacheStatsBtn = document.getElementById('refreshCacheStatsBtn');
+        const cacheInspectorStatus = document.getElementById('cacheInspectorStatus');
+        const cacheInspectorTableBody = document.getElementById('cacheInspectorTableBody');
+        const cacheStatsSummary = document.getElementById('cacheStatsSummary');
+        const usageSummarySnapshot = document.getElementById('usageSummarySnapshot');
 
         // Show/hide report generation based on mission selection
         function updateReportGenerationVisibility() {
@@ -694,6 +703,182 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
 
+        const sensorCardToReportType = {
+            navigation: 'telemetry',
+            power: 'power',
+            ctd: 'ctd',
+            weather: 'weather',
+            waves: 'waves',
+            vr2c: 'vr2c',
+            fluorometer: 'fluorometer',
+            wg_vm4: 'wg_vm4',
+            ais: 'ais',
+            errors: 'errors'
+        };
+
+        const formatIsoOrDash = (value) => {
+            if (!value) return '-';
+            return formatUtcDateTime(value);
+        };
+
+        const formatRangeFromRows = (rows) => {
+            if (!Array.isArray(rows) || rows.length === 0) return '-';
+            const firstTs = rows.find((row) => row && row.Timestamp)?.Timestamp;
+            const lastTs = [...rows].reverse().find((row) => row && row.Timestamp)?.Timestamp;
+            if (!firstTs && !lastTs) return '-';
+            return `${formatIsoOrDash(firstTs)} -> ${formatIsoOrDash(lastTs)}`;
+        };
+
+        const getMissionReportTypesForInspector = () => {
+            const enabledCards = getEnabledSensorCards();
+            const reportTypeSet = new Set();
+            enabledCards.forEach((cardType) => {
+                const mapped = sensorCardToReportType[cardType];
+                if (mapped) reportTypeSet.add(mapped);
+                if (cardType === 'power') reportTypeSet.add('solar');
+            });
+            if (reportTypeSet.size === 0) {
+                ['telemetry', 'power', 'ctd', 'weather', 'waves', 'vr2c', 'fluorometer', 'wg_vm4', 'ais', 'errors', 'solar']
+                    .forEach((reportType) => reportTypeSet.add(reportType));
+            }
+            return Array.from(reportTypeSet);
+        };
+
+        const buildInspectorQuery = () => {
+            const params = new URLSearchParams();
+            const parsedHours = parseInt(cacheInspectorHoursBack?.value || '72', 10);
+            const hoursBack = Number.isNaN(parsedHours) ? 72 : Math.max(1, Math.min(8760, parsedHours));
+            params.set('hours_back', String(hoursBack));
+            params.set('granularity_minutes', '0');
+            const sourceValue = cacheInspectorSource?.value || '';
+            if (sourceValue) params.set('source', sourceValue);
+            const localPathValue = cacheInspectorLocalPath?.value?.trim();
+            if (localPathValue) params.set('local_path', localPathValue);
+            return params.toString();
+        };
+
+        const renderCacheInspectorRows = (rows) => {
+            if (!cacheInspectorTableBody) return;
+            if (!rows || rows.length === 0) {
+                cacheInspectorTableBody.innerHTML = '<tr><td colspan="7" class="text-muted small">No mission inspection run yet.</td></tr>';
+                return;
+            }
+            cacheInspectorTableBody.innerHTML = rows.map((row) => `
+                <tr>
+                    <td><code>${escapeHtml(row.reportType)}</code></td>
+                    <td>${escapeHtml(String(row.rowsReturned))}</td>
+                    <td>${escapeHtml(row.cacheTimestamp)}</td>
+                    <td>${escapeHtml(row.lastDataTimestamp)}</td>
+                    <td>${escapeHtml(row.fileModificationTime)}</td>
+                    <td>${escapeHtml(row.dataRange)}</td>
+                    <td>${escapeHtml(row.status)}</td>
+                </tr>
+            `).join('');
+        };
+
+        async function loadCacheStatsAndUsageSummary() {
+            if (!cacheStatsSummary || !usageSummarySnapshot) return;
+
+            try {
+                const [cacheStatsResponse, usageSummaryResponse] = await Promise.all([
+                    apiRequest('/api/cache/stats', 'GET'),
+                    apiRequest('/api/usage/summary', 'GET')
+                ]);
+
+                const overall = cacheStatsResponse?.data?.overall || {};
+                const activeUsers = cacheStatsResponse?.data?.active_users || {};
+                cacheStatsSummary.textContent = [
+                    `Requests: ${overall.total_requests ?? 0}`,
+                    `Hit Rate: ${overall.hit_rate_percent ?? 0}%`,
+                    `Miss Rate: ${overall.miss_rate_percent ?? 0}%`,
+                    `Refreshes: ${overall.refreshes ?? 0}`,
+                    `Cache Size: ${overall.cache_size ?? 0}/${overall.cache_max_size ?? 0}`,
+                    `Data Volume (MB): ${overall.data_volume_mb ?? 0}`,
+                    `Last Reset: ${formatIsoOrDash(overall.last_reset)}`,
+                    `Active Users: ${activeUsers.count ?? 0}`
+                ].join('\n');
+
+                const cachePerf = usageSummaryResponse?.data?.cache_performance || {};
+                const logFiles = usageSummaryResponse?.data?.log_files || {};
+                usageSummarySnapshot.textContent = [
+                    `Log Files Present:`,
+                    `- user_activity: ${Boolean(logFiles.user_activity)}`,
+                    `- cache_statistics: ${Boolean(logFiles.cache_statistics)}`,
+                    `- mission_usage: ${Boolean(logFiles.mission_usage)}`,
+                    '',
+                    `Usage Summary Cache Perf:`,
+                    `- total_requests: ${cachePerf.total_requests ?? 0}`,
+                    `- hits: ${cachePerf.hits ?? 0}`,
+                    `- misses: ${cachePerf.misses ?? 0}`,
+                    `- hit_rate: ${cachePerf.hit_rate ?? 0}%`
+                ].join('\n');
+            } catch (error) {
+                cacheStatsSummary.textContent = `Failed to load cache stats: ${error.message}`;
+                usageSummarySnapshot.textContent = `Failed to load usage summary: ${error.message}`;
+            }
+        }
+
+        async function runMissionCacheInspection() {
+            if (!selectedMissionId) {
+                showToast('Select a mission first.', 'warning');
+                return;
+            }
+            const queryString = buildInspectorQuery();
+            const reportTypes = getMissionReportTypesForInspector();
+            if (cacheInspectorStatus) {
+                cacheInspectorStatus.textContent = `Inspecting ${reportTypes.length} report types for ${selectedMissionId}...`;
+            }
+            if (runCacheInspectorBtn) runCacheInspectorBtn.disabled = true;
+
+            try {
+                const settled = await Promise.allSettled(
+                    reportTypes.map(async (reportType) => {
+                        const response = await apiRequest(`/api/data/${reportType}/${selectedMissionId}?${queryString}`, 'GET');
+                        const rows = Array.isArray(response?.data) ? response.data : [];
+                        const metadata = response?.cache_metadata || {};
+                        return {
+                            reportType,
+                            rowsReturned: rows.length,
+                            cacheTimestamp: formatIsoOrDash(metadata.cache_timestamp),
+                            lastDataTimestamp: formatIsoOrDash(metadata.last_data_timestamp),
+                            fileModificationTime: formatIsoOrDash(metadata.file_modification_time),
+                            dataRange: formatRangeFromRows(rows),
+                            status: 'ok'
+                        };
+                    })
+                );
+
+                const tableRows = settled.map((result, index) => {
+                    const reportType = reportTypes[index];
+                    if (result.status === 'fulfilled') return result.value;
+                    return {
+                        reportType,
+                        rowsReturned: 0,
+                        cacheTimestamp: '-',
+                        lastDataTimestamp: '-',
+                        fileModificationTime: '-',
+                        dataRange: '-',
+                        status: `error: ${result.reason?.message || 'request failed'}`
+                    };
+                });
+
+                renderCacheInspectorRows(tableRows);
+                await loadCacheStatsAndUsageSummary();
+
+                const errorCount = tableRows.filter((row) => row.status !== 'ok').length;
+                if (cacheInspectorStatus) {
+                    cacheInspectorStatus.textContent = `Inspection complete for ${selectedMissionId}. ${tableRows.length - errorCount}/${tableRows.length} report types returned successfully.`;
+                }
+            } catch (error) {
+                if (cacheInspectorStatus) {
+                    cacheInspectorStatus.textContent = `Inspection failed: ${error.message}`;
+                }
+                showToast(`Cache inspection failed: ${error.message}`, 'danger');
+            } finally {
+                if (runCacheInspectorBtn) runCacheInspectorBtn.disabled = false;
+            }
+        }
+
         function renderReportSummary(missionInfo) {
             const weeklyReportContainer = document.getElementById('weeklyReportContainer');
             const weeklyReportLink = document.getElementById('weeklyReportLink');
@@ -823,6 +1008,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     weeklyReportSelect.innerHTML = '<option value="">Select a mission to load reports</option>';
                     weeklyReportSelect.disabled = true;
                 }
+                if (cacheInspectorStatus) {
+                    cacheInspectorStatus.textContent = 'Select a mission to inspect cached datasets.';
+                }
+                renderCacheInspectorRows([]);
                 return;
             }
 
@@ -901,6 +1090,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
                 // Load mission media after mission is loaded
                 await loadMissionMedia();
+                await loadCacheStatsAndUsageSummary();
 
             } catch (error) {
                 showToast(`Error loading mission data: ${error.message}`, 'danger');
@@ -1401,6 +1591,14 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         // Initial load
         loadMissions();
+
+        if (runCacheInspectorBtn) {
+            runCacheInspectorBtn.addEventListener('click', runMissionCacheInspection);
+        }
+        if (refreshCacheStatsBtn) {
+            refreshCacheStatsBtn.addEventListener('click', loadCacheStatsAndUsageSummary);
+        }
+        loadCacheStatsAndUsageSummary();
         
         // Initial visibility
         updateReportGenerationVisibility();

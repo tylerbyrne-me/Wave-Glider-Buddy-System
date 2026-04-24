@@ -208,6 +208,42 @@ class OffloadLog(OffloadLogBase, table=True):
     station: "StationMetadata" = Relationship(back_populates="offload_logs")
 
 
+class Vm4ProcessingCheckpoint(SQLModel, table=True):
+    """Durable checkpoint for incremental VM4 parser runs."""
+    __tablename__ = "vm4_processing_checkpoints"
+    __table_args__ = (
+        UniqueConstraint(
+            "mission_id",
+            "report_type",
+            "source_path",
+            name="uq_vm4_checkpoint_scope",
+        ),
+    )
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    mission_id: str = SQLModelField(index=True, description="Mission identifier")
+    report_type: str = SQLModelField(default="wg_vm4_info", index=True)
+    source_path: str = SQLModelField(default="unknown", index=True)
+    last_processed_timestamp_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        index=True,
+        description="Most recent VM4 timestamp processed by parser",
+    )
+    last_file_modification_time_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="Last known source file modification timestamp",
+    )
+    last_parser_run_id: Optional[str] = SQLModelField(default=None, index=True)
+    last_rows_processed: int = SQLModelField(default=0)
+    last_events_processed: int = SQLModelField(default=0)
+    last_offload_logs_upserted: int = SQLModelField(default=0)
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
+        index=True,
+    )
+
+
 # --- Field Season Database Model ---
 class FieldSeason(SQLModel, table=True):
     """Field season database table."""
