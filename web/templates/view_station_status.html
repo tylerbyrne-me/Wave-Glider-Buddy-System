@@ -12,6 +12,7 @@
         .status-offloaded { background-color: #d1e7dd !important; color: #0f5132 !important; }        /* Bootstrap success light */
         .status-failed-offload { background-color: #f8d7da !important; color: #721c24 !important; }   /* Bootstrap danger light */
         .status-skipped { background-color: #fff3cd !important; color: #664d03 !important; }          /* Bootstrap warning light */
+        .status-flagged { background-color: #ffe5b4 !important; color: #7a3e00 !important; }          /* Attention / flagged */
         .status-unknown { background-color: #f0f0f0 !important; color: #555 !important; }             /* A generic color for unknown/other */
 
 
@@ -127,11 +128,24 @@
 
         <div id="stationAnalyticsSection" class="card mb-4" style="display: none;">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Station Analytics</h5>
+                <button
+                    class="btn btn-link text-white text-decoration-none p-0 d-flex align-items-center gap-2"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#stationAnalyticsCollapse"
+                    aria-expanded="false"
+                    aria-controls="stationAnalyticsCollapse"
+                    id="stationAnalyticsToggleBtn"
+                >
+                    <i class="fas fa-chart-line"></i>
+                    <span class="mb-0 fw-semibold">Station Analytics</span>
+                </button>
                 <span class="small text-white-50" id="analyticsConflictHint"></span>
             </div>
-            <div class="card-body" id="stationAnalyticsBody">
-                <p class="text-muted mb-0">Loading analytics...</p>
+            <div class="collapse" id="stationAnalyticsCollapse">
+                <div class="card-body" id="stationAnalyticsBody">
+                    <p class="text-muted mb-0">Expand to load analytics...</p>
+                </div>
             </div>
         </div>
 
@@ -274,7 +288,7 @@
                             <textarea class="form-control" id="formStationSettings" name="station_settings" rows="2"></textarea>
                         </div>
                         <div class="mb-3">
-                            <label for="formStationNotes" class="form-label">Station Notes</label>
+                            <label for="formStationNotes" class="form-label">OTN Metadata</label>
                             <textarea class="form-control" id="formStationNotes" name="notes" rows="2"></textarea>
                         </div>
                         <div class="mb-3">
@@ -284,6 +298,19 @@
                                 <option value="SKIPPED">Skipped</option>
                                 <!-- Add other override options here if needed in the future -->
                             </select>
+                        </div>
+                        <div class="mb-3 border border-warning rounded p-2">
+                            <label for="formSeasonFlagNote" class="form-label mb-1">Season Flag Note</label>
+                            <textarea class="form-control" id="formSeasonFlagNote" rows="2" placeholder="Why this station needs attention this season"></textarea>
+                            <div class="form-text">Applies to the selected season context. Creates a flag/unflag note in offload logs.</div>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-warning" id="flagStationBtn">
+                                    <i class="fas fa-flag me-1"></i>Flag station for season
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="clearStationFlagBtn">
+                                    Clear season flag
+                                </button>
+                            </div>
                         </div>
                         <button type="button" class="btn btn-primary mb-3" id="saveStationInfoBtn">Save Station Info</button>
                         <button type="button" class="btn btn-outline-warning mb-3 ms-2" id="swapHardwareBtn" style="display: none;" title="Admin: record serial/modem swap">

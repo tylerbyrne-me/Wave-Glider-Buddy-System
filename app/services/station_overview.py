@@ -14,7 +14,13 @@ def _format_overview_dt(dt_val) -> str:
     return "---"
 
 
-def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, Any]:
+def build_status_overview_row(
+    station,
+    relevant_logs: List[Any],
+    *,
+    is_flagged_for_scope: bool = False,
+    flag_note: str | None = None,
+) -> Dict[str, Any]:
     """
     station: ORM object with same attributes as StationMetadata / StationMetadataSeasonSnapshot
     for fields used in the overview.
@@ -38,7 +44,6 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
     latest_remote_health_temperature_c = None
     latest_remote_health_tilt_rad = None
     latest_remote_health_humidity = None
-
     if relevant_logs:
         sorted_logs = sorted(
             relevant_logs,
@@ -115,7 +120,10 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
         status_text = "Awaiting Offload"
         status_color_key = "grey"
 
-    if station.display_status_override:
+    if is_flagged_for_scope:
+        status_text = "Flagged - Needs Review"
+        status_color_key = "orange"
+    elif station.display_status_override:
         if station.display_status_override.upper() == "SKIPPED":
             status_text = "Skipped"
             status_color_key = "yellow"
@@ -131,6 +139,8 @@ def build_status_overview_row(station, relevant_logs: List[Any]) -> Dict[str, An
         "status_text": status_text,
         "status_color": status_color_key,
         "display_status_override": station.display_status_override,
+        "is_flagged_for_scope": is_flagged_for_scope,
+        "flag_note": flag_note,
         "vrl_file_name": latest_vrl_file_name,
         "latest_arrival_date": latest_arrival_date_str,
         "latest_distance_command_sent_m": latest_distance_command_sent_m_str,

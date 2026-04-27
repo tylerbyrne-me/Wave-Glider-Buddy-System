@@ -5,7 +5,7 @@ Pydantic request/response model schemas for the Wave Glider Buddy System.
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlmodel import SQLModel
 
 from .enums import (
@@ -207,9 +207,18 @@ class StationMetadataCore(BaseModel):
     deployment_latitude: Optional[float] = Field(None, ge=-90, le=90, description="Latitude of the station deployment location in decimal degrees.")
     deployment_longitude: Optional[float] = Field(None, ge=-180, le=180, description="Longitude of the station deployment location in decimal degrees.")
     notes: Optional[str] = Field(None, description="General notes or comments about the station.")
+    otn_metadata: Optional[str] = Field(None, description="Station-level OTN metadata notes shared across seasons.")
     display_status_override: Optional[str] = Field(
-        None, description="Manual override for the station's display status (e.g., 'SKIPPED', 'MAINTENANCE')."
+        None, description="Manual override for the station's display status (e.g., 'SKIPPED')."
     )
+
+    @model_validator(mode="after")
+    def sync_otn_metadata_alias(self):
+        if self.otn_metadata is None and self.notes is not None:
+            self.otn_metadata = self.notes
+        elif self.notes is None and self.otn_metadata is not None:
+            self.notes = self.otn_metadata
+        return self
 
 
 class StationMetadataBase(StationMetadataCore):
@@ -266,6 +275,7 @@ class StationMetadataUpdate(SQLModel):
     deployment_latitude: Optional[float] = None
     deployment_longitude: Optional[float] = None
     notes: Optional[str] = None
+    otn_metadata: Optional[str] = None
     display_status_override: Optional[str] = None
     # last_offload_timestamp_utc and was_last_offload_successful are
     # typically updated via OffloadLog
@@ -339,6 +349,23 @@ class ConflictResolutionRequest(SQLModel):
 
     resolution_action: Literal["accept_user", "accept_parser", "manual_merge"]
     resolved_notes: Optional[str] = None
+
+
+class StationFlagUpdateRequest(SQLModel):
+    """Season-scoped station flag update request."""
+    is_flagged: bool
+    note: Optional[str] = None
+    season_year: Optional[int] = None
+
+
+class StationFlagEventRead(SQLModel):
+    id: int
+    station_id: str
+    field_season_year: Optional[int] = None
+    is_flagged: bool
+    note: Optional[str] = None
+    changed_by_username: str
+    changed_at_utc: datetime
 
 
 class StationHardwareSwapRequest(SQLModel):

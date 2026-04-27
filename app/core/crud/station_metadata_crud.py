@@ -22,6 +22,8 @@ def create_or_update_station(
     if existing_station:
         logger.debug(f"CRUD: Station '{station_data.station_id}' already exists. Updating.")
         update_data = station_data.model_dump(exclude_unset=True)
+        if "otn_metadata" in update_data:
+            update_data["notes"] = update_data.pop("otn_metadata")
         for key, value in update_data.items():
             setattr(existing_station, key, value)
 

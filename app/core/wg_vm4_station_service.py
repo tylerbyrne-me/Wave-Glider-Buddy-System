@@ -14,6 +14,7 @@ import pandas as pd
 from sqlmodel import select
 from .db import SQLModelSession
 from . import models
+from .feature_toggles import is_feature_enabled
 from .wg_vm4_payload_parser import WgVm4PayloadParser, OffloadEvent, OffloadEventType
 
 logger = logging.getLogger(__name__)
@@ -565,6 +566,19 @@ async def run_vm4_background_pipeline(
     """
     Process VM4 offloads in a background-safe pipeline with durable checkpoint updates.
     """
+    if not is_feature_enabled("vm4_offload_parser"):
+        logger.info("VM4 offload parser is disabled by feature toggle; mission=%s", mission_id)
+        return {
+            "mission_id": mission_id,
+            "source_path": None,
+            "rows_processed": 0,
+            "stats": {"events_processed": 0, "stations_matched": 0, "offload_logs_created": 0, "stations_updated": 0, "errors": 0},
+            "remote_health": {},
+            "duration_seconds": 0.0,
+            "updated_checkpoint": False,
+            "parser_disabled": True,
+        }
+
     from .data_service import get_data_service
     from .processors import preprocess_wg_vm4_info_df, preprocess_wg_vm4_remote_health_df
 

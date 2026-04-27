@@ -41,7 +41,8 @@ CACHE_STRATEGIES = {
     "weather": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
     "waves": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
     "ais": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
-    "errors": {"expiry_minutes": None, "incremental": False, "overlap_hours": 0},  # Static data - no expiry needed
+    # Errors can continue arriving during active missions, so keep it incremental.
+    "errors": {"expiry_minutes": None, "incremental": True, "overlap_hours": 1},
     "vr2c": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
     "fluorometer": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
     "wg_vm4": {"expiry_minutes": None, "incremental": True, "overlap_hours": 2},
@@ -173,9 +174,8 @@ def is_static_data_source(source_path: str, report_type: str, mission_id: str) -
     if "Local:" in source_path:
         return True
     
-    # Some report types are inherently static
-    static_types = ["errors", "ais"]  # Historical data that doesn't change
-    return report_type in static_types
+    # Remote mission feeds are dynamic; allow refresh logic to run for all types.
+    return False
 
 
 def get_cache_strategy(report_type: str) -> Dict[str, Any]:

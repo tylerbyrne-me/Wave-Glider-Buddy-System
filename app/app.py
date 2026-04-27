@@ -2084,7 +2084,10 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     source_preference = request.query_params.get("source") or None
     custom_local_path = request.query_params.get("local_path") or None
 
-    # Load only the data sources for enabled sensor cards
+    # Load only the data sources for enabled sensor cards.
+    # Keep full history for AIS/errors so dashboard detail tables remain populated
+    # even when there is no activity in the last 24h window.
+    full_history_report_types = {"ais", "errors"}
     results = await asyncio.gather(
         *[
             load_data_source(
@@ -2092,7 +2095,7 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
                 source_preference=source_preference,
                 custom_local_path=custom_local_path,
                 current_user=current_user,
-                hours_back=hours,
+                hours_back=None if rt in full_history_report_types else hours,
             )
             for rt in report_types_to_load
         ],

@@ -16,6 +16,7 @@ from ..core import models
 from ..core.models import (
     FieldSeason,
     OffloadLog,
+    StationFlagEvent,
     StationMetadata,
     StationMetadataSeasonSnapshot,
 )
@@ -470,6 +471,48 @@ class StationSeasonService:
             if log.field_season_year is None:
                 log.field_season_year = season.year
             session.add(log)
+
+        # Carry forward active station flags into next season as flag events.
+        current_events_stmt = select(StationFlagEvent).where(
+            StationFlagEvent.field_season_year == season.year
+        )
+        current_events = list(session.exec(current_events_stmt).all())
+        events_by_station: Dict[str, List[StationFlagEvent]] = defaultdict(list)
+        for event in current_events:
+            events_by_station[event.station_id].append(event)
+        next_season_year = season.year + 1
+        next_season = StationSeasonService.get_season_by_year(session, next_season_year)
+        if not next_season:
+            next_season = FieldSeason(
+                year=next_season_year,
+                is_active=False,
+                created_at_utc=archive_time,
+            )
+            session.add(next_season)
+        for station_id, station_events in events_by_station.items():
+            is_flagged = False
+            latest_flag_note: Optional[str] = None
+            for event in sorted(station_events, key=lambda row: row.changed_at_utc):
+                is_flagged = bool(event.is_flagged)
+                latest_flag_note = event.note
+            if not is_flagged:
+                continue
+            reminder_note = (
+                f"Carry-over reminder from season {season.year}: "
+                "station was flagged and needs review this season."
+            )
+            if latest_flag_note:
+                reminder_note += f" Previous note: {latest_flag_note}"
+            session.add(
+                StationFlagEvent(
+                    station_id=station_id,
+                    field_season_year=next_season_year,
+                    is_flagged=True,
+                    note=reminder_note,
+                    changed_by_username=closed_by_username,
+                    changed_at_utc=archive_time,
+                )
+            )
 
         season.is_active = False
         season.closed_at_utc = archive_time

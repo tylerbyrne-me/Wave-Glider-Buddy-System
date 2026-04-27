@@ -25,6 +25,7 @@ def _get_cached_feature_context() -> Dict[str, Any]:
         "is_payroll_enabled": features.get("payroll", False),
         "is_admin_management_enabled": features.get("admin_management", False),
         "is_station_offloads_enabled": features.get("station_offloads", False),
+        "is_vm4_offload_parser_enabled": features.get("vm4_offload_parser", False),
         "is_local_data_loading_enabled": features.get("local_data_loading", False),
         "is_slocum_platform_enabled": features.get("slocum_platform", False),
         "is_slocum_mission_files_enabled": features.get("slocum_mission_files", False),

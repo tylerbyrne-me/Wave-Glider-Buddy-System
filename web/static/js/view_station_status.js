@@ -72,6 +72,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     let allStationsData = [];
     let currentSort = { column: 'station_id', order: 'asc' };
     let isAdmin = false;
+    const FEAT = window.APP_FEATURES || {};
+    const isVm4OffloadParserEnabled = Boolean(FEAT.vm4_offload_parser);
+    let analyticsLoadedOnce = false;
 
     let activeSeason = null;
     let allSeasons = [];
@@ -103,6 +106,22 @@ document.addEventListener('DOMContentLoaded', async function () {
             showToast(`Unable to load active missions: ${error.message}`, 'warning');
         }
         populateOffloadMissionDropdown();
+    }
+
+    function updateVm4ParserUiGate() {
+        const processVm4Btn = document.getElementById('processVm4Btn');
+        const processVm4ModalEl = document.getElementById('processVm4Modal');
+        if (!processVm4Btn) return;
+        if (isVm4OffloadParserEnabled) {
+            processVm4Btn.disabled = false;
+            processVm4Btn.title = 'TESTING: Process VM4 offloads for a mission';
+            return;
+        }
+        processVm4Btn.disabled = true;
+        processVm4Btn.title = 'VM4 offload parser is disabled by feature toggle';
+        if (processVm4ModalEl) {
+            processVm4ModalEl.setAttribute('data-parser-disabled', 'true');
+        }
     }
     // Function to initialize the page: check role, then fetch data
     async function initializePage() {
@@ -144,6 +163,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (downloadCsvDropdownToggle) downloadCsvDropdownToggle.style.display = 'none';
         }
 
+        updateVm4ParserUiGate();
         await fetchStationStatuses(); // Now fetch data
         await loadActiveMissionsForOffloadDropdown();
         if (loadingSpinner) loadingSpinner.style.display = 'none';
@@ -152,7 +172,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (isAdmin) {
             await initializeSeasonManagement();
             await loadAndRenderArrayGroups();
-            await loadStationAnalytics();
+            setupAnalyticsPanel();
             await loadConflictQueue();
         }
     }
@@ -234,11 +254,12 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
 
             // Apply row coloring based on status
-            row.classList.remove('status-awaiting-offload', 'status-offloaded', 'status-failed-offload', 'status-skipped', 'status-unknown');
+            row.classList.remove('status-awaiting-offload', 'status-offloaded', 'status-failed-offload', 'status-skipped', 'status-flagged', 'status-unknown');
             if (station.status_color === 'grey') row.classList.add('status-awaiting-offload');
             else if (station.status_color === 'green') row.classList.add('status-offloaded');
             else if (station.status_color === 'red') row.classList.add('status-failed-offload');
-            else if (station.status_color === 'yellow' || station.status_color === 'orange') row.classList.add('status-skipped');
+            else if (station.status_color === 'yellow') row.classList.add('status-skipped');
+            else if (station.status_color === 'orange') row.classList.add('status-flagged');
             else row.classList.add('status-unknown');
         });
         updateSortIcons();
@@ -499,6 +520,22 @@ document.addEventListener('DOMContentLoaded', async function () {
                             <div class="small mt-1">Field season <strong>${sy}</strong> · created ${escapeHtml(ev.sort_ts || '')}</div>
                         </div>
                     </div>`;
+            } else if (ev.event_type === 'flag_event') {
+                const f = ev.payload || {};
+                const isFlagged = f.is_flagged === true;
+                const border = isFlagged ? 'warning' : 'secondary';
+                const action = isFlagged ? 'Flag set' : 'Flag cleared';
+                html += `
+                    <div class="card mb-2 border-${border} bg-dark text-light">
+                        <div class="card-body py-2">
+                            <div class="d-flex justify-content-between flex-wrap gap-2">
+                                <strong><i class="fas fa-flag me-1"></i>${action}</strong>
+                                <span class="badge bg-${border}">${isFlagged ? 'Needs Review' : 'Resolved'}</span>
+                            </div>
+                            <div class="small text-muted mt-1">${escapeHtml(ev.sort_ts || '')} · ${escapeHtml(f.changed_by_username || '')} · Season ${f.field_season_year ?? '—'}</div>
+                            ${f.note ? `<div class="small mt-1"><strong>Comment:</strong> ${escapeHtml(f.note)}</div>` : ''}
+                        </div>
+                    </div>`;
             }
         }
         return html;
@@ -575,6 +612,39 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
+    function renderRecentOffloadCards(logs) {
+        return logs.map((p) => {
+            const ok = p.was_offloaded === true;
+            const bad = p.was_offloaded === false;
+            const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
+            const sym = ok ? 'Yes' : bad ? 'No' : '?';
+            return `
+<div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
+  <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
+  <label class="form-label small mb-0 mt-1">VRL file name</label>
+  <input type="text" class="form-control form-control-sm recent-vrl-file-name" value="${escapeHtml(p.vrl_file_name || '')}">
+  ${p.parser_notes ? `<div class="small text-warning mt-1"><strong>Parser:</strong> ${escapeHtml(p.parser_notes)}</div>` : ''}
+  <div class="row g-1 mt-1">
+    <div class="col-md-6"><label class="form-label small mb-0">Arrival (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-arrival" value="${isoToDatetimeLocal(p.arrival_date)}"></div>
+    <div class="col-md-6"><label class="form-label small mb-0">First command (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-first-cmd" value="${isoToDatetimeLocal(p.time_first_command_sent_utc)}"></div>
+    <div class="col-md-6"><label class="form-label small mb-0">Offload start (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-offload-start" value="${isoToDatetimeLocal(p.offload_start_time_utc)}"></div>
+    <div class="col-md-6"><label class="form-label small mb-0">Offload end (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-offload-end" value="${isoToDatetimeLocal(p.offload_end_time_utc)}"></div>
+    <div class="col-md-6"><label class="form-label small mb-0">Departure (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-departure" value="${isoToDatetimeLocal(p.departure_date)}"></div>
+    <div class="col-md-6"><label class="form-label small mb-0">Distance cmd sent (m)</label><input type="number" step="any" class="form-control form-control-sm recent-distance" value="${p.distance_command_sent_m ?? ''}"></div>
+  </div>
+  <label class="form-label small mb-0 mt-1">Offload notes / file size</label>
+  <textarea class="form-control form-control-sm recent-offload-notes" rows="2">${escapeHtml(p.offload_notes_file_size || '')}</textarea>
+  <label class="form-label small mb-0 mt-1">User notes</label>
+  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
+  <div class="form-check mt-1">
+    <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
+    <label class="form-check-label small" for="rw-${p.id}">Offloaded successfully</label>
+  </div>
+  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
+</div>`;
+        }).join('');
+    }
+
     async function openEditLogModal(stationId, stationRow) {
         // Any authenticated user can open the modal to log an offload.
         if (!editLogStationModalInstance) return;
@@ -624,8 +694,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('formDeploymentLongitude').value = stationData.deployment_longitude !== null ? stationData.deployment_longitude : '';
             document.getElementById('formLastOffloadByGlider').value = stationData.last_offload_by_glider || '';
             document.getElementById('formStationSettings').value = stationData.station_settings || '';
-            document.getElementById('formStationNotes').value = stationData.notes || '';
+            document.getElementById('formStationNotes').value = stationData.otn_metadata || stationData.notes || '';
             document.getElementById('formDisplayStatusOverride').value = stationData.display_status_override || '';
+            document.getElementById('formSeasonFlagNote').value = stationRow?.flag_note || '';
             
             // Clear Log New Offload fields (as they are for a new entry)
             document.getElementById('formArrivalDate').value = '';
@@ -651,25 +722,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     .slice(0, 10);
                 if (logs.length) {
                     acc.style.display = 'block';
-                    accBody.innerHTML = logs.map((p) => {
-                        const ok = p.was_offloaded === true;
-                        const bad = p.was_offloaded === false;
-                        const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
-                        const sym = ok ? 'Yes' : bad ? 'No' : '?';
-                        return `
-<div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
-  <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
-  <div class="small mt-1"><strong>VRL:</strong> ${escapeHtml(p.vrl_file_name || '—')}</div>
-  ${p.parser_notes ? `<div class="small text-warning mt-1"><strong>Parser:</strong> ${escapeHtml(p.parser_notes)}</div>` : ''}
-  <label class="form-label small mb-0 mt-1">User notes</label>
-  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
-  <div class="form-check mt-1">
-    <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
-    <label class="form-check-label small" for="rw-${p.id}">Offloaded successfully</label>
-  </div>
-  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
-</div>`;
-                    }).join('');
+                    accBody.innerHTML = renderRecentOffloadCards(logs);
                 } else {
                     acc.style.display = 'none';
                     accBody.innerHTML = '';
@@ -695,9 +748,28 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (!wrap || !logId) return;
             const ta = wrap.querySelector('.recent-user-notes');
             const cb = wrap.querySelector('.recent-was-offloaded');
+            const offloadNotes = wrap.querySelector('.recent-offload-notes');
+            const vrlFileName = wrap.querySelector('.recent-vrl-file-name');
+            const distanceInput = wrap.querySelector('.recent-distance');
+            const getRecentIso = (selector) => {
+                const input = wrap.querySelector(selector);
+                if (!input || !input.value) return null;
+                const dt = new Date(`${input.value}Z`);
+                if (Number.isNaN(dt.valueOf())) return null;
+                return dt.toISOString();
+            };
+            const distanceRaw = distanceInput ? parseFloat(distanceInput.value) : null;
             const payload = {
                 user_notes: ta ? ta.value.trim() || null : null,
                 was_offloaded: cb ? cb.checked : null,
+                arrival_date: getRecentIso('.recent-arrival'),
+                time_first_command_sent_utc: getRecentIso('.recent-first-cmd'),
+                offload_start_time_utc: getRecentIso('.recent-offload-start'),
+                offload_end_time_utc: getRecentIso('.recent-offload-end'),
+                departure_date: getRecentIso('.recent-departure'),
+                distance_command_sent_m: Number.isNaN(distanceRaw) ? null : distanceRaw,
+                vrl_file_name: vrlFileName ? vrlFileName.value.trim() || null : null,
+                offload_notes_file_size: offloadNotes ? offloadNotes.value.trim() || null : null,
             };
             Object.keys(payload).forEach((k) => { if (payload[k] === null) delete payload[k]; });
             try {
@@ -710,25 +782,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     const logs = [...st.offload_logs]
                         .sort((a, b) => new Date(b.log_timestamp_utc) - new Date(a.log_timestamp_utc))
                         .slice(0, 10);
-                    accBody.innerHTML = logs.map((p) => {
-                        const ok = p.was_offloaded === true;
-                        const bad = p.was_offloaded === false;
-                        const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
-                        const sym = ok ? 'Yes' : bad ? 'No' : '?';
-                        return `
-<div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
-  <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
-  <div class="small mt-1"><strong>VRL:</strong> ${escapeHtml(p.vrl_file_name || '—')}</div>
-  ${p.parser_notes ? `<div class="small text-warning mt-1"><strong>Parser:</strong> ${escapeHtml(p.parser_notes)}</div>` : ''}
-  <label class="form-label small mb-0 mt-1">User notes</label>
-  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
-  <div class="form-check mt-1">
-    <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw2-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
-    <label class="form-check-label small" for="rw2-${p.id}">Offloaded successfully</label>
-  </div>
-  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
-</div>`;
-                    }).join('');
+                    accBody.innerHTML = renderRecentOffloadCards(logs);
                 }
                 await fetchStationStatuses();
             } catch (err) {
@@ -890,7 +944,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 deployment_longitude: longitudeValue ? parseFloat(longitudeValue) : null,
                 last_offload_by_glider: document.getElementById('formLastOffloadByGlider').value.trim() || null,
                 station_settings: document.getElementById('formStationSettings').value.trim() || null,
-                notes: document.getElementById('formStationNotes').value.trim() || null,
+                otn_metadata: document.getElementById('formStationNotes').value.trim() || null,
                 display_status_override: document.getElementById('formDisplayStatusOverride').value || null
             };
 
@@ -924,6 +978,43 @@ document.addEventListener('DOMContentLoaded', async function () {
                 alert(`Error: ${error.message}`);
             } finally {
                 if (loadingSpinner) loadingSpinner.style.display = 'none';
+            }
+        });
+    }
+
+    const flagStationBtn = document.getElementById('flagStationBtn');
+    const clearStationFlagBtn = document.getElementById('clearStationFlagBtn');
+    if (flagStationBtn) {
+        flagStationBtn.addEventListener('click', async () => {
+            if (!currentEditingStationId) return;
+            const note = document.getElementById('formSeasonFlagNote')?.value?.trim() || null;
+            try {
+                await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}/flag`, 'POST', {
+                    is_flagged: true,
+                    note,
+                    season_year: selectedSeasonYear,
+                });
+                showToast('Station flagged for this season', 'success');
+                await fetchStationStatuses();
+            } catch (err) {
+                showToast(err.message || 'Could not flag station', 'danger');
+            }
+        });
+    }
+    if (clearStationFlagBtn) {
+        clearStationFlagBtn.addEventListener('click', async () => {
+            if (!currentEditingStationId) return;
+            const note = document.getElementById('formSeasonFlagNote')?.value?.trim() || null;
+            try {
+                await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}/flag`, 'POST', {
+                    is_flagged: false,
+                    note,
+                    season_year: selectedSeasonYear,
+                });
+                showToast('Season flag cleared', 'success');
+                await fetchStationStatuses();
+            } catch (err) {
+                showToast(err.message || 'Could not clear flag', 'danger');
             }
         });
     }
@@ -1258,15 +1349,33 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
+    function setupAnalyticsPanel() {
+        const collapseEl = document.getElementById('stationAnalyticsCollapse');
+        const section = document.getElementById('stationAnalyticsSection');
+        if (!isAdmin || !collapseEl || !section) return;
+        section.style.display = 'block';
+        collapseEl.addEventListener('shown.bs.collapse', async () => {
+            if (!analyticsLoadedOnce) {
+                await loadStationAnalytics();
+                analyticsLoadedOnce = true;
+                return;
+            }
+            await loadStationAnalytics();
+        });
+    }
+
     async function loadStationAnalytics() {
         const section = document.getElementById('stationAnalyticsSection');
         const body = document.getElementById('stationAnalyticsBody');
         const hint = document.getElementById('analyticsConflictHint');
         if (!isAdmin || !section || !body) return;
-        section.style.display = 'block';
         body.innerHTML = '<p class="text-muted mb-0"><i class="fas fa-spinner fa-spin me-2"></i>Loading analytics…</p>';
         try {
-            const stats = await apiRequest('/api/stations/analytics/overview', 'GET');
+            let url = '/api/stations/analytics/overview';
+            if (selectedSeasonYear !== null) {
+                url += `?season_year=${selectedSeasonYear}`;
+            }
+            const stats = await apiRequest(url, 'GET');
             if (hint) {
                 const n = stats.conflict_logs_pending ?? 0;
                 hint.innerHTML = n > 0
@@ -1835,6 +1944,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (seasonStatsDisplay) {
                 seasonStatsDisplay.style.display = 'none';
             }
+        }
+        const analyticsCollapse = document.getElementById('stationAnalyticsCollapse');
+        if (analyticsCollapse && analyticsCollapse.classList.contains('show')) {
+            await loadStationAnalytics();
         }
     }
 
@@ -2748,6 +2861,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     async function handleProcessVm4() {
+        if (!isVm4OffloadParserEnabled) {
+            showToast('WG-VM4 parser is currently disabled by feature toggle.', 'warning');
+            return;
+        }
         const processVm4MissionId = document.getElementById('processVm4MissionId');
         const processVm4Force = document.getElementById('processVm4Force');
         const processVm4SeasonYear = document.getElementById('processVm4SeasonYear');
@@ -2798,9 +2915,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                         `no_matching_log=${result.remote_health.no_matching_log ?? 0}` +
                         `</div>`;
                 }
-                if (result.statistics) {
+                if (result.stats) {
                     resultHtml += '<div class="mt-3"><h6>Processing Statistics:</h6><ul class="list-group">';
-                    Object.entries(result.statistics).forEach(([key, value]) => {
+                    Object.entries(result.stats).forEach(([key, value]) => {
                         resultHtml += `<li class="list-group-item bg-dark text-light"><strong>${key}:</strong> ${value}</li>`;
                     });
                     resultHtml += '</ul></div>';

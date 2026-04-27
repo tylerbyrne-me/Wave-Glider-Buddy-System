@@ -208,6 +208,42 @@ class OffloadLog(OffloadLogBase, table=True):
     station: "StationMetadata" = Relationship(back_populates="offload_logs")
 
 
+class StationFlagEvent(SQLModel, table=True):
+    """Season-scoped station flag events (set/clear + optional comment)."""
+    __tablename__ = "station_flag_events"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    station_id: str = SQLModelField(
+        foreign_key="station_metadata.station_id",
+        index=True,
+        description="Station identifier for this flag event.",
+    )
+    field_season_year: Optional[int] = SQLModelField(
+        default=None,
+        index=True,
+        description="Season context for this flag event (None when no active season).",
+    )
+    is_flagged: bool = SQLModelField(
+        default=True,
+        index=True,
+        description="True when setting a flag, False when clearing.",
+    )
+    note: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="Operator comment for this flag event.",
+    )
+    changed_by_username: str = SQLModelField(
+        index=True,
+        description="User who set/cleared the flag.",
+    )
+    changed_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+        description="When this flag event was recorded.",
+    )
+
+
 class Vm4ProcessingCheckpoint(SQLModel, table=True):
     """Durable checkpoint for incremental VM4 parser runs."""
     __tablename__ = "vm4_processing_checkpoints"

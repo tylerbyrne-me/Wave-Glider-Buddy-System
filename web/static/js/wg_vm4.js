@@ -79,6 +79,8 @@ export function initializeWgVm4OffloadSection() {
 
         try {
             currentStationData = await apiRequest(`/api/station_metadata/${stationId}`, 'GET');
+            const flagState = await apiRequest(`/api/station_metadata/${stationId}/flag_state`, 'GET');
+            currentStationData.station_flag_state = flagState;
             displayStationMetadata(currentStationData);
             buildOffloadLogFormFields(currentStationData);
             if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = false;
@@ -120,11 +122,17 @@ export function initializeWgVm4OffloadSection() {
         if (metaLastOffloadTimestampElement) metaLastOffloadTimestampElement.textContent = toUtcDisplay(data.last_offload_timestamp_utc);
         if (metaLastOffload) metaLastOffload.textContent = data.last_offload_by_glider || 'N/A';
         if (metaSettings) metaSettings.textContent = data.station_settings || 'N/A';
+        const isFlagged = Boolean(data.station_flag_state?.is_flagged);
+        const metaLastOffloadEl = document.getElementById('metaLastOffload');
+        if (metaLastOffloadEl && isFlagged) {
+            metaLastOffloadEl.textContent = `${metaLastOffloadEl.textContent} [FLAGGED]`;
+        }
         
         const notesContainer = document.getElementById('metaNotesContainer');
         const notesSpan = document.getElementById('metaNotes');
-        if (data.notes && notesContainer && notesSpan) {
-            notesSpan.textContent = data.notes;
+        const otnMetadata = data.otn_metadata ?? data.notes;
+        if (otnMetadata && notesContainer && notesSpan) {
+            notesSpan.textContent = otnMetadata;
             notesContainer.style.display = 'block';
         } else if (notesContainer) {
             notesContainer.style.display = 'none';
@@ -167,12 +175,24 @@ export function initializeWgVm4OffloadSection() {
                     id: "offload_parameters_ui", 
                     title: "Offload Parameters & Timings",
                     items: [
-                        {id: "arrival_date_log", label: "Arrival Date/Time (UTC)", item_type: "datetime-local", required: true},
+                        {
+                            id: "arrival_date_log",
+                            label: "Arrival Date/Time (UTC)",
+                            item_type: "datetime-local",
+                            required: false,
+                            tooltip: "If different than Time first command sent UTC",
+                        },
                         {id: "distance_cmd_sent_m_log", label: "Distance when command sent (m)", item_type: "text_input", placeholder: "e.g., 300", required: true},
                         {id: "time_first_cmd_sent_utc_log", label: "Time first command sent (UTC)", item_type: "datetime-local", required: true},
                         {id: "start_time_remote_offload_utc_log", label: "Start Time - remote offload (UTC)", item_type: "datetime-local", required: true},
                         {id: "end_time_offload_completed_utc_log", label: "End Time - Offload completed (UTC)", item_type: "datetime-local", required: true},
-                        {id: "departure_date_log", label: "Departure Date/Time (UTC)", item_type: "datetime-local", required: true},
+                        {
+                            id: "departure_date_log",
+                            label: "Departure Date/Time (UTC)",
+                            item_type: "datetime-local",
+                            required: false,
+                            tooltip: "If different than End Time - Offload Completed UTC",
+                        },
                     ]
                 },
                 {
@@ -183,6 +203,8 @@ export function initializeWgVm4OffloadSection() {
                         {id: "comments_log", label: "Comments", item_type: "text_area", placeholder: "Offload details..."},
                         {id: "vrl_file_name_log", label: "VRL File Name", item_type: "text_input", placeholder: "e.g., VR4-UWM_XXXXXX.vrl"},
                         {id: "vrl_file_size_log", label: "VRL File Size (bytes)", item_type: "text_input", placeholder: "e.g., 5161"},
+                        {id: "flag_station_for_season_log", label: "Flag station for season", item_type: "dropdown", options: ["No", "Yes"], required: false},
+                        {id: "flag_note_log", label: "Flag note", item_type: "text_area", placeholder: "Reason this station needs attention"},
                         {id: "otn_metadata_notes_log", label: "OTN Metadata Notes", item_type: "text_area", placeholder: "Notes for OTN..."},
                     ]
                 }
@@ -198,6 +220,11 @@ export function initializeWgVm4OffloadSection() {
                 label.htmlFor = item.id;
                 label.textContent = item.label + (item.required ? '*' : '');
                 label.classList.add('col-sm-4', 'col-form-label', 'col-form-label-sm');
+                if (item.tooltip) {
+                    label.title = item.tooltip;
+                    label.setAttribute('data-bs-toggle', 'tooltip');
+                    label.setAttribute('data-bs-placement', 'top');
+                }
                 formGroup.appendChild(label);
 
                 const inputContainer = document.createElement('div');
@@ -257,6 +284,23 @@ export function initializeWgVm4OffloadSection() {
                 offloadLogFormFieldsContainer.appendChild(formGroup);
             });
         });
+        if (window.bootstrap?.Tooltip) {
+            offloadLogFormFieldsContainer
+                .querySelectorAll('[data-bs-toggle="tooltip"]')
+                .forEach((el) => new window.bootstrap.Tooltip(el));
+        }
+        updateConditionalOffloadRequirements();
+    }
+
+    function updateConditionalOffloadRequirements() {
+        const offloadedStatusEl = document.getElementById('offloaded_status_log');
+        const startTimeEl = document.getElementById('start_time_remote_offload_utc_log');
+        const endTimeEl = document.getElementById('end_time_offload_completed_utc_log');
+        if (!offloadedStatusEl || !startTimeEl || !endTimeEl) return;
+
+        const isOffloadFailed = String(offloadedStatusEl.value || '').trim().toLowerCase() === 'no';
+        startTimeEl.required = !isOffloadFailed;
+        endTimeEl.required = !isOffloadFailed;
     }
 
     function getIsoFromUtcDatetimeLocal(value) {
@@ -277,10 +321,9 @@ export function initializeWgVm4OffloadSection() {
         return normalized || null;
     }
 
-    function buildUserNotes(baseComments, otnNotes, offloadedStatus) {
+    function buildUserNotes(baseComments, offloadedStatus) {
         const notes = [];
         if (baseComments) notes.push(baseComments);
-        if (otnNotes) notes.push(`OTN: ${otnNotes}`);
         if (offloadedStatus === 'Partial') notes.push('[VM4] Marked Partial in dashboard form.');
         return notes.length ? notes.join('\n\n') : null;
     }
@@ -299,11 +342,10 @@ export function initializeWgVm4OffloadSection() {
         const formData = new FormData(wgVm4OffloadForm);
         const offloadedStatus = String(formData.get('offloaded_status_log') || '').trim();
         const normalizedWasOffloaded = offloadedStatus === 'Yes' ? true : offloadedStatus === 'No' || offloadedStatus === 'Partial' ? false : null;
-        const notes = buildUserNotes(
-            toNullableTrimmed(formData.get('comments_log')),
-            toNullableTrimmed(formData.get('otn_metadata_notes_log')),
-            offloadedStatus
-        );
+        const notes = buildUserNotes(toNullableTrimmed(formData.get('comments_log')), offloadedStatus);
+        const otnMetadata = toNullableTrimmed(formData.get('otn_metadata_notes_log'));
+        const shouldFlagStation = String(formData.get('flag_station_for_season_log') || '').trim() === 'Yes';
+        const flagNote = toNullableTrimmed(formData.get('flag_note_log'));
         const distanceRaw = String(formData.get('distance_cmd_sent_m_log') || '').trim();
         const parsedDistance = distanceRaw ? Number(distanceRaw) : null;
         const payload = {
@@ -324,6 +366,20 @@ export function initializeWgVm4OffloadSection() {
 
         try {
             await apiRequest(`/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}/offload_logs/`, 'POST', payload);
+            if (otnMetadata) {
+                await apiRequest(
+                    `/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}`,
+                    'PUT',
+                    { otn_metadata: otnMetadata }
+                );
+            }
+            if (shouldFlagStation) {
+                await apiRequest(
+                    `/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}/flag`,
+                    'POST',
+                    { is_flagged: true, note: flagNote }
+                );
+            }
             const missionId = (document.body.dataset.missionId || '').trim();
             if (missionId) {
                 await apiRequest(
@@ -357,6 +413,11 @@ export function initializeWgVm4OffloadSection() {
         if (!input) return;
         input.value = getUtcNowDatetimeLocalValue();
         input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    wgVm4OffloadForm.addEventListener('change', function(event) {
+        if (event.target && event.target.id === 'offloaded_status_log') {
+            updateConditionalOffloadRequirements();
+        }
     });
     // Initial call to clear/setup form fields
     buildOffloadLogFormFields(null);

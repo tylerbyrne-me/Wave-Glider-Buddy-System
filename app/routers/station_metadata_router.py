@@ -31,8 +31,36 @@ from ..core.station_registry_policy import (
     station_blocks_edits,
     offload_log_matches_season_year,
 )
+from ..core.feature_toggles import is_feature_enabled
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_station_flag_state(
+    events: List[models.StationFlagEvent],
+    *,
+    target_year: Optional[int],
+    season_is_closed: bool,
+) -> Dict[str, Dict[str, Any]]:
+    state_by_station: Dict[str, Dict[str, Any]] = {}
+    for event in sorted(events, key=lambda e: e.changed_at_utc):
+        include_event = False
+        if target_year is None:
+            include_event = event.field_season_year is None
+        elif offload_log_matches_season_year(
+            log_season=event.field_season_year,
+            target_year=target_year,
+            season_is_closed=season_is_closed,
+        ):
+            include_event = True
+        if not include_event:
+            continue
+        state_by_station[event.station_id] = {
+            "is_flagged": bool(event.is_flagged),
+            "flag_note": event.note,
+            "changed_at_utc": event.changed_at_utc,
+        }
+    return state_by_station
 
 # Create an APIRouter instance
 router = APIRouter()
@@ -518,6 +546,8 @@ async def update_station_metadata_fields(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No update data provided"
         )
+    if "otn_metadata" in update_data:
+        update_data["notes"] = update_data.pop("otn_metadata")
 
     old_serial = db_station_metadata.serial_number
     old_modem = db_station_metadata.modem_address
@@ -562,6 +592,137 @@ async def update_station_metadata_fields(
         f"'{current_user.username}'."
     )
     return db_station_metadata
+
+
+@router.post(
+    "/station_metadata/{station_id}/flag",
+    response_model=Dict[str, Any],
+    tags=["Station Offload Management"],
+)
+async def upsert_station_flag_for_season(
+    station_id: str,
+    body: models.StationFlagUpdateRequest,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+):
+    station = session.get(models.StationMetadata, station_id)
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Station metadata not found",
+        )
+    if station_blocks_edits(station):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Station {station_id} is retired or archived and cannot be modified",
+        )
+
+    target_year = body.season_year
+    if target_year is None:
+        active = StationSeasonService.get_active_season(session)
+        target_year = active.year if active else None
+    elif not StationSeasonService.get_season_by_year(session, target_year):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Field season {target_year} not found",
+        )
+
+    all_events = list(
+        session.exec(
+            select(models.StationFlagEvent).where(
+                models.StationFlagEvent.station_id == station_id
+            )
+        ).all()
+    )
+    season_row = (
+        StationSeasonService.get_season_by_year(session, target_year)
+        if target_year is not None
+        else None
+    )
+    season_is_closed = bool(season_row and season_row.closed_at_utc) or (
+        season_row is None and target_year is not None
+    )
+    scoped_state = _resolve_station_flag_state(
+        all_events,
+        target_year=target_year,
+        season_is_closed=season_is_closed,
+    )
+    is_currently_flagged = bool(scoped_state.get(station_id, {}).get("is_flagged"))
+    if body.is_flagged == is_currently_flagged:
+        return {
+            "created": False,
+            "message": "No flag state change for this season context",
+            "station_id": station_id,
+            "field_season_year": target_year,
+        }
+
+    flag_event = models.StationFlagEvent(
+        station_id=station_id,
+        field_season_year=target_year,
+        is_flagged=body.is_flagged,
+        note=(body.note or "").strip() or None,
+        changed_by_username=current_user.username,
+        changed_at_utc=datetime.now(timezone.utc),
+    )
+    session.add(flag_event)
+    session.commit()
+    session.refresh(flag_event)
+    return {
+        "created": True,
+        "message": "Season flag updated",
+        "station_id": station_id,
+        "field_season_year": target_year,
+        "flag_event_id": flag_event.id,
+    }
+
+
+@router.get(
+    "/station_metadata/{station_id}/flag_state",
+    response_model=Dict[str, Any],
+    tags=["Station Offload Management"],
+)
+async def get_station_flag_state_for_season(
+    station_id: str,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+    season_year: Optional[int] = Query(
+        None, description="Season context for flag lookup (None = active season context)"
+    ),
+):
+    station = session.get(models.StationMetadata, station_id)
+    if not station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Station metadata not found",
+        )
+    if season_year is None:
+        active = StationSeasonService.get_active_season(session)
+        target_year = active.year if active else None
+        season_is_closed = False
+    else:
+        target_year = season_year
+        season_row = StationSeasonService.get_season_by_year(session, season_year)
+        season_is_closed = bool(season_row and season_row.closed_at_utc) or (season_row is None)
+    all_events = list(
+        session.exec(
+            select(models.StationFlagEvent).where(
+                models.StationFlagEvent.station_id == station_id
+            )
+        ).all()
+    )
+    state_by_station = _resolve_station_flag_state(
+        all_events,
+        target_year=target_year,
+        season_is_closed=season_is_closed,
+    )
+    state = state_by_station.get(station_id, {})
+    return {
+        "station_id": station_id,
+        "field_season_year": target_year,
+        "is_flagged": bool(state.get("is_flagged")),
+        "note": state.get("flag_note"),
+        "changed_at_utc": state.get("changed_at_utc"),
+    }
 
 
 @router.post(
@@ -751,8 +912,6 @@ async def create_offload_log_for_station(
     offload_log_data["created_by_source"] = "user"
     offload_log_data["updated_by_source"] = "user"
     offload_log_data["updated_at_utc"] = datetime.now(timezone.utc)
-    if offload_log_data.get("offload_notes_file_size"):
-        offload_log_data["user_notes"] = offload_log_data.get("offload_notes_file_size")
 
     db_offload_log = models.OffloadLog.model_validate(offload_log_data)
     session.add(db_offload_log)
@@ -881,6 +1040,13 @@ async def get_station_offload_status_overview(
             season_row is None
         )
 
+    all_flag_events = list(session.exec(select(models.StationFlagEvent)).all())
+    flag_state_by_station = _resolve_station_flag_state(
+        all_flag_events,
+        target_year=target_year,
+        season_is_closed=season_is_closed,
+    )
+
     overview_list: List[Dict[str, Any]] = []
     for station in stations_metadata:
         if season_year is None:
@@ -909,7 +1075,15 @@ async def get_station_offload_status_overview(
                     season_is_closed=season_is_closed,
                 )
             ]
-        overview_list.append(build_status_overview_row(station, relevant_logs))
+        flag_state = flag_state_by_station.get(station.station_id, {})
+        overview_list.append(
+            build_status_overview_row(
+                station,
+                relevant_logs,
+                is_flagged_for_scope=bool(flag_state.get("is_flagged")),
+                flag_note=flag_state.get("flag_note"),
+            )
+        )
 
     logger.info(
         f"Built status overview for {len(stations_metadata)} registry stations "
@@ -1024,6 +1198,25 @@ async def get_station_history(
     logs_for_scope = all_logs
     if season_year is not None:
         logs_for_scope = [l for l in all_logs if l.field_season_year == season_year]
+    flag_stmt = select(models.StationFlagEvent).where(
+        models.StationFlagEvent.station_id == station_id
+    )
+    all_flag_events = list(session.exec(flag_stmt).all())
+    flag_events_for_scope = all_flag_events
+    if season_year is not None:
+        season_row = StationSeasonService.get_season_by_year(session, season_year)
+        season_is_closed = bool(season_row and season_row.closed_at_utc) or (
+            season_row is None
+        )
+        flag_events_for_scope = [
+            e
+            for e in all_flag_events
+            if offload_log_matches_season_year(
+                log_season=e.field_season_year,
+                target_year=season_year,
+                season_is_closed=season_is_closed,
+            )
+        ]
     hw_stmt = (
         select(models.StationHardwareHistory)
         .where(models.StationHardwareHistory.station_id == station_id)
@@ -1036,7 +1229,9 @@ async def get_station_history(
         .order_by(models.StationMetadataSeasonSnapshot.field_season_year.desc())
     )
     snapshots = list(session.exec(snap_stmt).all())
-    timeline = build_station_timeline(logs_for_scope, hardware, snapshots)
+    timeline = build_station_timeline(
+        logs_for_scope, hardware, snapshots, flag_events_for_scope
+    )
     stats = aggregate_offload_stats(logs_for_scope)
     return {
         "station_id": station_id,
@@ -1047,6 +1242,7 @@ async def get_station_history(
         "season_snapshots": [s.model_dump() for s in snapshots],
         "hardware_history": [h.model_dump() for h in hardware],
         "offload_logs": [l.model_dump() for l in all_logs],
+        "flag_events": [e.model_dump() for e in all_flag_events],
     }
 
 
@@ -1179,8 +1375,34 @@ def _mission_key_from_log(log: models.OffloadLog) -> str:
 async def get_station_analytics_overview(
     session: Annotated[SQLModelSession, Depends(get_db_session)],
     current_user: Annotated[UserModel, Depends(get_current_active_user)],
+    season_year: Optional[int] = Query(
+        None,
+        description="Season filter for analytics (None = active season context)",
+    ),
 ):
-    logs = list(session.exec(select(models.OffloadLog)).all())
+    if season_year is None:
+        active = StationSeasonService.get_active_season(session)
+        target_year: Optional[int] = active.year if active else None
+        season_is_closed = False
+    else:
+        target_year = season_year
+        season_row = StationSeasonService.get_season_by_year(session, season_year)
+        season_is_closed = bool(season_row and season_row.closed_at_utc) or (season_row is None)
+
+    all_logs = list(session.exec(select(models.OffloadLog)).all())
+    logs: List[models.OffloadLog] = []
+    for log in all_logs:
+        if target_year is None:
+            if season_year is None and log.field_season_year is None:
+                logs.append(log)
+            continue
+        if offload_log_matches_season_year(
+            log_season=log.field_season_year,
+            target_year=target_year,
+            season_is_closed=season_is_closed,
+        ):
+            logs.append(log)
+
     now_utc = datetime.now(timezone.utc)
     daily_cutoff = now_utc - timedelta(hours=24)
     last_48h_cutoff = now_utc - timedelta(hours=48)
@@ -1349,6 +1571,7 @@ async def get_station_analytics_overview(
     )
 
     return {
+        "season_year": target_year,
         "total_logs": total_logs,
         "user_logs": user_logs,
         "parser_logs": parser_logs,
@@ -2223,6 +2446,11 @@ async def process_vm4_offloads_for_mission(
         f"TESTING: Admin '{current_user.username}' triggering VM4 processing for mission {mission_id} "
         f"(force={force}, wait_for_completion={wait_for_completion})."
     )
+    if not is_feature_enabled("vm4_offload_parser"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="WG-VM4 offload parser is currently disabled by feature toggle",
+        )
     
     from ..core.wg_vm4_station_service import run_vm4_background_pipeline
 

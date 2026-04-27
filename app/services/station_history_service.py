@@ -63,6 +63,7 @@ def build_station_timeline(
     logs: List[Any],
     hardware: List[Any],
     snapshots: List[Any],
+    flag_events: Optional[List[Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Merge offload logs, hardware changes, and season snapshots (newest first)."""
     items: List[Dict[str, Any]] = []
@@ -93,6 +94,16 @@ def build_station_timeline(
                 "sort_ts": ts.isoformat(),
                 "field_season_year": getattr(snap, "field_season_year", None),
                 "payload": payload,
+            }
+        )
+    for flag_event in (flag_events or []):
+        ts = _aware_ts(getattr(flag_event, "changed_at_utc", None))
+        items.append(
+            {
+                "event_type": "flag_event",
+                "sort_ts": ts.isoformat(),
+                "field_season_year": getattr(flag_event, "field_season_year", None),
+                "payload": flag_event.model_dump(),
             }
         )
     items.sort(key=lambda x: x["sort_ts"], reverse=True)
