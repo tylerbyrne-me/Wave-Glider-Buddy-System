@@ -361,6 +361,22 @@ def trim_data_to_range(
     """
     if df.empty or "Timestamp" not in df.columns:
         return df
+
+    def _normalize_utc(value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if hasattr(value, "to_pydatetime"):
+            value = value.to_pydatetime()
+        elif not isinstance(value, datetime):
+            value = pd.to_datetime(value, utc=True)
+            if hasattr(value, "to_pydatetime"):
+                value = value.to_pydatetime()
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    start_date = _normalize_utc(start_date)
+    end_date = _normalize_utc(end_date)
     
     if start_date and end_date:
         return df[(df["Timestamp"] >= start_date) & (df["Timestamp"] <= end_date)]

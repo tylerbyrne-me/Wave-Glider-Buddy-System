@@ -24,16 +24,30 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
+function parseApiUtcDate(value) {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value !== 'string') {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const hasTimezone = /(?:[zZ]|[+\-]\d{2}:\d{2})$/.test(trimmed);
+    const parsed = new Date(hasTimezone ? trimmed : `${trimmed}Z`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function isoToDatetimeLocal(iso) {
     if (!iso) return '';
-    const d = new Date(iso);
+    const d = parseApiUtcDate(iso);
     if (Number.isNaN(d.getTime())) return '';
     return d.toISOString().slice(0, 16);
 }
 
 function isoDateOnly(iso) {
     if (!iso) return '';
-    const d = new Date(iso);
+    const d = parseApiUtcDate(iso);
     if (Number.isNaN(d.getTime())) return '';
     return d.toISOString().slice(0, 10);
 }
@@ -398,7 +412,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             "latest_was_offloaded", "latest_offload_notes_file_size",
             // VM4 Remote Health fields (from latest offload)
             "remote_health_model_id", "remote_health_serial_number", "remote_health_modem_address",
-            "remote_health_temperature_c", "remote_health_tilt_rad", "remote_health_humidity"
+            "remote_health_temperature_c", "remote_health_tilt_rad", "remote_health_humidity",
+            "remote_health_report_date"
         ];
         const displayHeaders = [ // User-friendly headers for the CSV file
             "Station ID", "Serial Number", "Modem Address",
@@ -410,7 +425,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             "Offloaded Successfully", "Offload Notes/File Size",
             // VM4 Remote Health headers
             "Remote Health Model ID", "Remote Health Serial Number", "Remote Health Modem Address",
-            "Remote Health Temperature (C)", "Remote Health Tilt (Rad)", "Remote Health Humidity"
+            "Remote Health Temperature (C)", "Remote Health Tilt (Rad)", "Remote Health Humidity",
+            "Remote Health Report Date (UTC)"
         ];
         let csvContent = displayHeaders.join(",") + "\r\n";
         dataToExport.forEach(station => {
@@ -474,6 +490,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 const rh = [
                     p.remote_health_temperature_c != null ? `Temp ${p.remote_health_temperature_c}°C` : null,
                     p.remote_health_humidity != null ? `RH ${p.remote_health_humidity}%` : null,
+                    p.remote_health_report_date ? `Date ${p.remote_health_report_date}` : null,
                 ].filter(Boolean).join(', ');
                 html += `
                     <div class="card mb-2 border-${border} bg-dark text-light">
@@ -666,7 +683,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Show latest offload remote health (VM4) when available from overview row
         const rhSection = document.getElementById('latestRemoteHealthSection');
         const row = stationRow || (Array.isArray(allStationsData) ? allStationsData.find(s => s.station_id === stationId) : null);
-        if (rhSection && row && (row.remote_health_model_id != null || row.remote_health_temperature_c != null || row.remote_health_humidity != null)) {
+        if (rhSection && row && (row.remote_health_model_id != null || row.remote_health_temperature_c != null || row.remote_health_humidity != null || row.remote_health_report_date != null)) {
             rhSection.style.display = 'block';
             document.getElementById('displayRemoteHealthModelId').textContent = row.remote_health_model_id != null ? row.remote_health_model_id : '—';
             document.getElementById('displayRemoteHealthSerialNumber').textContent = row.remote_health_serial_number != null ? row.remote_health_serial_number : '—';
@@ -674,6 +691,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('displayRemoteHealthTemperatureC').textContent = row.remote_health_temperature_c != null ? row.remote_health_temperature_c : '—';
             document.getElementById('displayRemoteHealthTiltRad').textContent = row.remote_health_tilt_rad != null ? row.remote_health_tilt_rad : '—';
             document.getElementById('displayRemoteHealthHumidity').textContent = row.remote_health_humidity != null ? row.remote_health_humidity : '—';
+            document.getElementById('displayRemoteHealthReportDate').textContent = row.remote_health_report_date != null ? row.remote_health_report_date : '—';
         } else if (rhSection) {
             rhSection.style.display = 'none';
         }
@@ -718,7 +736,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             if (acc && accBody) {
                 const rawLogs = Array.isArray(stationData.offload_logs) ? stationData.offload_logs : [];
                 const logs = [...rawLogs]
-                    .sort((a, b) => new Date(b.log_timestamp_utc) - new Date(a.log_timestamp_utc))
+                    .sort((a, b) => (parseApiUtcDate(b.log_timestamp_utc)?.getTime() || 0) - (parseApiUtcDate(a.log_timestamp_utc)?.getTime() || 0))
                     .slice(0, 10);
                 if (logs.length) {
                     acc.style.display = 'block';
@@ -780,7 +798,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 const accBody = document.getElementById('recentOffloadsBody');
                 if (acc && accBody && Array.isArray(st.offload_logs)) {
                     const logs = [...st.offload_logs]
-                        .sort((a, b) => new Date(b.log_timestamp_utc) - new Date(a.log_timestamp_utc))
+                        .sort((a, b) => (parseApiUtcDate(b.log_timestamp_utc)?.getTime() || 0) - (parseApiUtcDate(a.log_timestamp_utc)?.getTime() || 0))
                         .slice(0, 10);
                     accBody.innerHTML = renderRecentOffloadCards(logs);
                 }

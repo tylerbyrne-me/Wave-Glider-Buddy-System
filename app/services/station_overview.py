@@ -44,6 +44,7 @@ def build_status_overview_row(
     latest_remote_health_temperature_c = None
     latest_remote_health_tilt_rad = None
     latest_remote_health_humidity = None
+    latest_remote_health_report_date = None
     if relevant_logs:
         sorted_logs = sorted(
             relevant_logs,
@@ -104,6 +105,8 @@ def build_status_overview_row(
                 latest_remote_health_tilt_rad = latest_log.remote_health_tilt_rad
             if getattr(latest_log, "remote_health_humidity", None) is not None:
                 latest_remote_health_humidity = latest_log.remote_health_humidity
+            if getattr(latest_log, "remote_health_report_date", None) is not None:
+                latest_remote_health_report_date = str(latest_log.remote_health_report_date)
             if latest_log.was_offloaded is True:
                 status_text = "Offloaded"
                 status_color_key = "green"
@@ -156,4 +159,5 @@ def build_status_overview_row(
         "remote_health_temperature_c": latest_remote_health_temperature_c,
         "remote_health_tilt_rad": latest_remote_health_tilt_rad,
         "remote_health_humidity": latest_remote_health_humidity,
+        "remote_health_report_date": latest_remote_health_report_date,
     }

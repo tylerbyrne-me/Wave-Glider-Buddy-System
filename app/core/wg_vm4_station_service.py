@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import math
 
 import pandas as pd
+from sqlalchemy import or_
 from sqlmodel import select
 from .db import SQLModelSession
 from . import models
@@ -23,6 +24,7 @@ MAX_PARSER_NOTES_LENGTH = 32000
 PRIMARY_MATCH_WINDOW_MINUTES = 5
 FALLBACK_MATCH_WINDOW_MINUTES = 10
 BLANK_PLACEHOLDERS = {"---", "n/a", "na", "none", "null", "unknown"}
+ENRICHMENT_FALLBACK_WINDOW_HOURS = 8
 
 
 def _truncate_parser_notes(notes: Optional[str], max_length: int = MAX_PARSER_NOTES_LENGTH) -> Optional[str]:
@@ -46,6 +48,167 @@ def _is_blank_value(value: Any) -> bool:
         normalized = value.strip().lower()
         return normalized == "" or normalized in BLANK_PLACEHOLDERS
     return False
+
+
+def _normalize_utc_timestamp(value: Any) -> Optional[datetime]:
+    """Normalize parser timestamps to timezone-aware UTC datetimes."""
+    if value is None or pd.isna(value):
+        return None
+    ts = value.to_pydatetime() if hasattr(value, "to_pydatetime") else value
+    if not isinstance(ts, datetime):
+        return None
+    if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _filter_dataframe_to_current_utc_year(df, timestamp_column: str):
+    """Keep only rows whose timestamp year matches the current UTC year."""
+    if df is None or df.empty or timestamp_column not in df.columns:
+        return df, 0, 0
+    current_year = datetime.now(timezone.utc).year
+    timestamps = pd.to_datetime(df[timestamp_column], errors="coerce", utc=True)
+    scoped_df = df.loc[timestamps.dt.year == current_year].copy()
+    return scoped_df, len(df), len(scoped_df)
+
+
+def _find_matching_log_for_enrichment(
+    session: SQLModelSession,
+    station_id: str,
+    reference_ts: datetime,
+    start_window: datetime,
+    end_window: datetime,
+    *,
+    prefer_blank_vrl: bool = False,
+) -> Optional[models.OffloadLog]:
+    """
+    Find the best candidate log for enrichment using progressively broader timestamp fields.
+    """
+    def _closest_delta_seconds(log: models.OffloadLog) -> float:
+        candidate_times = [
+            getattr(log, "offload_start_time_utc", None),
+            getattr(log, "time_first_command_sent_utc", None),
+            getattr(log, "arrival_date", None),
+            getattr(log, "offload_end_time_utc", None),
+            getattr(log, "log_timestamp_utc", None),
+        ]
+        normalized = [_normalize_utc_timestamp(t) for t in candidate_times]
+        normalized = [t for t in normalized if t is not None]
+        if not normalized:
+            return float("inf")
+        return min(abs((t - reference_ts).total_seconds()) for t in normalized)
+
+    candidate_columns = [
+        models.OffloadLog.offload_start_time_utc,
+        models.OffloadLog.time_first_command_sent_utc,
+        models.OffloadLog.arrival_date,
+        models.OffloadLog.offload_end_time_utc,
+        models.OffloadLog.log_timestamp_utc,
+    ]
+    for column in candidate_columns:
+        stmt = (
+            select(models.OffloadLog)
+            .where(
+                models.OffloadLog.station_id == station_id,
+                column.isnot(None),
+                column >= start_window,
+                column <= end_window,
+            )
+            .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+        )
+        log = session.exec(stmt).first()
+        if log:
+            return log
+
+    # Same-day fallback (UTC date): handles legacy shifted timestamps while keeping station/day scope.
+    day_start = reference_ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    date_predicates = []
+    for column in candidate_columns:
+        date_predicates.append(
+            (column.isnot(None)) & (column >= day_start) & (column < day_end)
+        )
+    same_day_candidates = list(
+        session.exec(
+            select(models.OffloadLog)
+            .where(
+                models.OffloadLog.station_id == station_id,
+                or_(*date_predicates),
+            )
+            .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+        ).all()
+    )
+    if same_day_candidates:
+        if prefer_blank_vrl:
+            blank_vrl_candidates = [log for log in same_day_candidates if _is_blank_value(getattr(log, "vrl_file_name", None))]
+            if blank_vrl_candidates:
+                return min(blank_vrl_candidates, key=_closest_delta_seconds)
+        return min(same_day_candidates, key=_closest_delta_seconds)
+
+    # Broader fallback: find nearest log within a wider UTC window.
+    wide_start = reference_ts - timedelta(hours=ENRICHMENT_FALLBACK_WINDOW_HOURS)
+    wide_end = reference_ts + timedelta(hours=ENRICHMENT_FALLBACK_WINDOW_HOURS)
+    wide_candidates = list(
+        session.exec(
+            select(models.OffloadLog)
+            .where(
+                models.OffloadLog.station_id == station_id,
+                models.OffloadLog.log_timestamp_utc.isnot(None),
+                models.OffloadLog.log_timestamp_utc >= wide_start,
+                models.OffloadLog.log_timestamp_utc <= wide_end,
+            )
+            .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+        ).all()
+    )
+    if not wide_candidates:
+        return None
+
+    if prefer_blank_vrl:
+        blank_vrl_candidates = [l for l in wide_candidates if _is_blank_value(getattr(l, "vrl_file_name", None))]
+        if blank_vrl_candidates:
+            return min(blank_vrl_candidates, key=_closest_delta_seconds)
+    return min(wide_candidates, key=_closest_delta_seconds)
+    return None
+
+
+def _find_latest_log_for_station_vrl(
+    session: SQLModelSession,
+    station_id: str,
+) -> Optional[models.OffloadLog]:
+    """
+    Station-only VRL fallback: pick latest user log, preferring blank VRL fields.
+    """
+    blank_stmt = (
+        select(models.OffloadLog)
+        .where(
+            models.OffloadLog.station_id == station_id,
+            models.OffloadLog.created_by_source == "user",
+            models.OffloadLog.vrl_file_name.is_(None),
+        )
+        .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+    )
+    log = session.exec(blank_stmt).first()
+    if log:
+        return log
+
+    all_user_stmt = (
+        select(models.OffloadLog)
+        .where(
+            models.OffloadLog.station_id == station_id,
+            models.OffloadLog.created_by_source == "user",
+        )
+        .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+    )
+    log = session.exec(all_user_stmt).first()
+    if log:
+        return log
+
+    fallback_stmt = (
+        select(models.OffloadLog)
+        .where(models.OffloadLog.station_id == station_id)
+        .order_by(models.OffloadLog.updated_at_utc.desc(), models.OffloadLog.log_timestamp_utc.desc())
+    )
+    return session.exec(fallback_stmt).first()
 
 
 class WgVm4StationService:
@@ -562,6 +725,7 @@ async def run_vm4_background_pipeline(
     session: SQLModelSession,
     mission_id: str,
     field_season_year: Optional[int] = None,
+    force_full_scan: bool = False,
 ) -> Dict[str, Any]:
     """
     Process VM4 offloads in a background-safe pipeline with durable checkpoint updates.
@@ -590,8 +754,10 @@ async def run_vm4_background_pipeline(
     ).order_by(models.Vm4ProcessingCheckpoint.updated_at_utc.desc())
     previous_checkpoint = session.exec(checkpoint_for_mission_stmt).first()
     start_date = None
-    if previous_checkpoint and previous_checkpoint.last_processed_timestamp_utc:
-        start_date = previous_checkpoint.last_processed_timestamp_utc - timedelta(hours=2)
+    if (not force_full_scan) and previous_checkpoint and previous_checkpoint.last_processed_timestamp_utc:
+        checkpoint_ts = _normalize_utc_timestamp(previous_checkpoint.last_processed_timestamp_utc)
+        if checkpoint_ts is not None:
+            start_date = checkpoint_ts - timedelta(hours=2)
 
     df, source_path, file_mod_time = await data_service.load(
         "wg_vm4_info",
@@ -612,13 +778,35 @@ async def run_vm4_background_pipeline(
         }
 
     processed_df = preprocess_wg_vm4_info_df(df)
-    stats = process_wg_vm4_info_for_mission(session, processed_df, mission_id, field_season_year)
+    info_rows_loaded = len(processed_df)
+    info_rows_scoped = len(processed_df)
+    vrl_stats = attach_vrl_file_names_to_offload_logs(session, processed_df)
+    stats = {
+        "events_processed": 0,
+        "stations_matched": int(vrl_stats.get("stations_matched", 0)),
+        "offload_logs_created": 0,
+        "stations_updated": 0,
+        "errors": int(vrl_stats.get("errors", 0)),
+        "vrl_sessions_processed": int(vrl_stats.get("sessions_processed", 0)),
+        "vrl_logs_updated": int(vrl_stats.get("logs_updated", 0)),
+        "vrl_no_station": int(vrl_stats.get("no_station", 0)),
+        "vrl_no_matching_log": int(vrl_stats.get("no_matching_log", 0)),
+    }
 
     health_stats: Dict[str, int] = {}
     rh_df, _, _ = await data_service.load("wg_vm4_remote_health", mission_id, hours_back=None)
     if rh_df is not None and not rh_df.empty:
         rh_processed = preprocess_wg_vm4_remote_health_df(rh_df)
-        health_stats = attach_remote_health_to_offload_logs(session, rh_processed)
+        scoped_rh_df, rh_rows_loaded, rh_rows_scoped = _filter_dataframe_to_current_utc_year(
+            rh_processed,
+            "timestamp",
+        )
+        health_stats = attach_remote_health_to_offload_logs(session, scoped_rh_df)
+        health_stats["rows_loaded"] = rh_rows_loaded
+        health_stats["rows_in_scope_current_year"] = rh_rows_scoped
+    else:
+        health_stats["rows_loaded"] = 0
+        health_stats["rows_in_scope_current_year"] = 0
 
     checkpoint_stmt = select(models.Vm4ProcessingCheckpoint).where(
         models.Vm4ProcessingCheckpoint.mission_id == mission_id,
@@ -635,7 +823,7 @@ async def run_vm4_background_pipeline(
     checkpoint.last_processed_timestamp_utc = run_started_at
     checkpoint.last_file_modification_time_utc = file_mod_time
     checkpoint.last_parser_run_id = f"{mission_id}:{run_started_at.isoformat()}"
-    checkpoint.last_rows_processed = len(processed_df)
+    checkpoint.last_rows_processed = info_rows_scoped
     checkpoint.last_events_processed = int(stats.get("events_processed", 0))
     checkpoint.last_offload_logs_upserted = int(stats.get("offload_logs_created", 0))
     session.add(checkpoint)
@@ -646,14 +834,16 @@ async def run_vm4_background_pipeline(
         "mission_id": mission_id,
         "source_path": source_path,
         "start_date_used": start_date.isoformat() if start_date else None,
-        "rows_processed": len(processed_df),
+        "rows_processed": info_rows_scoped,
+        "rows_loaded": info_rows_loaded,
+        "rows_in_scope_current_year": info_rows_scoped,
         "stats": stats,
         "remote_health": health_stats,
         "duration_seconds": duration_seconds,
         "updated_checkpoint": True,
     }
     logger.info(
-        "VM4 background pipeline completed mission=%s rows=%s events=%s logs=%s duration_s=%.2f",
+        "VM4 background pipeline completed mission=%s rows_in_scope=%s events=%s logs=%s duration_s=%.2f",
         mission_id,
         result["rows_processed"],
         stats.get("events_processed", 0),
@@ -661,6 +851,67 @@ async def run_vm4_background_pipeline(
         duration_seconds,
     )
     return result
+
+
+def attach_vrl_file_names_to_offload_logs(
+    session: SQLModelSession,
+    vm4_info_df,
+    time_window_minutes: int = 30,
+) -> Dict[str, int]:
+    """
+    Parse VM4 info sessions and attach VRL names to matching existing offload logs only.
+    """
+    stats = {
+        "rows_processed": 0,
+        "sessions_processed": 0,
+        "logs_updated": 0,
+        "stations_matched": 0,
+        "no_station": 0,
+        "no_matching_log": 0,
+        "errors": 0,
+    }
+    if vm4_info_df is None or vm4_info_df.empty:
+        return stats
+
+    parser = WgVm4PayloadParser()
+    service = WgVm4StationService(session)
+    events = parser.parse_dataframe(vm4_info_df)
+    sessions = parser.get_offload_sessions(events)
+    stats["rows_processed"] = len(vm4_info_df)
+
+    for session_payload in sessions:
+        try:
+            stats["sessions_processed"] += 1
+            serial = str(session_payload.get("serial_number", "")).strip()
+            vrl_file_name = session_payload.get("vrl_file_name")
+            if not serial or _is_blank_value(vrl_file_name):
+                continue
+
+            station = service.find_station_by_serial(serial)
+            if not station:
+                stats["no_station"] += 1
+                continue
+            stats["stations_matched"] += 1
+
+            log = _find_latest_log_for_station_vrl(
+                session=session,
+                station_id=station.station_id,
+            )
+            if not log:
+                stats["no_matching_log"] += 1
+                continue
+
+            if _is_blank_value(getattr(log, "vrl_file_name", None)):
+                log.vrl_file_name = str(vrl_file_name).strip()
+                session.add(log)
+                stats["logs_updated"] += 1
+        except Exception as exc:
+            stats["errors"] += 1
+            logger.warning("attach_vrl_file_names_to_offload_logs session failed: %s", exc)
+
+    if stats["logs_updated"] > 0:
+        session.commit()
+    return stats
 
 
 def attach_remote_health_to_offload_logs(
@@ -687,7 +938,6 @@ def attach_remote_health_to_offload_logs(
     
     # Required columns (after preprocessing)
     required = ["serial_number", "timestamp"]
-    optional = ["model_id", "modem_address", "temperature_c", "tilt_rad", "humidity"]
     for c in required:
         if c not in remote_health_df.columns:
             logger.warning(f"attach_remote_health_to_offload_logs: missing column '{c}' in remote health DataFrame")
@@ -715,22 +965,13 @@ def attach_remote_health_to_offload_logs(
         start_window = ts - timedelta(minutes=time_window_minutes)
         end_window = ts + timedelta(minutes=time_window_minutes)
         
-        stmt = select(models.OffloadLog).where(
-            models.OffloadLog.station_id == station.station_id,
-            models.OffloadLog.offload_start_time_utc.isnot(None),
-            models.OffloadLog.offload_start_time_utc >= start_window,
-            models.OffloadLog.offload_start_time_utc <= end_window,
-        ).order_by(models.OffloadLog.offload_start_time_utc.desc())
-        
-        log = session.exec(stmt).first()
-        if not log:
-            stmt2 = select(models.OffloadLog).where(
-                models.OffloadLog.station_id == station.station_id,
-                models.OffloadLog.time_first_command_sent_utc.isnot(None),
-                models.OffloadLog.time_first_command_sent_utc >= start_window,
-                models.OffloadLog.time_first_command_sent_utc <= end_window,
-            ).order_by(models.OffloadLog.time_first_command_sent_utc.desc())
-            log = session.exec(stmt2).first()
+        log = _find_matching_log_for_enrichment(
+            session=session,
+            station_id=station.station_id,
+            reference_ts=ts,
+            start_window=start_window,
+            end_window=end_window,
+        )
         
         if not log:
             stats["no_matching_log"] += 1
@@ -755,6 +996,10 @@ def attach_remote_health_to_offload_logs(
         if "humidity" in row and pd.notna(row.get("humidity")):
             val = row["humidity"]
             log.remote_health_humidity = int(val) if isinstance(val, (int, float)) else None
+            updated = True
+        report_date = ts.date()
+        if getattr(log, "remote_health_report_date", None) != report_date:
+            log.remote_health_report_date = report_date
             updated = True
         
         if updated:

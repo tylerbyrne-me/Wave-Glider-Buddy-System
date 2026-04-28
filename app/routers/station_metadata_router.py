@@ -2129,6 +2129,7 @@ async def download_season_data(
             "Remote Health Temperature (C)": log.remote_health_temperature_c if getattr(log, "remote_health_temperature_c", None) is not None else "---",
             "Remote Health Tilt (Rad)": log.remote_health_tilt_rad if getattr(log, "remote_health_tilt_rad", None) is not None else "---",
             "Remote Health Humidity": log.remote_health_humidity if getattr(log, "remote_health_humidity", None) is not None else "---",
+            "Remote Health Report Date (UTC)": str(log.remote_health_report_date) if getattr(log, "remote_health_report_date", None) is not None else "---",
         }
         rows.append(row)
     
@@ -2481,13 +2482,14 @@ async def process_vm4_offloads_for_mission(
     
     from ..core.wg_vm4_station_service import run_vm4_background_pipeline
 
-    async def _run_vm4_pipeline_job(job_mission_id: str, job_field_season_year: Optional[int]) -> None:
+    async def _run_vm4_pipeline_job(job_mission_id: str, job_field_season_year: Optional[int], job_force_full_scan: bool) -> None:
         with SQLModelSession(sqlite_engine) as job_session:
             try:
                 result = await run_vm4_background_pipeline(
                     session=job_session,
                     mission_id=job_mission_id,
                     field_season_year=job_field_season_year,
+                    force_full_scan=job_force_full_scan,
                 )
                 logger.info("VM4 background job finished mission=%s result=%s", job_mission_id, result)
             except Exception as exc:
@@ -2507,6 +2509,7 @@ async def process_vm4_offloads_for_mission(
                 session=session,
                 mission_id=mission_id,
                 field_season_year=field_season_year,
+                force_full_scan=force,
             )
             return {
                 "message": f"VM4 offload processing completed for mission {mission_id}",
@@ -2515,11 +2518,12 @@ async def process_vm4_offloads_for_mission(
                 **result,
             }
 
-        background_tasks.add_task(_run_vm4_pipeline_job, mission_id, field_season_year)
+        background_tasks.add_task(_run_vm4_pipeline_job, mission_id, field_season_year, force)
         return {
             "message": f"VM4 offload processing queued for mission {mission_id}",
             "mission_id": mission_id,
             "field_season_year": field_season_year,
+            "force_full_scan": force,
             "queued": True,
         }
     except HTTPException:

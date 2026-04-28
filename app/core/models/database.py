@@ -186,6 +186,7 @@ class OffloadLogBase(SQLModel):
     remote_health_temperature_c: Optional[float] = SQLModelField(default=None, description="Temperature (C) from station remote health.")
     remote_health_tilt_rad: Optional[float] = SQLModelField(default=None, description="Tilt (rad) from station remote health.")
     remote_health_humidity: Optional[int] = SQLModelField(default=None, description="Humidity from station remote health.")
+    remote_health_report_date: Optional[date] = SQLModelField(default=None, description="Date of the matched remote health report (UTC date only).")
 
 
 class OffloadLog(OffloadLogBase, table=True):

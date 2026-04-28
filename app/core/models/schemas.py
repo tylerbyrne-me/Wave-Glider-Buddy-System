@@ -317,6 +317,7 @@ class OffloadLogCreate(SQLModel):
     remote_health_temperature_c: Optional[float] = None
     remote_health_tilt_rad: Optional[float] = None
     remote_health_humidity: Optional[int] = None
+    remote_health_report_date: Optional[date] = None
     parser_notes: Optional[str] = None
     user_notes: Optional[str] = None
     parser_run_id: Optional[str] = None
@@ -342,6 +343,7 @@ class OffloadLogUpdate(SQLModel):
     remote_health_temperature_c: Optional[float] = None
     remote_health_tilt_rad: Optional[float] = None
     remote_health_humidity: Optional[int] = None
+    remote_health_report_date: Optional[date] = None
 
 
 class ConflictResolutionRequest(SQLModel):
@@ -398,6 +400,7 @@ class OffloadLogRead(SQLModel):
     remote_health_temperature_c: Optional[float] = None
     remote_health_tilt_rad: Optional[float] = None
     remote_health_humidity: Optional[int] = None
+    remote_health_report_date: Optional[date] = None
     parser_notes: Optional[str] = None
     user_notes: Optional[str] = None
     created_by_source: str
