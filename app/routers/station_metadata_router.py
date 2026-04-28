@@ -36,6 +36,14 @@ from ..core.feature_toggles import is_feature_enabled
 logger = logging.getLogger(__name__)
 
 
+def _is_admin_or_pic_designated_pilot(user: UserModel) -> bool:
+    if user.role == models.UserRoleEnum.admin:
+        return True
+    if user.role == models.UserRoleEnum.pilot and bool(user.is_pic):
+        return True
+    return False
+
+
 def _resolve_station_flag_state(
     events: List[models.StationFlagEvent],
     *,
@@ -193,15 +201,26 @@ def _mark_conflict_resolved_in_parser_notes(
 async def create_or_update_station_metadata_on_router(
     station_data: models.StationMetadataCreate,
     session: Annotated[SQLModelSession, Depends(get_db_session)],
-    # Admin required to create/update
-    current_user: Annotated[UserModel, Depends(get_current_admin_user)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
 ):
     logger.info(
         f"ROUTER: User '{current_user.username}' attempting to "
         f"create/update station: {station_data.station_id}"
     )
-    
+
     existing_station = session.get(models.StationMetadata, station_data.station_id)
+    if existing_station:
+        if not _is_admin_or_pic_designated_pilot(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins or PIC-designated pilots can edit station information",
+            )
+    elif current_user.role != models.UserRoleEnum.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can create new station records",
+        )
+
     if existing_station and station_blocks_edits(existing_station):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
