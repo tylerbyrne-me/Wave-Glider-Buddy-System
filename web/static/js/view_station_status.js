@@ -1137,7 +1137,15 @@ document.addEventListener('DOMContentLoaded', async function () {
                     body: formData
                 });
 
-                const resultData = await response.json();
+                const responseContentType = response.headers.get('content-type') || '';
+                let resultData = {};
+                if (responseContentType.includes('application/json')) {
+                    resultData = await response.json();
+                } else {
+                    const responseText = await response.text();
+                    if (!response.ok) throw new Error(responseText || 'Server returned a non-JSON error response.');
+                    resultData = { message: responseText || 'Upload completed.' };
+                }
 
                 if (!response.ok && response.status !== 207) { // 207 is Multi-Status for partial success
                     throw new Error(resultData.detail || 'An unknown error occurred during upload.');

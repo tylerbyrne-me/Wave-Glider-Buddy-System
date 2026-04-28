@@ -355,7 +355,9 @@ async def upload_station_metadata_csv(
         existing_stations_stmt = select(models.StationMetadata.station_id).where(
             models.StationMetadata.station_id.in_(df['station_id'].unique().tolist())
         )
-        existing_station_ids = {s.station_id for s in session.exec(existing_stations_stmt).all()}
+        existing_station_ids = {
+            station_id for station_id in session.exec(existing_stations_stmt).all() if station_id
+        }
         
         if existing_station_ids:
             existing_ids_list = sorted(list(existing_station_ids))
@@ -373,7 +375,11 @@ async def upload_station_metadata_csv(
             existing_serials_stmt = select(models.StationMetadata.serial_number).where(
                 models.StationMetadata.serial_number.in_(serial_numbers_in_csv)
             )
-            existing_serials = {s.serial_number for s in session.exec(existing_serials_stmt).all() if s.serial_number}
+            existing_serials = {
+                serial_number
+                for serial_number in session.exec(existing_serials_stmt).all()
+                if serial_number
+            }
             
             if existing_serials:
                 existing_serials_list = sorted([str(s) for s in existing_serials])
@@ -417,6 +423,8 @@ async def upload_station_metadata_csv(
                 old_serial = existing_station.serial_number
                 old_modem = existing_station.modem_address
                 update_data = station_data.model_dump(exclude_unset=True)
+                if "otn_metadata" in update_data:
+                    update_data["notes"] = update_data.pop("otn_metadata")
                 update_data.pop("field_season_year", None)
                 update_data["is_archived"] = False
                 update_data["archived_at_utc"] = None
