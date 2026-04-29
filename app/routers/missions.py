@@ -10,6 +10,7 @@ import re
 from sqlmodel import select
 from sqlalchemy import or_
 from ..core import models, utils
+from ..core.pic_handoff_optional_sensors import get_pic_handoff_optional_sensor_keys
 from ..core.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import shutil
@@ -804,11 +805,31 @@ async def create_or_update_mission_overview(
 ):
     logger.info(f"User '{current_user.username}' updating overview for mission '{mission_id}'.")
     logger.info(f"API: Received sensor card config: {overview_in.enabled_sensor_cards}")
+    allowed_pic_optional_sensor_keys = get_pic_handoff_optional_sensor_keys()
+    update_data = overview_in.model_dump(exclude_unset=True)
+    raw_optional_sensors = update_data.get("pic_handoff_optional_sensors")
+    if raw_optional_sensors is not None:
+        try:
+            parsed_optional_sensors = json.loads(raw_optional_sensors)
+        except (json.JSONDecodeError, TypeError):
+            parsed_optional_sensors = []
+        filtered_optional_sensors = []
+        if isinstance(parsed_optional_sensors, list):
+            filtered_optional_sensors = [
+                str(sensor_key).strip().lower()
+                for sensor_key in parsed_optional_sensors
+                if str(sensor_key).strip().lower() in allowed_pic_optional_sensor_keys
+            ]
+        # Deduplicate while preserving input order.
+        deduped_optional_sensors = list(dict.fromkeys(filtered_optional_sensors))
+        update_data["pic_handoff_optional_sensors"] = (
+            json.dumps(deduped_optional_sensors) if deduped_optional_sensors else None
+        )
+
     db_overview = session.get(models.MissionOverview, mission_id)
     if not db_overview:
-        db_overview = models.MissionOverview(mission_id=mission_id, **overview_in.model_dump(exclude_unset=True))
+        db_overview = models.MissionOverview(mission_id=mission_id, **update_data)
     else:
-        update_data = overview_in.model_dump(exclude_unset=True)
         logger.info(f"API: Updating mission overview with data: {update_data}")
         for key, value in update_data.items():
             setattr(db_overview, key, value)

@@ -718,6 +718,7 @@ class MissionOverviewUpdate(BaseModel):
     battery_apu_count: Optional[int] = None
     vessel_standoff_m: Optional[int] = None
     sensor_sampling_rates: Optional[str] = None
+    pic_handoff_optional_sensors: Optional[str] = None
 
 
 class MissionGoalCreate(BaseModel):

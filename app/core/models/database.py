@@ -516,6 +516,11 @@ class MissionOverview(SQLModel, table=True):
         sa_column=Column(Text),
         description="JSON object of sensor sampling config per sensor (ctd, c3, waves, weather, vr2c). Persisted from PIC form.",
     )
+    pic_handoff_optional_sensors: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="JSON array of checklist-only PIC sensors (e.g. adcp) that may not have dashboard cards or telemetry.",
+    )
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
     updated_at_utc: datetime = SQLModelField(
         default_factory=lambda: datetime.now(timezone.utc),

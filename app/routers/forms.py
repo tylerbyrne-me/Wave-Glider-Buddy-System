@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 from sqlmodel import select, or_
 from ..core import models, utils
+from ..core.pic_handoff_optional_sensors import PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY
 from ..core.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_optional_current_user
 from ..config import settings
@@ -410,6 +411,12 @@ async def get_form_template(
                 enabled_cards = json.loads(mission_overview.enabled_sensor_cards)
             except (json.JSONDecodeError, TypeError):
                 enabled_cards = []
+        pic_handoff_optional_sensors = []
+        if mission_overview and mission_overview.pic_handoff_optional_sensors:
+            try:
+                pic_handoff_optional_sensors = json.loads(mission_overview.pic_handoff_optional_sensors)
+            except (json.JSONDecodeError, TypeError):
+                pic_handoff_optional_sensors = []
         now_utc = datetime.now(timezone.utc)
         sensor_items_to_inject = []
         for card in science_sensors:
@@ -452,6 +459,19 @@ async def get_form_template(
                 "label": sensor_labels.get(card, card.upper()),
                 "item_type": models.FormItemTypeEnum.SENSOR_STATUS.value,
                 "value": json.dumps(value_dict),
+            })
+
+        for sensor_key in pic_handoff_optional_sensors:
+            if sensor_key not in PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY:
+                continue
+            item_id = f"sensor_{sensor_key}_status"
+            if any(item["id"] == item_id for item in sensor_items_to_inject):
+                continue
+            sensor_items_to_inject.append({
+                "id": item_id,
+                "label": PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY[sensor_key],
+                "item_type": models.FormItemTypeEnum.SENSOR_STATUS.value,
+                "value": "Off",
             })
 
         # Use schema IDs for autofill (including static_text for Total Battery Capacity)

@@ -7,6 +7,10 @@ import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, showToast, fetchWithAuth } from '/static/js/api.js';
 import { formatUtcDateTime } from '/static/js/datetime_utils.js';
 
+const PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY = Object.freeze({
+    adcp: 'ADCP',
+});
+
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
 
@@ -351,6 +355,41 @@ document.addEventListener('DOMContentLoaded', async function() {
             } else {
                 setEnabledSensorCards(['navigation', 'power', 'ctd', 'weather', 'waves', 'vr2c', 'fluorometer', 'wg_vm4', 'ais', 'errors']);
             }
+        }
+
+        function getPicHandoffOptionalSensors() {
+            const checkboxes = document.querySelectorAll('.pic-optional-sensor-checkbox:checked');
+            return Array.from(checkboxes)
+                .map(cb => cb.value)
+                .filter(sensorKey => Object.prototype.hasOwnProperty.call(PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY, sensorKey));
+        }
+
+        function setPicHandoffOptionalSensors(optionalSensors) {
+            document.querySelectorAll('.pic-optional-sensor-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+
+            if (!optionalSensors || !Array.isArray(optionalSensors)) return;
+
+            optionalSensors.forEach(sensorKey => {
+                if (!Object.prototype.hasOwnProperty.call(PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY, sensorKey)) return;
+                const checkbox = document.querySelector(`.pic-optional-sensor-checkbox[value="${sensorKey}"]`);
+                if (checkbox) checkbox.checked = true;
+            });
+        }
+
+        function loadPicHandoffOptionalSensorConfiguration(missionInfo) {
+            if (missionInfo.overview && missionInfo.overview.pic_handoff_optional_sensors) {
+                try {
+                    const optionalSensors = JSON.parse(missionInfo.overview.pic_handoff_optional_sensors);
+                    setPicHandoffOptionalSensors(optionalSensors);
+                } catch (error) {
+                    console.error('Error parsing PIC handoff optional sensors:', error);
+                    setPicHandoffOptionalSensors([]);
+                }
+                return;
+            }
+            setPicHandoffOptionalSensors([]);
         }
 
         function renderSensorTrackerMetadata(missionInfo) {
@@ -1064,6 +1103,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Use setTimeout to ensure DOM is fully updated
                 setTimeout(() => {
                     loadSensorCardConfiguration(missionInfo);
+                    loadPicHandoffOptionalSensorConfiguration(missionInfo);
                 }, 10);
 
                 // Battery APU count (Wave Glider theoretical max: 980 + APU*980 Wh)
@@ -1549,6 +1589,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
             // Step 2: Save the overview with the (potentially new) URL, sensor cards, and battery APU count
             const enabledSensorCards = getEnabledSensorCards();
+            const picHandoffOptionalSensors = getPicHandoffOptionalSensors();
             const batteryApuInput = document.getElementById('batteryApuCount');
             let batteryApuCount = null;
             if (batteryApuInput && batteryApuInput.value.trim() !== '') {
@@ -1561,6 +1602,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const payload = {
                 document_url: fileUrl || null, // Use the final URL, or null if removed
                 enabled_sensor_cards: enabledSensorCards.length > 0 ? JSON.stringify(enabledSensorCards) : null,
+                pic_handoff_optional_sensors: picHandoffOptionalSensors.length > 0 ? JSON.stringify(picHandoffOptionalSensors) : null,
                 battery_apu_count: batteryApuCount
             };
 
