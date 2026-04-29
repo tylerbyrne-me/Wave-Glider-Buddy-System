@@ -1483,14 +1483,10 @@ async def get_station_analytics_overview(
     logs: List[models.OffloadLog] = []
     for log in all_logs:
         if target_year is None:
-            if season_year is None and log.field_season_year is None:
+            if log.field_season_year is None:
                 logs.append(log)
             continue
-        if offload_log_matches_season_year(
-            log_season=log.field_season_year,
-            target_year=target_year,
-            season_is_closed=season_is_closed,
-        ):
+        if log.field_season_year == target_year:
             logs.append(log)
 
     now_utc = datetime.now(timezone.utc)
@@ -1598,15 +1594,37 @@ async def get_station_analytics_overview(
     )
     live_stations = list(session.exec(live_stmt).all())
 
+    latest_log_by_station: Dict[str, models.OffloadLog] = {}
+    for log in logs:
+        existing = latest_log_by_station.get(log.station_id)
+        if existing is None:
+            latest_log_by_station[log.station_id] = log
+            continue
+        existing_ts = _ensure_aware_utc(
+            existing.offload_end_time_utc
+            or existing.offload_start_time_utc
+            or existing.log_timestamp_utc
+        ) or datetime.min.replace(tzinfo=timezone.utc)
+        candidate_ts = _ensure_aware_utc(
+            log.offload_end_time_utc
+            or log.offload_start_time_utc
+            or log.log_timestamp_utc
+        ) or datetime.min.replace(tzinfo=timezone.utc)
+        if candidate_ts >= existing_ts:
+            latest_log_by_station[log.station_id] = log
+
     live_by_prefix: Dict[str, Dict[str, int]] = defaultdict(
         lambda: {"total_stations": 0, "stations_offloaded": 0, "stations_failed": 0}
     )
     for station in live_stations:
         pref = _station_id_array_prefix(station.station_id)
         live_by_prefix[pref]["total_stations"] += 1
-        if station.was_last_offload_successful is True:
+        latest_station_log = latest_log_by_station.get(station.station_id)
+        if latest_station_log is None:
+            continue
+        if latest_station_log.was_offloaded is True:
             live_by_prefix[pref]["stations_offloaded"] += 1
-        elif station.was_last_offload_successful is False:
+        elif latest_station_log.was_offloaded is False:
             live_by_prefix[pref]["stations_failed"] += 1
 
     all_prefixes = set(by_prefix.keys()) | set(live_by_prefix.keys())
@@ -1710,12 +1728,16 @@ async def get_station_analytics_overview(
     )
 
     n_live = len(live_stations)
-    n_offloaded_display = sum(
-        1 for s in live_stations if s.was_last_offload_successful is True
-    )
-    n_failed_display = sum(
-        1 for s in live_stations if s.was_last_offload_successful is False
-    )
+    n_offloaded_display = 0
+    n_failed_display = 0
+    for station in live_stations:
+        latest_station_log = latest_log_by_station.get(station.station_id)
+        if latest_station_log is None:
+            continue
+        if latest_station_log.was_offloaded is True:
+            n_offloaded_display += 1
+        elif latest_station_log.was_offloaded is False:
+            n_failed_display += 1
     n_skipped = sum(
         1
         for s in live_stations
