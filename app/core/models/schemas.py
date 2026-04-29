@@ -310,6 +310,7 @@ class OffloadLogCreate(SQLModel):
     departure_date: Optional[datetime] = None
     was_offloaded: Optional[bool] = None
     vrl_file_name: Optional[str] = None
+    vrl_verified_on_rudics: Optional[bool] = None
     offload_notes_file_size: Optional[str] = None
     remote_health_model_id: Optional[str] = None
     remote_health_serial_number: Optional[str] = None
@@ -336,6 +337,7 @@ class OffloadLogUpdate(SQLModel):
     offload_start_time_utc: Optional[datetime] = None
     offload_end_time_utc: Optional[datetime] = None
     vrl_file_name: Optional[str] = None
+    vrl_verified_on_rudics: Optional[bool] = None
     offload_notes_file_size: Optional[str] = None
     remote_health_model_id: Optional[str] = None
     remote_health_serial_number: Optional[str] = None
@@ -392,6 +394,7 @@ class OffloadLogRead(SQLModel):
     departure_date: Optional[datetime] = None
     was_offloaded: Optional[bool] = None
     vrl_file_name: Optional[str] = None
+    vrl_verified_on_rudics: Optional[bool] = None
     offload_notes_file_size: Optional[str] = None
     field_season_year: Optional[int] = None
     remote_health_model_id: Optional[str] = None

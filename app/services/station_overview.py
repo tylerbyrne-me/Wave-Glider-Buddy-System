@@ -38,6 +38,8 @@ def build_status_overview_row(
     latest_departure_date_str = "---"
     latest_was_offloaded_str = "---"
     latest_offload_notes_file_size_str = "---"
+    latest_vrl_verified_on_rudics = None
+    latest_offload_log_id = None
     latest_remote_health_model_id = None
     latest_remote_health_serial_number = None
     latest_remote_health_modem_address = None
@@ -53,6 +55,7 @@ def build_status_overview_row(
         )
         if sorted_logs:
             latest_log = sorted_logs[0]
+            latest_offload_log_id = getattr(latest_log, "id", None)
             relevant_ts = (
                 latest_log.offload_end_time_utc
                 or latest_log.offload_start_time_utc
@@ -92,6 +95,9 @@ def build_status_overview_row(
             )
             latest_offload_notes_file_size_str = (
                 latest_log.offload_notes_file_size or "---"
+            )
+            latest_vrl_verified_on_rudics = getattr(
+                latest_log, "vrl_verified_on_rudics", None
             )
             if getattr(latest_log, "remote_health_model_id", None) is not None:
                 latest_remote_health_model_id = latest_log.remote_health_model_id
@@ -135,7 +141,7 @@ def build_status_overview_row(
         "station_id": station.station_id,
         "serial_number": station.serial_number,
         "modem_address": station.modem_address,
-        "station_settings": station.station_settings or "---",
+        "rv_wp_number": station.waypoint_number or "---",
         "deployment_latitude": station.deployment_latitude,
         "deployment_longitude": station.deployment_longitude,
         "last_offload_timestamp_str": last_offload_timestamp_str,
@@ -153,6 +159,8 @@ def build_status_overview_row(
         "latest_departure_date": latest_departure_date_str,
         "latest_was_offloaded": latest_was_offloaded_str,
         "latest_offload_notes_file_size": latest_offload_notes_file_size_str,
+        "latest_vrl_verified_on_rudics": latest_vrl_verified_on_rudics,
+        "latest_offload_log_id": latest_offload_log_id,
         "remote_health_model_id": latest_remote_health_model_id,
         "remote_health_serial_number": latest_remote_health_serial_number,
         "remote_health_modem_address": latest_remote_health_modem_address,

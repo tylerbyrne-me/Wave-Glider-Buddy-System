@@ -89,11 +89,58 @@ document.addEventListener('DOMContentLoaded', async function () {
     const FEAT = window.APP_FEATURES || {};
     const isVm4OffloadParserEnabled = Boolean(FEAT.vm4_offload_parser);
     let analyticsLoadedOnce = false;
+    let arrayGroupCodes = [];
 
     let activeSeason = null;
     let allSeasons = [];
     let selectedSeasonYear = null; // null = active season
     let activeMissions = [];
+
+    function extractStationPrefix(stationId) {
+        if (!stationId) return '';
+        const match = String(stationId).trim().toUpperCase().match(/^[A-Z]+/);
+        return match ? match[0] : String(stationId).trim().toUpperCase();
+    }
+
+    function getAvailableArrayCodes() {
+        const codes = new Set();
+        arrayGroupCodes.forEach((code) => {
+            if (code) codes.add(String(code).trim().toUpperCase());
+        });
+        allStationsData.forEach((station) => {
+            const prefix = extractStationPrefix(station.station_id);
+            if (prefix) codes.add(prefix);
+        });
+        return Array.from(codes).sort((a, b) => a.localeCompare(b));
+    }
+
+    function renderArrayQuickSelectOptions() {
+        const arrayCodes = getAvailableArrayCodes();
+        const downloadPrefixMenu = document.getElementById('downloadPrefixMenu');
+        if (downloadPrefixMenu) {
+            const prefixItemsHtml = arrayCodes.length
+                ? arrayCodes.map((code) => `<li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="${escapeHtml(code)}">Download ${escapeHtml(code)}* Stations</a></li>`).join('')
+                : '<li><a class="dropdown-item text-muted" href="#" aria-disabled="true">No array groups available</a></li>';
+            downloadPrefixMenu.innerHTML = `
+                ${prefixItemsHtml}
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="#" id="downloadAllFilteredCsvLink">Download All (Filtered by Search)</a></li>
+            `;
+        }
+
+        const downloadStationType = document.getElementById('downloadStationType');
+        if (downloadStationType) {
+            const priorValue = downloadStationType.value || '';
+            const options = ['<option value="">All Station Types</option>'];
+            arrayCodes.forEach((code) => {
+                options.push(`<option value="${escapeHtml(code)}">${escapeHtml(code)}*</option>`);
+            });
+            downloadStationType.innerHTML = options.join('');
+            if (priorValue && arrayCodes.includes(priorValue.toUpperCase())) {
+                downloadStationType.value = priorValue.toUpperCase();
+            }
+        }
+    }
 
     const stationInfoResult = document.getElementById('stationInfoResult'); // For displaying save/add result
     const formOffloadMissionId = document.getElementById('formOffloadMissionId');
@@ -201,6 +248,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 url += `?season_year=${selectedSeasonYear}`;
             }
             allStationsData = await apiRequest(url, 'GET');
+            renderArrayQuickSelectOptions();
             renderTable(allStationsData);
         } catch (error) {
             showToast(`Error loading station statuses: ${error.message}`, 'danger');
@@ -232,11 +280,48 @@ document.addEventListener('DOMContentLoaded', async function () {
             row.insertCell().textContent = station.station_id || 'N/A';
             row.insertCell().textContent = station.serial_number || 'N/A';
             row.insertCell().textContent = station.modem_address !== null ? station.modem_address : 'N/A';
-            row.insertCell().textContent = station.station_settings || '---';
+            row.insertCell().textContent = station.rv_wp_number || '---';
             const statusCell = row.insertCell();
             statusCell.textContent = station.status_text || 'N/A';
             row.insertCell().textContent = station.last_offload_timestamp_str || 'N/A';
-            row.insertCell().textContent = station.vrl_file_name || '---';
+            const vrlCell = row.insertCell();
+            const vrlFileName = station.vrl_file_name || '';
+            if (vrlFileName && vrlFileName !== '---' && station.latest_offload_log_id) {
+                const wrapper = document.createElement('div');
+                wrapper.classList.add('d-flex', 'justify-content-between', 'align-items-start', 'gap-2');
+                const fileSpan = document.createElement('span');
+                fileSpan.textContent = vrlFileName;
+                const verifyWrap = document.createElement('label');
+                verifyWrap.classList.add('form-check', 'mb-0', 'small');
+                verifyWrap.title = 'Verify VRL file name on RUDICS server';
+                verifyWrap.innerHTML = `
+                    <input class="form-check-input vrl-verify-checkbox" type="checkbox">
+                    <span class="form-check-label">Verified</span>
+                `;
+                const verifyInput = verifyWrap.querySelector('.vrl-verify-checkbox');
+                if (verifyInput) {
+                    verifyInput.checked = station.latest_vrl_verified_on_rudics === true;
+                    verifyInput.addEventListener('change', async () => {
+                        try {
+                            await apiRequest(
+                                `/api/station_metadata/${encodeURIComponent(station.station_id)}/offload_logs/${station.latest_offload_log_id}`,
+                                'PUT',
+                                { vrl_verified_on_rudics: verifyInput.checked },
+                            );
+                            station.latest_vrl_verified_on_rudics = verifyInput.checked;
+                            showToast(`VRL verification updated for ${station.station_id}`, 'success');
+                        } catch (error) {
+                            verifyInput.checked = !verifyInput.checked;
+                            showToast(`Could not update VRL verification: ${error.message}`, 'danger');
+                        }
+                    });
+                }
+                wrapper.appendChild(fileSpan);
+                wrapper.appendChild(verifyWrap);
+                vrlCell.appendChild(wrapper);
+            } else {
+                vrlCell.textContent = vrlFileName || '---';
+            }
 
             // Actions cell (8th column)
             const actionsCell = row.insertCell();
@@ -347,7 +432,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 return (station.station_id?.toLowerCase() || '').includes(searchTerm) ||
                        (station.serial_number?.toLowerCase() || '').includes(searchTerm) ||
                        (station.last_offload_by_glider?.toLowerCase() || '').includes(searchTerm) ||
-                       (station.station_settings?.toLowerCase() || '').includes(searchTerm) ||
+                       (station.rv_wp_number?.toLowerCase() || '').includes(searchTerm) ||
                        (station.modem_address?.toString().toLowerCase() || '').includes(searchTerm) || // Added modem address to filter
                        (station.vrl_file_name?.toLowerCase() || '').includes(searchTerm) ||
                        (station.status_text?.toLowerCase() || '').includes(searchTerm); // Added status text to filter
@@ -392,7 +477,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 dataToExport = dataToExport.filter(station => {
                     return (station.station_id?.toLowerCase() || '').includes(searchTerm) ||
                            (station.serial_number?.toLowerCase() || '').includes(searchTerm) ||
-                           (station.station_settings?.toLowerCase() || '').includes(searchTerm) ||
+                           (station.rv_wp_number?.toLowerCase() || '').includes(searchTerm) ||
                            (station.vrl_file_name?.toLowerCase() || '').includes(searchTerm);
                 });
                 fileName = `station_status_filtered.csv`;
@@ -401,9 +486,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (dataToExport.length === 0) {
             alert("No data available to download (check filters).");
             return;
-        } // "Station ID", "Serial Number", "Modem Address", "Station Settings", "Status", "Last Log Update", "VRL File Name"
+        } // "Station ID", "Serial Number", "Modem Address", "RV WP #", "Status", "Last Log Update", "VRL File Name"
         const headers = [ // Keys from the station object
-            "station_id", "serial_number", "modem_address", "station_settings", 
+            "station_id", "serial_number", "modem_address", "rv_wp_number",
             "status_text", "last_offload_timestamp_str", "vrl_file_name",
             // New fields from the latest offload log
             "latest_arrival_date", "latest_distance_command_sent_m", 
@@ -417,7 +502,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         ];
         const displayHeaders = [ // User-friendly headers for the CSV file
             "Station ID", "Serial Number", "Modem Address",
-            "Station Settings", "Status", "Last Log Update (UTC)", "VRL File Name",
+            "RV WP #", "Status", "Last Log Update (UTC)", "VRL File Name",
             // Display headers for new fields
             "Arrival Date (UTC)", "Distance Cmd Sent (m)",
             "Time First Cmd Sent (UTC)", "Offload Start (UTC)",
@@ -1227,21 +1312,24 @@ document.addEventListener('DOMContentLoaded', async function () {
         downloadCsvBtn.addEventListener('click', () => downloadCsv(null));
     }
 
-    // Event listeners for prefix-specific CSV downloads
-    document.querySelectorAll('.download-prefix-csv').forEach(item => {
-        item.addEventListener('click', function(event) {
-            event.preventDefault();
-            const prefix = this.dataset.prefix;
-            if (prefix) {
-                downloadCsv(prefix);
+    const downloadPrefixMenu = document.getElementById('downloadPrefixMenu');
+    if (downloadPrefixMenu) {
+        downloadPrefixMenu.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const prefixLink = target.closest('.download-prefix-csv');
+            if (prefixLink) {
+                event.preventDefault();
+                const prefix = prefixLink.getAttribute('data-prefix');
+                if (prefix) downloadCsv(prefix);
+                return;
+            }
+            if (target.id === 'downloadAllFilteredCsvLink' || target.closest('#downloadAllFilteredCsvLink')) {
+                event.preventDefault();
+                downloadCsv(null);
             }
         });
-    });
-
-    const downloadAllFilteredLink = document.getElementById('downloadAllFilteredCsvLink');
-    if (downloadAllFilteredLink) {
-        downloadAllFilteredLink.addEventListener('click', (event) => {event.preventDefault(); downloadCsv(null);});
-     }
+    }
 
     // Initial page load
     initializePage(); // No await here, as it's called within DOMContentLoaded
@@ -1314,6 +1402,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         body.innerHTML = '<p class="text-muted mb-0"><i class="fas fa-spinner fa-spin me-2"></i>Loading array groups…</p>';
         try {
             const groups = await apiRequest('/api/station_array_groups/', 'GET');
+            arrayGroupCodes = Array.isArray(groups)
+                ? groups.map((g) => g?.code).filter(Boolean)
+                : [];
+            renderArrayQuickSelectOptions();
             body.innerHTML = '';
             const table = document.createElement('table');
             table.className = 'table table-sm table-dark table-bordered mb-0';
@@ -1423,24 +1515,32 @@ document.addEventListener('DOMContentLoaded', async function () {
                 : '';
             const live = stats.live_season_station_counts || {};
             const byPrefix = stats.by_array_prefix || {};
+            const fmtNumber = (value, digits = 2) => (typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '---');
+            const fmtPercent = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '---');
             const prefixRows = Object.entries(byPrefix)
                 .sort((a, b) => (b[1].logs || 0) - (a[1].logs || 0))
                 .slice(0, 12)
-                .map(([code, d]) => `<tr><td>${escapeHtml(code)}</td><td>${d.logs ?? 0}</td><td>${(d.success_rate_pct ?? 0).toFixed(1)}%</td><td>${d.last_30d_logs ?? 0}</td></tr>`)
+                .map(([code, d]) => `
+                    <tr>
+                        <td>${escapeHtml(code)}</td>
+                        <td>${d.total_stations ?? 0}</td>
+                        <td>${d.stations_attempted ?? 0}</td>
+                        <td>${d.stations_offloaded ?? 0}</td>
+                        <td>${d.stations_not_offloaded ?? 0}</td>
+                        <td>${d.stations_remaining ?? 0}</td>
+                        <td>${fmtPercent(d.percent_complete)}</td>
+                        <td>${fmtPercent(d.percent_success)}</td>
+                        <td>${fmtNumber(d.stations_passed_per_day)}</td>
+                        <td>${fmtNumber(d.stations_offloaded_per_day)}</td>
+                        <td>${fmtNumber(d.days_left)}</td>
+                        <td>${escapeHtml(d.avg_offload_time_hh_mm_ss ?? '---')}</td>
+                    </tr>
+                `)
                 .join('');
             const activeRows = Array.isArray(stats.most_active_stations)
                 ? stats.most_active_stations.map((r) => `<tr><td>${escapeHtml(r.station_id)}</td><td>${r.log_count}</td></tr>`).join('')
                 : '';
-            const failRows = Array.isArray(stats.stations_most_failed_logs)
-                ? stats.stations_most_failed_logs.map((r) => `<tr><td>${escapeHtml(r.station_id)}</td><td>${r.failed_log_count}</td></tr>`).join('')
-                : '';
-            const missionRows = Array.isArray(stats.mission_summary)
-                ? stats.mission_summary.map((m) => `<tr><td>${escapeHtml(m.mission_or_source)}</td><td>${m.log_count}</td><td>${m.successful}</td><td>${m.unique_station_count}</td></tr>`).join('')
-                : '';
-            const seasonSplit = stats.user_vs_parser_by_season || {};
-            const seasonRows = Object.entries(seasonSplit)
-                .map(([y, c]) => `<tr><td>${escapeHtml(y)}</td><td>${c.user ?? 0}</td><td>${c.parser ?? 0}</td></tr>`)
-                .join('');
+            const parserAppend = stats.parser_append_summary || {};
             body.innerHTML = `
                 <div class="row g-2 mb-3">
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Live stations</div><div class="fs-5">${live.total_stations ?? '—'}</div></div></div>
@@ -1462,41 +1562,48 @@ document.addEventListener('DOMContentLoaded', async function () {
                         <div class="card bg-dark border-secondary h-100">
                             <div class="card-header py-2"><strong>By array prefix</strong></div>
                             <div class="card-body p-0 table-responsive">
-                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Prefix</th><th>Logs</th><th>OK %</th><th>30d</th></tr></thead><tbody>${prefixRows || '<tr><td colspan="4" class="text-muted">No data</td></tr>'}</tbody></table>
+                                <table class="table table-sm table-dark mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Prefix</th>
+                                            <th>Total</th>
+                                            <th>Passed</th>
+                                            <th>Offloaded</th>
+                                            <th>Not Offloaded</th>
+                                            <th>Remaining</th>
+                                            <th>% Complete</th>
+                                            <th>% Success</th>
+                                            <th>Passed/day</th>
+                                            <th>Offloaded/day</th>
+                                            <th>Days Left</th>
+                                            <th>Avg Offload</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${prefixRows || '<tr><td colspan="12" class="text-muted">No data</td></tr>'}</tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
                     <div class="col-lg-6 mb-3">
                         <div class="card bg-dark border-secondary h-100">
-                            <div class="card-header py-2"><strong>User vs parser by season</strong></div>
-                            <div class="card-body p-0 table-responsive">
-                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Season</th><th>User</th><th>Parser</th></tr></thead><tbody>${seasonRows || '<tr><td colspan="3" class="text-muted">No data</td></tr>'}</tbody></table>
+                            <div class="card-header py-2"><strong>Parser append tracking</strong></div>
+                            <div class="card-body">
+                                <div class="small mb-1"><strong>Logs touched by parser:</strong> ${parserAppend.logs_touched_by_parser ?? 0}</div>
+                                <div class="small mb-1"><strong>VRL file appended:</strong> ${parserAppend.vrl_appended_logs ?? 0}</div>
+                                <div class="small mb-1"><strong>Remote health appended:</strong> ${parserAppend.remote_health_appended_logs ?? 0}</div>
+                                <div class="small"><strong>Both VRL + remote health:</strong> ${parserAppend.both_vrl_and_remote_health_logs ?? 0}</div>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="row">
-                    <div class="col-lg-6 mb-3">
+                    <div class="col-lg-12 mb-3">
                         <div class="card bg-dark border-secondary">
-                            <div class="card-header py-2"><strong>Most active stations</strong></div>
+                            <div class="card-header py-2"><strong>Multiple offload events by station</strong></div>
                             <div class="card-body p-0 table-responsive">
                                 <table class="table table-sm table-dark mb-0"><thead><tr><th>Station</th><th>Logs</th></tr></thead><tbody>${activeRows || '<tr><td colspan="2" class="text-muted">—</td></tr>'}</tbody></table>
                             </div>
                         </div>
-                    </div>
-                    <div class="col-lg-6 mb-3">
-                        <div class="card bg-dark border-secondary">
-                            <div class="card-header py-2"><strong>Most failed logs</strong></div>
-                            <div class="card-body p-0 table-responsive">
-                                <table class="table table-sm table-dark mb-0"><thead><tr><th>Station</th><th>Failed</th></tr></thead><tbody>${failRows || '<tr><td colspan="2" class="text-muted">—</td></tr>'}</tbody></table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card bg-dark border-secondary mb-3">
-                    <div class="card-header py-2"><strong>Mission / glider activity (from parser run id)</strong></div>
-                    <div class="card-body p-0 table-responsive">
-                        <table class="table table-sm table-dark mb-0"><thead><tr><th>Mission</th><th>Logs</th><th>OK</th><th>Stations</th></tr></thead><tbody>${missionRows || '<tr><td colspan="4" class="text-muted">—</td></tr>'}</tbody></table>
                     </div>
                 </div>
                 <div class="card bg-dark border-secondary">

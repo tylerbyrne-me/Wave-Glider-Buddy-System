@@ -176,14 +176,8 @@
                     <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" id="downloadCsvDropdownToggle" style="display: none;">
                         <span class="visually-hidden">Toggle Dropdown</span>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="CBS">Download CBS* Stations</a></li>
-                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="NCAT">Download NCAT* Stations</a></li>
-                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="GULMPA">Download GULMPA* Stations</a></li>
-                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HALIBT">Download HALIBT* Stations</a></li>
-                        <li><a class="dropdown-item download-prefix-csv" href="#" data-prefix="HFX">Download HFX* Stations</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="#" id="downloadAllFilteredCsvLink">Download All (Filtered by Search)</a></li>
+                    <ul class="dropdown-menu dropdown-menu-end" id="downloadPrefixMenu">
+                        <li><a class="dropdown-item text-muted" href="#" aria-disabled="true">Loading array groups...</a></li>
                     </ul>
                 </div>
                 <button class="btn btn-info ms-2" id="uploadCsvBtn" title="Upload station metadata from CSV" style="display: none;">
@@ -206,7 +200,7 @@
                         <th data-sort="station_id">Station ID <span class="sort-icon"></span></th>
                         <th data-sort="serial_number">Serial Number <span class="sort-icon"></span></th>
                         <th data-sort="modem_address">Modem Address <span class="sort-icon"></span></th>
-                        <th data-sort="station_settings">Station Settings <span class="sort-icon"></span></th>
+                        <th data-sort="rv_wp_number">RV WP # <span class="sort-icon"></span></th>
                         <th data-sort="status_text">Status <span class="sort-icon"></span></th>
                         <th data-sort="last_offload_timestamp_str">Last Log Update <span class="sort-icon"></span></th>
                         <th data-sort="vrl_file_name">VRL File Name <span class="sort-icon"></span></th>
@@ -797,11 +791,6 @@
                         <label for="downloadStationType" class="form-label">Station Type (Optional):</label>
                         <select class="form-select" id="downloadStationType">
                             <option value="">All Station Types</option>
-                            <option value="CBS">CBS*</option>
-                            <option value="NCAT">NCAT*</option>
-                            <option value="GULMPA">GULMPA*</option>
-                            <option value="HALIBT">HALIBT*</option>
-                            <option value="HFX">HFX*</option>
                         </select>
                     </div>
                 </div>

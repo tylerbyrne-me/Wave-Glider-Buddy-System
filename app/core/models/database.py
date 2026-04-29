@@ -141,6 +141,10 @@ class OffloadLogBase(SQLModel):
         default=None, description="Indicates if the offload was successful (True) or not (False)."
     )
     vrl_file_name: Optional[str] = SQLModelField(default=None, description="Name of the VRL file offloaded, if applicable.")
+    vrl_verified_on_rudics: Optional[bool] = SQLModelField(
+        default=None,
+        description="User verification that VRL file is present/correct on RUDICS server.",
+    )
     offload_notes_file_size: Optional[str] = SQLModelField(
         default=None,
         description="Notes about the offload and/or file size"

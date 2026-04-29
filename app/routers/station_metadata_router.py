@@ -1389,10 +1389,67 @@ def _station_id_array_prefix(station_id: str) -> str:
     return station_id[:i].upper() if i else station_id.upper()
 
 
+def _format_duration_hhmm(total_seconds: Optional[float]) -> Optional[str]:
+    if total_seconds is None:
+        return None
+    if total_seconds < 0:
+        return None
+    total_minutes = int(round(total_seconds / 60.0))
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    return f"{hours}:{minutes:02d}"
+
+
+def _format_duration_hhmmss(total_seconds: Optional[float]) -> Optional[str]:
+    if total_seconds is None:
+        return None
+    if total_seconds < 0:
+        return None
+    total_seconds_int = int(round(total_seconds))
+    hours = total_seconds_int // 3600
+    minutes = (total_seconds_int % 3600) // 60
+    seconds = total_seconds_int % 60
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+
 def _mission_key_from_log(log: models.OffloadLog) -> str:
-    if log.parser_run_id and ":" in (log.parser_run_id or ""):
-        return str(log.parser_run_id).split(":", 1)[0]
+    parser_run_id = (getattr(log, "parser_run_id", None) or "").strip()
+    if parser_run_id:
+        return parser_run_id.split(":", 1)[0] if ":" in parser_run_id else parser_run_id
+
+    parser_session_ref = (getattr(log, "parser_session_ref", None) or "").strip()
+    if parser_session_ref:
+        return parser_session_ref.split(":", 1)[0] if ":" in parser_session_ref else parser_session_ref
     return "unknown"
+
+
+def _is_log_touched_by_parser(log: models.OffloadLog) -> bool:
+    if getattr(log, "created_by_source", "user") == "parser":
+        return True
+    if getattr(log, "updated_by_source", None) == "parser":
+        return True
+    if getattr(log, "parser_run_id", None):
+        return True
+    if getattr(log, "parser_session_ref", None):
+        return True
+    if getattr(log, "parser_notes", None):
+        return True
+    return False
+
+
+def _has_remote_health_payload(log: models.OffloadLog) -> bool:
+    return any(
+        getattr(log, field_name, None) is not None
+        for field_name in (
+            "remote_health_model_id",
+            "remote_health_serial_number",
+            "remote_health_modem_address",
+            "remote_health_temperature_c",
+            "remote_health_tilt_rad",
+            "remote_health_humidity",
+            "remote_health_report_date",
+        )
+    )
 
 
 @router.get(
@@ -1489,7 +1546,16 @@ async def get_station_analytics_overview(
     hw_changes = list(session.exec(select(models.StationHardwareHistory)).all())
 
     by_prefix: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {"logs": 0, "successful": 0, "failed": 0, "last_30d_logs": 0}
+        lambda: {
+            "logs": 0,
+            "successful": 0,
+            "failed": 0,
+            "last_30d_logs": 0,
+            "first_activity_utc": None,
+            "last_activity_utc": None,
+            "offload_duration_seconds_sum": 0.0,
+            "offload_duration_count": 0,
+        }
     )
     for log in logs:
         pref = _station_id_array_prefix(log.station_id)
@@ -1503,77 +1569,140 @@ async def get_station_analytics_overview(
             or log.offload_start_time_utc
             or log.log_timestamp_utc
         )
+        if ts is not None:
+            first_ts = by_prefix[pref]["first_activity_utc"]
+            last_ts = by_prefix[pref]["last_activity_utc"]
+            if first_ts is None or ts < first_ts:
+                by_prefix[pref]["first_activity_utc"] = ts
+            if last_ts is None or ts > last_ts:
+                by_prefix[pref]["last_activity_utc"] = ts
         if ts is not None and ts >= last_30d_cutoff:
             by_prefix[pref]["last_30d_logs"] += 1
-    by_prefix_out = {}
-    for pref, d in by_prefix.items():
-        total = d["logs"]
-        by_prefix_out[pref] = {
-            **d,
-            "success_rate_pct": (d["successful"] / total * 100.0) if total else 0.0,
-        }
-
-    log_counts_by_station = Counter(l.station_id for l in logs)
-    most_active_stations = [
-        {"station_id": sid, "log_count": c}
-        for sid, c in log_counts_by_station.most_common(20)
-    ]
-    failure_by_station = Counter()
-    for log in logs:
-        if log.was_offloaded is False:
-            failure_by_station[log.station_id] += 1
-    stations_most_failures = [
-        {"station_id": sid, "failed_log_count": c}
-        for sid, c in failure_by_station.most_common(20)
-    ]
-
-    user_parser_by_season: Dict[str, Dict[str, int]] = defaultdict(
-        lambda: {"user": 0, "parser": 0}
-    )
-    for log in logs:
-        key = str(log.field_season_year)
-        src = (
-            "parser"
-            if getattr(log, "created_by_source", "user") == "parser"
-            else "user"
-        )
-        user_parser_by_season[key][src] += 1
-
-    mission_summary: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {
-            "log_count": 0,
-            "successful": 0,
-            "failed": 0,
-            "unique_stations": set(),
-        }
-    )
-    for log in logs:
-        m = _mission_key_from_log(log)
-        mission_summary[m]["log_count"] += 1
-        mission_summary[m]["unique_stations"].add(log.station_id)
-        if log.was_offloaded is True:
-            mission_summary[m]["successful"] += 1
-        elif log.was_offloaded is False:
-            mission_summary[m]["failed"] += 1
-    mission_summary_out = []
-    for mid, d in sorted(
-        mission_summary.items(), key=lambda x: x[1]["log_count"], reverse=True
-    )[:40]:
-        mission_summary_out.append(
-            {
-                "mission_or_source": mid,
-                "log_count": d["log_count"],
-                "successful": d["successful"],
-                "failed": d["failed"],
-                "unique_station_count": len(d["unique_stations"]),
-            }
-        )
+        offload_start = _ensure_aware_utc(log.offload_start_time_utc)
+        offload_end = _ensure_aware_utc(log.offload_end_time_utc)
+        if offload_start is not None and offload_end is not None and offload_end >= offload_start:
+            by_prefix[pref]["offload_duration_seconds_sum"] += (
+                offload_end - offload_start
+            ).total_seconds()
+            by_prefix[pref]["offload_duration_count"] += 1
 
     live_stmt = select(models.StationMetadata).where(
         models.StationMetadata.is_retired == False,
         models.StationMetadata.is_archived == False,
     )
     live_stations = list(session.exec(live_stmt).all())
+
+    live_by_prefix: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: {"total_stations": 0, "stations_offloaded": 0, "stations_failed": 0}
+    )
+    for station in live_stations:
+        pref = _station_id_array_prefix(station.station_id)
+        live_by_prefix[pref]["total_stations"] += 1
+        if station.was_last_offload_successful is True:
+            live_by_prefix[pref]["stations_offloaded"] += 1
+        elif station.was_last_offload_successful is False:
+            live_by_prefix[pref]["stations_failed"] += 1
+
+    all_prefixes = set(by_prefix.keys()) | set(live_by_prefix.keys())
+    by_prefix_out = {}
+    for pref in sorted(all_prefixes):
+        d = by_prefix.get(pref, {})
+        live_counts = live_by_prefix.get(pref, {})
+        total_logs_for_prefix = int(d.get("logs", 0))
+        successful_logs_for_prefix = int(d.get("successful", 0))
+        failed_logs_for_prefix = int(d.get("failed", 0))
+        total_stations_for_prefix = int(live_counts.get("total_stations", 0))
+        stations_offloaded = int(live_counts.get("stations_offloaded", 0))
+        stations_failed = int(live_counts.get("stations_failed", 0))
+        stations_attempted = stations_offloaded + stations_failed
+        stations_remaining = max(0, total_stations_for_prefix - stations_attempted)
+        first_activity_utc = d.get("first_activity_utc")
+        last_activity_utc = d.get("last_activity_utc")
+        elapsed_days = None
+        if first_activity_utc is not None and last_activity_utc is not None:
+            elapsed_days = max(
+                (last_activity_utc - first_activity_utc).total_seconds() / 86400.0,
+                1.0 / 24.0,
+            )
+
+        stations_passed_per_day = (
+            stations_attempted / elapsed_days
+            if elapsed_days and elapsed_days > 0
+            else None
+        )
+        stations_offloaded_per_day = (
+            stations_offloaded / elapsed_days
+            if elapsed_days and elapsed_days > 0
+            else None
+        )
+        days_required = (
+            total_stations_for_prefix / stations_passed_per_day
+            if stations_passed_per_day and stations_passed_per_day > 0
+            else None
+        )
+        days_left = (
+            stations_remaining / stations_passed_per_day
+            if stations_passed_per_day and stations_passed_per_day > 0
+            else None
+        )
+        avg_offload_seconds = None
+        offload_duration_count = int(d.get("offload_duration_count", 0))
+        if offload_duration_count > 0:
+            avg_offload_seconds = float(d.get("offload_duration_seconds_sum", 0.0)) / float(
+                offload_duration_count
+            )
+
+        by_prefix_out[pref] = {
+            "logs": total_logs_for_prefix,
+            "successful": successful_logs_for_prefix,
+            "failed": failed_logs_for_prefix,
+            "last_30d_logs": int(d.get("last_30d_logs", 0)),
+            "success_rate_pct": (
+                successful_logs_for_prefix / total_logs_for_prefix * 100.0
+            )
+            if total_logs_for_prefix
+            else 0.0,
+            "date_started_utc": first_activity_utc,
+            "last_updated_utc": last_activity_utc,
+            "total_time_days": elapsed_days,
+            "total_stations": total_stations_for_prefix,
+            "stations_attempted": stations_attempted,
+            "stations_offloaded": stations_offloaded,
+            "stations_not_offloaded": stations_failed,
+            "stations_remaining": stations_remaining,
+            "percent_complete": (
+                stations_attempted / total_stations_for_prefix * 100.0
+            )
+            if total_stations_for_prefix
+            else 0.0,
+            "percent_success": (
+                stations_offloaded / stations_attempted * 100.0
+            )
+            if stations_attempted
+            else 0.0,
+            "stations_passed_per_day": stations_passed_per_day,
+            "stations_offloaded_per_day": stations_offloaded_per_day,
+            "days_required": days_required,
+            "days_left": days_left,
+            "avg_offload_seconds": avg_offload_seconds,
+            "avg_time_per_station_h_mm": _format_duration_hhmm(avg_offload_seconds),
+            "avg_offload_time_hh_mm_ss": _format_duration_hhmmss(avg_offload_seconds),
+        }
+
+    log_counts_by_station = Counter(l.station_id for l in logs)
+    most_active_stations = [
+        {"station_id": sid, "log_count": c}
+        for sid, c in log_counts_by_station.most_common(20)
+        if c > 1
+    ]
+    parser_touched_logs = [log for log in logs if _is_log_touched_by_parser(log)]
+    parser_vrl_appended_logs = sum(
+        1 for log in parser_touched_logs if bool(getattr(log, "vrl_file_name", None))
+    )
+    parser_remote_health_appended_logs = sum(
+        1 for log in parser_touched_logs if _has_remote_health_payload(log)
+    )
+
     n_live = len(live_stations)
     n_offloaded_display = sum(
         1 for s in live_stations if s.was_last_offload_successful is True
@@ -1615,9 +1744,17 @@ async def get_station_analytics_overview(
         "recent_offloaded_stations_48h": recent_offloaded_stations,
         "by_array_prefix": by_prefix_out,
         "most_active_stations": most_active_stations,
-        "stations_most_failed_logs": stations_most_failures,
-        "user_vs_parser_by_season": dict(user_parser_by_season),
-        "mission_summary": mission_summary_out,
+        "parser_append_summary": {
+            "logs_touched_by_parser": len(parser_touched_logs),
+            "vrl_appended_logs": parser_vrl_appended_logs,
+            "remote_health_appended_logs": parser_remote_health_appended_logs,
+            "both_vrl_and_remote_health_logs": sum(
+                1
+                for log in parser_touched_logs
+                if bool(getattr(log, "vrl_file_name", None))
+                and _has_remote_health_payload(log)
+            ),
+        },
         "live_season_station_counts": {
             "total_stations": n_live,
             "display_offloaded": n_offloaded_display,
@@ -2110,7 +2247,7 @@ async def download_season_data(
             "Station ID": log.station_id,
             "Serial Number": station.serial_number if station else "---",
             "Modem Address": station.modem_address if station else "---",
-            "Station Settings": station.station_settings if station else "---",
+            "RV WP #": station.waypoint_number if station else "---",
             "Logged By": log.logged_by_username,
             "Log Timestamp (UTC)": log.log_timestamp_utc.strftime("%Y-%m-%d %H:%M:%S UTC") if log.log_timestamp_utc else "---",
             "Arrival Date (UTC)": log.arrival_date.strftime("%Y-%m-%d %H:%M:%S UTC") if log.arrival_date else "---",

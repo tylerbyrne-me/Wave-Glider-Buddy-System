@@ -89,3 +89,6 @@ secrets/
 **/test_data/
 **/tests/
 *.csv
+
+.cursor
+.vscode
