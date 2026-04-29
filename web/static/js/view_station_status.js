@@ -1586,8 +1586,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                     </div>
                     <div class="col-lg-6 mb-3">
                         <div class="card bg-dark border-secondary h-100">
-                            <div class="card-header py-2"><strong>Parser append tracking</strong></div>
-                            <div class="card-body">
+                            <div class="card-header py-2 text-light"><strong>Parser append tracking</strong></div>
+                            <div class="card-body text-light">
                                 <div class="small mb-1"><strong>Logs touched by parser:</strong> ${parserAppend.logs_touched_by_parser ?? 0}</div>
                                 <div class="small mb-1"><strong>VRL file appended:</strong> ${parserAppend.vrl_appended_logs ?? 0}</div>
                                 <div class="small mb-1"><strong>Remote health appended:</strong> ${parserAppend.remote_health_appended_logs ?? 0}</div>
@@ -1599,7 +1599,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 <div class="row">
                     <div class="col-lg-12 mb-3">
                         <div class="card bg-dark border-secondary">
-                            <div class="card-header py-2"><strong>Multiple offload events by station</strong></div>
+                            <div class="card-header py-2 text-light"><strong>Multiple offload events by station</strong></div>
                             <div class="card-body p-0 table-responsive">
                                 <table class="table table-sm table-dark mb-0"><thead><tr><th>Station</th><th>Logs</th></tr></thead><tbody>${activeRows || '<tr><td colspan="2" class="text-muted">—</td></tr>'}</tbody></table>
                             </div>
