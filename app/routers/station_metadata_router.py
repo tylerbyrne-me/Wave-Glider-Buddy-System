@@ -1434,6 +1434,12 @@ def _is_log_touched_by_parser(log: models.OffloadLog) -> bool:
         return True
     if getattr(log, "parser_notes", None):
         return True
+    # Retroactive enrichment runs may not stamp parser source fields;
+    # infer parser touch from enriched payload presence.
+    if _has_remote_health_payload(log):
+        return True
+    if bool(getattr(log, "vrl_file_name", None)):
+        return True
     return False
 
 
