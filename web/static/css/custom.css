@@ -983,3 +983,8 @@ footer .text-muted {
 .ess-legend-dot.ess-calm { background-color: var(--bs-success, #198754); }
 .ess-legend-dot.ess-increasing { background-color: var(--bs-warning, #ffc107); }
 .ess-legend-dot.ess-extreme { background-color: var(--bs-danger, #dc3545); }
+
+.table > tbody > tr.forecast-current-row {
+    border-left: 4px solid var(--bs-info, #0dcaf0);
+    font-weight: 600;
+}

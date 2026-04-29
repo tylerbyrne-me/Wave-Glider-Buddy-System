@@ -23,9 +23,23 @@ const UTC_DATE_FORMATTER = new Intl.DateTimeFormat('en-GB', {
 
 function toUtcDate(value) {
     if (!value) return null;
-    const date = value instanceof Date ? value : new Date(value);
+    const date = parseUtcTimestamp(value);
     if (Number.isNaN(date.getTime())) return null;
     return date;
+}
+
+export function parseUtcTimestamp(value) {
+    if (!value) return null;
+    if (value instanceof Date) return new Date(value.getTime());
+    if (typeof value === 'number') return new Date(value);
+    if (typeof value !== 'string') return new Date(value);
+
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return null;
+
+    const isTimezoneMissing = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(trimmedValue);
+    const normalizedValue = isTimezoneMissing ? `${trimmedValue}Z` : trimmedValue;
+    return new Date(normalizedValue);
 }
 
 export function formatUtcDateTime(value) {
@@ -57,4 +71,23 @@ export function datetimeLocalToUtcIso(value) {
     const utcDate = parseDatetimeLocalAsUtc(value);
     if (!utcDate) return null;
     return utcDate.toISOString();
+}
+
+export function findNearestTimeIndexUtc(timeValues, nowDate = new Date()) {
+    if (!Array.isArray(timeValues) || timeValues.length === 0) return -1;
+    const nowUtcDate = toUtcDate(nowDate);
+    if (!nowUtcDate) return -1;
+
+    let nearestIndex = -1;
+    let smallestDiffMs = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < timeValues.length; i++) {
+        const candidateDate = toUtcDate(timeValues[i]);
+        if (!candidateDate) continue;
+        const diffMs = Math.abs(candidateDate.getTime() - nowUtcDate.getTime());
+        if (diffMs < smallestDiffMs) {
+            smallestDiffMs = diffMs;
+            nearestIndex = i;
+        }
+    }
+    return nearestIndex;
 }

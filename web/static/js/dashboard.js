@@ -7,7 +7,7 @@ import { checkAuth, logout } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 import { initializeWgVm4OffloadSection } from '/static/js/wg_vm4.js';
-import { formatUtcDateTime, datetimeLocalToUtcIso } from '/static/js/datetime_utils.js';
+import { formatUtcDateTime, datetimeLocalToUtcIso, findNearestTimeIndexUtc } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     // --- Authentication Check ---
@@ -1798,13 +1798,15 @@ document.addEventListener('DOMContentLoaded', async function() {
             } else if (forecastData.forecast_type === 'general') {
                 forecastTitle += ' (General Weather)'; // Simplified title
             }
-            initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>`; // Prepend title
+            const nearestUtcLegend = '<p class="small text-muted mb-2">Nearest UTC forecast <span class="sampling-hint-icon" title="Rows are anchored to the forecast timestamp closest to the current UTC time." aria-label="Nearest UTC forecast help">?</span></p>';
+            initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>${nearestUtcLegend}`; // Prepend title
 
             const hourly = forecastData.hourly;
             const units = forecastData.hourly_units || {}; // Get units from the forecast data
             const totalHoursAvailable = hourly.time.length;
+            const nearestForecastIndex = findNearestTimeIndexUtc(hourly.time);
 
-            const createTableHtml = (startHour, endHour) => {
+            const createTableHtml = (startHour, endHour, highlightedIndex) => {
                 let tableHtml = '<table class="table table-sm table-striped table-hover">';
                 tableHtml += '<thead><tr>' +
                              '<th>Time</th>' +
@@ -1816,7 +1818,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 tableHtml += '<tbody>';
 
                 for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
-                    const time = formatUtcDateTime(hourly.time[i]).replace(/^\d{4}-\d{2}-\d{2} /, '').replace(' UTC', '');
+                    const time = formatUtcDateTime(hourly.time[i]);
                     
                     const weatherCode = (hourly.weathercode && hourly.weathercode[i] !== null) ? hourly.weathercode[i] : 'N/A';
                     const weatherDisplay = getWeatherDescription(weatherCode);
@@ -1828,8 +1830,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                     const windSpeed = (hourly.windspeed_10m && hourly.windspeed_10m[i] !== null) ? hourly.windspeed_10m[i].toFixed(1) : 'N/A';
                     const windDir = (hourly.winddirection_10m && hourly.winddirection_10m[i] !== null) ? hourly.winddirection_10m[i].toFixed(0) : 'N/A';
                     const windDisplay = windSpeed !== 'N/A' ? `${windSpeed} @ ${windDir}°` : 'N/A';
+                    const nearestClass = i === highlightedIndex ? ' class="forecast-current-row"' : '';
 
-                    tableHtml += `<tr>` +
+                    tableHtml += `<tr${nearestClass}>` +
                                  `<td>${time}</td>` +
                                  `<td>${weatherDisplay}</td>` +
                                  `<td>${airTemp}</td>` +
@@ -1842,14 +1845,17 @@ document.addEventListener('DOMContentLoaded', async function() {
             };
 
             const initialHours = 12;
+            const maxHoursAcrossViews = 48;
+            const boundedStartHour = nearestForecastIndex >= 0 ? nearestForecastIndex : 0;
+            const maxEndHour = Math.min(totalHoursAvailable, boundedStartHour + maxHoursAcrossViews);
+            const initialEndHour = Math.min(maxEndHour, boundedStartHour + initialHours);
             // Append the table to the initial container, after the title
-            initialContainer.innerHTML += createTableHtml(0, initialHours);
+            initialContainer.innerHTML += createTableHtml(boundedStartHour, initialEndHour, nearestForecastIndex);
 
-            const extendedStartHour = initialHours;
-            const maxExtendedHours = 48; // Show up to 48 hours total when expanded
+            const extendedStartHour = initialEndHour;
 
-            if (totalHoursAvailable > initialHours) {
-                extendedContainer.innerHTML = createTableHtml(extendedStartHour, Math.min(totalHoursAvailable, maxExtendedHours));
+            if (maxEndHour > initialEndHour) {
+                extendedContainer.innerHTML = createTableHtml(extendedStartHour, maxEndHour, nearestForecastIndex);
                 toggleButton.style.display = 'block'; // Show the button
                 
                 const collapseElement = document.getElementById('forecastExtended');
@@ -2058,13 +2064,15 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         let forecastTitle = 'Marine Forecast'; // Already specific
         const essLegend = '<p class="small text-muted mb-2"><span class="ess-legend-dot ess-calm" aria-label="Calm seas"></span> Calm (&lt;2.5 m) &nbsp; <span class="ess-legend-dot ess-increasing" aria-label="Increasing seas"></span> Increasing (2.5–4.5 m) &nbsp; <span class="ess-legend-dot ess-extreme" aria-label="Extreme sea state"></span> ESS (≥4.5 m)</p>';
-        initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>${essLegend}`;
+        const nearestUtcLegend = '<p class="small text-muted mb-2">Nearest UTC forecast <span class="sampling-hint-icon" title="Rows are anchored to the forecast timestamp closest to the current UTC time." aria-label="Nearest UTC forecast help">?</span></p>';
+        initialContainer.innerHTML = `<h5 class="text-muted fst-italic">${forecastTitle}</h5>${nearestUtcLegend}${essLegend}`;
 
         const hourly = marineForecastData.hourly;
         const units = marineForecastData.hourly_units || {};
         const totalHoursAvailable = hourly.time.length;
+        const nearestForecastIndex = findNearestTimeIndexUtc(hourly.time);
 
-        const createMarineTableHtml = (startHour, endHour) => {
+        const createMarineTableHtml = (startHour, endHour, highlightedIndex) => {
             let tableHtml = '<table class="table table-sm table-striped table-hover">';
             tableHtml += '<thead><tr>' +
                          '<th>Time</th>' +
@@ -2076,33 +2084,37 @@ document.addEventListener('DOMContentLoaded', async function() {
             tableHtml += '<tbody>';
 
             for (let i = startHour; i < endHour && i < totalHoursAvailable; i++) {
-                const time = formatUtcDateTime(hourly.time[i]).replace(/^\d{4}-\d{2}-\d{2} /, '').replace(' UTC', '');
+                const time = formatUtcDateTime(hourly.time[i]);
                 const waveHeightVal = (hourly.wave_height && hourly.wave_height[i] !== null) ? hourly.wave_height[i] : null;
                 const waveHeight = waveHeightVal !== null ? waveHeightVal.toFixed(1) : 'N/A';
                 const essState = getEssStateFromWaveHeight(waveHeightVal);
                 const essClass = essState ? `ess-${essState}` : '';
                 const essTitle = essState === 'extreme' ? ' title="Extreme sea state (≥4.5 m)"' : (essState === 'increasing' ? ' title="Increasing seas (2.5–4.5 m)"' : (essState === 'calm' ? ' title="Calm seas (<2.5 m)"' : ''));
+                const nearestClass = i === highlightedIndex ? ' forecast-current-row' : '';
                 const wavePeriod = (hourly.wave_period && hourly.wave_period[i] !== null) ? hourly.wave_period[i].toFixed(1) : 'N/A';
                 const waveDir = (hourly.wave_direction && hourly.wave_direction[i] !== null) ? hourly.wave_direction[i].toFixed(0) : 'N/A';
                 const currentSpeed = (hourly.ocean_current_velocity && hourly.ocean_current_velocity[i] !== null) ? hourly.ocean_current_velocity[i].toFixed(2) : 'N/A';
                 const currentDir = (hourly.ocean_current_direction && hourly.ocean_current_direction[i] !== null) ? hourly.ocean_current_direction[i].toFixed(0) : 'N/A';
                 const currentDisplay = currentSpeed !== 'N/A' ? `${currentSpeed} @ ${currentDir}°` : 'N/A';
 
-                tableHtml += `<tr class="${essClass}"${essTitle}><td>${time}</td><td>${waveHeight}</td><td>${wavePeriod}</td><td>${waveDir}</td><td>${currentDisplay}</td></tr>`;
+                tableHtml += `<tr class="${essClass}${nearestClass}"${essTitle}><td>${time}</td><td>${waveHeight}</td><td>${wavePeriod}</td><td>${waveDir}</td><td>${currentDisplay}</td></tr>`;
             }
             tableHtml += '</tbody></table>';
             return tableHtml;
         };
 
         const initialHours = 12;
-        initialContainer.innerHTML += createMarineTableHtml(0, initialHours);
+        const maxHoursAcrossViews = 48;
+        const boundedStartHour = nearestForecastIndex >= 0 ? nearestForecastIndex : 0;
+        const maxEndHour = Math.min(totalHoursAvailable, boundedStartHour + maxHoursAcrossViews);
+        const initialEndHour = Math.min(maxEndHour, boundedStartHour + initialHours);
+        initialContainer.innerHTML += createMarineTableHtml(boundedStartHour, initialEndHour, nearestForecastIndex);
         initialContainer.style.display = 'block';
 
-        const extendedStartHour = initialHours;
-        const maxExtendedHours = 48;
+        const extendedStartHour = initialEndHour;
 
-        if (totalHoursAvailable > initialHours) {
-            extendedContainer.innerHTML = createMarineTableHtml(extendedStartHour, Math.min(totalHoursAvailable, maxExtendedHours));
+        if (maxEndHour > initialEndHour) {
+            extendedContainer.innerHTML = createMarineTableHtml(extendedStartHour, maxEndHour, nearestForecastIndex);
             toggleButton.style.display = 'block';
             const collapseElement = document.getElementById('marineForecastExtended');
             collapseElement.addEventListener('show.bs.collapse', () => { toggleButton.textContent = 'Show Less'; });
@@ -2121,7 +2133,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             metaInfoContainer.style.display = 'none';
         }
 
-        const forecastDir = (hourly.wave_direction && hourly.wave_direction[0] !== null) ? Math.round(Number(hourly.wave_direction[0])) : null;
+        const forecastDir = (nearestForecastIndex >= 0 && hourly.wave_direction && hourly.wave_direction[nearestForecastIndex] !== null)
+            ? Math.round(Number(hourly.wave_direction[nearestForecastIndex]))
+            : null;
         const measurementDir = readMeasuredWaveDirectionFromDom();
         updateEssCourseGuidance(measurementDir, forecastDir);
     }

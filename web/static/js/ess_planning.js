@@ -38,6 +38,44 @@
         waypoints: null
     };
 
+    function parseUtcTimestamp(value) {
+        if (!value) return null;
+        if (value instanceof Date) return new Date(value.getTime());
+        if (typeof value === 'number') return new Date(value);
+        if (typeof value !== 'string') return new Date(value);
+        const trimmedValue = value.trim();
+        if (!trimmedValue) return null;
+        const isTimezoneMissing = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(trimmedValue);
+        const normalizedValue = isTimezoneMissing ? `${trimmedValue}Z` : trimmedValue;
+        const parsedDate = new Date(normalizedValue);
+        if (Number.isNaN(parsedDate.getTime())) return null;
+        return parsedDate;
+    }
+
+    function formatUtcDateTime(value) {
+        const date = parseUtcTimestamp(value);
+        if (!date) return 'N/A';
+        return date.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    }
+
+    function findNearestTimeIndexUtc(timeValues, nowDate) {
+        if (!Array.isArray(timeValues) || timeValues.length === 0) return -1;
+        const nowUtcDate = parseUtcTimestamp(nowDate || new Date());
+        if (!nowUtcDate) return -1;
+        let nearestIndex = -1;
+        let smallestDiffMs = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < timeValues.length; i++) {
+            const candidateDate = parseUtcTimestamp(timeValues[i]);
+            if (!candidateDate) continue;
+            const diffMs = Math.abs(candidateDate.getTime() - nowUtcDate.getTime());
+            if (diffMs < smallestDiffMs) {
+                smallestDiffMs = diffMs;
+                nearestIndex = i;
+            }
+        }
+        return nearestIndex;
+    }
+
     const canvas = document.getElementById('essDiagramCanvas');
     const outCurrent = document.getElementById('outCurrent');
     const outWp1 = document.getElementById('outWp1');
@@ -467,10 +505,12 @@
     if (localPath) forecastParams.set('local_path', localPath);
     if (forecastParams.toString()) marineForecastUrl += '?' + forecastParams.toString();
     fetch(marineForecastUrl).then(function (r) { return r.ok ? r.json() : null; }).then(function (marine) {
-        if (marine && marine.hourly && marine.hourly.wave_direction && marine.hourly.wave_direction[0] != null) {
-            state.forecastDir = Math.round(Number(marine.hourly.wave_direction[0]));
-            const t = marine.hourly.time && marine.hourly.time[0];
-            state.forecastTs = t ? new Date(t).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'N/A';
+        const hourlyTimes = marine && marine.hourly && Array.isArray(marine.hourly.time) ? marine.hourly.time : [];
+        const nearestForecastIndex = findNearestTimeIndexUtc(hourlyTimes);
+        if (marine && marine.hourly && marine.hourly.wave_direction && nearestForecastIndex >= 0 && marine.hourly.wave_direction[nearestForecastIndex] != null) {
+            state.forecastDir = Math.round(Number(marine.hourly.wave_direction[nearestForecastIndex]));
+            const t = hourlyTimes[nearestForecastIndex];
+            state.forecastTs = t ? formatUtcDateTime(t) : 'N/A';
             const forecastEl = document.getElementById('waveForecastValue');
             if (forecastEl) forecastEl.textContent = 'As of ' + state.forecastTs + ': ' + state.forecastDir + '\u00B0';
             if (state.measuredDir == null) {
