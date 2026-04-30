@@ -8,6 +8,18 @@ from . import utils
 
 logger = logging.getLogger(__name__)  # Get a logger for this module
 
+WAVE_OUTLIER_SENTINELS = {9999, -9999}
+WAVE_OUTLIER_COLUMNS = (
+    "hs (m)",
+    "ta (s)",
+    "tp (s)",
+    "dp (deg)",
+    "SignificantWaveHeight",
+    "WaveAmplitude",
+    "WavePeriod",
+    "MeanWaveDirection",
+)
+
 
 # Import shared utilities (moved to processor_utils to avoid circular imports)
 from .processor_utils import (
@@ -149,7 +161,20 @@ def preprocess_wave_df(df):
         "sample Gaps": "SampleGaps",
     }
     numeric_cols = ["SignificantWaveHeight", "WavePeriod", "MeanWaveDirection", "SampleGaps"]
-    return _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
+    df_processed = _apply_common_processing(df, timestamp_col, rename_map, numeric_cols)
+    if df_processed.empty:
+        return df_processed
+    return _replace_wave_outlier_sentinels(df_processed)
+
+
+def _replace_wave_outlier_sentinels(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace known wave sensor sentinel values with NaN for safe aggregation."""
+    for col in WAVE_OUTLIER_COLUMNS:
+        if col not in df.columns:
+            continue
+        numeric_series = pd.to_numeric(df[col], errors="coerce")
+        df[col] = numeric_series.mask(numeric_series.isin(WAVE_OUTLIER_SENTINELS), np.nan)
+    return df
 
 
 def preprocess_wave_spectrum_dfs(

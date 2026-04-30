@@ -111,6 +111,14 @@ h5.mt-3 {
   color: var(--bs-info, #0dcaf0);
 }
 
+/* Compact variant for tighter inline spacing next to labels */
+.sampling-hint-icon--tight {
+  margin-left: 0.05em;
+  width: 1em;
+  height: 1em;
+  font-size: 0.78em;
+}
+
 /* PIC Handoff: preserve newlines in static text (e.g. Boats in Area, Recent Errors) */
 .form-item .static-text {
   white-space: pre-wrap;

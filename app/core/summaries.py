@@ -668,7 +668,8 @@ def get_wave_status(
             else None
         )
 
-        # Filter MeanWaveDirection for outliers
+        # Mean direction should already be cleaned by preprocess_wave_df.
+        # Keep a defensive sentinel fallback in case unprocessed data leaks in.
         mean_direction_raw = last_row.get("MeanWaveDirection")
         mean_direction_display_value = "N/A"  # Default display
         mean_direction_numeric_value = None  # For potential numeric use if valid
@@ -691,9 +692,9 @@ def get_wave_status(
                     f"Could not convert MeanWaveDirection "
                     f"'{mean_direction_raw}' to int for outlier check."
                 )
-                # Indicate a parsing error
-                mean_direction_display_value = "N/A (Error)"
-                mean_direction_status = "error"
+                # Treat parsing issues as missing to keep dashboard UX stable.
+                mean_direction_display_value = "N/A"
+                mean_direction_status = "missing"
 
         result_shell["values"] = {
             "SignificantWaveHeight": significant_wave_height,

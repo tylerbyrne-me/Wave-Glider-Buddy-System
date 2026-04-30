@@ -42,6 +42,58 @@ document.addEventListener('DOMContentLoaded', async function() {
         return UTC_TICK_FORMATTER.format(date).replace(',', '');
     }
 
+    const DATA_LINEAGE_TOOLTIPS = {
+        navigation: {
+            total_distance_traveled_mission: {
+                sourceType: 'raw',
+                rawHeader: 'gliderDistance',
+                description: 'Calculated as incremental distance accumulated across mission telemetry points.',
+            },
+        },
+    };
+
+    function getDataLineageTooltipLines(tooltipKey) {
+        const [category, metric] = tooltipKey.split('.');
+        const tooltipMeta = DATA_LINEAGE_TOOLTIPS?.[category]?.[metric];
+        if (!tooltipMeta) return [];
+
+        const tooltipLines = [];
+        if (tooltipMeta.sourceType === 'raw' && tooltipMeta.rawHeader) {
+            tooltipLines.push(`Source: ${tooltipMeta.rawHeader}`);
+        }
+        if (tooltipMeta.sourceType === 'derived') {
+            tooltipLines.push('Derived metric');
+        }
+        if (tooltipMeta.description) {
+            tooltipLines.push(tooltipMeta.description);
+        }
+        if (tooltipMeta.formula) {
+            tooltipLines.push(`Formula: ${tooltipMeta.formula}`);
+        }
+        return tooltipLines;
+    }
+
+    function applyDataLineageTooltipToElement(selector, tooltipKey) {
+        const element = document.querySelector(selector);
+        if (!element) return;
+        const tooltipText = getDataLineageTooltipLines(tooltipKey).join(' ');
+        if (!tooltipText) return;
+        element.setAttribute('title', tooltipText);
+        element.setAttribute('aria-label', tooltipText);
+        element.setAttribute('data-bs-toggle', 'tooltip');
+        element.setAttribute('data-bs-placement', 'top');
+    }
+
+    function initializeDataLineageTooltips() {
+        if (!window.bootstrap?.Tooltip) return;
+        document
+            .querySelectorAll('[data-tooltip-key][data-bs-toggle="tooltip"]')
+            .forEach((el) => window.bootstrap.Tooltip.getOrCreateInstance(el));
+    }
+
+    applyDataLineageTooltipToElement('[data-tooltip-key="navigation.total_distance_traveled_mission"]', 'navigation.total_distance_traveled_mission');
+    initializeDataLineageTooltips();
+
     function ensureUtcTimeDisplayForChart(chart) {
         if (!chart?.options?.scales) return;
         Object.entries(chart.options.scales).forEach(([scaleId, scale]) => {
@@ -2275,11 +2327,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             datasets.push({
                 label: 'Mean Wave Dir (°)',
                 data: chartData.map(item => {
-                    let waveDirNum = parseFloat(item.MeanWaveDirection);
-                    // Filter out specific outlier values for wave direction
-                    if (waveDirNum === 9999 || waveDirNum === -9999) {
-                        waveDirNum = null; // Chart.js will skip null points
-                    }
+                    const waveDirNum = parseFloat(item.MeanWaveDirection);
                     return { x: new Date(item.Timestamp), y: waveDirNum };
                 }),
                 borderColor: CHART_COLORS.CTD_SALINITY.replace('1)', '0.7)'), // Re-use a color
@@ -2799,7 +2847,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     ySpeed: { type: 'linear', position: 'left', title: { display: true, text: 'Ocean Current (kn)', color: chartTextColor }, ticks: { color: chartTextColor, beginAtZero: true }, grid: { color: chartGridColor } },
                     yDiff: { type: 'linear', position: 'right', title: { display: true, text: 'Heading Diff (°)', color: chartTextColor }, ticks: { color: chartTextColor, min: -180, max: 180 }, grid: { drawOnChartArea: false } }
                 },
-                plugins: { tooltip: { mode: 'index', intersect: false }, legend: { position: 'top', labels: { color: chartTextColor } } }
+                plugins: {
+                    tooltip: { mode: 'index', intersect: false },
+                    legend: { position: 'top', labels: { color: chartTextColor } },
+                }
             }
         });
     }

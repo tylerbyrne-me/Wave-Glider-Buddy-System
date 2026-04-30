@@ -2358,26 +2358,6 @@ async def get_report_data_for_plotting(
             response.headers["Expires"] = "0"
             return response
 
-        # --- Specific filtering for wave direction outliers BEFORE preprocessing/resampling ---
-        if report_type.value == "waves":
-            # The raw column name for wave direction is typically 'dp (deg)'
-            # This is before processors.preprocess_wave_df renames it.
-            raw_wave_direction_col = "dp (deg)"
-            if raw_wave_direction_col in df.columns:
-                # Convert to numeric, coercing errors. This helps if it's read as object/string.
-                df[raw_wave_direction_col] = pd.to_numeric(
-                    df[raw_wave_direction_col], errors="coerce"
-                )
-                # Replace 9999 and -9999 with NaN so they are ignored in mean calculations
-                df[raw_wave_direction_col] = df[raw_wave_direction_col].replace(
-                    {9999: np.nan, -9999: np.nan}
-                )
-                logger.info(
-                    f"Applied outlier filtering to '{raw_wave_direction_col}' "
-                    f"for mission {mission_id}."
-                )
-        # --- End specific filtering ---
-
         # Preprocess based on report type
         if report_type == "power":
             processed_df = processors.preprocess_power_df(df)
