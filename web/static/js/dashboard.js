@@ -248,16 +248,35 @@ document.addEventListener('DOMContentLoaded', async function() {
         return col;
     };
 
+    const DASHBOARD_RECENT_NOTE_LIMIT = 4;
+
     const renderMissionNotes = (notes) => {
         if (!dashboardMissionNotesList) return;
+        const notesContainer = dashboardMissionNotesList.closest('.mission-notes-container');
+        const existingHistory = notesContainer ? notesContainer.querySelector('.older-mission-notes-wrapper') : null;
+        if (existingHistory) existingHistory.remove();
+
         if (!notes || notes.length === 0) {
             dashboardMissionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
             return;
         }
-        dashboardMissionNotesList.innerHTML = notes.map(note => {
+
+        const sortedNotes = [...notes].sort((firstNote, secondNote) => {
+            const firstTimestamp = Date.parse(firstNote.created_at_utc || '');
+            const secondTimestamp = Date.parse(secondNote.created_at_utc || '');
+            if (Number.isNaN(firstTimestamp) && Number.isNaN(secondTimestamp)) return 0;
+            if (Number.isNaN(firstTimestamp)) return 1;
+            if (Number.isNaN(secondTimestamp)) return -1;
+            return secondTimestamp - firstTimestamp;
+        });
+
+        const recentNotes = sortedNotes.slice(0, DASHBOARD_RECENT_NOTE_LIMIT);
+        const olderNotes = sortedNotes.slice(DASHBOARD_RECENT_NOTE_LIMIT);
+
+        dashboardMissionNotesList.innerHTML = recentNotes.map(note => {
             const canDelete = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
             return `
-                <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}" data-note-created-at="${escapeHtml(note.created_at_utc || '')}">
                     <div>
                         <p class="mb-1">${escapeHtml(note.content)}</p>
                         <small class="text-muted">
@@ -272,6 +291,50 @@ document.addEventListener('DOMContentLoaded', async function() {
                 </li>
             `;
         }).join('');
+
+        if (!notesContainer || olderNotes.length === 0) return;
+
+        const olderNotesMarkup = olderNotes.map(note => {
+            const canDelete = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
+            return `
+                <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}" data-note-created-at="${escapeHtml(note.created_at_utc || '')}">
+                    <div>
+                        <p class="mb-1">${escapeHtml(note.content)}</p>
+                        <small class="text-muted">
+                            &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
+                        </small>
+                    </div>
+                    ${canDelete ? `
+                        <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    ` : ''}
+                </li>
+            `;
+        }).join('');
+
+        const historyWrapper = document.createElement('div');
+        historyWrapper.className = 'older-mission-notes-wrapper mt-2';
+        historyWrapper.innerHTML = `
+            <button type="button" class="btn btn-sm btn-outline-secondary toggle-older-notes-btn">
+                Show older comments (${olderNotes.length})
+            </button>
+            <ul class="list-group older-mission-notes-list d-none mt-2">
+                ${olderNotesMarkup}
+            </ul>
+        `;
+
+        const toggleButton = historyWrapper.querySelector('.toggle-older-notes-btn');
+        const olderList = historyWrapper.querySelector('.older-mission-notes-list');
+        toggleButton.addEventListener('click', () => {
+            const isHidden = olderList.classList.toggle('d-none');
+            toggleButton.textContent = isHidden
+                ? `Show older comments (${olderNotes.length})`
+                : `Hide older comments (${olderNotes.length})`;
+        });
+
+        const noteComposerCard = notesContainer.querySelector('.card.mt-3');
+        notesContainer.insertBefore(historyWrapper, noteComposerCard || null);
     };
 
     const renderMissionGoals = (goals) => {

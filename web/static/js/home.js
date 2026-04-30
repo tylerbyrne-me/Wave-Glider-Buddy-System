@@ -473,6 +473,63 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    const HOME_RECENT_NOTE_LIMIT = 2;
+
+    const getNotesSortedByRecency = (notes) => {
+        return [...notes].sort((firstNote, secondNote) => {
+            const firstTimestamp = Date.parse(firstNote.dataset.noteCreatedAt || '');
+            const secondTimestamp = Date.parse(secondNote.dataset.noteCreatedAt || '');
+            if (Number.isNaN(firstTimestamp) && Number.isNaN(secondTimestamp)) return 0;
+            if (Number.isNaN(firstTimestamp)) return 1;
+            if (Number.isNaN(secondTimestamp)) return -1;
+            return secondTimestamp - firstTimestamp;
+        });
+    };
+
+    const updateNotesHistoryView = (missionSection, recentLimit = HOME_RECENT_NOTE_LIMIT) => {
+        const notesContainer = missionSection.querySelector('.mission-notes-container');
+        const notesList = missionSection.querySelector('.mission-notes-list');
+        if (!notesContainer || !notesList) return;
+
+        const existingHistory = notesContainer.querySelector('.older-mission-notes-wrapper');
+        if (existingHistory) existingHistory.remove();
+
+        const notes = getNotesSortedByRecency(
+            Array.from(notesList.querySelectorAll('li[data-note-id]'))
+        );
+
+        if (notes.length === 0) return;
+
+        const recentNotes = notes.slice(0, recentLimit);
+        const olderNotes = notes.slice(recentLimit);
+        notesList.innerHTML = '';
+        recentNotes.forEach((note) => notesList.appendChild(note));
+
+        if (olderNotes.length === 0) return;
+
+        const historyWrapper = document.createElement('div');
+        historyWrapper.className = 'older-mission-notes-wrapper mt-2';
+        historyWrapper.innerHTML = `
+            <button type="button" class="btn btn-sm btn-outline-secondary toggle-older-notes-btn">
+                Show older notes (${olderNotes.length})
+            </button>
+            <ul class="list-group older-mission-notes-list d-none mt-2"></ul>
+        `;
+
+        const olderList = historyWrapper.querySelector('.older-mission-notes-list');
+        olderNotes.forEach((note) => olderList.appendChild(note));
+
+        const toggleButton = historyWrapper.querySelector('.toggle-older-notes-btn');
+        toggleButton.addEventListener('click', () => {
+            const isHidden = olderList.classList.toggle('d-none');
+            toggleButton.textContent = isHidden
+                ? `Show older notes (${olderNotes.length})`
+                : `Hide older notes (${olderNotes.length})`;
+        });
+
+        notesContainer.insertBefore(historyWrapper, notesContainer.querySelector('.card.mt-3') || null);
+    };
+
     const updateNotePlaceholder = (missionSection) => {
         const notesList = missionSection.querySelector('.mission-notes-list');
         const placeholder = notesList.querySelector('.no-mission-notes-placeholder');
@@ -481,6 +538,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (notesList.children.length > 0 && placeholder) {
             placeholder.remove();
         }
+        updateNotesHistoryView(missionSection, HOME_RECENT_NOTE_LIMIT);
     };
 
 
@@ -572,7 +630,8 @@ document.addEventListener('DOMContentLoaded', function() {
             placeholder.remove();
         }
 
-        notesList.appendChild(newNoteItem);
+        notesList.prepend(newNoteItem);
+        updateNotesHistoryView(missionSection, HOME_RECENT_NOTE_LIMIT);
     };
 
     // Helper function to create a note list item
@@ -580,6 +639,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const li = document.createElement('li');
         li.className = 'list-group-item d-flex justify-content-between align-items-start';
         li.dataset.noteId = note.id;
+        li.dataset.noteCreatedAt = note.created_at_utc || '';
 
         let deleteButton = '';
         if (USER_ROLE === 'admin' || (USER_ID && USER_ID === note.created_by_user_id)) {
@@ -923,6 +983,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const missionId = missionSection.dataset.missionId;
             if (missionId) {
                 addVehicleNameToMissionHeader(missionSection, missionId);
+                updateNotesHistoryView(missionSection, HOME_RECENT_NOTE_LIMIT);
                 if (USER_ROLE === 'admin') {
                     updatePendingApprovals(missionSection);
                 }
