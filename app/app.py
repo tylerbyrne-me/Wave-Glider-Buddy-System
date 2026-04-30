@@ -2087,7 +2087,9 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     # Load only the data sources for enabled sensor cards.
     # Keep full history for AIS/errors so dashboard detail tables remain populated
     # even when there is no activity in the last 24h window.
-    full_history_report_types = {"ais", "errors"}
+    # Full telemetry so navigation "mission" track length uses the whole mission; the
+    # navigation mini-trend still windows to 24h inside summaries._generate_mini_trend.
+    full_history_report_types = {"ais", "errors", "telemetry"}
     results = await asyncio.gather(
         *[
             load_data_source(

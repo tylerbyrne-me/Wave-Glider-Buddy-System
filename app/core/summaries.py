@@ -3,7 +3,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-
+import numpy as np
 import pandas as pd
 
 from . import utils  # Import the utils module
@@ -27,6 +27,74 @@ def theoretical_max_wh(apu_count: Optional[int]) -> float:
     if apu_count is None:
         return BATTERY_MAX_WH
     return BATTERY_BASE_WH + (apu_count * BATTERY_BASE_WH)
+
+
+def _track_length_nautical_miles(df: pd.DataFrame) -> Optional[float]:
+    """
+    Great-circle distance along the track (sorted by Timestamp), in nautical miles.
+    Uses consecutive valid lat/lon pairs; same approach as weekly report telemetry summary.
+    """
+    if df is None or df.empty:
+        return None
+    required = ("Latitude", "Longitude", "Timestamp")
+    if not all(c in df.columns for c in required):
+        return None
+    if not (
+        pd.api.types.is_numeric_dtype(df["Latitude"])
+        and pd.api.types.is_numeric_dtype(df["Longitude"])
+    ):
+        return None
+
+    seg = df[list(required)].dropna(subset=list(required)).sort_values("Timestamp")
+    if len(seg) < 2:
+        return 0.0
+
+    r_km = 6371.0
+    km_per_nm = 1.852
+    lat1 = np.radians(seg["Latitude"].shift().iloc[1:])
+    lon1 = np.radians(seg["Longitude"].shift().iloc[1:])
+    lat2 = np.radians(seg["Latitude"].iloc[1:])
+    lon2 = np.radians(seg["Longitude"].iloc[1:])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    total_km = float((r_km * c).sum())
+    return total_km / km_per_nm
+
+
+_METERS_PER_NAUTICAL_MILE = 1852.0
+
+
+def _incremental_odometer_nm(df: pd.DataFrame) -> Optional[float]:
+    """
+    Sum vehicle-reported incremental ground distance (meters since prior fix).
+    Prefer ``DistanceSinceLastFixM`` (raw ``gliderDistance``); else ``DistanceOverGroundM``.
+    These are not range-to-waypoint; no distance-to-waypoint field is used here.
+    """
+    if df is None or df.empty:
+        return None
+
+    for col in ("DistanceSinceLastFixM", "DistanceOverGroundM"):
+        if col not in df.columns:
+            continue
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        series = pd.to_numeric(df[col], errors="coerce")
+        if not series.notna().any():
+            continue
+        total_m = float(series.fillna(0).clip(lower=0).sum())
+        return total_m / _METERS_PER_NAUTICAL_MILE
+
+    return None
+
+
+def _telemetry_track_distance_nm(df: pd.DataFrame) -> Optional[float]:
+    """Prefer summed incremental meters from telemetry; else great-circle from lat/lon."""
+    incremental_nm = _incremental_odometer_nm(df)
+    if incremental_nm is not None:
+        return incremental_nm
+    return _track_length_nautical_miles(df)
 
 
 def _round_up_2_decimals(x: Any) -> Optional[float]:
@@ -868,35 +936,10 @@ def get_navigation_status(
             else None
         )
 
-        # Distance Traveled metrics (using 'DistanceToWaypoint' which is processed 'gliderDistance')
-        METERS_TO_NAUTICAL_MILES = 0.000539957
-
-        total_distance_mission_meters = (
-            df_telemetry_processed["DistanceToWaypoint"].sum()
-            if "DistanceToWaypoint" in df_telemetry_processed.columns
-            and pd.api.types.is_numeric_dtype(
-                df_telemetry_processed["DistanceToWaypoint"]
-            )
-            else 0
-        )
-        distance_traveled_24h_meters = (
-            df_last_24h["DistanceToWaypoint"].sum()
-            if not df_last_24h.empty
-            and "DistanceToWaypoint" in df_last_24h.columns
-            and pd.api.types.is_numeric_dtype(df_last_24h["DistanceToWaypoint"])
-            else 0
-        )
-
-        total_distance_mission_nm = (
-            total_distance_mission_meters * METERS_TO_NAUTICAL_MILES
-            if pd.notna(total_distance_mission_meters)
-            else None
-        )
-        distance_traveled_24h_nm = (
-            distance_traveled_24h_meters * METERS_TO_NAUTICAL_MILES
-            if pd.notna(distance_traveled_24h_meters)
-            else None
-        )
+        # Distance traveled: sum incremental meters since prior fix (gliderDistance, then
+        # distanceOverGround); if absent, fall back to great-circle distance from lat/lon.
+        total_distance_mission_nm = _telemetry_track_distance_nm(df_telemetry_processed)
+        distance_traveled_24h_nm = _telemetry_track_distance_nm(df_last_24h)
 
         result_shell["values"] = {
             "Latitude": last_row.get("Latitude"),

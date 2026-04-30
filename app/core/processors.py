@@ -456,6 +456,13 @@ def preprocess_solar_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize Wave Glider telemetry CSV columns.
+
+    ``gliderDistance`` is meters traveled since the previous fix; it is **not** range to
+    the active waypoint. This codebase does not map it to any "distance to waypoint"
+    field. ``targetWayPoint`` is kept only as the numeric target waypoint identifier.
+    """
     timestamp_col = "Timestamp"  # Standardized name, will come from 'lastLocationFix' or 'gliderTimeStamp'
     # The raw CSV uses "lastLocationFix" and "gliderTimeStamp". # noqa
 
@@ -467,7 +474,9 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         "gliderHeading": "GliderHeading",
         "gliderSpeed": "GliderSpeed",
         "targetWayPoint": "TargetWaypoint",
-        "gliderDistance": "DistanceToWaypoint",
+        # Incremental meters since previous telemetry fix (not distance-to-waypoint).
+        "gliderDistance": "DistanceSinceLastFixM",
+        "distanceOverGround": "DistanceOverGroundM",
         "speedOverGround": "SpeedOverGround",
         "oceanCurrent": "OceanCurrentSpeed",
         "oceanCurrentDirection": "OceanCurrentDirection",
@@ -481,7 +490,8 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         "Longitude",
         "GliderHeading",
         "GliderSpeed",
-        "DistanceToWaypoint",
+        "DistanceSinceLastFixM",
+        "DistanceOverGroundM",
         "SpeedOverGround",
         "OceanCurrentSpeed",
         "OceanCurrentDirection",
