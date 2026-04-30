@@ -395,9 +395,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
 
                 const verificationRank = (value) => {
-                    if (value === true) return 0;
-                    if (value === false) return 1;
-                    return 2;
+                    // Awaiting verification first: unchecked (false/null) before checked (true).
+                    if (value === true) return 1;
+                    return 0;
                 };
                 const verificationRankA = verificationRank(a.latest_vrl_verified_on_rudics);
                 const verificationRankB = verificationRank(b.latest_vrl_verified_on_rudics);
