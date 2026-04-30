@@ -384,6 +384,37 @@ document.addEventListener('DOMContentLoaded', async function () {
         const dataToSort = [...allStationsData];
 
         dataToSort.sort((a, b) => {
+            if (column === 'vrl_file_name') {
+                const hasVrlA = !!(a.vrl_file_name && a.vrl_file_name !== '---');
+                const hasVrlB = !!(b.vrl_file_name && b.vrl_file_name !== '---');
+
+                const hasVrlRankA = hasVrlA ? 0 : 1;
+                const hasVrlRankB = hasVrlB ? 0 : 1;
+                if (hasVrlRankA !== hasVrlRankB) {
+                    return order === 'asc' ? hasVrlRankA - hasVrlRankB : hasVrlRankB - hasVrlRankA;
+                }
+
+                const verificationRank = (value) => {
+                    if (value === true) return 0;
+                    if (value === false) return 1;
+                    return 2;
+                };
+                const verificationRankA = verificationRank(a.latest_vrl_verified_on_rudics);
+                const verificationRankB = verificationRank(b.latest_vrl_verified_on_rudics);
+
+                if (verificationRankA !== verificationRankB) {
+                    return order === 'asc'
+                        ? verificationRankA - verificationRankB
+                        : verificationRankB - verificationRankA;
+                }
+
+                const fileNameA = (a.vrl_file_name || '').toLowerCase();
+                const fileNameB = (b.vrl_file_name || '').toLowerCase();
+                if (fileNameA < fileNameB) return order === 'asc' ? -1 : 1;
+                if (fileNameA > fileNameB) return order === 'asc' ? 1 : -1;
+                return 0;
+            }
+
             let valA = a[column];
             let valB = b[column];
 
