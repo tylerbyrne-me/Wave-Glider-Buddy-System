@@ -479,6 +479,15 @@
                 </div>
                 <div class="modal-body">
                     <p>Upload a CSV file with station metadata. The required column is: <strong>station_id</strong>. Optional columns include: <strong>serial_number, modem_address, bottom_depth_m, waypoint_number, station_settings, notes, display_status_override</strong>.</p>
+                    <ul class="small text-muted ps-3 mb-3">
+                        <li>Rows with an existing <strong>station_id</strong> update that station; new IDs create new stations.</li>
+                        <li>Only columns included in your CSV are updated. Omitted columns are left unchanged.</li>
+                        <li>For included columns, values in the CSV overwrite current values. For <strong>notes</strong>, blank values do not clear existing notes.</li>
+                        <li>If <strong>serial_number</strong> or <strong>modem_address</strong> changes, the system closes the current hardware segment and appends a new <code>StationHardwareHistory</code> entry.</li>
+                        <li>Upload is transactional: if any row fails validation, no station updates are saved.</li>
+                        <li>Duplicate <strong>station_id</strong> rows in the same file are processed in order, so later rows can overwrite earlier rows for that station.</li>
+                    </ul>
+                    <p class="small text-warning mb-3"><i class="fas fa-exclamation-triangle me-1"></i>After upload, review any returned warnings (for example duplicate IDs or serials) before relying on the updated registry.</p>
                     <form id="uploadCsvForm">
                         <div class="mb-3">
                             <label for="uploadSeasonYear" class="form-label">Season Year:</label>
