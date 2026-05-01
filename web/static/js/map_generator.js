@@ -14,6 +14,56 @@ let slocumTracks = [];
 /** Slocum track color palette (teal/green for visual distinction from Wave Glider blue/red) */
 const SLOCUM_COLORS = ['#008b8b', '#20b2aa', '#2e8b57', '#3cb371', '#48d1cc', '#5f9ea0', '#66cdaa', '#7fffd4'];
 
+function to_iso_utc_from_input(value) {
+    if (!value) return null;
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return null;
+    const utcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$/;
+    if (!utcPattern.test(trimmedValue)) return null;
+    const utcIso = trimmedValue;
+    const parsedMs = Date.parse(utcIso);
+    if (Number.isNaN(parsedMs)) return null;
+    return utcIso;
+}
+
+function get_map_time_range_params() {
+    const modeSelect = document.getElementById('mapTimeRangeMode');
+    const hoursBackInput = document.getElementById('mapHoursBack');
+    const startDateInput = document.getElementById('mapStartDate');
+    const endDateInput = document.getElementById('mapEndDate');
+    const mode = modeSelect ? modeSelect.value : 'preset';
+    if (mode === 'full') return { full_range: 'true' };
+    if (mode === 'custom') {
+        const startISO = to_iso_utc_from_input(startDateInput ? startDateInput.value : '');
+        const endISO = to_iso_utc_from_input(endDateInput ? endDateInput.value : '');
+        if (!startISO || !endISO) throw new Error('Enter start and end in UTC ISO format (YYYY-MM-DDTHH:MM[:SS]Z).');
+        if (Date.parse(startISO) > Date.parse(endISO)) throw new Error('Start date/time must be before end date/time.');
+        return { start_date: startISO, end_date: endISO };
+    }
+    const hoursBack = hoursBackInput ? parseInt(hoursBackInput.value, 10) : 72;
+    if (Number.isNaN(hoursBack) || hoursBack < 1) throw new Error('Invalid preset time range.');
+    return { hours_back: String(hoursBack) };
+}
+
+function to_query_string(params) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== null && value !== undefined && value !== '') searchParams.set(key, value);
+    });
+    return searchParams.toString();
+}
+
+function apply_map_time_range_visibility() {
+    const modeSelect = document.getElementById('mapTimeRangeMode');
+    const hoursBackInput = document.getElementById('mapHoursBack');
+    const customContainer = document.getElementById('mapCustomDateRange');
+    if (!modeSelect || !hoursBackInput || !customContainer) return;
+    const isCustom = modeSelect.value === 'custom';
+    const isPreset = modeSelect.value === 'preset';
+    hoursBackInput.style.display = isPreset ? '' : 'none';
+    customContainer.style.display = isCustom ? '' : 'none';
+}
+
 /**
  * Initialize the mission map and auto-load active missions
  */
@@ -54,7 +104,7 @@ function initializeMissionMap() {
                 
                 if (activeMissions && activeMissions.length > 0) {
                     // Load all active missions automatically
-                    loadMultipleMissionTracks(activeMissions, parseInt(defaultHours));
+                    loadMultipleMissionTracks(activeMissions, { hours_back: String(parseInt(defaultHours, 10) || 24) });
                 }
             } catch (error) {
                 showToast('Error loading active missions data', 'danger');
@@ -68,14 +118,15 @@ function initializeMissionMap() {
  * @param {string} missionId - Mission identifier
  * @param {number} hoursBack - Number of hours of history to retrieve
  */
-async function loadMissionTrack(missionId, hoursBack = 72) {
+async function loadMissionTrack(missionId, queryParams = { hours_back: '72' }) {
     if (!missionMap) {
         showToast('Map not initialized', 'danger');
         return;
     }
 
     try {
-        const data = await apiRequest(`/api/map/telemetry/${missionId}?hours_back=${hoursBack}`, 'GET');
+        const queryString = to_query_string(queryParams);
+        const data = await apiRequest(`/api/map/telemetry/${missionId}?${queryString}`, 'GET');
         
         if (!data.track_points || data.track_points.length === 0) {
             displayNoTrackMessage(missionId);
@@ -127,7 +178,7 @@ async function loadMissionTrack(missionId, hoursBack = 72) {
  * @param {Array<string>} missionIds - Array of mission identifiers
  * @param {number} hoursBack - Number of hours of history to retrieve
  */
-async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
+async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back: '72' }) {
     if (!missionMap) {
         showToast('Map not initialized', 'danger');
         return;
@@ -135,7 +186,8 @@ async function loadMultipleMissionTracks(missionIds, hoursBack = 72) {
 
     try {
         const missionIdParam = missionIds.join(',');
-        const data = await apiRequest(`/api/map/multiple?mission_ids=${missionIdParam}&hours_back=${hoursBack}`, 'GET');
+        const queryString = to_query_string({ mission_ids: missionIdParam, ...queryParams });
+        const data = await apiRequest(`/api/map/multiple?${queryString}`, 'GET');
         
         // Clear existing tracks
         clearTracks();
@@ -510,9 +562,19 @@ function displayErrorMessage(message) {
  */
 async function generateLiveKML() {
     const missionSelect = document.getElementById('mapMissionSelect');
-    const hoursBackInput = document.getElementById('mapHoursBack');
     const selectedMission = missionSelect ? missionSelect.value : null;
-    const hoursBack = hoursBackInput ? parseInt(hoursBackInput.value) : 72;
+    let hoursBack = 72;
+    try {
+        const timeRangeParams = get_map_time_range_params();
+        if (!timeRangeParams.hours_back) {
+            displayLiveKMLStatus('Live KML supports preset hour ranges only. Switch Time Range mode to "Preset range".', 'info');
+            return;
+        }
+        hoursBack = parseInt(timeRangeParams.hours_back, 10) || 72;
+    } catch (error) {
+        displayLiveKMLStatus(error.message, 'danger');
+        return;
+    }
     
     if (!selectedMission || selectedMission === '') {
         displayLiveKMLStatus('Please select a mission', 'danger');
@@ -612,9 +674,10 @@ function displayLiveKMLStatus(message, type) {
 /**
  * Download KML file for a mission
  */
-async function downloadMissionKML(missionId, hoursBack = 72) {
+async function downloadMissionKML(missionId, queryParams = { hours_back: '72' }) {
     try {
-        const url = `/api/map/kml/${missionId}?hours_back=${hoursBack}`;
+        const queryString = to_query_string(queryParams);
+        const url = `/api/map/kml/${missionId}?${queryString}`;
         
         // Trigger download
         const link = document.createElement('a');
@@ -657,31 +720,34 @@ document.addEventListener('DOMContentLoaded', function() {
         if (generateBtn) {
             generateBtn.addEventListener('click', function() {
                 const selectedMission = missionSelect ? missionSelect.value : null;
-                const hoursBack = hoursBackInput ? parseInt(hoursBackInput.value) : 72;
                 
                 if (!selectedMission || selectedMission === '') {
                     displayErrorMessage('Please select a mission');
                     return;
                 }
-                
-                if (selectedMission === 'all') {
-                    // Load all active missions
-                    const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
-                    const activeMissionsData = mapCard?.getAttribute('data-active-missions');
-                    
-                    if (activeMissionsData) {
-                        try {
-                            const activeMissions = JSON.parse(activeMissionsData);
-                            loadMultipleMissionTracks(activeMissions, hoursBack);
-                        } catch (error) {
-                            showToast('Error loading missions', 'danger');
-                            displayErrorMessage('Error loading missions');
+                try {
+                    const timeRangeParams = get_map_time_range_params();
+                    if (selectedMission === 'all') {
+                        // Load all active missions
+                        const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
+                        const activeMissionsData = mapCard?.getAttribute('data-active-missions');
+                        
+                        if (activeMissionsData) {
+                            try {
+                                const activeMissions = JSON.parse(activeMissionsData);
+                                loadMultipleMissionTracks(activeMissions, timeRangeParams);
+                            } catch (error) {
+                                showToast('Error loading missions', 'danger');
+                                displayErrorMessage('Error loading missions');
+                            }
+                        } else {
+                            displayErrorMessage('No active missions available');
                         }
                     } else {
-                        displayErrorMessage('No active missions available');
+                        loadMissionTrack(selectedMission, timeRangeParams);
                     }
-                } else {
-                    loadMissionTrack(selectedMission, hoursBack);
+                } catch (error) {
+                    displayErrorMessage(error.message);
                 }
             });
         }
@@ -689,14 +755,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (downloadBtn) {
             downloadBtn.addEventListener('click', function() {
                 const selectedMission = missionSelect ? missionSelect.value : null;
-                const hoursBack = hoursBackInput ? parseInt(hoursBackInput.value) : 72;
-                
                 if (selectedMission) {
-                    downloadMissionKML(selectedMission, hoursBack);
+                    try {
+                        const timeRangeParams = get_map_time_range_params();
+                        downloadMissionKML(selectedMission, timeRangeParams);
+                    } catch (error) {
+                        displayErrorMessage(error.message);
+                    }
                 } else {
                     displayErrorMessage('Please select a mission');
                 }
             });
+        }
+        const timeRangeModeSelect = document.getElementById('mapTimeRangeMode');
+        if (timeRangeModeSelect) {
+            timeRangeModeSelect.addEventListener('change', apply_map_time_range_visibility);
+            apply_map_time_range_visibility();
         }
         
         // Live KML button

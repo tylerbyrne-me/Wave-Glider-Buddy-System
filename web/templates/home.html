@@ -357,13 +357,23 @@
                             </select>
                         </div>
                         <div class="col-md-4 mb-2">
-                            <label for="mapHoursBack" class="form-label small">Time Range</label>
+                            <label for="mapTimeRangeMode" class="form-label small">Time Range</label>
+                            <select id="mapTimeRangeMode" class="form-select form-select-sm mb-2">
+                                <option value="preset" selected>Preset range</option>
+                                <option value="full">Full mission range</option>
+                                <option value="custom">Custom datetime range</option>
+                            </select>
                             <select id="mapHoursBack" class="form-select form-select-sm">
                                 <option value="24" selected>Last 24 hours</option>
                                 <option value="72">Last 72 hours</option>
                                 <option value="168">Last week</option>
                                 <option value="720">Last month</option>
                             </select>
+                            <div id="mapCustomDateRange" class="mt-2" style="display: none;">
+                                <input id="mapStartDate" type="text" class="form-control form-control-sm mb-1" aria-label="Map range start datetime UTC" title="UTC only. Use ISO 8601 with Z suffix, e.g. 2026-05-01T00:00:00Z." placeholder="UTC start (e.g. 2026-05-01T00:00:00Z)">
+                                <input id="mapEndDate" type="text" class="form-control form-control-sm" aria-label="Map range end datetime UTC" title="UTC only. Use ISO 8601 with Z suffix, e.g. 2026-05-01T12:00:00Z." placeholder="UTC end (e.g. 2026-05-01T12:00:00Z)">
+                                <small class="text-muted d-block mt-1" title="All telemetry timestamps are handled in UTC.">All times are reported and expected in UTC ISO 8601 format (with `Z`).</small>
+                            </div>
                         </div>
                         <div class="col-md-2 mb-2 d-flex align-items-end">
                             <button id="generateMapBtn" class="btn btn-primary btn-sm w-100">Generate Map</button>

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 import logging
 import math
 import asyncio
+import re
 import pandas as pd
 import httpx
 
@@ -30,12 +31,33 @@ router = APIRouter(tags=["Map"])
 
 # Slightly above client timeout for asyncio.wait_for on Slocum ERDDAP fetch
 SLOCUM_ERDDAP_REQUEST_TIMEOUT = ERDDAP_TIMEOUT + 5
+UTC_ISO_INPUT_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$")
+
+
+def _parse_iso_datetime(value: str, field_name: str) -> datetime:
+    """Parse UTC ISO datetime string into timezone-aware UTC datetime."""
+    normalized_value = value.strip()
+    if not UTC_ISO_INPUT_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid {field_name}. Expected UTC ISO 8601 format: YYYY-MM-DDTHH:MM[:SS]Z."
+        )
+    try:
+        parsed_dt = datetime.fromisoformat(normalized_value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid {field_name}. Expected UTC ISO 8601 format: YYYY-MM-DDTHH:MM[:SS]Z."
+        ) from exc
+    return parsed_dt.replace(tzinfo=timezone.utc)
 
 
 async def _prepare_track_data(
     mission_id: str,
-    hours_back: int,
+    hours_back: Optional[int],
     current_user: models.User,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     max_points: int = 1000
 ) -> dict:
     """
@@ -66,7 +88,9 @@ async def _prepare_track_data(
             custom_local_path=None,
             force_refresh=False,
             current_user=current_user,
-            hours_back=hours_back
+            hours_back=hours_back,
+            start_date=start_date,
+            end_date=end_date,
         )
         
         if df is None or df.empty:
@@ -188,7 +212,10 @@ async def _prepare_slocum_track_data(
 @router.get("/api/map/telemetry/{mission_id}")
 async def get_mission_track(
     mission_id: str,
-    hours_back: int = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    start_date: Optional[str] = Query(None, description="Start time ISO 8601. Use with end_date for date range."),
+    end_date: Optional[str] = Query(None, description="End time ISO 8601. Use with start_date for date range."),
+    full_range: bool = Query(False, description="If true, return full mission range and ignore hours_back."),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """
@@ -206,17 +233,53 @@ async def get_mission_track(
         JSON response with track points and metadata
     """
     try:
-        logger.info(f"Fetching track data for mission {mission_id} (last {hours_back} hours)")
+        parsed_start_date: Optional[datetime] = None
+        parsed_end_date: Optional[datetime] = None
+        query_hours_back: Optional[int] = hours_back
+        if full_range:
+            query_hours_back = None
+        elif start_date or end_date:
+            if not start_date or not end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Both start_date and end_date are required for date range mode."
+                )
+            parsed_start_date = _parse_iso_datetime(start_date, "start_date")
+            parsed_end_date = _parse_iso_datetime(end_date, "end_date")
+            if parsed_start_date > parsed_end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="start_date must be before or equal to end_date."
+                )
+            query_hours_back = None
+        logger.info(
+            "Fetching track data for mission %s (hours_back=%s, start_date=%s, end_date=%s, full_range=%s)",
+            mission_id,
+            query_hours_back,
+            parsed_start_date.isoformat() if parsed_start_date else None,
+            parsed_end_date.isoformat() if parsed_end_date else None,
+            full_range,
+        )
         
         # Use shared helper function to prepare track data
-        track_data = await _prepare_track_data(mission_id, hours_back, current_user, max_points=1000)
+        track_data = await _prepare_track_data(
+            mission_id,
+            query_hours_back,
+            current_user,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            max_points=1000,
+        )
         
         response_data = {
             "mission_id": mission_id,
             "track_points": track_data["track_points"],
             "point_count": track_data["point_count"],
             "bounds": track_data["bounds"],
-            "hours_back": hours_back,
+            "hours_back": query_hours_back,
+            "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end_date": parsed_end_date.isoformat() if parsed_end_date else None,
+            "full_range": full_range,
             "source": track_data["source"]
         }
         
@@ -295,7 +358,10 @@ async def get_slocum_mission_track(
 @router.get("/api/map/kml/{mission_id}")
 async def get_mission_kml(
     mission_id: str,
-    hours_back: int = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    start_date: Optional[str] = Query(None, description="Start time ISO 8601. Use with end_date for date range."),
+    end_date: Optional[str] = Query(None, description="End time ISO 8601. Use with start_date for date range."),
+    full_range: bool = Query(False, description="If true, return full mission range and ignore hours_back."),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """
@@ -312,10 +378,43 @@ async def get_mission_kml(
         KML file response
     """
     try:
-        logger.info(f"Generating KML for mission {mission_id} (last {hours_back} hours)")
+        parsed_start_date: Optional[datetime] = None
+        parsed_end_date: Optional[datetime] = None
+        query_hours_back: Optional[int] = hours_back
+        if full_range:
+            query_hours_back = None
+        elif start_date or end_date:
+            if not start_date or not end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Both start_date and end_date are required for date range mode."
+                )
+            parsed_start_date = _parse_iso_datetime(start_date, "start_date")
+            parsed_end_date = _parse_iso_datetime(end_date, "end_date")
+            if parsed_start_date > parsed_end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="start_date must be before or equal to end_date."
+                )
+            query_hours_back = None
+        logger.info(
+            "Generating KML for mission %s (hours_back=%s, start_date=%s, end_date=%s, full_range=%s)",
+            mission_id,
+            query_hours_back,
+            parsed_start_date.isoformat() if parsed_start_date else None,
+            parsed_end_date.isoformat() if parsed_end_date else None,
+            full_range,
+        )
         
         # Use shared helper function (with more points for KML export)
-        track_data = await _prepare_track_data(mission_id, hours_back, current_user, max_points=5000)
+        track_data = await _prepare_track_data(
+            mission_id,
+            query_hours_back,
+            current_user,
+            start_date=parsed_start_date,
+            end_date=parsed_end_date,
+            max_points=5000,
+        )
         
         if track_data.get("error") or not track_data["track_points"]:
             error_msg = track_data.get("error", "No track points available")
@@ -356,7 +455,10 @@ async def get_mission_kml(
 @router.get("/api/map/multiple")
 async def get_multiple_mission_tracks(
     mission_ids: str = Query(..., description="Comma-separated mission IDs"),
-    hours_back: int = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history to retrieve"),
+    start_date: Optional[str] = Query(None, description="Start time ISO 8601. Use with end_date for date range."),
+    end_date: Optional[str] = Query(None, description="End time ISO 8601. Use with start_date for date range."),
+    full_range: bool = Query(False, description="If true, return full mission range and ignore hours_back."),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """
@@ -384,14 +486,48 @@ async def get_multiple_mission_tracks(
                 field="mission_ids"
             )
         
-        logger.info(f"Fetching tracks for {len(mission_list)} missions: {mission_list}")
+        parsed_start_date: Optional[datetime] = None
+        parsed_end_date: Optional[datetime] = None
+        query_hours_back: Optional[int] = hours_back
+        if full_range:
+            query_hours_back = None
+        elif start_date or end_date:
+            if not start_date or not end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Both start_date and end_date are required for date range mode."
+                )
+            parsed_start_date = _parse_iso_datetime(start_date, "start_date")
+            parsed_end_date = _parse_iso_datetime(end_date, "end_date")
+            if parsed_start_date > parsed_end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="start_date must be before or equal to end_date."
+                )
+            query_hours_back = None
+        logger.info(
+            "Fetching tracks for %s missions: %s (hours_back=%s, start_date=%s, end_date=%s, full_range=%s)",
+            len(mission_list),
+            mission_list,
+            query_hours_back,
+            parsed_start_date.isoformat() if parsed_start_date else None,
+            parsed_end_date.isoformat() if parsed_end_date else None,
+            full_range,
+        )
         
         # Fetch data for each mission using shared helper function
         tracks = {}
         
         # Process missions concurrently for better performance
         tasks = [
-            _prepare_track_data(mission_id, hours_back, current_user, max_points=1000)
+            _prepare_track_data(
+                mission_id,
+                query_hours_back,
+                current_user,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                max_points=1000,
+            )
             for mission_id in mission_list
         ]
         
@@ -423,7 +559,10 @@ async def get_multiple_mission_tracks(
         response_data = {
             "missions": tracks,
             "mission_count": len(mission_list),
-            "hours_back": hours_back
+            "hours_back": query_hours_back,
+            "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end_date": parsed_end_date.isoformat() if parsed_end_date else None,
+            "full_range": full_range,
         }
         
         return JSONResponse(content=response_data)
