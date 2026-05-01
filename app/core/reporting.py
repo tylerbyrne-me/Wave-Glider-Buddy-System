@@ -5,7 +5,7 @@ import matplotlib.image as mpimg
 import cartopy.crs as ccrs
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import date, timedelta
 import logging
 import httpx
@@ -41,10 +41,17 @@ def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     if df.empty or len(df) < 2:
         return summary
 
-    # Ensure data is clean and sorted for distance calculation
-    df_clean = df.dropna(
-        subset=['latitude', 'longitude', 'lastLocationFix']
-    ).sort_values(by='lastLocationFix').copy()
+    if "lastLocationFix" not in df.columns:
+        return summary
+
+    # Ensure timestamp column is comparable (mixed str/Timestamp can raise TypeError on sort).
+    df_working = df.copy()
+    df_working["lastLocationFix"] = utils.parse_timestamp_column(
+        df_working["lastLocationFix"], errors="coerce", utc=True
+    )
+    df_clean = df_working.dropna(
+        subset=["latitude", "longitude", "lastLocationFix"]
+    ).sort_values(by="lastLocationFix").copy()
     if len(df_clean) < 2:
         return summary
 
@@ -81,27 +88,39 @@ def _calculate_power_summary(power_df: pd.DataFrame, solar_df: pd.DataFrame) -> 
     }
 
     if not power_df.empty and 'gliderTimeStamp' in power_df.columns and len(power_df) > 1:
-        power_df = power_df.sort_values('gliderTimeStamp')
-        duration_hours = (power_df['gliderTimeStamp'].max() - power_df['gliderTimeStamp'].min()).total_seconds() / 3600
+        power_df_working = power_df.copy()
+        power_df_working['gliderTimeStamp'] = utils.parse_timestamp_column(
+            power_df_working['gliderTimeStamp'], errors='coerce', utc=True
+        )
+        power_df_working = power_df_working.dropna(subset=['gliderTimeStamp']).sort_values('gliderTimeStamp')
+        duration_hours = 0
+        if len(power_df_working) > 1:
+            duration_hours = (power_df_working['gliderTimeStamp'].max() - power_df_working['gliderTimeStamp'].min()).total_seconds() / 3600
         if duration_hours > 0:
             # These are in mWh, so sum and convert to Wh, then divide by hours for avg Watts
-            if 'solarPowerGenerated' in power_df.columns:
-                total_input_wh = power_df['solarPowerGenerated'].sum() / 1000
+            if 'solarPowerGenerated' in power_df_working.columns:
+                total_input_wh = power_df_working['solarPowerGenerated'].sum() / 1000
                 summary["avg_total_input_W"] = total_input_wh / duration_hours
             
-            if 'outputPortPower' in power_df.columns:
-                total_output_wh = power_df['outputPortPower'].sum() / 1000
+            if 'outputPortPower' in power_df_working.columns:
+                total_output_wh = power_df_working['outputPortPower'].sum() / 1000
                 summary["avg_total_output_W"] = total_output_wh / duration_hours
 
     if not solar_df.empty and 'gliderTimeStamp' in solar_df.columns and len(solar_df) > 1:
-        solar_df = solar_df.sort_values('gliderTimeStamp')
-        duration_hours_solar = (solar_df['gliderTimeStamp'].max() - solar_df['gliderTimeStamp'].min()).total_seconds() / 3600
+        solar_df_working = solar_df.copy()
+        solar_df_working['gliderTimeStamp'] = utils.parse_timestamp_column(
+            solar_df_working['gliderTimeStamp'], errors='coerce', utc=True
+        )
+        solar_df_working = solar_df_working.dropna(subset=['gliderTimeStamp']).sort_values('gliderTimeStamp')
+        duration_hours_solar = 0
+        if len(solar_df_working) > 1:
+            duration_hours_solar = (solar_df_working['gliderTimeStamp'].max() - solar_df_working['gliderTimeStamp'].min()).total_seconds() / 3600
         if duration_hours_solar > 0:
             for i in range(6): # Panels 0-5
                 col_name = f'inputPower_{i}'
-                if col_name in solar_df.columns:
+                if col_name in solar_df_working.columns:
                     # These are in mWh
-                    total_panel_wh = solar_df[col_name].sum() / 1000
+                    total_panel_wh = solar_df_working[col_name].sum() / 1000
                     avg_panel_w = total_panel_wh / duration_hours_solar
                     summary["avg_solar_panel_W"][f"Panel {i}"] = avg_panel_w
     
@@ -175,6 +194,129 @@ def _calculate_error_summary(df: pd.DataFrame) -> dict:
         
     return summary
 
+
+def _normalize_note_event_time(note: models.MissionNote) -> datetime:
+    parsed_prefix_time = utils.parse_mission_note_datetime_prefix(note.content)
+    event_time = parsed_prefix_time or note.created_at_utc
+    if event_time.tzinfo is None or event_time.tzinfo.utcoffset(event_time) is None:
+        return event_time.replace(tzinfo=timezone.utc)
+    return event_time.astimezone(timezone.utc)
+
+
+def _build_mission_note_annotations(
+    mission_notes: List[models.MissionNote],
+    telemetry_df_filtered: pd.DataFrame,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    max_annotations: int = 8,
+    max_label_chars: int = 120,
+) -> List[Dict[str, Any]]:
+    if not mission_notes or telemetry_df_filtered.empty:
+        return []
+    if "lastLocationFix" not in telemetry_df_filtered.columns:
+        return []
+
+    telemetry_points = telemetry_df_filtered.dropna(
+        subset=["lastLocationFix", "latitude", "longitude"]
+    ).copy()
+    if telemetry_points.empty:
+        return []
+
+    telemetry_points["lastLocationFix"] = utils.parse_timestamp_column(
+        telemetry_points["lastLocationFix"], errors="coerce", utc=True
+    )
+    telemetry_points = telemetry_points.dropna(subset=["lastLocationFix"])
+    if telemetry_points.empty:
+        return []
+
+    telemetry_points = telemetry_points.sort_values("lastLocationFix")
+    report_start_utc = pd.to_datetime(start_date).tz_localize("UTC") if start_date else None
+    report_end_utc = (
+        pd.to_datetime(end_date).tz_localize("UTC") + timedelta(days=1) if end_date else None
+    )
+
+    annotations: List[Dict[str, Any]] = []
+    for note in mission_notes:
+        if hasattr(note, "include_in_report") and not note.include_in_report:
+            continue
+        event_time = _normalize_note_event_time(note)
+        if report_start_utc and event_time < report_start_utc:
+            continue
+        if report_end_utc and event_time >= report_end_utc:
+            continue
+
+        time_deltas = (telemetry_points["lastLocationFix"] - event_time).abs()
+        nearest_idx = time_deltas.idxmin()
+        nearest_point = telemetry_points.loc[nearest_idx]
+        note_text = utils.strip_mission_note_datetime_prefix(note.content)
+        if not note_text:
+            note_text = note.content
+        note_text = note_text.strip()
+        is_truncated = len(note_text) > max_label_chars
+        display_text = note_text
+        if is_truncated:
+            display_text = note_text[: max_label_chars - 1].rstrip() + "… (continued in appendix)"
+
+        annotations.append(
+            {
+                "note_id": note.id,
+                "latitude": float(nearest_point["latitude"]),
+                "longitude": float(nearest_point["longitude"]),
+                "event_time": event_time,
+                "matched_telemetry_time": nearest_point["lastLocationFix"],
+                "full_note_text": note_text,
+                "is_truncated": is_truncated,
+                "label": (
+                    f"{display_text}\n"
+                    f"— {note.created_by_username} on {event_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                ),
+            }
+        )
+
+    annotations.sort(key=lambda item: item["event_time"])
+    if len(annotations) > max_annotations:
+        logger.info(
+            "Truncating mission note annotations from %s to %s entries to keep map readable.",
+            len(annotations),
+            max_annotations,
+        )
+        annotations = annotations[-max_annotations:]
+    return annotations
+
+
+def _render_note_appendix_page(fig, note_annotations: List[Dict[str, Any]]) -> None:
+    truncated_notes = [note for note in note_annotations if note.get("is_truncated")]
+    if not truncated_notes:
+        return
+
+    fig.clf()
+    fig.suptitle("Mission Note Appendix", fontsize=16)
+    y_pos = 0.94
+    fig.text(
+        0.05,
+        y_pos,
+        "Full note text for map labels that were truncated for readability.",
+        fontsize=10,
+        va="top",
+    )
+    y_pos -= 0.05
+
+    for idx, note in enumerate(truncated_notes, start=1):
+        event_time = note.get("event_time")
+        event_time_text = (
+            event_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if isinstance(event_time, datetime)
+            else "unknown time"
+        )
+        note_header = f"{idx}. Note ID {note.get('note_id', 'n/a')} at {event_time_text}"
+        wrapped_header = "\n".join(wrap(note_header, width=120))
+        wrapped_body = "\n".join(wrap(str(note.get("full_note_text", "")), width=120))
+        block_text = f"{wrapped_header}\n{wrapped_body}"
+        fig.text(0.05, y_pos, block_text, fontsize=9, va="top", family="monospace")
+        y_pos -= 0.11
+        if y_pos < 0.08:
+            break
+
 async def generate_weekly_report(
     mission_id: str,
     telemetry_df: pd.DataFrame,
@@ -185,6 +327,7 @@ async def generate_weekly_report(
     wave_df: pd.DataFrame,
     error_df: pd.DataFrame,
     mission_goals: Optional[List[models.MissionGoal]] = None,
+    mission_notes: Optional[List[models.MissionNote]] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     plots_to_include: Optional[List[str]] = None,
@@ -357,6 +500,13 @@ async def generate_weekly_report(
     report_period_error_summary = _calculate_error_summary(error_df_filtered)
 
     logger.info(f"Generating weekly report for mission '{mission_id}' at {file_path}")
+
+    telemetry_note_annotations = _build_mission_note_annotations(
+        mission_notes=mission_notes or [],
+        telemetry_df_filtered=telemetry_df_filtered,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
     date_range_str = "Full Mission History"
     if start_date and end_date:
@@ -812,9 +962,18 @@ async def generate_weekly_report(
             try:
                 fig_telemetry = plt.figure(figsize=(8.27, 11.69))
                 ax_telemetry = fig_telemetry.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-                plot_telemetry_for_report(ax_telemetry, telemetry_df_filtered)
+                plot_telemetry_for_report(
+                    ax_telemetry,
+                    telemetry_df_filtered,
+                    note_annotations=telemetry_note_annotations,
+                )
                 fig_telemetry.tight_layout(pad=3.0)
                 add_footer_and_save(fig_telemetry)
+                if any(note.get("is_truncated") for note in telemetry_note_annotations):
+                    fig_note_appendix = plt.figure(figsize=(8.27, 11.69))
+                    _render_note_appendix_page(fig_note_appendix, telemetry_note_annotations)
+                    fig_note_appendix.tight_layout(pad=2.0)
+                    add_footer_and_save(fig_note_appendix)
             except Exception as e:
                 logger.error(f"Failed to generate telemetry plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
@@ -916,18 +1075,70 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
         # Load data sources concurrently
         report_types = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
         results = await data_service.load_multiple(report_types, mission_id, hours_back=168)  # 1 week
-        
-        telemetry_df = results.get("telemetry", pd.DataFrame())
-        power_df = results.get("power", pd.DataFrame())
-        solar_df = results.get("solar", pd.DataFrame())
-        ctd_df = results.get("ctd", pd.DataFrame())
-        weather_df = results.get("weather", pd.DataFrame())
-        wave_df = results.get("waves", pd.DataFrame())
-        error_df = results.get("errors", pd.DataFrame())
+
+        def _extract_report_dataframe(report_type: str) -> pd.DataFrame:
+            result = results.get(report_type)
+            if isinstance(result, tuple):
+                source_path = result[1] if len(result) > 1 else "unknown"
+                df = result[0] if len(result) > 0 and isinstance(result[0], pd.DataFrame) else pd.DataFrame()
+            elif isinstance(result, pd.DataFrame):
+                source_path = "unknown"
+                df = result
+            else:
+                source_path = "missing"
+                df = pd.DataFrame()
+
+            if source_path == "Error":
+                logger.error("AUTOMATED: Data loading failed for %s (%s).", report_type, mission_id)
+            elif df.empty:
+                logger.warning(
+                    "AUTOMATED: No %s data available for %s (source=%s).",
+                    report_type,
+                    mission_id,
+                    source_path,
+                )
+            else:
+                logger.info(
+                    "AUTOMATED: Loaded %s rows for %s (%s, source=%s).",
+                    len(df),
+                    report_type,
+                    mission_id,
+                    source_path,
+                )
+
+            return df
+
+        telemetry_df = _extract_report_dataframe("telemetry")
+        power_df = _extract_report_dataframe("power")
+        solar_df = _extract_report_dataframe("solar")
+        ctd_df = _extract_report_dataframe("ctd")
+        weather_df = _extract_report_dataframe("weather")
+        wave_df = _extract_report_dataframe("waves")
+        error_df = _extract_report_dataframe("errors")
+
+        if all(
+            frame.empty
+            for frame in [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df]
+        ):
+            raise ValueError(f"AUTOMATED: No report datasets available for mission '{mission_id}'.")
 
         # Fetch mission goals
         goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
         mission_goals = session.exec(goals_statement).all()
+        notes_statement = (
+            select(models.MissionNote)
+            .where(
+                models.MissionNote.mission_id == mission_id,
+                models.MissionNote.include_in_report == True,  # noqa: E712
+            )
+            .order_by(models.MissionNote.created_at_utc.asc())
+        )
+        mission_notes = session.exec(notes_statement).all()
+
+        # Generate report with an explicit weekly date window so the PDF period
+        # reflects the automated 7-day scope instead of "Full Mission History".
+        report_end_date = datetime.now(timezone.utc).date()
+        report_start_date = report_end_date - timedelta(days=7)
 
         # Generate report with default (weekly) naming
         report_url = await generate_weekly_report(
@@ -940,6 +1151,9 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
             wave_df=wave_df,
             error_df=error_df,
             mission_goals=mission_goals,
+            mission_notes=mission_notes,
+            start_date=report_start_date,
+            end_date=report_end_date,
         )
 
         # Get or create MissionOverview
@@ -952,7 +1166,11 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
         mission_overview.weekly_report_url = report_url
         session.add(mission_overview)
         session.commit()
-        logger.info(f"AUTOMATED: Successfully generated and saved weekly report for mission '{mission_id}'. URL: {report_url}")
+        logger.info(
+            "AUTOMATED: Successfully generated and saved weekly report for mission '%s'. URL: %s",
+            mission_id,
+            report_url,
+        )
     except Exception as e:
         logger.error(f"AUTOMATED: Failed to generate weekly report for mission '{mission_id}': {e}", exc_info=True)
 

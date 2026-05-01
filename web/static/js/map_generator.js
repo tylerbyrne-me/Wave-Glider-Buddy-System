@@ -6,6 +6,7 @@
  */
 
 import { apiRequest, showToast } from '/static/js/api.js';
+import { formatUtcDate } from '/static/js/datetime_utils.js';
 
 let missionMap = null;
 let missionTracks = [];
@@ -642,8 +643,9 @@ async function generateLiveKML() {
         window.URL.revokeObjectURL(url);
         
         // Display success message
+        const expiresAtUtc = formatUtcDate(data.expires_at);
         displayLiveKMLStatus(
-            `✓ Live KML generated! Token expires ${new Date(data.expires_at).toLocaleDateString()}<br>` +
+            `✓ Live KML generated! Token expires ${expiresAtUtc}<br>` +
             `<small>Save this file and open in Google Earth for auto-updating tracks</small>`,
             'success'
         );

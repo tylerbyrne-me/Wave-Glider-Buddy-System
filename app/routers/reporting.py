@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from typing import List, Optional
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import re
 from sqlmodel import Session as SQLModelSession
@@ -42,6 +42,34 @@ def _classify_report_type(filename: str) -> str:
     if "weekly" in name:
         return "weekly"
     return "other"
+
+
+def _ensure_report_data_available(mission_id: str, data_frames: List[pd.DataFrame]) -> None:
+    if any(not frame.empty for frame in data_frames):
+        return
+    logger.error("No report datasets available for mission '%s'.", mission_id)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"No report data available for mission '{mission_id}'.",
+    )
+
+
+def _default_weekly_window() -> tuple[date, date]:
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=7)
+    return start_date, end_date
+
+
+def _load_notes_for_reporting(session: SQLModelSession, mission_id: str) -> List[models.MissionNote]:
+    note_statement = (
+        select(models.MissionNote)
+        .where(
+            models.MissionNote.mission_id == mission_id,
+            models.MissionNote.include_in_report == True,  # noqa: E712
+        )
+        .order_by(models.MissionNote.created_at_utc.asc())
+    )
+    return session.exec(note_statement).all()
 
 
 @router.get(
@@ -142,6 +170,11 @@ async def generate_mission_report(
             if data_results.get(report_type, (pd.DataFrame(), "", None))[1] == "Error":
                 logger.error(f"Error loading {report_type} data for report")
 
+        _ensure_report_data_available(
+            mission_id,
+            [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df],
+        )
+
     except Exception as e:
         logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
@@ -150,6 +183,23 @@ async def generate_mission_report(
     goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
     mission_goals = session.exec(goals_statement).all()
     logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
+    mission_notes = _load_notes_for_reporting(session, mission_id)
+    logger.info(
+        "Found %s included mission notes for '%s' to evaluate for report annotations.",
+        len(mission_notes),
+        mission_id,
+    )
+
+    selected_start_date = options.start_date
+    selected_end_date = options.end_date
+    if selected_start_date is None and selected_end_date is None:
+        selected_start_date, selected_end_date = _default_weekly_window()
+        logger.info(
+            "Using default weekly date window for mission '%s': %s -> %s",
+            mission_id,
+            selected_start_date.isoformat(),
+            selected_end_date.isoformat(),
+        )
 
     report_url = await generate_weekly_report(
         mission_id=mission_id,
@@ -161,8 +211,9 @@ async def generate_mission_report(
         wave_df=wave_df,
         error_df=error_df,
         mission_goals=mission_goals,
-        start_date=options.start_date,
-        end_date=options.end_date,
+        mission_notes=mission_notes,
+        start_date=selected_start_date,
+        end_date=selected_end_date,
         plots_to_include=options.plots_to_include,
         custom_filename=options.custom_filename,
     )
@@ -287,6 +338,11 @@ async def generate_report_with_sensor_tracker(
                 logger.warning(f"No {data_type} data available for mission '{mission_id}' (source: {source_path})")
             else:
                 logger.info(f"Loaded {len(df)} {data_type} records for mission '{mission_id}' from {source_path}")
+
+        _ensure_report_data_available(
+            mission_id,
+            [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df],
+        )
     
     except Exception as e:
         logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
@@ -296,6 +352,12 @@ async def generate_report_with_sensor_tracker(
     goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
     mission_goals = session.exec(goals_statement).all()
     logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
+    mission_notes = _load_notes_for_reporting(session, mission_id)
+    logger.info(
+        "Found %s included mission notes for '%s' to evaluate for report annotations.",
+        len(mission_notes),
+        mission_id,
+    )
     
     # Determine filename based on report type
     if report_type == "end_of_mission":
@@ -305,6 +367,17 @@ async def generate_report_with_sensor_tracker(
         custom_filename = None
         logger.info(f"Report type is '{report_type}' - no custom filename")
     
+    selected_start_date = None
+    selected_end_date = None
+    if report_type != "end_of_mission":
+        selected_start_date, selected_end_date = _default_weekly_window()
+        logger.info(
+            "Using default weekly date window for Sensor Tracker report '%s': %s -> %s",
+            mission_id,
+            selected_start_date.isoformat(),
+            selected_end_date.isoformat(),
+        )
+
     # Generate report with all plot types included
     plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
     report_url = await generate_weekly_report(
@@ -317,6 +390,9 @@ async def generate_report_with_sensor_tracker(
         wave_df=wave_df,
         error_df=error_df,
         mission_goals=mission_goals,
+        mission_notes=mission_notes,
+        start_date=selected_start_date,
+        end_date=selected_end_date,
         plots_to_include=plots_to_include,
         custom_filename=custom_filename,
         sensor_tracker_deployment=sensor_tracker_deployment,  # Pass Sensor Tracker metadata

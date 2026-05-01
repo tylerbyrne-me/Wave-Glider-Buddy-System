@@ -735,6 +735,12 @@ class MissionGoalUpdate(BaseModel):
 class MissionNoteCreate(BaseModel):
     """Model for creating a mission note."""
     content: str
+    include_in_report: bool = True
+
+
+class MissionNoteUpdate(BaseModel):
+    """Model for updating mission note metadata."""
+    include_in_report: Optional[bool] = None
 
 
 class MissionMediaUpdate(BaseModel):

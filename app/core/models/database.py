@@ -589,6 +589,11 @@ class MissionNote(SQLModel, table=True):
     id: Optional[int] = SQLModelField(default=None, primary_key=True)
     mission_id: str = SQLModelField(index=True, description="The mission this note belongs to.")
     content: str = SQLModelField(sa_column=Column(Text), description="The content of the note.")
+    include_in_report: bool = SQLModelField(
+        default=True,
+        index=True,
+        description="Whether this note should be included in generated mission report annotations.",
+    )
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -516,15 +516,30 @@ document.addEventListener('DOMContentLoaded', async function() {
             const maxVisible = 5;
             missionNotesList.innerHTML = notes.map(note => `
                 <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
-                    <div>
+                    <div class="flex-grow-1">
                         <p class="mb-1">${escapeHtml(note.content)}</p>
                         <small class="text-muted">
                             &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
                         </small>
+                        <div class="mt-2">
+                            <span class="badge ${note.include_in_report ? 'bg-success' : 'bg-secondary'}">
+                                ${note.include_in_report ? 'Included in report map' : 'Excluded from report map'}
+                            </span>
+                        </div>
                     </div>
-                    <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
+                    <div class="d-flex flex-column gap-1 ms-2">
+                        <button
+                            class="btn btn-sm ${note.include_in_report ? 'btn-outline-secondary' : 'btn-outline-success'} toggle-note-include-btn"
+                            title="${note.include_in_report ? 'Exclude from report map' : 'Include in report map'}"
+                            data-note-id="${note.id}"
+                            data-include-in-report="${note.include_in_report ? 'true' : 'false'}"
+                        >
+                            ${note.include_in_report ? 'Exclude' : 'Include'}
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger delete-note-btn" title="Delete Note" data-note-id="${note.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
                 </li>
             `).join('');
 
@@ -1302,6 +1317,25 @@ document.addEventListener('DOMContentLoaded', async function() {
                     renderMissionNotes(missionInfo.notes || []);
                 } catch (error) {
                     showToast(`Failed to delete comment: ${error.message}`, 'danger');
+                }
+                return;
+            }
+
+            const toggleNoteIncludeBtn = event.target.closest('.toggle-note-include-btn');
+            if (toggleNoteIncludeBtn) {
+                event.preventDefault();
+                if (!selectedMissionId) return;
+                const noteId = toggleNoteIncludeBtn.dataset.noteId;
+                const currentIncludeValue = toggleNoteIncludeBtn.dataset.includeInReport === 'true';
+                if (!noteId) return;
+                try {
+                    await apiRequest(`/api/missions/notes/${noteId}`, 'PUT', {
+                        include_in_report: !currentIncludeValue,
+                    });
+                    const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                    renderMissionNotes(missionInfo.notes || []);
+                } catch (error) {
+                    showToast(`Failed to update note include setting: ${error.message}`, 'danger');
                 }
                 return;
             }

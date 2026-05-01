@@ -5,6 +5,7 @@
 
 import { checkAuth, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, showToast, appendPlatformParam, getPlatform } from '/static/js/api.js';
+import { formatUtcDate } from '/static/js/datetime_utils.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) return;
@@ -225,7 +226,7 @@ function initializePage(user) {
         const tagsHtml = note.tags ? note.tags.split(',').map(tag => 
             `<span class="badge bg-light text-dark me-1">${tag.trim()}</span>`
         ).join('') : '';
-        const updatedDate = new Date(note.updated_at_utc).toLocaleDateString();
+        const updatedDate = formatUtcDate(note.updated_at_utc);
         
         col.innerHTML = `
             <div class="card h-100 note-card ${note.is_pinned ? 'border-warning' : ''}" data-note-id="${note.id}" style="cursor: pointer;">

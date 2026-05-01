@@ -1406,17 +1406,18 @@ async def run_weekly_reports_job():
     """Scheduled job to generate a standard weekly report for all active missions."""
     logger.info("AUTOMATED: Kicking off weekly report generation for all active missions.")
     with SQLModelSession(sqlite_engine) as session:
-        active_missions = settings.active_realtime_missions
+        active_missions = [mission_id.strip() for mission_id in settings.active_realtime_missions if mission_id and mission_id.strip()]
         if not active_missions:
             logger.info("AUTOMATED: No active missions configured. Skipping weekly report generation.")
             return
 
+        logger.info("AUTOMATED: Weekly report mission queue: %s", active_missions)
         for mission_id in active_missions:
             # The helper function is async and handles its own exceptions/logging
             from .core.reporting import create_and_save_weekly_report
             await create_and_save_weekly_report(mission_id, session)
 
-    logger.info("AUTOMATED: Weekly report generation job finished.")
+    logger.info("AUTOMATED: Weekly report generation job finished for %s missions.", len(active_missions))
 
 
 # --- FastAPI Lifecycle Events for Scheduler ---
@@ -1487,8 +1488,7 @@ async def startup_event():
         timezone='UTC',
         id='weekly_report_job'
     )
-    
-    
+
     scheduler.start()
     # Register scheduler for access by other modules
     set_scheduler(scheduler)

@@ -38,6 +38,10 @@ def mission_storage_dir_name(mission_id: str, suffix: str) -> str:
 
 
 _DEPLOYMENT_MISSION_CODE_PATTERN = re.compile(r"\b[mM](\d+)\b")
+_MISSION_NOTE_PREFIX_PATTERN = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:\s*UTC)?\s*:\s*",
+    re.IGNORECASE,
+)
 
 
 def deployment_mission_code_from_mission_id(mission_id: str) -> str:
@@ -57,6 +61,33 @@ def deployment_mission_code_from_mission_id(mission_id: str) -> str:
     if "-" in trimmed:
         return trimmed.split("-")[-1]
     return trimmed
+
+
+def parse_mission_note_datetime_prefix(note_content: Optional[str]) -> Optional[datetime]:
+    """
+    Parse mission note prefix timestamp in format:
+    YYYY-MM-DD HH:MM : comment text
+
+    Returns timezone-aware UTC datetime when valid, otherwise None.
+    """
+    if not note_content:
+        return None
+    match = _MISSION_NOTE_PREFIX_PATTERN.match(note_content)
+    if not match:
+        return None
+    date_part, time_part = match.groups()
+    try:
+        parsed = datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def strip_mission_note_datetime_prefix(note_content: Optional[str]) -> str:
+    """Remove the datetime prefix from a mission note if present."""
+    if not note_content:
+        return ""
+    return _MISSION_NOTE_PREFIX_PATTERN.sub("", note_content, count=1).strip()
 
 
 def _ensure_utc(ts: pd.Timestamp) -> pd.Timestamp:

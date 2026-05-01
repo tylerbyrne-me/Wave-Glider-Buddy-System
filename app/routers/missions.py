@@ -952,6 +952,7 @@ async def create_mission_note(
     db_note = models.MissionNote(
         mission_id=mission_id,
         content=note_in.content,
+        include_in_report=note_in.include_in_report,
         created_by_username=current_user.username
     )
     session.add(db_note)
@@ -970,6 +971,33 @@ async def create_mission_note(
         payload=payload,
         created_by=current_user,
         auto_approve=is_admin,
+    )
+    return db_note
+
+
+@router.put("/api/missions/notes/{note_id}", response_model=models.MissionNote)
+async def update_mission_note(
+    note_id: int,
+    note_update: models.MissionNoteUpdate,
+    current_admin: models.User = Depends(get_current_admin_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    db_note = session.get(models.MissionNote, note_id)
+    if not db_note:
+        raise HTTPException(status_code=404, detail="Mission note not found.")
+
+    update_data = note_update.model_dump(exclude_unset=True)
+    if "include_in_report" in update_data and update_data["include_in_report"] is not None:
+        db_note.include_in_report = update_data["include_in_report"]
+
+    session.add(db_note)
+    session.commit()
+    session.refresh(db_note)
+    logger.info(
+        "Admin '%s' updated mission note %s include_in_report=%s.",
+        current_admin.username,
+        note_id,
+        db_note.include_in_report,
     )
     return db_note
 

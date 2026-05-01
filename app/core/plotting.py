@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import textwrap
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
+from matplotlib.transforms import Bbox
 import pandas as pd
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -291,7 +292,208 @@ def _annotate_track_start_end(ax, tele):
     ax.plot(end['longitude'], end['latitude'], marker='X', color='red', markersize=8, label='Current', transform=ccrs.Geodetic())
     ax.legend(loc='upper left')
 
-def plot_telemetry_for_report(ax, df: pd.DataFrame):
+def _annotate_mission_notes(
+    ax,
+    note_annotations: List[Dict[str, Any]],
+) -> None:
+    if not note_annotations:
+        return
+
+    fig = ax.get_figure()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axes_bbox = ax.get_window_extent(renderer)
+    # Keep note boxes inside the map and away from title/legend-heavy zones.
+    inset_axes_bbox = Bbox.from_extents(
+        axes_bbox.x0 + 8,
+        axes_bbox.y0 + 8,
+        axes_bbox.x1 - 8,
+        axes_bbox.y1 - 8,
+    )
+    reserved_bboxes: List[Bbox] = [
+        # Top title band
+        Bbox.from_extents(
+            inset_axes_bbox.x0,
+            inset_axes_bbox.y1 - inset_axes_bbox.height * 0.10,
+            inset_axes_bbox.x1,
+            inset_axes_bbox.y1,
+        ),
+        # Upper-left legend area
+        Bbox.from_extents(
+            inset_axes_bbox.x0,
+            inset_axes_bbox.y1 - inset_axes_bbox.height * 0.26,
+            inset_axes_bbox.x0 + inset_axes_bbox.width * 0.38,
+            inset_axes_bbox.y1,
+        ),
+    ]
+    occupied_bboxes: List[Bbox] = []
+    candidate_offsets_pts = [
+        (12, 10), (12, -10), (-12, 10), (-12, -10),
+        (18, 0), (-18, 0), (0, 16), (0, -16),
+        (24, 14), (-24, 14), (24, -14), (-24, -14),
+    ]
+    callout_spacing_px = 26.0
+
+    def _place_in_callout_column(
+        anchor_x_px: float,
+        anchor_y_px: float,
+        label_text: str,
+    ) -> tuple[Any, Optional[Bbox]]:
+        place_on_right = anchor_x_px < (inset_axes_bbox.x0 + inset_axes_bbox.width * 0.60)
+        if place_on_right:
+            x_px = inset_axes_bbox.x1 - 12.0
+            ha = "right"
+            step_direction = -1.0
+        else:
+            x_px = inset_axes_bbox.x0 + 12.0
+            ha = "left"
+            step_direction = 1.0
+
+        base_y_px = min(max(anchor_y_px, inset_axes_bbox.y0 + 16.0), inset_axes_bbox.y1 - 16.0)
+        slot_sequence: List[float] = [base_y_px]
+        for slot_idx in range(1, 24):
+            delta = callout_spacing_px * slot_idx
+            slot_sequence.append(base_y_px + delta)
+            slot_sequence.append(base_y_px - delta)
+
+        for y_px in slot_sequence:
+            y_px = min(max(y_px, inset_axes_bbox.y0 + 8.0), inset_axes_bbox.y1 - 8.0)
+            candidate_lon, candidate_lat = ax.transData.inverted().transform((x_px, y_px))
+            candidate_text = ax.text(
+                candidate_lon,
+                candidate_lat,
+                label_text,
+                fontsize=7.0,
+                va="center",
+                ha=ha,
+                bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="black", alpha=0.80),
+                transform=ccrs.PlateCarree(),
+                zorder=5,
+                clip_on=True,
+            )
+            candidate_bbox = candidate_text.get_window_extent(renderer=renderer)
+            is_inside_axes = (
+                candidate_bbox.x0 >= inset_axes_bbox.x0
+                and candidate_bbox.y0 >= inset_axes_bbox.y0
+                and candidate_bbox.x1 <= inset_axes_bbox.x1
+                and candidate_bbox.y1 <= inset_axes_bbox.y1
+            )
+            has_overlap = any(
+                _bboxes_overlap(candidate_bbox, existing_bbox)
+                for existing_bbox in occupied_bboxes + reserved_bboxes
+            )
+            if is_inside_axes and not has_overlap:
+                return candidate_text, candidate_bbox
+            candidate_text.remove()
+
+        # Last resort: clipped near top/bottom guardrail in chosen column.
+        fallback_y_px = inset_axes_bbox.y0 + 18.0 if step_direction > 0 else inset_axes_bbox.y1 - 18.0
+        fallback_lon, fallback_lat = ax.transData.inverted().transform((x_px, fallback_y_px))
+        fallback_text = ax.text(
+            fallback_lon,
+            fallback_lat,
+            label_text,
+            fontsize=7.0,
+            va="center",
+            ha=ha,
+            bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="black", alpha=0.78),
+            transform=ccrs.PlateCarree(),
+            zorder=5,
+            clip_on=True,
+        )
+        return fallback_text, fallback_text.get_window_extent(renderer=renderer)
+
+    def _bboxes_overlap(left: Bbox, right: Bbox, pad_px: float = 4.0) -> bool:
+        return not (
+            left.x1 + pad_px < right.x0
+            or left.x0 - pad_px > right.x1
+            or left.y1 + pad_px < right.y0
+            or left.y0 - pad_px > right.y1
+        )
+
+    for note in note_annotations:
+        longitude = note.get("longitude")
+        latitude = note.get("latitude")
+        label = str(note.get("label", "")).strip()
+        if longitude is None or latitude is None or not label:
+            continue
+
+        label_wrapped = textwrap.fill(label, width=38)
+        anchor_x_px, anchor_y_px = ax.transData.transform((longitude, latitude))
+        chosen_text = None
+        chosen_bbox = None
+
+        for offset_x_pts, offset_y_pts in candidate_offsets_pts:
+            # 72 points per inch; use figure DPI to convert points to pixels.
+            offset_x_px = (offset_x_pts / 72.0) * fig.dpi
+            offset_y_px = (offset_y_pts / 72.0) * fig.dpi
+            candidate_x_px = anchor_x_px + offset_x_px
+            candidate_y_px = anchor_y_px + offset_y_px
+            candidate_lon, candidate_lat = ax.transData.inverted().transform((candidate_x_px, candidate_y_px))
+            candidate_text = ax.text(
+                candidate_lon,
+                candidate_lat,
+                label_wrapped,
+                fontsize=7.2,
+                va="center",
+                ha="left" if offset_x_pts >= 0 else "right",
+                bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="black", alpha=0.78),
+                transform=ccrs.PlateCarree(),
+                zorder=5,
+            )
+            candidate_bbox = candidate_text.get_window_extent(renderer=renderer)
+
+            is_inside_axes = (
+                candidate_bbox.x0 >= inset_axes_bbox.x0
+                and candidate_bbox.y0 >= inset_axes_bbox.y0
+                and candidate_bbox.x1 <= inset_axes_bbox.x1
+                and candidate_bbox.y1 <= inset_axes_bbox.y1
+            )
+            has_overlap = any(
+                _bboxes_overlap(candidate_bbox, existing_bbox)
+                for existing_bbox in occupied_bboxes + reserved_bboxes
+            )
+            if is_inside_axes and not has_overlap:
+                chosen_text = candidate_text
+                chosen_bbox = candidate_bbox
+                break
+            candidate_text.remove()
+
+        if chosen_text is None:
+            # Dense-cluster fallback: route to a non-overlapping callout column.
+            chosen_text, chosen_bbox = _place_in_callout_column(
+                anchor_x_px=anchor_x_px,
+                anchor_y_px=anchor_y_px,
+                label_text=label_wrapped,
+            )
+
+        ax.plot(
+            longitude,
+            latitude,
+            marker="o",
+            color="black",
+            markersize=4,
+            transform=ccrs.Geodetic(),
+            zorder=4,
+        )
+        text_anchor_data = chosen_text.get_position()
+        ax.plot(
+            [longitude, text_anchor_data[0]],
+            [latitude, text_anchor_data[1]],
+            color="black",
+            linewidth=0.7,
+            transform=ccrs.PlateCarree(),
+            zorder=4,
+        )
+        if chosen_bbox is not None:
+            occupied_bboxes.append(chosen_bbox)
+
+
+def plot_telemetry_for_report(
+    ax,
+    df: pd.DataFrame,
+    note_annotations: Optional[List[Dict[str, Any]]] = None,
+):
     """Plots the 2D GPS track on the given map axes for a PDF report. Assumes a pre-filtered DataFrame."""
     # The 'lastLocationFix' column is expected from the telemetry data source.
     df = df.sort_values(by='lastLocationFix')
@@ -319,6 +521,7 @@ def plot_telemetry_for_report(ax, df: pd.DataFrame):
     cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', shrink=0.8, pad=0.08)
     cbar.set_label('Speed Over Ground (knots)')
 
+    _annotate_mission_notes(ax, note_annotations or [])
     _annotate_track_start_end(ax, df)
     ax.set_title(f"Telemetry Track\n{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC")
     
