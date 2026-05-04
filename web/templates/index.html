@@ -2055,6 +2055,35 @@
   </div>
   {% endif %}
 
+  {% if current_user %}
+  <!-- Edit Mission Note / Comment -->
+  <div class="modal fade" id="missionNoteModal" tabindex="-1" aria-labelledby="missionNoteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="missionNoteModalLabel">Edit mission comment</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="missionNoteIdInput">
+          <div class="mb-3">
+            <label for="missionNoteContentInput" class="form-label">Comment</label>
+            <textarea class="form-control" id="missionNoteContentInput" rows="5" required></textarea>
+          </div>
+          <div class="form-check mb-2 d-none" id="missionNoteIncludeReportWrap">
+            <input class="form-check-input" type="checkbox" id="missionNoteIncludeReport">
+            <label class="form-check-label" for="missionNoteIncludeReport">Include in report and map annotations</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="saveMissionNoteBtn">Save comment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 {% endblock %}
 
 {% block body_extra_js %}

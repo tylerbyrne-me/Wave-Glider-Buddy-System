@@ -596,6 +596,10 @@ class MissionNote(SQLModel, table=True):
     )
     created_by_username: str
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="Set when the note content or report flag is last updated.",
+    )
 
 
 # --- Sensor Tracker Outbox Database Model ---

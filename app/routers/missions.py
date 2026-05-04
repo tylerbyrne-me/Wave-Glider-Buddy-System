@@ -278,6 +278,139 @@ def _create_outbox_item(
 
     return outbox_item
 
+
+def _refresh_note_deployment_comment_outbox(
+    session: SQLModelSession,
+    db_note: models.MissionNote,
+    editor: models.User,
+) -> None:
+    """
+    After mission note content changes, update or create the Sensor Tracker outbox row
+    so the next sync uses the latest comment and re-queued synced items can be pushed again.
+    """
+    existing = session.exec(
+        select(models.SensorTrackerOutbox).where(
+            models.SensorTrackerOutbox.mission_id == db_note.mission_id,
+            models.SensorTrackerOutbox.entity_type == "deployment_comment",
+            models.SensorTrackerOutbox.local_id == db_note.id,
+        )
+    ).first()
+
+    is_admin = _get_user_role_value(editor) == models.UserRoleEnum.admin.value
+    was_synced = existing is not None and existing.status == OUTBOX_SYNCED
+
+    if was_synced:
+        event_time = db_note.updated_at_utc or datetime.now(timezone.utc)
+    else:
+        event_time = db_note.created_at_utc
+
+    payload = {"event_time": event_time, "comment": db_note.content}
+    sanitized_payload = _sanitize_payload(payload)
+    payload_hash = _hash_payload(sanitized_payload)
+
+    if not existing:
+        _create_outbox_item(
+            session=session,
+            mission_id=db_note.mission_id,
+            entity_type="deployment_comment",
+            local_id=db_note.id,
+            payload=payload,
+            created_by=editor,
+            auto_approve=is_admin,
+        )
+        return
+
+    existing.payload = sanitized_payload
+    existing.payload_hash = payload_hash
+    existing.error_message = None
+    status = existing.status
+
+    def _announce_pending_review() -> None:
+        _create_announcement(
+            session=session,
+            content=(
+                f"Sensor Tracker sync pending review for mission '{db_note.mission_id}' "
+                f"(deployment_comment #{db_note.id}) created by {editor.username}"
+            ),
+            created_by_username=editor.username,
+            target_roles=[models.UserRoleEnum.admin.value],
+            target_usernames=[editor.username],
+        )
+
+    if status == OUTBOX_REJECTED:
+        existing.status = OUTBOX_PENDING
+        existing.approved_by_username = None
+        existing.approved_at_utc = None
+        existing.rejected_by_username = None
+        existing.rejected_at_utc = None
+        existing.rejection_reason = None
+        session.add(existing)
+        _announce_pending_review()
+        return
+
+    if status == OUTBOX_SYNCED:
+        now = datetime.now(timezone.utc)
+        if is_admin:
+            existing.status = OUTBOX_APPROVED
+            existing.approved_by_username = editor.username
+            existing.approved_at_utc = now
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+        else:
+            existing.status = OUTBOX_PENDING
+            existing.approved_by_username = None
+            existing.approved_at_utc = None
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+            _announce_pending_review()
+        session.add(existing)
+        return
+
+    if status == OUTBOX_REMOTE_DELETED:
+        now = datetime.now(timezone.utc)
+        if is_admin:
+            existing.status = OUTBOX_APPROVED
+            existing.approved_by_username = editor.username
+            existing.approved_at_utc = now
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+        else:
+            existing.status = OUTBOX_PENDING
+            existing.approved_by_username = None
+            existing.approved_at_utc = None
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+            _announce_pending_review()
+        session.add(existing)
+        return
+
+    if status == OUTBOX_FAILED:
+        if is_admin:
+            now = datetime.now(timezone.utc)
+            existing.status = OUTBOX_APPROVED
+            existing.approved_by_username = editor.username
+            existing.approved_at_utc = now
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+        else:
+            existing.status = OUTBOX_PENDING
+            existing.approved_by_username = None
+            existing.approved_at_utc = None
+            existing.rejected_by_username = None
+            existing.rejected_at_utc = None
+            existing.rejection_reason = None
+            _announce_pending_review()
+        session.add(existing)
+        return
+
+    session.add(existing)
+
+
 # --- HTML/Admin Page ---
 @router.get("/admin/mission_overviews.html", response_class=HTMLResponse)
 async def get_admin_mission_overviews_page(
@@ -979,24 +1112,42 @@ async def create_mission_note(
 async def update_mission_note(
     note_id: int,
     note_update: models.MissionNoteUpdate,
-    current_admin: models.User = Depends(get_current_admin_user),
+    current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
 ):
     db_note = session.get(models.MissionNote, note_id)
     if not db_note:
         raise HTTPException(status_code=404, detail="Mission note not found.")
 
+    is_admin = _get_user_role_value(current_user) == models.UserRoleEnum.admin.value
+    if not is_admin and db_note.created_by_username != current_user.username:
+        raise HTTPException(status_code=403, detail="Not allowed to edit this mission note.")
+
     update_data = note_update.model_dump(exclude_unset=True)
+    content_changed = False
+    if "content" in update_data:
+        db_note.content = update_data["content"]
+        content_changed = True
     if "include_in_report" in update_data and update_data["include_in_report"] is not None:
         db_note.include_in_report = update_data["include_in_report"]
+
+    if content_changed or "include_in_report" in update_data:
+        db_note.updated_at_utc = datetime.now(timezone.utc)
 
     session.add(db_note)
     session.commit()
     session.refresh(db_note)
+
+    if content_changed:
+        _refresh_note_deployment_comment_outbox(session, db_note, current_user)
+        session.commit()
+        session.refresh(db_note)
+
     logger.info(
-        "Admin '%s' updated mission note %s include_in_report=%s.",
-        current_admin.username,
+        "User '%s' updated mission note %s (content_changed=%s, include_in_report=%s).",
+        current_user.username,
         note_id,
+        content_changed,
         db_note.include_in_report,
     )
     return db_note
@@ -1004,15 +1155,18 @@ async def update_mission_note(
 @router.delete("/api/missions/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mission_note(
     note_id: int,
-    current_admin: models.User = Depends(get_current_admin_user),
+    current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
     db_note = session.get(models.MissionNote, note_id)
     if not db_note:
         raise HTTPException(status_code=404, detail="Mission note not found.")
+    is_admin = _get_user_role_value(current_user) == models.UserRoleEnum.admin.value
+    if not is_admin and db_note.created_by_username != current_user.username:
+        raise HTTPException(status_code=403, detail="Not allowed to delete this mission note.")
     session.delete(db_note)
     session.commit()
-    logger.info(f"Admin '{current_admin.username}' deleted note ID {note_id}.")
+    logger.info(f"User '{current_user.username}' deleted note ID {note_id}.")
     return 
 
 

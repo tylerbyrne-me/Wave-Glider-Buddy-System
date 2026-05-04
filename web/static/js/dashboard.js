@@ -167,6 +167,16 @@ document.addEventListener('DOMContentLoaded', async function() {
     const goalIdInput = document.getElementById('goalIdInput');
     const goalDescriptionInput = document.getElementById('goalDescriptionInput');
     const saveGoalBtn = document.getElementById('saveGoalBtn');
+    const missionNoteModalElement = document.getElementById('missionNoteModal');
+    const missionNoteModal = missionNoteModalElement ? new bootstrap.Modal(missionNoteModalElement) : null;
+    const missionNoteModalLabel = document.getElementById('missionNoteModalLabel');
+    const missionNoteIdInput = document.getElementById('missionNoteIdInput');
+    const missionNoteContentInput = document.getElementById('missionNoteContentInput');
+    const missionNoteIncludeReportWrap = document.getElementById('missionNoteIncludeReportWrap');
+    const missionNoteIncludeReport = document.getElementById('missionNoteIncludeReport');
+    const saveMissionNoteBtn = document.getElementById('saveMissionNoteBtn');
+
+    let lastMissionNotesForEdit = [];
 
     // --- PIC Handoffs (Mission-linked) ---
     const dashboardPicHandoffsSpinner = document.getElementById('dashboardPicHandoffsSpinner');
@@ -257,6 +267,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (existingHistory) existingHistory.remove();
 
         if (!notes || notes.length === 0) {
+            lastMissionNotesForEdit = [];
             dashboardMissionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
             return;
         }
@@ -272,9 +283,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         const recentNotes = sortedNotes.slice(0, DASHBOARD_RECENT_NOTE_LIMIT);
         const olderNotes = sortedNotes.slice(DASHBOARD_RECENT_NOTE_LIMIT);
+        lastMissionNotesForEdit = sortedNotes;
 
         dashboardMissionNotesList.innerHTML = recentNotes.map(note => {
-            const canDelete = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
+            const canEdit = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
             return `
                 <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}" data-note-created-at="${escapeHtml(note.created_at_utc || '')}">
                     <div>
@@ -283,10 +295,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                             &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
                         </small>
                     </div>
-                    ${canDelete ? `
-                        <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
+                    ${canEdit ? `
+                        <div class="d-flex flex-shrink-0 gap-1 ms-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary edit-note-btn" title="Edit comment" data-note-id="${note.id}">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-note-btn" title="Delete Note" data-note-id="${note.id}">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
                     ` : ''}
                 </li>
             `;
@@ -295,7 +312,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!notesContainer || olderNotes.length === 0) return;
 
         const olderNotesMarkup = olderNotes.map(note => {
-            const canDelete = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
+            const canEdit = USER_ROLE === 'admin' || (USERNAME && note.created_by_username === USERNAME);
             return `
                 <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}" data-note-created-at="${escapeHtml(note.created_at_utc || '')}">
                     <div>
@@ -304,10 +321,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                             &mdash; ${escapeHtml(note.created_by_username || 'Unknown')} on ${formatTimestamp(note.created_at_utc)}
                         </small>
                     </div>
-                    ${canDelete ? `
-                        <button class="btn btn-sm btn-outline-danger delete-note-btn ms-2" title="Delete Note" data-note-id="${note.id}">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
+                    ${canEdit ? `
+                        <div class="d-flex flex-shrink-0 gap-1 ms-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary edit-note-btn" title="Edit comment" data-note-id="${note.id}">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-note-btn" title="Delete Note" data-note-id="${note.id}">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
                     ` : ''}
                 </li>
             `;
@@ -664,6 +686,28 @@ document.addEventListener('DOMContentLoaded', async function() {
             return;
         }
 
+        const editNoteBtn = event.target.closest('.edit-note-btn');
+        if (editNoteBtn) {
+            event.preventDefault();
+            if (!missionId || !missionNoteModal) return;
+            const noteId = editNoteBtn.dataset.noteId;
+            if (!noteId) return;
+            const note = lastMissionNotesForEdit.find((n) => String(n.id) === String(noteId));
+            if (!note) {
+                showToast('Could not load that comment. Refresh the page and try again.', 'warning');
+                return;
+            }
+            if (missionNoteModalLabel) missionNoteModalLabel.textContent = 'Edit mission comment';
+            if (missionNoteIdInput) missionNoteIdInput.value = noteId;
+            if (missionNoteContentInput) missionNoteContentInput.value = note.content || '';
+            if (missionNoteIncludeReportWrap && missionNoteIncludeReport) {
+                missionNoteIncludeReport.checked = Boolean(note.include_in_report);
+                missionNoteIncludeReportWrap.classList.remove('d-none');
+            }
+            missionNoteModal.show();
+            return;
+        }
+
         const deleteNoteBtn = event.target.closest('.delete-note-btn');
         if (deleteNoteBtn) {
             event.preventDefault();
@@ -760,6 +804,29 @@ document.addEventListener('DOMContentLoaded', async function() {
                 await loadMissionOverview();
             } catch (error) {
                 showToast(`Failed to save goal: ${error.message}`, 'danger');
+            }
+        });
+    }
+
+    if (saveMissionNoteBtn && missionNoteModal) {
+        saveMissionNoteBtn.addEventListener('click', async () => {
+            const id = missionNoteIdInput?.value;
+            const content = missionNoteContentInput?.value.trim() || '';
+            if (!id || !content) {
+                showToast('Comment cannot be empty.', 'danger');
+                return;
+            }
+            const payload = { content };
+            if (missionNoteIncludeReportWrap && !missionNoteIncludeReportWrap.classList.contains('d-none') && missionNoteIncludeReport) {
+                payload.include_in_report = missionNoteIncludeReport.checked;
+            }
+            try {
+                await apiRequest(`/api/missions/notes/${id}`, 'PUT', payload);
+                missionNoteModal.hide();
+                showToast('Comment updated.', 'success');
+                await loadMissionOverview();
+            } catch (error) {
+                showToast(`Failed to update comment: ${error.message}`, 'danger');
             }
         });
     }

@@ -739,8 +739,25 @@ class MissionNoteCreate(BaseModel):
 
 
 class MissionNoteUpdate(BaseModel):
-    """Model for updating mission note metadata."""
+    """Model for updating a mission note (content and/or report inclusion)."""
+    content: Optional[str] = None
     include_in_report: Optional[bool] = None
+
+    @field_validator("content")
+    @classmethod
+    def content_not_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("content cannot be empty")
+        return stripped
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "MissionNoteUpdate":
+        if self.content is None and self.include_in_report is None:
+            raise ValueError("At least one of content or include_in_report must be provided.")
+        return self
 
 
 class MissionMediaUpdate(BaseModel):

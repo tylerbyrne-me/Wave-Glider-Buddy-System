@@ -62,8 +62,17 @@ document.addEventListener('DOMContentLoaded', async function() {
         const goalIdInput = document.getElementById('goalIdInput');
         const goalDescriptionInput = document.getElementById('goalDescriptionInput');
         const saveGoalBtn = document.getElementById('saveGoalBtn');
+        const missionNoteModalElement = document.getElementById('missionNoteModal');
+        const missionNoteModal = missionNoteModalElement ? new bootstrap.Modal(missionNoteModalElement) : null;
+        const missionNoteModalLabel = document.getElementById('missionNoteModalLabel');
+        const missionNoteIdInput = document.getElementById('missionNoteIdInput');
+        const missionNoteContentInput = document.getElementById('missionNoteContentInput');
+        const missionNoteIncludeReportWrap = document.getElementById('missionNoteIncludeReportWrap');
+        const missionNoteIncludeReport = document.getElementById('missionNoteIncludeReport');
+        const saveMissionNoteBtn = document.getElementById('saveMissionNoteBtn');
 
         let selectedMissionId = null;
+        let lastRenderedMissionNotes = [];
 
         const escapeHtml = (value) => {
             if (value === null || value === undefined) return '';
@@ -509,10 +518,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         function renderMissionNotes(notes) {
             if (!missionNotesList) return;
             if (!notes || notes.length === 0) {
+                lastRenderedMissionNotes = [];
                 missionNotesList.innerHTML = '<li class="list-group-item text-muted no-mission-notes-placeholder">No mission comments have been added.</li>';
                 if (missionNotesToggleBtn) missionNotesToggleBtn.style.display = 'none';
                 return;
             }
+            lastRenderedMissionNotes = notes;
             const maxVisible = 5;
             missionNotesList.innerHTML = notes.map(note => `
                 <li class="list-group-item d-flex justify-content-between align-items-start" data-note-id="${note.id}">
@@ -528,6 +539,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                         </div>
                     </div>
                     <div class="d-flex flex-column gap-1 ms-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary edit-mission-note-btn" title="Edit comment" data-note-id="${note.id}">
+                            <i class="fas fa-pencil-alt"></i> Edit
+                        </button>
                         <button
                             class="btn btn-sm ${note.include_in_report ? 'btn-outline-secondary' : 'btn-outline-success'} toggle-note-include-btn"
                             title="${note.include_in_report ? 'Exclude from report map' : 'Include in report map'}"
@@ -1304,6 +1318,26 @@ document.addEventListener('DOMContentLoaded', async function() {
                 return;
             }
 
+            const editMissionNoteBtn = event.target.closest('.edit-mission-note-btn');
+            if (editMissionNoteBtn) {
+                event.preventDefault();
+                if (!selectedMissionId || !missionNoteModal) return;
+                const noteId = editMissionNoteBtn.dataset.noteId;
+                if (!noteId) return;
+                const note = lastRenderedMissionNotes.find((n) => String(n.id) === String(noteId));
+                if (!note) {
+                    showToast('Could not load that comment. Refresh the mission list.', 'warning');
+                    return;
+                }
+                if (missionNoteModalLabel) missionNoteModalLabel.textContent = 'Edit mission comment';
+                if (missionNoteIdInput) missionNoteIdInput.value = noteId;
+                if (missionNoteContentInput) missionNoteContentInput.value = note.content || '';
+                if (missionNoteIncludeReportWrap) missionNoteIncludeReportWrap.classList.remove('d-none');
+                if (missionNoteIncludeReport) missionNoteIncludeReport.checked = Boolean(note.include_in_report);
+                missionNoteModal.show();
+                return;
+            }
+
             const deleteNoteBtn = event.target.closest('.delete-note-btn');
             if (deleteNoteBtn) {
                 event.preventDefault();
@@ -1571,6 +1605,32 @@ document.addEventListener('DOMContentLoaded', async function() {
                     if (goalModal) goalModal.hide();
                 } catch (error) {
                     showToast(`Failed to save goal: ${error.message}`, 'danger');
+                }
+            });
+        }
+
+        if (saveMissionNoteBtn && missionNoteModal) {
+            saveMissionNoteBtn.addEventListener('click', async () => {
+                const id = missionNoteIdInput?.value;
+                const content = missionNoteContentInput?.value.trim() || '';
+                if (!id || !content) {
+                    showToast('Comment cannot be empty.', 'danger');
+                    return;
+                }
+                const payload = {
+                    content,
+                    include_in_report: Boolean(missionNoteIncludeReport?.checked),
+                };
+                try {
+                    await apiRequest(`/api/missions/notes/${id}`, 'PUT', payload);
+                    missionNoteModal.hide();
+                    showToast('Comment updated.', 'success');
+                    if (selectedMissionId) {
+                        const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
+                        renderMissionNotes(missionInfo.notes || []);
+                    }
+                } catch (error) {
+                    showToast(`Failed to update comment: ${error.message}`, 'danger');
                 }
             });
         }
