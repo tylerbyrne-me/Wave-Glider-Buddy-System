@@ -74,6 +74,8 @@ export function initializeWgVm4OffloadSection() {
         if (!stationId) return;
         if (stationMetadataError) stationMetadataError.style.display = 'none';
         if (stationMetadataDisplay) stationMetadataDisplay.style.display = 'none';
+        const metaLastLogStatusClear = document.getElementById('metaLastLogStatus');
+        if (metaLastLogStatusClear) metaLastLogStatusClear.textContent = 'N/A';
         currentStationData = null;
         if(submitOffloadLogBtn) submitOffloadLogBtn.disabled = true;
 
@@ -106,6 +108,41 @@ export function initializeWgVm4OffloadSection() {
         return parsed.toISOString().slice(0, 16).replace('T', ' ');
     }
 
+    /** Matches server `_offload_log_sort_key`: end → start → log row time. */
+    function offloadLogEffectiveTsMs(log) {
+        const raw = log.offload_end_time_utc ?? log.offload_start_time_utc ?? log.log_timestamp_utc;
+        if (!raw) return Number.NEGATIVE_INFINITY;
+        const ms = new Date(raw).valueOf();
+        return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+    }
+
+    function pickLatestOffloadLog(logs) {
+        if (!logs || logs.length === 0) return null;
+        return logs.reduce((best, log) => {
+            const ts = offloadLogEffectiveTsMs(log);
+            const bestTs = offloadLogEffectiveTsMs(best);
+            if (ts > bestTs) return log;
+            if (ts < bestTs) return best;
+            const id = log.id ?? 0;
+            const bestId = best.id ?? 0;
+            return id >= bestId ? log : best;
+        });
+    }
+
+    function deriveLastLogTimeAndStatus(data) {
+        const latest = pickLatestOffloadLog(data.offload_logs);
+        const timeRaw = latest?.log_timestamp_utc ?? data.last_offload_timestamp_utc;
+        const override = String(data.display_status_override || '').toUpperCase();
+        if (override === 'SKIPPED') {
+            return { timeRaw, statusLabel: 'Skipped' };
+        }
+        const was = latest ? latest.was_offloaded : data.was_last_offload_successful;
+        if (was === true) return { timeRaw, statusLabel: 'Offloaded' };
+        if (was === false) return { timeRaw, statusLabel: 'Failed' };
+        if (timeRaw) return { timeRaw, statusLabel: 'Unknown' };
+        return { timeRaw: null, statusLabel: 'N/A' };
+    }
+
     function displayStationMetadata(data) {
         if (!data) return;
         const metaSerial = document.getElementById('metaSerial');
@@ -114,12 +151,15 @@ export function initializeWgVm4OffloadSection() {
         const metaWp = document.getElementById('metaWp');
         const metaLastOffload = document.getElementById('metaLastOffload');
         const metaSettings = document.getElementById('metaSettings');
+        const metaLastLogStatus = document.getElementById('metaLastLogStatus');
         if (metaSerial) metaSerial.textContent = data.serial_number || 'N/A';
         if (metaModemAddr) metaModemAddr.textContent = data.modem_address !== null ? data.modem_address : 'N/A';
         if (metaDepth) metaDepth.textContent = data.bottom_depth_m !== null ? data.bottom_depth_m : 'N/A';
         if (metaWp) metaWp.textContent = data.waypoint_number || 'N/A';
+        const { timeRaw, statusLabel } = deriveLastLogTimeAndStatus(data);
         const metaLastOffloadTimestampElement = document.getElementById('metaLastOffloadTimestamp');
-        if (metaLastOffloadTimestampElement) metaLastOffloadTimestampElement.textContent = toUtcDisplay(data.last_offload_timestamp_utc);
+        if (metaLastOffloadTimestampElement) metaLastOffloadTimestampElement.textContent = toUtcDisplay(timeRaw);
+        if (metaLastLogStatus) metaLastLogStatus.textContent = statusLabel;
         if (metaLastOffload) metaLastOffload.textContent = data.last_offload_by_glider || 'N/A';
         if (metaSettings) metaSettings.textContent = data.station_settings || 'N/A';
         const isFlagged = Boolean(data.station_flag_state?.is_flagged);
