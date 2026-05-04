@@ -2089,7 +2089,9 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     # even when there is no activity in the last 24h window.
     # Full telemetry so navigation "mission" track length uses the whole mission; the
     # navigation mini-trend still windows to 24h inside summaries._generate_mini_trend.
-    full_history_report_types = {"ais", "errors", "telemetry"}
+    # `power` is included so RealisticMaxBatteryWh = BatteryWattHours.max() reflects the mission peak,
+    # not just the last 24h. Solar stays windowed since it is only matched against the latest power row.
+    full_history_report_types = {"ais", "errors", "telemetry", "power"}
     results = await asyncio.gather(
         *[
             load_data_source(
