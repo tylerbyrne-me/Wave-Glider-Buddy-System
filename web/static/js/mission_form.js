@@ -22,6 +22,23 @@ document.addEventListener('DOMContentLoaded', async function () {
     const submissionStatusDiv = document.getElementById('submissionStatus');
     const formSpinner = document.getElementById('formSpinner');
 
+    function formatUtcMinutePrecision(isoString) {
+        const parsed = new Date(isoString);
+        if (Number.isNaN(parsed.valueOf())) return '';
+        return parsed.toISOString().slice(0, 16).replace('T', ' ');
+    }
+
+    missionReportForm.addEventListener('click', function (event) {
+        const nowBtn = event.target.closest('.mission-form-utc-now-btn');
+        if (!nowBtn) return;
+        const targetId = nowBtn.dataset.targetInputId;
+        if (!targetId) return;
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        input.value = formatUtcMinutePrecision(new Date().toISOString());
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
     /**
      * Fetch and render the form schema
      */
@@ -62,6 +79,16 @@ document.addEventListener('DOMContentLoaded', async function () {
                             const textTitleAttr = textHint ? ` title="${textHint}"` : '';
                             const textHintClass = textHint ? ' form-control--has-tooltip' : '';
                             inputHtml = `<input type="text" class="form-control${textHintClass}" id="${item.id}" name="${item.id}" value="${item.value || ''}" placeholder="${item.placeholder || ''}"${textTitleAttr} ${item.required ? 'required' : ''}>`;
+                            break;
+                        }
+                        case 'datetime-local': {
+                            const rawVal = item.value != null ? String(item.value) : '';
+                            const escVal = rawVal.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                            const ph = (item.placeholder || 'YYYY-MM-DD HH:mm').replace(/"/g, '&quot;');
+                            inputHtml = `<div class="input-group">
+                                <input type="text" class="form-control" id="${item.id}" name="${item.id}" value="${escVal}" placeholder="${ph}" pattern="^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$" title="Use UTC 24hr format: YYYY-MM-DD HH:mm" data-form-item-type="datetime-local" inputmode="numeric" ${item.required ? 'required' : ''}>
+                                <button type="button" class="btn btn-outline-secondary mission-form-utc-now-btn" data-target-input-id="${item.id}">Now</button>
+                            </div>`;
                             break;
                         }
                         case 'text_area':
@@ -359,7 +386,11 @@ document.addEventListener('DOMContentLoaded', async function () {
                         formItem.item_type = (itemId && /^sensor_.*_status$/.test(itemId)) ? 'sensor_status' : 'text_input';
                     } else if (inputElem.type === 'textarea' || inputElem.type === 'text') {
                         formItem.value = inputElem.value.trim();
-                        formItem.item_type = inputElem.type === 'textarea' ? 'text_area' : 'text_input';
+                        if (inputElem.type === 'text' && inputElem.getAttribute('data-form-item-type') === 'datetime-local') {
+                            formItem.item_type = 'datetime-local';
+                        } else {
+                            formItem.item_type = inputElem.type === 'textarea' ? 'text_area' : 'text_input';
+                        }
                     }
                 } else {
                     const displayElem = document.getElementById(itemId);

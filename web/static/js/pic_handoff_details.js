@@ -103,6 +103,10 @@ function formatItemValue(item) {
         return (raw !== undefined && raw !== null && String(raw).trim() !== '') ? String(raw) : null;
     }
 
+    if (item.item_type === 'datetime-local') {
+        return raw != null && String(raw).trim() !== '' ? `${String(raw).trim()} UTC` : null;
+    }
+
     if (item.item_type === 'checkbox') {
         return item.is_checked ? 'Checked' : 'Unchecked';
     }

@@ -72,7 +72,7 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                         models.FormItem(id="current_battery_wh_val", label="Current Glider Battery (Wh)", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value="N/A"), # Placeholder
                         models.FormItem(id="percent_battery_val", label="% Battery Remaining", item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE, value="N/A"), # Placeholder
                         models.FormItem(id="tracker_battery_v_val", label="Tracker Battery (V)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 14.94"),
-                        models.FormItem(id="tracker_last_update_val", label="Tracker Last Update", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., MM-DD-YYYY HH:MM:SS"),
+                        models.FormItem(id="tracker_last_update_val", label="Tracker Last Update (UTC)", item_type=models.FormItemTypeEnum.DATETIME_LOCAL, placeholder="YYYY-MM-DD HH:mm"),
                         models.FormItem(id="communications_val", label="Communications Mode", item_type=models.FormItemTypeEnum.DROPDOWN, options=["SAT", "CELL"], required=True),
                         models.FormItem(id="telemetry_rate_val", label="Telemetry Report Rate (min)", item_type=models.FormItemTypeEnum.TEXT_INPUT, placeholder="e.g., 5"),
                         models.FormItem(id="navigation_mode_val", label="Navigation Mode", item_type=models.FormItemTypeEnum.DROPDOWN, options=["FSC", "FFB", "FFH", "WC", "FCC"], required=True),

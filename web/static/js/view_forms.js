@@ -160,6 +160,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                         itemValueDisplay = item.is_checked ? 'Checked' : 'Unchecked';
                     } else if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
                         itemValueDisplay = item.value || 'N/A';
+                    } else if (item.item_type === 'datetime-local') {
+                        itemValueDisplay = item.value && String(item.value).trim() !== '' ? `${String(item.value).trim()} UTC` : '(empty)';
                     } else { // text_input, text_area
                         itemValueDisplay = item.value || '(empty)';
                     }
