@@ -90,7 +90,12 @@ def _refresh_station_last_offload_from_all_logs(
     stmt = select(models.OffloadLog).where(models.OffloadLog.station_id == station_id)
     logs = list(session.exec(stmt).all())
     station = session.get(models.StationMetadata, station_id)
-    if not station or not logs:
+    if not station:
+        return
+    if not logs:
+        station.last_offload_timestamp_utc = None
+        station.was_last_offload_successful = None
+        session.add(station)
         return
     latest = max(logs, key=_offload_log_sort_key)
     ts = latest.offload_end_time_utc or latest.offload_start_time_utc or latest.log_timestamp_utc
@@ -1027,6 +1032,48 @@ async def update_offload_log_for_station(
     return db_log
 
 
+@router.delete(
+    "/station_metadata/{station_id}/offload_logs/{log_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Station Offload Management"],
+)
+async def delete_offload_log_for_station(
+    station_id: str,
+    log_id: int,
+    session: Annotated[SQLModelSession, Depends(get_db_session)],
+    current_user: Annotated[UserModel, Depends(get_current_active_user)],
+):
+    db_station = session.get(models.StationMetadata, station_id)
+    if not db_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Station metadata not found",
+        )
+    if station_blocks_edits(db_station):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Station {station_id} is retired or archived and cannot be modified",
+        )
+    db_log = session.get(models.OffloadLog, log_id)
+    if not db_log or db_log.station_id != station_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offload log not found for this station",
+        )
+    is_admin = current_user.role == models.UserRoleEnum.admin
+    is_owner = db_log.logged_by_username == current_user.username
+    if not (is_admin or is_owner):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own log unless you are an admin.",
+        )
+
+    session.delete(db_log)
+    _refresh_station_last_offload_from_all_logs(session, station_id)
+    session.commit()
+    return
+
+
 @router.get(
     "/stations/status_overview",
     response_model=List[Dict[str, Any]],
@@ -1079,7 +1126,9 @@ async def get_station_offload_status_overview(
         if season_year is None:
             if target_year is None:
                 relevant_logs = [
-                    log for log in station.offload_logs if log.field_season_year is None
+                    log
+                    for log in station.offload_logs
+                    if log.field_season_year is None
                 ]
             else:
                 relevant_logs = [

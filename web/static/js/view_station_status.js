@@ -745,7 +745,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
-    function renderRecentOffloadCards(logs) {
+    function renderRecentOffloadCards(logs, stationMissionId = '') {
         return logs.map((p) => {
             const ok = p.was_offloaded === true;
             const bad = p.was_offloaded === false;
@@ -765,6 +765,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     <div class="col-md-6"><label class="form-label small mb-0">Departure (UTC)</label><input type="datetime-local" class="form-control form-control-sm recent-departure" value="${isoToDatetimeLocal(p.departure_date)}"></div>
     <div class="col-md-6"><label class="form-label small mb-0">Distance cmd sent (m)</label><input type="number" step="any" class="form-control form-control-sm recent-distance" value="${p.distance_command_sent_m ?? ''}"></div>
   </div>
+  <label class="form-label small mb-0 mt-1">Station Offload Mission ID</label>
+  <input type="text" class="form-control form-control-sm recent-station-mission-id" value="${escapeHtml(stationMissionId || '')}" placeholder="e.g., m209 (optional)">
+  <div class="form-text">Station-level value (updates last_offload_by_glider for this station).</div>
   <label class="form-label small mb-0 mt-1">Offload notes / file size</label>
   <textarea class="form-control form-control-sm recent-offload-notes" rows="2">${escapeHtml(p.offload_notes_file_size || '')}</textarea>
   <label class="form-label small mb-0 mt-1">User notes</label>
@@ -773,9 +776,29 @@ document.addEventListener('DOMContentLoaded', async function () {
     <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
     <label class="form-check-label small" for="rw-${p.id}">Offloaded successfully</label>
   </div>
-  <button type="button" class="btn btn-sm btn-primary mt-1 recent-save-log" data-log-id="${p.id}">Save changes</button>
+  <div class="d-flex gap-2 mt-1">
+    <button type="button" class="btn btn-sm btn-primary recent-save-log" data-log-id="${p.id}">Save changes</button>
+    <button type="button" class="btn btn-sm btn-outline-danger recent-delete-log" data-log-id="${p.id}">Delete log</button>
+  </div>
 </div>`;
         }).join('');
+    }
+
+    function renderRecentCardsFromStationPayload(stationData) {
+        const acc = document.getElementById('recentOffloadsAccordion');
+        const accBody = document.getElementById('recentOffloadsBody');
+        if (!acc || !accBody) return;
+        const rawLogs = Array.isArray(stationData?.offload_logs) ? stationData.offload_logs : [];
+        const logs = [...rawLogs]
+            .sort((a, b) => (parseApiUtcDate(b.log_timestamp_utc)?.getTime() || 0) - (parseApiUtcDate(a.log_timestamp_utc)?.getTime() || 0))
+            .slice(0, 10);
+        if (!logs.length) {
+            acc.style.display = 'none';
+            accBody.innerHTML = '';
+            return;
+        }
+        acc.style.display = 'block';
+        accBody.innerHTML = renderRecentOffloadCards(logs, stationData?.last_offload_by_glider || '');
     }
 
     async function openEditLogModal(stationId, stationRow) {
@@ -847,21 +870,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             const swapBtn = document.getElementById('swapHardwareBtn');
             if (swapBtn) swapBtn.style.display = isAdmin ? 'inline-block' : 'none';
 
-            const acc = document.getElementById('recentOffloadsAccordion');
-            const accBody = document.getElementById('recentOffloadsBody');
-            if (acc && accBody) {
-                const rawLogs = Array.isArray(stationData.offload_logs) ? stationData.offload_logs : [];
-                const logs = [...rawLogs]
-                    .sort((a, b) => (parseApiUtcDate(b.log_timestamp_utc)?.getTime() || 0) - (parseApiUtcDate(a.log_timestamp_utc)?.getTime() || 0))
-                    .slice(0, 10);
-                if (logs.length) {
-                    acc.style.display = 'block';
-                    accBody.innerHTML = renderRecentOffloadCards(logs);
-                } else {
-                    acc.style.display = 'none';
-                    accBody.innerHTML = '';
-                }
-            }
+            renderRecentCardsFromStationPayload(stationData);
 
             editLogStationModalInstance.show();
         } catch (error) {
@@ -875,15 +884,42 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     if (editLogStationModalEl) {
         editLogStationModalEl.addEventListener('click', async (e) => {
-            const btn = e.target.closest('.recent-save-log');
+            const saveBtn = e.target.closest('.recent-save-log');
+            const deleteBtn = e.target.closest('.recent-delete-log');
+            const btn = saveBtn || deleteBtn;
             if (!btn || !currentEditingStationId) return;
             const logId = btn.getAttribute('data-log-id');
             const wrap = btn.closest('.recent-log-edit');
             if (!wrap || !logId) return;
+            if (deleteBtn) {
+                const first = window.confirm(
+                    'This permanently removes this submitted log from normal views and cannot be undone from UI. Continue?'
+                );
+                if (!first) return;
+                const typed = window.prompt(`Type DELETE-${logId} to confirm permanent deletion.`);
+                if ((typed || '').trim() !== `DELETE-${logId}`) {
+                    showToast('Delete cancelled: confirmation text did not match.', 'warning');
+                    return;
+                }
+                try {
+                    await apiRequest(
+                        `/api/station_metadata/${encodeURIComponent(currentEditingStationId)}/offload_logs/${logId}`,
+                        'DELETE'
+                    );
+                    showToast(`Offload log #${logId} deleted`, 'success');
+                    const st = await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`, 'GET');
+                    renderRecentCardsFromStationPayload(st);
+                    await fetchStationStatuses();
+                } catch (err) {
+                    showToast(err.message || 'Delete failed', 'danger');
+                }
+                return;
+            }
             const ta = wrap.querySelector('.recent-user-notes');
             const cb = wrap.querySelector('.recent-was-offloaded');
             const offloadNotes = wrap.querySelector('.recent-offload-notes');
             const vrlFileName = wrap.querySelector('.recent-vrl-file-name');
+            const missionInput = wrap.querySelector('.recent-station-mission-id');
             const distanceInput = wrap.querySelector('.recent-distance');
             const getRecentIso = (selector) => {
                 const input = wrap.querySelector(selector);
@@ -908,16 +944,19 @@ document.addEventListener('DOMContentLoaded', async function () {
             Object.keys(payload).forEach((k) => { if (payload[k] === null) delete payload[k]; });
             try {
                 await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}/offload_logs/${logId}`, 'PUT', payload);
+                const missionRaw = missionInput ? missionInput.value.trim() : '';
+                const missionPayload = { last_offload_by_glider: missionRaw || null };
+                const updatedStation = await apiRequest(
+                    `/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`,
+                    'PUT',
+                    missionPayload
+                );
+                const topMissionInput = document.getElementById('formLastOffloadByGlider');
+                if (topMissionInput) topMissionInput.value = updatedStation?.last_offload_by_glider || '';
+                showToast('Station Offload Mission ID is station-wide and was updated.', 'info');
                 showToast('Offload log updated', 'success');
                 const st = await apiRequest(`/api/station_metadata/${encodeURIComponent(currentEditingStationId)}`, 'GET');
-                const acc = document.getElementById('recentOffloadsAccordion');
-                const accBody = document.getElementById('recentOffloadsBody');
-                if (acc && accBody && Array.isArray(st.offload_logs)) {
-                    const logs = [...st.offload_logs]
-                        .sort((a, b) => (parseApiUtcDate(b.log_timestamp_utc)?.getTime() || 0) - (parseApiUtcDate(a.log_timestamp_utc)?.getTime() || 0))
-                        .slice(0, 10);
-                    accBody.innerHTML = renderRecentOffloadCards(logs);
-                }
+                renderRecentCardsFromStationPayload(st);
                 await fetchStationStatuses();
             } catch (err) {
                 showToast(err.message || 'Save failed', 'danger');
