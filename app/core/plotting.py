@@ -343,6 +343,62 @@ def assign_note_letters(note_annotations: List[Dict[str, Any]]) -> List[Dict[str
     return note_annotations
 
 
+def _bboxes_overlap(a, b, pad: float = 6.0) -> bool:
+    """Return True if two display-coord bboxes overlap, allowing `pad` px of
+    visual separation. The padding accounts for the rounded bbox decoration
+    that `Text.get_window_extent` does not include in its returned extent.
+    """
+    return not (
+        a.x1 + pad < b.x0
+        or a.x0 - pad > b.x1
+        or a.y1 + pad < b.y0
+        or a.y0 - pad > b.y1
+    )
+
+
+def _create_marker_annotation(
+    ax,
+    label: str,
+    lon: float,
+    lat: float,
+    dx_unit: int,
+    dy_unit: int,
+    standoff_pts: float,
+):
+    """Render a labelled marker callout offset from `(lon, lat)` with a
+    leader line back to the point. Direction is given by the (dx, dy) unit
+    vector in display space; magnitude by `standoff_pts`.
+    """
+    ha = "left" if dx_unit > 0 else ("right" if dx_unit < 0 else "center")
+    va = "bottom" if dy_unit > 0 else ("top" if dy_unit < 0 else "center")
+    return ax.annotate(
+        label,
+        xy=(lon, lat),
+        xycoords=ax.transData,
+        xytext=(dx_unit * standoff_pts, dy_unit * standoff_pts),
+        textcoords="offset points",
+        fontsize=7.5,
+        fontweight="bold",
+        ha=ha,
+        va=va,
+        color="black",
+        bbox=dict(
+            boxstyle="round,pad=0.30",
+            facecolor="white",
+            edgecolor="black",
+            linewidth=0.8,
+        ),
+        arrowprops=dict(
+            arrowstyle="-",
+            color="black",
+            linewidth=0.6,
+            shrinkA=0,
+            shrinkB=3,
+        ),
+        zorder=6,
+    )
+
+
 def _annotate_note_markers(
     ax,
     note_annotations: List[Dict[str, Any]],
@@ -354,6 +410,13 @@ def _annotate_note_markers(
     rounded label keyed by the cluster letter (e.g. "A" for a 1-note cluster
     or "A+4" for a 5-note cluster). The follow-up Mission Notes page lists
     each note individually as A, A1, A2, A3, A4 so readers can disambiguate.
+
+    Each label is drawn off-set from its telemetry point with a leader line
+    back to a small marker dot, so the text doesn't sit on top of the
+    speed-coloured scatter. A short placement search picks the first
+    candidate offset that doesn't overlap any previously-placed label —
+    enough to keep nearby clusters (e.g. several notes at adjacent
+    telemetry fixes) from stacking on top of each other.
     """
     if not note_annotations:
         return
@@ -379,8 +442,12 @@ def _annotate_note_markers(
             cluster_order.append(key)
         clusters[key]["count"] += 1
 
-    # Quadrant-aware offset: nudge labels toward the map centre so points near
-    # an edge don't push their label off the page.
+    fig = ax.get_figure()
+    # Force a draw so the renderer is ready to compute window extents for
+    # collision detection.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
     try:
         west, east, south, north = ax.get_extent(crs=ccrs.PlateCarree())
         mid_lon = (west + east) / 2.0
@@ -388,7 +455,10 @@ def _annotate_note_markers(
     except Exception:
         mid_lon = mid_lat = None
 
-    standoff_pts = 14  # display-point standoff between marker and label
+    base_standoff_pts = 22  # display-point standoff between marker dot and label
+    distance_multipliers = (1.0, 1.5, 2.2)
+
+    placed_bboxes: List[Any] = []
 
     for key in cluster_order:
         cluster = clusters[key]
@@ -400,21 +470,8 @@ def _annotate_note_markers(
         lon = cluster["lon"]
         lat = cluster["lat"]
 
-        if mid_lon is not None and lon > mid_lon:
-            x_offset_pts = -standoff_pts
-            ha = "right"
-        else:
-            x_offset_pts = standoff_pts
-            ha = "left"
-        if mid_lat is not None and lat > mid_lat:
-            y_offset_pts = -standoff_pts
-            va = "top"
-        else:
-            y_offset_pts = standoff_pts
-            va = "bottom"
-
-        # Small marker dot at the actual telemetry point so the leader line has
-        # a clear origin against the speed-coloured scatter underneath.
+        # Marker dot at the actual telemetry point — drawn once regardless of
+        # which label position the search ends up choosing.
         ax.plot(
             lon,
             lat,
@@ -428,32 +485,62 @@ def _annotate_note_markers(
             linestyle="None",
         )
 
-        ax.annotate(
-            label,
-            xy=(lon, lat),
-            xycoords=ax.transData,
-            xytext=(x_offset_pts, y_offset_pts),
-            textcoords="offset points",
-            fontsize=7.5,
-            fontweight="bold",
-            ha=ha,
-            va=va,
-            color="black",
-            bbox=dict(
-                boxstyle="round,pad=0.30",
-                facecolor="white",
-                edgecolor="black",
-                linewidth=0.8,
-            ),
-            arrowprops=dict(
-                arrowstyle="-",
-                color="black",
-                linewidth=0.6,
-                shrinkA=0,
-                shrinkB=3,
-            ),
-            zorder=6,
-        )
+        # Direction preference: nudge the label toward the map centre so
+        # edge points don't push their label off the page. Horizontal-first
+        # ordering avoids stacking text on top of the (usually N-S) track.
+        prefer_dx = -1 if (mid_lon is not None and lon > mid_lon) else 1
+        prefer_dy = -1 if (mid_lat is not None and lat > mid_lat) else 1
+        sorted_directions = [
+            (prefer_dx, 0),
+            (prefer_dx, prefer_dy),
+            (prefer_dx, -prefer_dy),
+            (0, prefer_dy),
+            (-prefer_dx, prefer_dy),
+            (-prefer_dx, 0),
+            (0, -prefer_dy),
+            (-prefer_dx, -prefer_dy),
+        ]
+
+        chosen_annotation = None
+        chosen_bbox = None
+        for distance_mult in distance_multipliers:
+            for dx_unit, dy_unit in sorted_directions:
+                annotation = _create_marker_annotation(
+                    ax,
+                    label,
+                    lon,
+                    lat,
+                    dx_unit,
+                    dy_unit,
+                    base_standoff_pts * distance_mult,
+                )
+                bbox = annotation.get_window_extent(renderer)
+                if not any(
+                    _bboxes_overlap(bbox, existing) for existing in placed_bboxes
+                ):
+                    chosen_annotation = annotation
+                    chosen_bbox = bbox
+                    break
+                annotation.remove()
+            if chosen_annotation is not None:
+                break
+
+        if chosen_annotation is None:
+            # Every candidate overlapped — keep the highest-priority direction
+            # at maximum distance to at least minimise the visual mess.
+            dx_unit, dy_unit = sorted_directions[0]
+            chosen_annotation = _create_marker_annotation(
+                ax,
+                label,
+                lon,
+                lat,
+                dx_unit,
+                dy_unit,
+                base_standoff_pts * distance_multipliers[-1],
+            )
+            chosen_bbox = chosen_annotation.get_window_extent(renderer)
+
+        placed_bboxes.append(chosen_bbox)
 
 
 def _pad_extent_to_aspect(
