@@ -1,5 +1,5 @@
 /**
- * Permissions reference modal: current-user badges and optional row dimming.
+ * Permissions reference modal: current-user badges and optional row filtering.
  */
 import { getUserProfile } from '/static/js/auth.js';
 
@@ -32,9 +32,9 @@ function user_matches_show_for(show_for, user) {
 
 /**
  * @param {UserProfile | null} user
- * @param {boolean} dim_inaccessible
+ * @param {boolean} filter_non_matching
  */
-function apply_permissions_row_dimming(user, dim_inaccessible) {
+function apply_permissions_row_filter(user, filter_non_matching) {
     const modal = document.getElementById('permissionsReferenceModal');
     if (!modal) return;
 
@@ -45,9 +45,9 @@ function apply_permissions_row_dimming(user, dim_inaccessible) {
         );
         const match = user_matches_show_for(key, user);
         // Owner-scoped rules depend on record ownership context we do not have here.
-        const dim = Boolean(dim_inaccessible && !match && !is_owner_scoped_rule);
-        tr.classList.toggle('opacity-25', dim);
-        tr.classList.toggle('text-muted', dim);
+        const hide = Boolean(filter_non_matching && !match && !is_owner_scoped_rule);
+        tr.classList.toggle('d-none', hide);
+        tr.classList.remove('opacity-25', 'text-muted');
     });
 }
 
@@ -97,8 +97,8 @@ async function refresh_permissions_modal_user_state() {
     render_permissions_user_badges(user);
 
     const highlight_switch = document.getElementById('permissionsHighlightSwitch');
-    const dim_on = Boolean(highlight_switch && highlight_switch.checked);
-    apply_permissions_row_dimming(user, dim_on);
+    const filter_on = Boolean(highlight_switch && highlight_switch.checked);
+    apply_permissions_row_filter(user, filter_on);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -113,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (highlight_switch) {
         highlight_switch.addEventListener('change', () => {
-            apply_permissions_row_dimming(cachedUserForPermissionsModal, highlight_switch.checked);
+            apply_permissions_row_filter(cachedUserForPermissionsModal, highlight_switch.checked);
         });
     }
 });
