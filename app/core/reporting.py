@@ -12,14 +12,14 @@ import httpx
 import asyncio
 import json
 import numpy as np
-from textwrap import wrap
 
 from sqlmodel import Session as SQLModelSession, select
 from sqlalchemy import or_
 
 from . import models, utils
 from .plotting import (plot_ctd_for_report, plot_errors_for_report,
-                          plot_power_for_report, plot_summary_page, plot_telemetry_for_report, plot_wave_for_report, plot_weather_for_report)
+                          plot_power_for_report, plot_summary_page, plot_telemetry_for_report, plot_wave_for_report, plot_weather_for_report,
+                          render_text_sections)
 from .processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
 
 logger = logging.getLogger(__name__)
@@ -284,23 +284,23 @@ def _build_mission_note_annotations(
     return annotations
 
 
-def _render_note_appendix_page(fig, note_annotations: List[Dict[str, Any]]) -> None:
+def _render_note_appendix_page(add_footer_and_save, note_annotations: List[Dict[str, Any]]) -> None:
+    """Render an appendix page (or pages) listing the full text of any mission
+    notes that were truncated on the telemetry map.
+
+    Delegates layout/wrapping/pagination to the shared `render_text_sections`
+    helper so long notes no longer get silently dropped at the page bottom.
+    """
     truncated_notes = [note for note in note_annotations if note.get("is_truncated")]
     if not truncated_notes:
         return
 
-    fig.clf()
-    fig.suptitle("Mission Note Appendix", fontsize=16)
-    y_pos = 0.94
-    fig.text(
-        0.05,
-        y_pos,
-        "Full note text for map labels that were truncated for readability.",
-        fontsize=10,
-        va="top",
-    )
-    y_pos -= 0.05
-
+    sections: List[Dict[str, Any]] = [
+        {
+            "heading": None,
+            "lines": ["Full note text for map labels that were truncated for readability."],
+        }
+    ]
     for idx, note in enumerate(truncated_notes, start=1):
         event_time = note.get("event_time")
         event_time_text = (
@@ -308,14 +308,16 @@ def _render_note_appendix_page(fig, note_annotations: List[Dict[str, Any]]) -> N
             if isinstance(event_time, datetime)
             else "unknown time"
         )
-        note_header = f"{idx}. Note ID {note.get('note_id', 'n/a')} at {event_time_text}"
-        wrapped_header = "\n".join(wrap(note_header, width=120))
-        wrapped_body = "\n".join(wrap(str(note.get("full_note_text", "")), width=120))
-        block_text = f"{wrapped_header}\n{wrapped_body}"
-        fig.text(0.05, y_pos, block_text, fontsize=9, va="top", family="monospace")
-        y_pos -= 0.11
-        if y_pos < 0.08:
-            break
+        sections.append({
+            "heading": f"{idx}. Note ID {note.get('note_id', 'n/a')} at {event_time_text}",
+            "lines": [str(note.get("full_note_text", ""))],
+        })
+
+    render_text_sections(
+        add_footer_and_save,
+        page_title="Mission Note Appendix",
+        sections=sections,
+    )
 
 async def generate_weekly_report(
     mission_id: str,
@@ -587,9 +589,17 @@ async def generate_weekly_report(
 
         # --- Page 2: Mission Summary ---
         try:
-            fig_summary = plt.figure(figsize=(8.27, 11.69)) # A4 portrait
-            plot_summary_page(fig_summary, mission_telemetry_summary, report_period_telemetry_summary, report_period_power_summary, report_period_ctd_summary, report_period_weather_summary, report_period_wave_summary, report_period_error_summary, mission_goals=mission_goals)
-            add_footer_and_save(fig_summary)
+            plot_summary_page(
+                add_footer_and_save,
+                mission_telemetry_summary,
+                report_period_telemetry_summary,
+                report_period_power_summary,
+                report_period_ctd_summary,
+                report_period_weather_summary,
+                report_period_wave_summary,
+                report_period_error_summary,
+                mission_goals=mission_goals,
+            )
         except Exception as e:
             logger.error(f"Failed to generate summary page for mission '{mission_id}': {e}", exc_info=True)
             fig_err = plt.figure(figsize=(8.27, 11.69))
@@ -601,8 +611,7 @@ async def generate_weekly_report(
             try:
                 # Deployment mission code for instrument rows (matches missions router lookups)
                 mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
-                
-                # Query instruments and sensors from database
+
                 from ..core.db import get_db_session
                 session_gen = get_db_session()
                 session = next(session_gen)
@@ -619,14 +628,13 @@ async def generate_weekly_report(
                             models.MissionInstrument.instrument_identifier
                         )
                     ).all()
-                    
+
                     logger.info(f"Found {len(instruments)} instruments for mission '{mission_id}' (base: '{mission_base}')")
-                    
-                    # Group instruments by data logger
+
                     flight_instruments = []
                     science_instruments = []
                     platform_instruments = []
-                    
+
                     for inst in instruments:
                         if inst.is_platform_direct:
                             platform_instruments.append(inst)
@@ -634,323 +642,163 @@ async def generate_weekly_report(
                             flight_instruments.append(inst)
                         elif inst.data_logger_type == "science":
                             science_instruments.append(inst)
-                    
+
                     logger.info(f"Instrument groups - Flight: {len(flight_instruments)}, Science: {len(science_instruments)}, Platform: {len(platform_instruments)}")
-                    
-                    # Create Sensor Tracker metadata page with 2x2 grid layout (portrait)
-                    fig_st = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
-                    fig_st.suptitle("Sensor Tracker Metadata", fontsize=16, weight='bold', y=0.97)
-                    
-                    # Create 2x2 grid with tighter spacing to reduce white space
-                    gs = fig_st.add_gridspec(2, 2, hspace=0.15, wspace=0.15, left=0.10, right=0.95, top=0.92, bottom=0.10)
-                    
-                    # Helper function to format instrument section
-                    def format_instrument_section(ax, title, items):
-                        """Format a section with title and instruments, with automatic scaling."""
-                        ax.axis('off')
-                        ax.set_xlim(0, 1)
-                        ax.set_ylim(0, 1)
-                        
-                        y_start = 0.98
-                        line_height = 0.030
-                        small_line_height = 0.025
-                        
-                        # Title
-                        ax.text(0.02, y_start, title, fontsize=11, weight='bold', transform=ax.transAxes, va='top')
-                        y_pos = y_start - line_height * 1.4
-                        
+
+                    def _instrument_section_lines(items: List[models.MissionInstrument]) -> List[str]:
+                        """Build the bullet/sub-bullet lines for an instrument group."""
                         if not items:
-                            ax.text(0.02, y_pos, "None", fontsize=9, style='italic', color='gray', transform=ax.transAxes, va='top')
-                            return
-                        
-                        # Count total lines needed
-                        total_lines = 0
+                            return ["(None)"]
+                        lines: List[str] = []
                         for inst in items:
-                            total_lines += 1  # Instrument line
-                            sensors = session.exec(
-                                select(models.MissionSensor).where(
-                                    models.MissionSensor.instrument_id == inst.id
-                                )
-                            ).all()
-                            total_lines += len(sensors)  # Sensor lines
-                        
-                        # Adjust font sizes based on content - more generous spacing
-                        if total_lines > 30:
-                            inst_font = 8.5
-                            sensor_font = 7.5
-                            inst_spacing = small_line_height * 1.1
-                            sensor_spacing = small_line_height * 0.95
-                        elif total_lines > 20:
-                            inst_font = 9.5
-                            sensor_font = 8.5
-                            inst_spacing = small_line_height * 1.15
-                            sensor_spacing = small_line_height * 1.0
-                        else:
-                            inst_font = 10
-                            sensor_font = 9
-                            inst_spacing = small_line_height * 1.2
-                            sensor_spacing = small_line_height * 1.05
-                        
-                        # Draw content
-                        for inst in items:
-                            if y_pos < 0.02:  # Stop if we run out of space
-                                break
-                                
                             inst_name = inst.instrument_name or inst.instrument_identifier
                             inst_serial = inst.instrument_serial or "N/A"
-                            
-                            # Instrument name and serial on same line
                             if inst_serial != "N/A":
-                                text = f"• {inst_name} ({inst_serial})"
+                                lines.append(f"• {inst_name} ({inst_serial})")
                             else:
-                                text = f"• {inst_name}"
-                            
-                            ax.text(0.02, y_pos, text, fontsize=inst_font, transform=ax.transAxes, va='top')
-                            y_pos -= inst_spacing
-                            
-                            # Show sensors for this instrument with better spacing
+                                lines.append(f"• {inst_name}")
                             sensors = session.exec(
                                 select(models.MissionSensor).where(
                                     models.MissionSensor.instrument_id == inst.id
                                 )
                             ).all()
                             for sensor in sensors:
-                                if y_pos < 0.02:  # Stop if we run out of space
-                                    break
-                                sensor_name = sensor.sensor_identifier
-                                ax.text(0.08, y_pos, f"└ {sensor_name}", fontsize=sensor_font, style='italic', transform=ax.transAxes, va='top')
-                                y_pos -= sensor_spacing
-                            
-                            # Add a small gap after each instrument group
-                            if sensors:
-                                y_pos -= small_line_height * 0.3
-                    
-                    # Top Left: Deployment Information
-                    ax1 = fig_st.add_subplot(gs[0, 0])
-                    ax1.axis('off')
-                    ax1.set_xlim(0, 1)
-                    ax1.set_ylim(0, 1)
-                    y_pos = 0.98
-                    line_height = 0.028
-                    ax1.text(0.02, y_pos, "Deployment Information", fontsize=11, weight='bold', transform=ax1.transAxes, va='top')
-                    y_pos -= line_height * 1.3
-                    
+                                lines.append(f"    └ {sensor.sensor_identifier}")
+                        return lines
+
+                    # --- Page 3a: Sensor Tracker Metadata (base) ---
+                    deployment_info_lines: List[str] = []
                     if sensor_tracker_deployment.title:
-                        ax1.text(0.02, y_pos, f"Title: {sensor_tracker_deployment.title}", fontsize=10, transform=ax1.transAxes, va='top')
-                        y_pos -= line_height
-                    
+                        deployment_info_lines.append(f"Title: {sensor_tracker_deployment.title}")
                     if sensor_tracker_deployment.platform_name:
-                        ax1.text(0.02, y_pos, f"Platform: {sensor_tracker_deployment.platform_name}", fontsize=10, transform=ax1.transAxes, va='top')
-                        y_pos -= line_height
-                    
+                        deployment_info_lines.append(f"Platform: {sensor_tracker_deployment.platform_name}")
                     if sensor_tracker_deployment.start_time:
-                        start_str = sensor_tracker_deployment.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                        ax1.text(0.02, y_pos, f"Start: {start_str}", fontsize=10, transform=ax1.transAxes, va='top')
-                        y_pos -= line_height
-                    
+                        deployment_info_lines.append(
+                            f"Start: {sensor_tracker_deployment.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        )
                     if sensor_tracker_deployment.end_time:
-                        end_str = sensor_tracker_deployment.end_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                        ax1.text(0.02, y_pos, f"End: {end_str}", fontsize=10, transform=ax1.transAxes, va='top')
-                        y_pos -= line_height
-                    
-                    # Priority metadata fields
+                        deployment_info_lines.append(
+                            f"End: {sensor_tracker_deployment.end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        )
                     if sensor_tracker_deployment.agencies:
-                        ax1.text(0.02, y_pos, f"Agencies: {sensor_tracker_deployment.agencies}", fontsize=10, transform=ax1.transAxes, va='top', wrap=True)
-                        y_pos -= line_height
-                    
+                        deployment_info_lines.append(f"Agencies: {sensor_tracker_deployment.agencies}")
                     if sensor_tracker_deployment.agencies_role:
-                        ax1.text(0.02, y_pos, f"Role: {sensor_tracker_deployment.agencies_role}", fontsize=10, transform=ax1.transAxes, va='top')
-                        y_pos -= line_height
-                    
-                    # Top Right: Platform Direct Instruments
-                    ax2 = fig_st.add_subplot(gs[0, 1])
-                    format_instrument_section(ax2, "Platform Direct Instruments", platform_instruments)
-                    
-                    # Bottom Left: Flight Computer Instruments
-                    ax3 = fig_st.add_subplot(gs[1, 0])
-                    format_instrument_section(ax3, "Flight Computer Instruments", flight_instruments)
-                    
-                    # Bottom Right: Science Computer Instruments (include Science Computer serial if present)
-                    ax4 = fig_st.add_subplot(gs[1, 1])
+                        deployment_info_lines.append(f"Role: {sensor_tracker_deployment.agencies_role}")
+
                     science_title = "Science Computer Instruments"
                     if science_instruments and getattr(science_instruments[0], "data_logger_serial", None):
                         science_title = f"Science Computer Instruments (SN: {science_instruments[0].data_logger_serial})"
-                    format_instrument_section(ax4, science_title, science_instruments)
-                    
-                    # Add a new page for long-form text fields (deployment comment and acknowledgement)
-                    # Only create if at least one of them has content
-                    if sensor_tracker_deployment.deployment_comment or sensor_tracker_deployment.acknowledgement:
-                        fig_metadata_text = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
-                        fig_metadata_text.suptitle("Sensor Tracker Metadata - Additional Information", fontsize=16, weight='bold', y=0.97)
-                        
-                        # Create a single column layout for text content
-                        gs_text = fig_metadata_text.add_gridspec(2, 1, hspace=0.20, left=0.10, right=0.90, top=0.92, bottom=0.10)
-                        
-                        # Deployment Comment section
-                        ax_comment = fig_metadata_text.add_subplot(gs_text[0, 0])
-                        ax_comment.axis('off')
-                        ax_comment.set_xlim(0, 1)
-                        ax_comment.set_ylim(0, 1)
-                        
-                        ax_comment.text(0.02, 0.98, "Deployment Description", fontsize=12, weight='bold', transform=ax_comment.transAxes, va='top')
-                        
-                        if sensor_tracker_deployment.deployment_comment:
-                            # Wrap long text for better readability
-                            wrapped_text = wrap(sensor_tracker_deployment.deployment_comment, width=90)
-                            y_pos_text = 0.92
-                            text_line_height = 0.025
-                            
-                            for line in wrapped_text:
-                                if y_pos_text < 0.05:
-                                    break
-                                ax_comment.text(0.02, y_pos_text, line, fontsize=9.5, transform=ax_comment.transAxes, va='top', wrap=True)
-                                y_pos_text -= text_line_height
-                        else:
-                            ax_comment.text(0.02, 0.92, "(No deployment description available)", fontsize=9.5, style='italic', color='gray', transform=ax_comment.transAxes, va='top')
-                        
-                        # Acknowledgement section
-                        ax_ack = fig_metadata_text.add_subplot(gs_text[1, 0])
-                        ax_ack.axis('off')
-                        ax_ack.set_xlim(0, 1)
-                        ax_ack.set_ylim(0, 1)
-                        
-                        ax_ack.text(0.02, 0.98, "Acknowledgements", fontsize=12, weight='bold', transform=ax_ack.transAxes, va='top')
-                        
-                        if sensor_tracker_deployment.acknowledgement:
-                            # Wrap long text for better readability
-                            wrapped_ack = wrap(sensor_tracker_deployment.acknowledgement, width=90)
-                            y_pos_ack = 0.92
-                            ack_line_height = 0.025
-                            
-                            for line in wrapped_ack:
-                                if y_pos_ack < 0.05:
-                                    break
-                                ax_ack.text(0.02, y_pos_ack, line, fontsize=9.5, transform=ax_ack.transAxes, va='top', wrap=True)
-                                y_pos_ack -= ack_line_height
-                        else:
-                            ax_ack.text(0.02, 0.92, "(No acknowledgements provided)", fontsize=9.5, style='italic', color='gray', transform=ax_ack.transAxes, va='top')
-                        
-                        add_footer_and_save(fig_metadata_text)
-                    
-                    # Add a new page for Phase 1B metadata fields
-                    # Check if any Phase 1B fields have content
-                    has_phase1b_data = (
-                        sensor_tracker_deployment.deployment_cruise or
-                        sensor_tracker_deployment.recovery_cruise or
-                        sensor_tracker_deployment.deployment_personnel or
-                        sensor_tracker_deployment.recovery_personnel or
-                        sensor_tracker_deployment.data_repository_link or
-                        sensor_tracker_deployment.publisher_name or
-                        sensor_tracker_deployment.creator_name or
-                        sensor_tracker_deployment.contributor_name or
-                        sensor_tracker_deployment.program or
-                        sensor_tracker_deployment.sea_name or
-                        sensor_tracker_deployment.transmission_system or
-                        sensor_tracker_deployment.positioning_system
+
+                    base_sections: List[Dict[str, Any]] = [
+                        {"heading": "Deployment Information", "lines": deployment_info_lines or ["(No deployment information)"]},
+                        {"heading": "Platform Direct Instruments", "lines": _instrument_section_lines(platform_instruments)},
+                        {"heading": "Flight Computer Instruments", "lines": _instrument_section_lines(flight_instruments)},
+                        {"heading": science_title, "lines": _instrument_section_lines(science_instruments)},
+                    ]
+                    render_text_sections(
+                        add_footer_and_save,
+                        page_title="Sensor Tracker Metadata",
+                        sections=base_sections,
                     )
-                    
+
+                    # --- Page 3b: Sensor Tracker - Additional Information ---
+                    if sensor_tracker_deployment.deployment_comment or sensor_tracker_deployment.acknowledgement:
+                        additional_sections: List[Dict[str, Any]] = [
+                            {
+                                "heading": "Deployment Description",
+                                "lines": [sensor_tracker_deployment.deployment_comment]
+                                          if sensor_tracker_deployment.deployment_comment
+                                          else ["(No deployment description available)"],
+                            },
+                            {
+                                "heading": "Acknowledgements",
+                                "lines": [sensor_tracker_deployment.acknowledgement]
+                                          if sensor_tracker_deployment.acknowledgement
+                                          else ["(No acknowledgements provided)"],
+                            },
+                        ]
+                        render_text_sections(
+                            add_footer_and_save,
+                            page_title="Sensor Tracker Metadata - Additional Information",
+                            sections=additional_sections,
+                        )
+
+                    # --- Page 3c: Sensor Tracker - Extended Information (Phase 1B) ---
+                    has_phase1b_data = any([
+                        sensor_tracker_deployment.deployment_cruise,
+                        sensor_tracker_deployment.recovery_cruise,
+                        sensor_tracker_deployment.deployment_personnel,
+                        sensor_tracker_deployment.recovery_personnel,
+                        sensor_tracker_deployment.data_repository_link,
+                        sensor_tracker_deployment.publisher_name,
+                        sensor_tracker_deployment.creator_name,
+                        sensor_tracker_deployment.contributor_name,
+                        sensor_tracker_deployment.program,
+                        sensor_tracker_deployment.sea_name,
+                        sensor_tracker_deployment.transmission_system,
+                        sensor_tracker_deployment.positioning_system,
+                    ])
+
                     if has_phase1b_data:
-                        fig_phase1b = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
-                        fig_phase1b.suptitle("Sensor Tracker Metadata - Extended Information", fontsize=16, weight='bold', y=0.97)
-                        
-                        # Create a 2x2 grid for organizing sections
-                        gs_phase1b = fig_phase1b.add_gridspec(2, 2, hspace=0.20, wspace=0.15, left=0.10, right=0.90, top=0.92, bottom=0.10)
-                        
-                        # Helper function to add a section with fields
-                        def add_metadata_section(ax, title, fields_list):
-                            """Add a metadata section with title and field list."""
-                            ax.axis('off')
-                            ax.set_xlim(0, 1)
-                            ax.set_ylim(0, 1)
-                            
-                            y_pos = 0.98
-                            line_height = 0.025
-                            
-                            # Title
-                            ax.text(0.02, y_pos, title, fontsize=11, weight='bold', transform=ax.transAxes, va='top')
-                            y_pos -= line_height * 1.5
-                            
-                            # Add fields
-                            has_content = False
-                            for field_label, field_value in fields_list:
-                                if field_value:
-                                    has_content = True
-                                    # Wrap long values
-                                    display_value = str(field_value)
-                                    if len(display_value) > 60:
-                                        # Split long values across multiple lines
-                                        wrapped = wrap(display_value, width=60)
-                                        for i, line in enumerate(wrapped):
-                                            if y_pos < 0.05:
-                                                break
-                                            if i == 0:
-                                                ax.text(0.02, y_pos, f"{field_label}: {line}", fontsize=9, transform=ax.transAxes, va='top')
-                                            else:
-                                                ax.text(0.05, y_pos, line, fontsize=9, transform=ax.transAxes, va='top')
-                                            y_pos -= line_height
-                                    else:
-                                        if y_pos < 0.05:
-                                            break
-                                        ax.text(0.02, y_pos, f"{field_label}: {display_value}", fontsize=9, transform=ax.transAxes, va='top')
-                                        y_pos -= line_height
-                            
-                            if not has_content:
-                                ax.text(0.02, y_pos, "(No information available)", fontsize=9, style='italic', color='gray', transform=ax.transAxes, va='top')
-                        
-                        # Top Left: Deployment Details
-                        ax_deploy = fig_phase1b.add_subplot(gs_phase1b[0, 0])
-                        deployment_details_fields = [
-                            ("Deployment Cruise", sensor_tracker_deployment.deployment_cruise),
-                            ("Recovery Cruise", sensor_tracker_deployment.recovery_cruise),
-                            ("Deployment Personnel", sensor_tracker_deployment.deployment_personnel),
-                            ("Recovery Personnel", sensor_tracker_deployment.recovery_personnel),
-                            ("WMO ID", sensor_tracker_deployment.wmo_id),
+                        def _field_lines(fields: List[tuple]) -> List[str]:
+                            """Convert (label, value) pairs into 'Label: value' lines, skipping empty values."""
+                            lines = [f"{label}: {value}" for label, value in fields if value]
+                            return lines or ["(No information available)"]
+
+                        extended_sections: List[Dict[str, Any]] = [
+                            {
+                                "heading": "Deployment Details",
+                                "lines": _field_lines([
+                                    ("Deployment Cruise", sensor_tracker_deployment.deployment_cruise),
+                                    ("Recovery Cruise", sensor_tracker_deployment.recovery_cruise),
+                                    ("Deployment Personnel", sensor_tracker_deployment.deployment_personnel),
+                                    ("Recovery Personnel", sensor_tracker_deployment.recovery_personnel),
+                                    ("WMO ID", sensor_tracker_deployment.wmo_id),
+                                ]),
+                            },
+                            {
+                                "heading": "Publication & Data Access",
+                                "lines": _field_lines([
+                                    ("Publisher", sensor_tracker_deployment.publisher_name),
+                                    ("Publisher Email", sensor_tracker_deployment.publisher_email),
+                                    ("Publisher URL", sensor_tracker_deployment.publisher_url),
+                                    ("Publisher Country", sensor_tracker_deployment.publisher_country),
+                                    ("Data Repository", sensor_tracker_deployment.data_repository_link),
+                                    ("Metadata Link", sensor_tracker_deployment.metadata_link),
+                                ]),
+                            },
+                            {
+                                "heading": "Attribution",
+                                "lines": _field_lines([
+                                    ("Creator", sensor_tracker_deployment.creator_name),
+                                    ("Creator Email", sensor_tracker_deployment.creator_email),
+                                    ("Creator URL", sensor_tracker_deployment.creator_url),
+                                    ("Creator Sector", sensor_tracker_deployment.creator_sector),
+                                    ("Contributor", sensor_tracker_deployment.contributor_name),
+                                    ("Contributor Role", sensor_tracker_deployment.contributor_role),
+                                    ("Contributor Email", sensor_tracker_deployment.contributors_email),
+                                ]),
+                            },
+                            {
+                                "heading": "Program & Technical",
+                                "lines": _field_lines([
+                                    ("Program", sensor_tracker_deployment.program),
+                                    ("Site", sensor_tracker_deployment.site),
+                                    ("Sea/Region", sensor_tracker_deployment.sea_name),
+                                    ("Transmission System", sensor_tracker_deployment.transmission_system),
+                                    ("Positioning System", sensor_tracker_deployment.positioning_system),
+                                    ("References", sensor_tracker_deployment.references),
+                                ]),
+                            },
                         ]
-                        add_metadata_section(ax_deploy, "Deployment Details", deployment_details_fields)
-                        
-                        # Top Right: Publication & Data Access
-                        ax_pub = fig_phase1b.add_subplot(gs_phase1b[0, 1])
-                        publication_fields = [
-                            ("Publisher", sensor_tracker_deployment.publisher_name),
-                            ("Publisher Email", sensor_tracker_deployment.publisher_email),
-                            ("Publisher URL", sensor_tracker_deployment.publisher_url),
-                            ("Publisher Country", sensor_tracker_deployment.publisher_country),
-                            ("Data Repository", sensor_tracker_deployment.data_repository_link),
-                            ("Metadata Link", sensor_tracker_deployment.metadata_link),
-                        ]
-                        add_metadata_section(ax_pub, "Publication & Data Access", publication_fields)
-                        
-                        # Bottom Left: Attribution
-                        ax_attr = fig_phase1b.add_subplot(gs_phase1b[1, 0])
-                        attribution_fields = [
-                            ("Creator", sensor_tracker_deployment.creator_name),
-                            ("Creator Email", sensor_tracker_deployment.creator_email),
-                            ("Creator URL", sensor_tracker_deployment.creator_url),
-                            ("Creator Sector", sensor_tracker_deployment.creator_sector),
-                            ("Contributor", sensor_tracker_deployment.contributor_name),
-                            ("Contributor Role", sensor_tracker_deployment.contributor_role),
-                            ("Contributor Email", sensor_tracker_deployment.contributors_email),
-                        ]
-                        add_metadata_section(ax_attr, "Attribution", attribution_fields)
-                        
-                        # Bottom Right: Program & Technical
-                        ax_prog = fig_phase1b.add_subplot(gs_phase1b[1, 1])
-                        program_fields = [
-                            ("Program", sensor_tracker_deployment.program),
-                            ("Site", sensor_tracker_deployment.site),
-                            ("Sea/Region", sensor_tracker_deployment.sea_name),
-                            ("Transmission System", sensor_tracker_deployment.transmission_system),
-                            ("Positioning System", sensor_tracker_deployment.positioning_system),
-                            ("References", sensor_tracker_deployment.references),
-                        ]
-                        add_metadata_section(ax_prog, "Program & Technical", program_fields)
-                        
-                        add_footer_and_save(fig_phase1b)
-                    
-                    add_footer_and_save(fig_st)
+                        render_text_sections(
+                            add_footer_and_save,
+                            page_title="Sensor Tracker Metadata - Extended Information",
+                            sections=extended_sections,
+                        )
                 finally:
                     session.close()
-                    
+
             except Exception as e:
                 logger.error(f"Failed to generate Sensor Tracker metadata page for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
@@ -970,10 +818,7 @@ async def generate_weekly_report(
                 fig_telemetry.tight_layout(pad=3.0)
                 add_footer_and_save(fig_telemetry)
                 if any(note.get("is_truncated") for note in telemetry_note_annotations):
-                    fig_note_appendix = plt.figure(figsize=(8.27, 11.69))
-                    _render_note_appendix_page(fig_note_appendix, telemetry_note_annotations)
-                    fig_note_appendix.tight_layout(pad=2.0)
-                    add_footer_and_save(fig_note_appendix)
+                    _render_note_appendix_page(add_footer_and_save, telemetry_note_annotations)
             except Exception as e:
                 logger.error(f"Failed to generate telemetry plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
@@ -1045,10 +890,7 @@ async def generate_weekly_report(
         # --- Page 8: Error Report ---
         if "errors" in plots_to_include and not error_df_filtered.empty:
             try:
-                fig_error = plt.figure(figsize=(8.27, 11.69)) # A4 portrait
-                plot_errors_for_report(fig_error, error_df_filtered)
-                fig_error.tight_layout(rect=[0, 0.03, 1, 0.95])
-                add_footer_and_save(fig_error)
+                plot_errors_for_report(add_footer_and_save, error_df_filtered)
             except Exception as e:
                 logger.error(f"Failed to generate error plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
