@@ -2,7 +2,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.image as mpimg
-import cartopy.crs as ccrs
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -18,7 +17,8 @@ from sqlalchemy import or_
 
 from . import models, utils
 from .plotting import (plot_ctd_for_report, plot_errors_for_report,
-                          plot_power_for_report, plot_summary_page, plot_telemetry_for_report, plot_wave_for_report, plot_weather_for_report,
+                          plot_mission_notes_page, plot_power_for_report, plot_summary_page,
+                          plot_telemetry_page_with_notes, plot_wave_for_report, plot_weather_for_report,
                           render_text_sections)
 from .processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
 
@@ -208,9 +208,15 @@ def _build_mission_note_annotations(
     telemetry_df_filtered: pd.DataFrame,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    max_annotations: int = 8,
-    max_label_chars: int = 120,
+    max_annotations: int = 24,
 ) -> List[Dict[str, Any]]:
+    """Build the per-note annotation records used by the telemetry-track page.
+
+    The notes panel and the on-map lettered markers share these records, so
+    each entry carries the full note text plus a stable letter label assigned
+    in chronological order. Long text is no longer truncated here — the panel
+    paginates and overflow is sent to the appendix.
+    """
     if not mission_notes or telemetry_df_filtered.empty:
         return []
     if "lastLocationFix" not in telemetry_df_filtered.columns:
@@ -252,10 +258,6 @@ def _build_mission_note_annotations(
         if not note_text:
             note_text = note.content
         note_text = note_text.strip()
-        is_truncated = len(note_text) > max_label_chars
-        display_text = note_text
-        if is_truncated:
-            display_text = note_text[: max_label_chars - 1].rstrip() + "… (continued in appendix)"
 
         annotations.append(
             {
@@ -265,11 +267,7 @@ def _build_mission_note_annotations(
                 "event_time": event_time,
                 "matched_telemetry_time": nearest_point["lastLocationFix"],
                 "full_note_text": note_text,
-                "is_truncated": is_truncated,
-                "label": (
-                    f"{display_text}\n"
-                    f"— {note.created_by_username} on {event_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-                ),
+                "created_by_username": note.created_by_username,
             }
         )
 
@@ -281,43 +279,12 @@ def _build_mission_note_annotations(
             max_annotations,
         )
         annotations = annotations[-max_annotations:]
+
+    # Letter assignment (cluster-aware: A, A1, A2, B, ...) is delegated to
+    # plotting.assign_note_letters at render time so the markers and the
+    # notes page stay in sync.
     return annotations
 
-
-def _render_note_appendix_page(add_footer_and_save, note_annotations: List[Dict[str, Any]]) -> None:
-    """Render an appendix page (or pages) listing the full text of any mission
-    notes that were truncated on the telemetry map.
-
-    Delegates layout/wrapping/pagination to the shared `render_text_sections`
-    helper so long notes no longer get silently dropped at the page bottom.
-    """
-    truncated_notes = [note for note in note_annotations if note.get("is_truncated")]
-    if not truncated_notes:
-        return
-
-    sections: List[Dict[str, Any]] = [
-        {
-            "heading": None,
-            "lines": ["Full note text for map labels that were truncated for readability."],
-        }
-    ]
-    for idx, note in enumerate(truncated_notes, start=1):
-        event_time = note.get("event_time")
-        event_time_text = (
-            event_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-            if isinstance(event_time, datetime)
-            else "unknown time"
-        )
-        sections.append({
-            "heading": f"{idx}. Note ID {note.get('note_id', 'n/a')} at {event_time_text}",
-            "lines": [str(note.get("full_note_text", ""))],
-        })
-
-    render_text_sections(
-        add_footer_and_save,
-        page_title="Mission Note Appendix",
-        sections=sections,
-    )
 
 async def generate_weekly_report(
     mission_id: str,
@@ -525,6 +492,11 @@ async def generate_weekly_report(
             True,  # Summary page
             sensor_tracker_deployment is not None,  # Sensor Tracker metadata page
             "telemetry" in plots_to_include and not telemetry_df_filtered.empty,
+            (
+                "telemetry" in plots_to_include
+                and not telemetry_df_filtered.empty
+                and bool(telemetry_note_annotations)
+            ),  # Mission Notes page (follows telemetry track)
             "power" in plots_to_include and not power_df_filtered.empty,
             "ctd" in plots_to_include and not ctd_df_filtered.empty,
             "weather" in plots_to_include and not weather_df_filtered.empty,
@@ -809,16 +781,17 @@ async def generate_weekly_report(
         if "telemetry" in plots_to_include and not telemetry_df_filtered.empty:
             try:
                 fig_telemetry = plt.figure(figsize=(8.27, 11.69))
-                ax_telemetry = fig_telemetry.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-                plot_telemetry_for_report(
-                    ax_telemetry,
+                plot_telemetry_page_with_notes(
+                    fig_telemetry,
                     telemetry_df_filtered,
                     note_annotations=telemetry_note_annotations,
                 )
-                fig_telemetry.tight_layout(pad=3.0)
                 add_footer_and_save(fig_telemetry)
-                if any(note.get("is_truncated") for note in telemetry_note_annotations):
-                    _render_note_appendix_page(add_footer_and_save, telemetry_note_annotations)
+                if telemetry_note_annotations:
+                    plot_mission_notes_page(
+                        add_footer_and_save,
+                        telemetry_note_annotations,
+                    )
             except Exception as e:
                 logger.error(f"Failed to generate telemetry plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))

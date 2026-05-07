@@ -2,12 +2,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
+import math
+import string
 import textwrap
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
-from matplotlib.transforms import Bbox
 import pandas as pd
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -292,201 +293,347 @@ def _annotate_track_start_end(ax, tele):
     ax.plot(end['longitude'], end['latitude'], marker='X', color='red', markersize=8, label='Current', transform=ccrs.Geodetic())
     ax.legend(loc='upper left')
 
-def _annotate_mission_notes(
+# --- Telemetry-page layout helpers ----------------------------------------
+
+
+def assign_note_letters(note_annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Cluster-aware letter assignment.
+
+    Notes that share a snapped (lat, lon) belong to the same cluster. Each
+    cluster receives the next available cluster letter (A, B, ... Z, AA,
+    AB, ...). Within a cluster, the first note keeps the cluster letter
+    alone (e.g. "A"); subsequent notes get a numeric sub-index suffix
+    (e.g. "A1", "A2"). The cluster letter and sub-index are also stored on
+    the note dict so downstream code (the marker renderer and the notes
+    page) can group cluster-mates together without re-parsing.
+
+    Mutates and returns the same list. Notes that already carry a `letter`
+    field are left alone.
+    """
+    cluster_alphabet = string.ascii_uppercase + "".join(
+        f"A{ch}" for ch in string.ascii_uppercase
+    )  # A..Z, AA..AZ — supports up to 52 distinct clusters
+
+    cluster_letters: Dict[tuple, str] = {}
+    cluster_counts: Dict[tuple, int] = {}
+    next_cluster_index = 0
+
+    for note in note_annotations:
+        if note.get("letter"):
+            continue
+        latitude = note.get("latitude")
+        longitude = note.get("longitude")
+        if latitude is None or longitude is None:
+            continue
+        key = (round(float(latitude), 5), round(float(longitude), 5))
+        if key not in cluster_letters:
+            if next_cluster_index < len(cluster_alphabet):
+                cluster_letters[key] = cluster_alphabet[next_cluster_index]
+            else:
+                cluster_letters[key] = f"#{next_cluster_index + 1}"
+            cluster_counts[key] = 0
+            next_cluster_index += 1
+        cluster_letter = cluster_letters[key]
+        sub_index = cluster_counts[key]
+        cluster_counts[key] += 1
+        note["cluster_letter"] = cluster_letter
+        note["cluster_sub_idx"] = sub_index
+        note["letter"] = cluster_letter if sub_index == 0 else f"{cluster_letter}{sub_index}"
+
+    return note_annotations
+
+
+def _annotate_note_markers(
     ax,
     note_annotations: List[Dict[str, Any]],
 ) -> None:
+    """Drop a lettered marker at each mission note's lat/lon.
+
+    Notes that share a snapped (lat, lon) — typically because they matched the
+    same nearest telemetry point — are clustered under a single auto-sized
+    rounded label keyed by the cluster letter (e.g. "A" for a 1-note cluster
+    or "A+4" for a 5-note cluster). The follow-up Mission Notes page lists
+    each note individually as A, A1, A2, A3, A4 so readers can disambiguate.
+    """
     if not note_annotations:
         return
 
-    fig = ax.get_figure()
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    axes_bbox = ax.get_window_extent(renderer)
-    # Keep note boxes inside the map and away from title/legend-heavy zones.
-    inset_axes_bbox = Bbox.from_extents(
-        axes_bbox.x0 + 8,
-        axes_bbox.y0 + 8,
-        axes_bbox.x1 - 8,
-        axes_bbox.y1 - 8,
-    )
-    reserved_bboxes: List[Bbox] = [
-        # Top title band
-        Bbox.from_extents(
-            inset_axes_bbox.x0,
-            inset_axes_bbox.y1 - inset_axes_bbox.height * 0.10,
-            inset_axes_bbox.x1,
-            inset_axes_bbox.y1,
-        ),
-        # Upper-left legend area
-        Bbox.from_extents(
-            inset_axes_bbox.x0,
-            inset_axes_bbox.y1 - inset_axes_bbox.height * 0.26,
-            inset_axes_bbox.x0 + inset_axes_bbox.width * 0.38,
-            inset_axes_bbox.y1,
-        ),
-    ]
-    occupied_bboxes: List[Bbox] = []
-    candidate_offsets_pts = [
-        (12, 10), (12, -10), (-12, 10), (-12, -10),
-        (18, 0), (-18, 0), (0, 16), (0, -16),
-        (24, 14), (-24, 14), (24, -14), (-24, -14),
-    ]
-    callout_spacing_px = 26.0
-
-    def _place_in_callout_column(
-        anchor_x_px: float,
-        anchor_y_px: float,
-        label_text: str,
-    ) -> tuple[Any, Optional[Bbox]]:
-        place_on_right = anchor_x_px < (inset_axes_bbox.x0 + inset_axes_bbox.width * 0.60)
-        if place_on_right:
-            x_px = inset_axes_bbox.x1 - 12.0
-            ha = "right"
-            step_direction = -1.0
-        else:
-            x_px = inset_axes_bbox.x0 + 12.0
-            ha = "left"
-            step_direction = 1.0
-
-        base_y_px = min(max(anchor_y_px, inset_axes_bbox.y0 + 16.0), inset_axes_bbox.y1 - 16.0)
-        slot_sequence: List[float] = [base_y_px]
-        for slot_idx in range(1, 24):
-            delta = callout_spacing_px * slot_idx
-            slot_sequence.append(base_y_px + delta)
-            slot_sequence.append(base_y_px - delta)
-
-        for y_px in slot_sequence:
-            y_px = min(max(y_px, inset_axes_bbox.y0 + 8.0), inset_axes_bbox.y1 - 8.0)
-            candidate_lon, candidate_lat = ax.transData.inverted().transform((x_px, y_px))
-            candidate_text = ax.text(
-                candidate_lon,
-                candidate_lat,
-                label_text,
-                fontsize=7.0,
-                va="center",
-                ha=ha,
-                bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="black", alpha=0.80),
-                transform=ccrs.PlateCarree(),
-                zorder=5,
-                clip_on=True,
-            )
-            candidate_bbox = candidate_text.get_window_extent(renderer=renderer)
-            is_inside_axes = (
-                candidate_bbox.x0 >= inset_axes_bbox.x0
-                and candidate_bbox.y0 >= inset_axes_bbox.y0
-                and candidate_bbox.x1 <= inset_axes_bbox.x1
-                and candidate_bbox.y1 <= inset_axes_bbox.y1
-            )
-            has_overlap = any(
-                _bboxes_overlap(candidate_bbox, existing_bbox)
-                for existing_bbox in occupied_bboxes + reserved_bboxes
-            )
-            if is_inside_axes and not has_overlap:
-                return candidate_text, candidate_bbox
-            candidate_text.remove()
-
-        # Last resort: clipped near top/bottom guardrail in chosen column.
-        fallback_y_px = inset_axes_bbox.y0 + 18.0 if step_direction > 0 else inset_axes_bbox.y1 - 18.0
-        fallback_lon, fallback_lat = ax.transData.inverted().transform((x_px, fallback_y_px))
-        fallback_text = ax.text(
-            fallback_lon,
-            fallback_lat,
-            label_text,
-            fontsize=7.0,
-            va="center",
-            ha=ha,
-            bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="black", alpha=0.78),
-            transform=ccrs.PlateCarree(),
-            zorder=5,
-            clip_on=True,
-        )
-        return fallback_text, fallback_text.get_window_extent(renderer=renderer)
-
-    def _bboxes_overlap(left: Bbox, right: Bbox, pad_px: float = 4.0) -> bool:
-        return not (
-            left.x1 + pad_px < right.x0
-            or left.x0 - pad_px > right.x1
-            or left.y1 + pad_px < right.y0
-            or left.y0 - pad_px > right.y1
-        )
-
+    clusters: Dict[tuple, Dict[str, Any]] = {}
+    cluster_order: List[tuple] = []
     for note in note_annotations:
         longitude = note.get("longitude")
         latitude = note.get("latitude")
-        label = str(note.get("label", "")).strip()
-        if longitude is None or latitude is None or not label:
+        cluster_letter = str(
+            note.get("cluster_letter") or note.get("letter") or ""
+        ).strip()
+        if longitude is None or latitude is None or not cluster_letter:
             continue
+        key = (round(float(latitude), 5), round(float(longitude), 5))
+        if key not in clusters:
+            clusters[key] = {
+                "letter": cluster_letter,
+                "lat": float(latitude),
+                "lon": float(longitude),
+                "count": 0,
+            }
+            cluster_order.append(key)
+        clusters[key]["count"] += 1
 
-        label_wrapped = textwrap.fill(label, width=38)
-        anchor_x_px, anchor_y_px = ax.transData.transform((longitude, latitude))
-        chosen_text = None
-        chosen_bbox = None
+    # Quadrant-aware offset: nudge labels toward the map centre so points near
+    # an edge don't push their label off the page.
+    try:
+        west, east, south, north = ax.get_extent(crs=ccrs.PlateCarree())
+        mid_lon = (west + east) / 2.0
+        mid_lat = (south + north) / 2.0
+    except Exception:
+        mid_lon = mid_lat = None
 
-        for offset_x_pts, offset_y_pts in candidate_offsets_pts:
-            # 72 points per inch; use figure DPI to convert points to pixels.
-            offset_x_px = (offset_x_pts / 72.0) * fig.dpi
-            offset_y_px = (offset_y_pts / 72.0) * fig.dpi
-            candidate_x_px = anchor_x_px + offset_x_px
-            candidate_y_px = anchor_y_px + offset_y_px
-            candidate_lon, candidate_lat = ax.transData.inverted().transform((candidate_x_px, candidate_y_px))
-            candidate_text = ax.text(
-                candidate_lon,
-                candidate_lat,
-                label_wrapped,
-                fontsize=7.2,
-                va="center",
-                ha="left" if offset_x_pts >= 0 else "right",
-                bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="black", alpha=0.78),
-                transform=ccrs.PlateCarree(),
-                zorder=5,
-            )
-            candidate_bbox = candidate_text.get_window_extent(renderer=renderer)
+    standoff_pts = 14  # display-point standoff between marker and label
 
-            is_inside_axes = (
-                candidate_bbox.x0 >= inset_axes_bbox.x0
-                and candidate_bbox.y0 >= inset_axes_bbox.y0
-                and candidate_bbox.x1 <= inset_axes_bbox.x1
-                and candidate_bbox.y1 <= inset_axes_bbox.y1
-            )
-            has_overlap = any(
-                _bboxes_overlap(candidate_bbox, existing_bbox)
-                for existing_bbox in occupied_bboxes + reserved_bboxes
-            )
-            if is_inside_axes and not has_overlap:
-                chosen_text = candidate_text
-                chosen_bbox = candidate_bbox
-                break
-            candidate_text.remove()
+    for key in cluster_order:
+        cluster = clusters[key]
+        if cluster["count"] == 1:
+            label = cluster["letter"]
+        else:
+            label = f"{cluster['letter']}+{cluster['count'] - 1}"
 
-        if chosen_text is None:
-            # Dense-cluster fallback: route to a non-overlapping callout column.
-            chosen_text, chosen_bbox = _place_in_callout_column(
-                anchor_x_px=anchor_x_px,
-                anchor_y_px=anchor_y_px,
-                label_text=label_wrapped,
-            )
+        lon = cluster["lon"]
+        lat = cluster["lat"]
 
+        if mid_lon is not None and lon > mid_lon:
+            x_offset_pts = -standoff_pts
+            ha = "right"
+        else:
+            x_offset_pts = standoff_pts
+            ha = "left"
+        if mid_lat is not None and lat > mid_lat:
+            y_offset_pts = -standoff_pts
+            va = "top"
+        else:
+            y_offset_pts = standoff_pts
+            va = "bottom"
+
+        # Small marker dot at the actual telemetry point so the leader line has
+        # a clear origin against the speed-coloured scatter underneath.
         ax.plot(
-            longitude,
-            latitude,
+            lon,
+            lat,
             marker="o",
-            color="black",
-            markersize=4,
+            markerfacecolor="black",
+            markeredgecolor="white",
+            markeredgewidth=0.6,
+            markersize=4.5,
             transform=ccrs.Geodetic(),
-            zorder=4,
+            zorder=5,
+            linestyle="None",
         )
-        text_anchor_data = chosen_text.get_position()
-        ax.plot(
-            [longitude, text_anchor_data[0]],
-            [latitude, text_anchor_data[1]],
+
+        ax.annotate(
+            label,
+            xy=(lon, lat),
+            xycoords=ax.transData,
+            xytext=(x_offset_pts, y_offset_pts),
+            textcoords="offset points",
+            fontsize=7.5,
+            fontweight="bold",
+            ha=ha,
+            va=va,
             color="black",
-            linewidth=0.7,
-            transform=ccrs.PlateCarree(),
-            zorder=4,
+            bbox=dict(
+                boxstyle="round,pad=0.30",
+                facecolor="white",
+                edgecolor="black",
+                linewidth=0.8,
+            ),
+            arrowprops=dict(
+                arrowstyle="-",
+                color="black",
+                linewidth=0.6,
+                shrinkA=0,
+                shrinkB=3,
+            ),
+            zorder=6,
         )
-        if chosen_bbox is not None:
-            occupied_bboxes.append(chosen_bbox)
+
+
+def _pad_extent_to_aspect(
+    extent: List[float],
+    target_aspect: float,
+) -> List[float]:
+    """Expand the smaller dimension of `extent` so the geographic aspect of
+    the data matches `target_aspect` (the visual width/height ratio of the
+    subplot we're going to draw into). Eliminates the dead margins that
+    appear when Cartopy's equal-aspect axes would otherwise letterbox the
+    track inside its allotted cell.
+    """
+    if target_aspect <= 0:
+        return extent
+    west, east, south, north = extent
+    lon_span = max(east - west, 1e-6)
+    lat_span = max(north - south, 1e-6)
+    mid_lat_rad = math.radians((north + south) / 2.0)
+    cos_mid_lat = max(math.cos(mid_lat_rad), 1e-3)
+    current_aspect = (lon_span * cos_mid_lat) / lat_span
+
+    if current_aspect < target_aspect:
+        # Subplot is wider than data → expand longitude.
+        new_lon_span = (target_aspect * lat_span) / cos_mid_lat
+        delta = (new_lon_span - lon_span) / 2.0
+        return [west - delta, east + delta, south, north]
+    if current_aspect > target_aspect:
+        # Subplot is taller than data → expand latitude.
+        new_lat_span = (lon_span * cos_mid_lat) / target_aspect
+        delta = (new_lat_span - lat_span) / 2.0
+        return [west, east, south - delta, north + delta]
+    return extent
+
+
+def plot_telemetry_page_with_notes(
+    fig,
+    df: pd.DataFrame,
+    note_annotations: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """Render the full-page telemetry-track report on `fig`.
+
+    The map fills the entire page (with the standard title + colorbar),
+    extent-padded so E-W or N-S dominant tracks both fill the page area
+    instead of being letterboxed by Cartopy's equal-aspect projection.
+
+    Mission notes are NOT rendered on this page — call
+    `plot_mission_notes_page` afterwards to emit a follow-up page listing
+    them. The map itself only shows the lettered markers.
+    """
+    if df.empty or 'longitude' not in df.columns or 'latitude' not in df.columns:
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_axis_off()
+        ax.text(
+            0.5,
+            0.5,
+            "No telemetry data in the selected range.",
+            ha='center',
+            va='center',
+            transform=ax.transAxes,
+        )
+        return
+
+    df = df.sort_values(by='lastLocationFix')
+    df_clean = df.dropna(subset=['latitude', 'longitude'])
+    if df_clean.empty:
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_axis_off()
+        ax.text(
+            0.5,
+            0.5,
+            "No valid telemetry coordinates in the selected range.",
+            ha='center',
+            va='center',
+            transform=ax.transAxes,
+        )
+        return
+
+    annotations = assign_note_letters(list(note_annotations or []))
+
+    extent = [
+        float(df_clean['longitude'].min()) - 0.1,
+        float(df_clean['longitude'].max()) + 0.1,
+        float(df_clean['latitude'].min()) - 0.1,
+        float(df_clean['latitude'].max()) + 0.1,
+    ]
+
+    map_ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+
+    # Estimate the page-content cell so we can pad the extent and avoid the
+    # equal-aspect letterboxing that otherwise hides axis labels off-page.
+    # The reserved 1.5"/2.0" leaves room for margins, title, and colorbar.
+    fig_width_in, fig_height_in = fig.get_size_inches()
+    target_aspect = max(fig_width_in - 1.5, 1e-3) / max(fig_height_in - 2.0, 1e-3)
+    padded_extent = _pad_extent_to_aspect(extent, target_aspect)
+    _setup_report_map(map_ax, padded_extent)
+
+    norm = mcolors.Normalize(vmin=0, vmax=4)
+    cmap = cm.get_cmap('plasma')
+    scatter = map_ax.scatter(
+        df_clean['longitude'],
+        df_clean['latitude'],
+        c=df_clean['speedOverGround'] if 'speedOverGround' in df_clean.columns else 'tab:blue',
+        cmap=cmap,
+        norm=norm,
+        s=20,
+        edgecolor='k',
+        linewidth=0.2,
+        transform=ccrs.PlateCarree(),
+    )
+    cbar = fig.colorbar(scatter, ax=map_ax, orientation='vertical', shrink=0.8, pad=0.08)
+    cbar.set_label('Speed Over Ground (knots)')
+
+    _annotate_track_start_end(map_ax, df_clean)
+    _annotate_note_markers(map_ax, annotations)
+
+    start_time = df_clean['lastLocationFix'].min()
+    latest_time = df_clean['lastLocationFix'].max()
+    map_ax.set_title(
+        f"Telemetry Track\n"
+        f"{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC"
+    )
+
+    fig.tight_layout(pad=3.0)
+
+
+def plot_mission_notes_page(
+    add_footer_and_save,
+    note_annotations: List[Dict[str, Any]],
+) -> None:
+    """Render the mission notes list on its own page (auto-paginates).
+
+    Notes are grouped by cluster: cluster-mates (A, A1, A2, ...) appear
+    together before the next cluster (B, B1, ...) so the layout matches
+    the marker scheme on the telemetry map. Layout/wrapping/pagination is
+    delegated to the shared `render_text_sections` helper, so a long list
+    naturally spills onto additional pages.
+    """
+    if not note_annotations:
+        return
+
+    annotations = assign_note_letters(list(note_annotations))
+
+    sorted_annotations = sorted(
+        annotations,
+        key=lambda note: (
+            note.get("cluster_letter") or note.get("letter") or "?",
+            note.get("cluster_sub_idx", 0),
+        ),
+    )
+
+    sections: List[Dict[str, Any]] = [
+        {
+            "heading": None,
+            "lines": [
+                "Mission notes for the report period, keyed by the letter shown on the telemetry map."
+            ],
+        }
+    ]
+    for note in sorted_annotations:
+        event_time = note.get("event_time")
+        if isinstance(event_time, datetime):
+            event_time_text = event_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+        else:
+            event_time_text = "unknown time"
+        letter = str(note.get("letter") or "?").strip()
+        username = str(note.get("created_by_username") or "").strip()
+        body_text = str(note.get("full_note_text") or "").strip()
+        meta_line = (
+            f"— {username} on {event_time_text}" if username else f"— {event_time_text}"
+        )
+        sections.append({
+            "heading": f"{letter}  —  {event_time_text}",
+            "lines": [body_text or "(no content)", meta_line],
+        })
+
+    render_text_sections(
+        add_footer_and_save,
+        page_title="Mission Notes",
+        sections=sections,
+    )
 
 
 def plot_telemetry_for_report(
@@ -494,8 +641,13 @@ def plot_telemetry_for_report(
     df: pd.DataFrame,
     note_annotations: Optional[List[Dict[str, Any]]] = None,
 ):
-    """Plots the 2D GPS track on the given map axes for a PDF report. Assumes a pre-filtered DataFrame."""
-    # The 'lastLocationFix' column is expected from the telemetry data source.
+    """Single-axis telemetry plot for embedded/legacy use.
+
+    Renders the speed-coloured track, start/end markers, and clustered
+    lettered note markers on the supplied Axes. Callers wanting the full
+    page + dedicated notes-page flow should use `plot_telemetry_page_with_notes`
+    + `plot_mission_notes_page` instead.
+    """
     df = df.sort_values(by='lastLocationFix')
 
     if df.empty or 'longitude' not in df.columns or 'latitude' not in df.columns:
@@ -508,20 +660,17 @@ def plot_telemetry_for_report(
     extent = [df['longitude'].min() - 0.1, df['longitude'].max() + 0.1, df['latitude'].min() - 0.1, df['latitude'].max() + 0.1]
     _setup_report_map(ax, extent)
 
-    # Use a more intuitive "cool-to-hot" colormap like 'plasma' for speed.
-    # It's perceptually uniform and good for colorblind viewers.
     norm = mcolors.Normalize(vmin=0, vmax=4)
     cmap = cm.get_cmap('plasma')
 
     scatter = ax.scatter(df['longitude'], df['latitude'], c=df['speedOverGround'], cmap=cmap, norm=norm, s=20, edgecolor='k', linewidth=0.2, transform=ccrs.PlateCarree())
-    
-    # Add a colorbar to show the speed scale.
-    # We get the figure from the axes and add the colorbar to it.
+
     fig = ax.get_figure()
     cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', shrink=0.8, pad=0.08)
     cbar.set_label('Speed Over Ground (knots)')
 
-    _annotate_mission_notes(ax, note_annotations or [])
+    annotations = assign_note_letters(list(note_annotations or []))
+    _annotate_note_markers(ax, annotations)
     _annotate_track_start_end(ax, df)
     ax.set_title(f"Telemetry Track\n{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC")
     
