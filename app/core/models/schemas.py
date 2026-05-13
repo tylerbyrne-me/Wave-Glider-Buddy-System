@@ -117,7 +117,11 @@ class ReportGenerationOptions(BaseModel):
     """Options for report generation."""
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    plots_to_include: List[str] = Field(default_factory=lambda: ["telemetry", "power"])
+    plots_to_include: List[str] = Field(default_factory=lambda: ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais"])
+    report_renderer: Literal["matplotlib", "hybrid_html"] = Field(
+        default="matplotlib",
+        description="Renderer strategy. 'matplotlib' keeps legacy behavior; 'hybrid_html' uses HTML+Playwright phase-1 pages with legacy chart appendix fallback.",
+    )
     save_to_overview: bool = Field(default=True, description="If true, saves the generated report URL to the mission overview.")
     custom_filename: Optional[str] = Field(default=None, max_length=100, description="A custom name for the report file, used when not saving to overview.")
 

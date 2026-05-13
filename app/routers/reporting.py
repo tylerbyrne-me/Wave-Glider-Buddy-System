@@ -1,10 +1,9 @@
-import asyncio
 import logging
 
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from typing import List, Optional
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from sqlmodel import Session as SQLModelSession
@@ -14,7 +13,13 @@ from ..core.auth import get_current_admin_user
 from ..core import models, utils
 from ..core.data_service import get_data_service
 from ..core.db import get_db_session
-from ..core.reporting import generate_weekly_report
+from ..core.reporting import (
+    generate_weekly_report_with_renderer,
+    default_weekly_report_date_window,
+    generate_weekly_report_pdf_for_mission,
+    WeeklyReportPreflightError,
+    load_mission_notes_for_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,24 +57,6 @@ def _ensure_report_data_available(mission_id: str, data_frames: List[pd.DataFram
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"No report data available for mission '{mission_id}'.",
     )
-
-
-def _default_weekly_window() -> tuple[date, date]:
-    end_date = datetime.now(timezone.utc).date()
-    start_date = end_date - timedelta(days=7)
-    return start_date, end_date
-
-
-def _load_notes_for_reporting(session: SQLModelSession, mission_id: str) -> List[models.MissionNote]:
-    note_statement = (
-        select(models.MissionNote)
-        .where(
-            models.MissionNote.mission_id == mission_id,
-            models.MissionNote.include_in_report == True,  # noqa: E712
-        )
-        .order_by(models.MissionNote.created_at_utc.asc())
-    )
-    return session.exec(note_statement).all()
 
 
 @router.get(
@@ -135,9 +122,6 @@ async def generate_mission_report(
     Generates a weekly PDF report containing telemetry and power summaries for the
     specified mission. Restricted to administrators.
     """
-    # Use data service (no circular dependency)
-    data_service = get_data_service()
-
     mission_overview = session.exec(
         select(models.MissionOverview).where(models.MissionOverview.mission_id == mission_id)
     ).first()
@@ -148,75 +132,23 @@ async def generate_mission_report(
         
     logger.info(f"Fetching data for '{mission_id}' report, initiated by '{current_user.username}'.")
     try:
-        # Use consolidated load_multiple helper for concurrent loading
-        report_types = ["telemetry", "power", "ctd", "weather", "waves", "solar", "errors"]
-        data_results = await data_service.load_multiple(
-            report_types=report_types,
-            mission_id=mission_id,
-            current_user=current_user
-        )
-        
-        # Extract DataFrames from results (empty DataFrame if error occurred)
-        telemetry_df = data_results.get("telemetry", (pd.DataFrame(), "", None))[0]
-        power_df = data_results.get("power", (pd.DataFrame(), "", None))[0]
-        ctd_df = data_results.get("ctd", (pd.DataFrame(), "", None))[0]
-        weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
-        wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
-        solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
-        error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
-        
-        # Log any errors (empty DataFrames indicate errors were caught in load_multiple)
-        for report_type in report_types:
-            if data_results.get(report_type, (pd.DataFrame(), "", None))[1] == "Error":
-                logger.error(f"Error loading {report_type} data for report")
-
-        _ensure_report_data_available(
+        report_url = await generate_weekly_report_pdf_for_mission(
+            session,
             mission_id,
-            [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df],
+            current_user=current_user,
+            options=options,
+            mission_overview=mission_overview,
         )
-
+    except WeeklyReportPreflightError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No report data available for mission '{mission_id}'.",
+        )
     except Exception as e:
-        logger.error(f"An unexpected error occurred during data fetching for report: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
+        logger.error(f"An unexpected error occurred during report generation for mission '{mission_id}': {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate report.")
 
-    # Fetch mission goals to include in the report
-    goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
-    mission_goals = session.exec(goals_statement).all()
-    logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
-    mission_notes = _load_notes_for_reporting(session, mission_id)
-    logger.info(
-        "Found %s included mission notes for '%s' to evaluate for report annotations.",
-        len(mission_notes),
-        mission_id,
-    )
-
-    selected_start_date = options.start_date
-    selected_end_date = options.end_date
-    if selected_start_date is None and selected_end_date is None:
-        selected_start_date, selected_end_date = _default_weekly_window()
-        logger.info(
-            "Using default weekly date window for mission '%s': %s -> %s",
-            mission_id,
-            selected_start_date.isoformat(),
-            selected_end_date.isoformat(),
-        )
-
-    report_url = await generate_weekly_report(
-        mission_id=mission_id,
-        telemetry_df=telemetry_df,
-        power_df=power_df,
-        solar_df=solar_df,
-        ctd_df=ctd_df,
-        weather_df=weather_df,
-        wave_df=wave_df,
-        error_df=error_df,
-        mission_goals=mission_goals,
-        mission_notes=mission_notes,
-        start_date=selected_start_date,
-        end_date=selected_end_date,
-        plots_to_include=options.plots_to_include,
-        custom_filename=options.custom_filename,
-    )
+    logger.info(f"Successfully built weekly report PDF for mission '{mission_id}'. URL: {report_url}")
 
     if options.save_to_overview:
         mission_overview.weekly_report_url = report_url
@@ -241,6 +173,7 @@ async def generate_mission_report(
 async def generate_report_with_sensor_tracker(
     mission_id: str,
     report_type: str = Body(..., embed=True, description="Report type: 'weekly' or 'end_of_mission'"),
+    report_renderer: str = Body(default="matplotlib", embed=True, description="Renderer strategy: 'matplotlib' or 'hybrid_html'."),
     force_refresh_sensor_tracker: bool = Body(default=False, embed=True, description="Force refresh Sensor Tracker data"),
     save_to_overview: bool = Body(default=True, embed=True, description="Save report URL to mission overview"),
     session: SQLModelSession = Depends(get_db_session),
@@ -311,7 +244,7 @@ async def generate_report_with_sensor_tracker(
     
     try:
         # Load data sources
-        report_types = ["telemetry", "power", "ctd", "weather", "waves", "solar", "errors"]
+        report_types = ["telemetry", "power", "ctd", "weather", "waves", "solar", "fluorometer", "ais", "errors"]
         data_results = await data_service.load_multiple(
             report_types=report_types,
             mission_id=mission_id,
@@ -325,6 +258,8 @@ async def generate_report_with_sensor_tracker(
         weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
         wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
         solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
+        fluorometer_df = data_results.get("fluorometer", (pd.DataFrame(), "", None))[0]
+        ais_df = data_results.get("ais", (pd.DataFrame(), "", None))[0]
         error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
         
         # Log data loading results
@@ -338,10 +273,14 @@ async def generate_report_with_sensor_tracker(
                 logger.warning(f"No {data_type} data available for mission '{mission_id}' (source: {source_path})")
             else:
                 logger.info(f"Loaded {len(df)} {data_type} records for mission '{mission_id}' from {source_path}")
+        source_path = next(
+            (result[1] for result in data_results.values() if isinstance(result, tuple) and len(result) > 1 and result[1] and result[1] != "Error"),
+            "Unknown",
+        )
 
         _ensure_report_data_available(
             mission_id,
-            [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df],
+            [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, fluorometer_df, ais_df, error_df],
         )
     
     except Exception as e:
@@ -352,7 +291,7 @@ async def generate_report_with_sensor_tracker(
     goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
     mission_goals = session.exec(goals_statement).all()
     logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
-    mission_notes = _load_notes_for_reporting(session, mission_id)
+    mission_notes = load_mission_notes_for_report(session, mission_id)
     logger.info(
         "Found %s included mission notes for '%s' to evaluate for report annotations.",
         len(mission_notes),
@@ -370,7 +309,7 @@ async def generate_report_with_sensor_tracker(
     selected_start_date = None
     selected_end_date = None
     if report_type != "end_of_mission":
-        selected_start_date, selected_end_date = _default_weekly_window()
+        selected_start_date, selected_end_date = default_weekly_report_date_window()
         logger.info(
             "Using default weekly date window for Sensor Tracker report '%s': %s -> %s",
             mission_id,
@@ -379,8 +318,9 @@ async def generate_report_with_sensor_tracker(
         )
 
     # Generate report with all plot types included
-    plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
-    report_url = await generate_weekly_report(
+    plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "c3", "errors", "ais"]
+    report_url = await generate_weekly_report_with_renderer(
+        renderer=report_renderer,
         mission_id=mission_id,
         telemetry_df=telemetry_df,
         power_df=power_df,
@@ -388,6 +328,8 @@ async def generate_report_with_sensor_tracker(
         ctd_df=ctd_df,
         weather_df=weather_df,
         wave_df=wave_df,
+        fluorometer_df=fluorometer_df,
+        ais_df=ais_df,
         error_df=error_df,
         mission_goals=mission_goals,
         mission_notes=mission_notes,
@@ -396,6 +338,8 @@ async def generate_report_with_sensor_tracker(
         plots_to_include=plots_to_include,
         custom_filename=custom_filename,
         sensor_tracker_deployment=sensor_tracker_deployment,  # Pass Sensor Tracker metadata
+        mission_overview=mission_overview,
+        source_path=source_path,
     )
     
     if save_to_overview:

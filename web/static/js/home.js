@@ -702,7 +702,8 @@ document.addEventListener('DOMContentLoaded', function() {
             end_date: endDate || null,
             plots_to_include: plotsToInclude,
             save_to_overview: saveToOverview,
-            custom_filename: customFilename || null
+            custom_filename: customFilename || null,
+            report_renderer: 'hybrid_html'
         };
 
         generateReportBtn.disabled = true;
@@ -710,7 +711,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             const result = await apiRequest(`/api/reporting/missions/${missionId}/generate-weekly-report`, 'POST', options);
-            showToast('Report generated successfully!', 'success');
+            const usedHybridRenderer = Boolean(result.weekly_report_url && result.weekly_report_url.includes('_hybrid.pdf'));
+            const rendererMessage = usedHybridRenderer
+                ? 'Report generated successfully (hybrid HTML renderer).'
+                : 'Report generated successfully (legacy renderer fallback).';
+            showToast(rendererMessage, usedHybridRenderer ? 'success' : 'warning');
             reportModal.hide();
             
             // Always open the report in a new tab for immediate feedback.

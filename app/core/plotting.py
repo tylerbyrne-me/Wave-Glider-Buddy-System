@@ -1,13 +1,17 @@
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import math
+import re
 import string
 import textwrap
+import matplotlib as mpl
+import matplotlib.font_manager as font_manager
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import cmocean.cm as cmo
 import matplotlib.dates as mdates
 import pandas as pd
 import cartopy.crs as ccrs
@@ -19,14 +23,106 @@ import logging
 from . import models
 from .processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
-from .processors import preprocess_telemetry_df # Explicitly import for report plot
+from .processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
 
 logger = logging.getLogger(__name__)
+
+# PDF text uses Matplotlib’s font resolver only (not browser @font-face). Candidates are
+# common Windows / server fonts verified with findfont(..., fallback_to_default=False) so
+# we never ask Matplotlib to probe names that only exist in web CSS (e.g. Inter Tight).
+_CANDIDATE_REPORT_PDF_FONTS: List[str] = [
+    "Segoe UI",
+    "Arial",
+    "Calibri",
+    "Cambria",
+    "Verdana",
+    "Lucida Sans Unicode",
+    "Tahoma",
+    "DejaVu Sans",
+]
+
+
+def _font_family_resolves(family: str) -> bool:
+    try:
+        path = font_manager.findfont(
+            font_manager.FontProperties(family=family),
+            fallback_to_default=False,
+        )
+    except (ValueError, RuntimeError, OSError):
+        return False
+    return bool(path)
+
+
+def _resolved_report_pdf_font_stack() -> List[str]:
+    picked: List[str] = []
+    for candidate in _CANDIDATE_REPORT_PDF_FONTS:
+        if not _font_family_resolves(candidate):
+            continue
+        if candidate not in picked:
+            picked.append(candidate)
+    return picked or ["DejaVu Sans"]
+
+
+REPORT_PDF_FONT_STACK: List[str] = _resolved_report_pdf_font_stack()
+REPORT_PDF_FONT_PRIMARY: str = REPORT_PDF_FONT_STACK[0]
+
+
+@contextmanager
+def report_pdf_rc_context():
+    """Temporarily set matplotlib defaults for legacy PDF report figures."""
+    primary = REPORT_PDF_FONT_PRIMARY
+    with mpl.rc_context(
+        {
+            "font.family": primary,
+            "font.sans-serif": [primary, "DejaVu Sans"],
+            "axes.titlesize": 14,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 10,
+            "ytick.labelsize": 10,
+            "legend.fontsize": 9,
+        }
+    ):
+        yield
+
 
 def ensure_plots_dir():
     plots_dir = Path("waveglider_plots_temp")
     plots_dir.mkdir(exist_ok=True)
     return plots_dir
+
+
+def unwrap_degree_series(series: pd.Series) -> pd.Series:
+    """Return a continuous (display-only) view of a 0..360 degree series.
+
+    Uses ``numpy.unwrap`` on the radian-converted values so plotted lines do not jump
+    by ~360 when the source angle wraps around 0/360. Original missing values are
+    preserved as NaN so matplotlib still breaks the line where data is missing.
+    Returned values may extend outside 0..360 by design (that is the unwrapping).
+    """
+    if series is None or series.empty:
+        return series
+    values = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+    valid_mask = np.isfinite(values)
+    if not valid_mask.any():
+        return pd.Series(values, index=series.index, name=series.name)
+
+    unwrapped = np.full(values.shape, np.nan, dtype=float)
+    # Unwrap each contiguous run of valid values independently so NaN gaps stay as gaps.
+    in_run = False
+    run_start = 0
+    for idx in range(values.size):
+        if valid_mask[idx] and not in_run:
+            in_run = True
+            run_start = idx
+        elif not valid_mask[idx] and in_run:
+            in_run = False
+            run_slice = slice(run_start, idx)
+            unwrapped[run_slice] = np.degrees(np.unwrap(np.radians(values[run_slice])))
+    if in_run:
+        run_slice = slice(run_start, values.size)
+        unwrapped[run_slice] = np.degrees(np.unwrap(np.radians(values[run_slice])))
+
+    return pd.Series(unwrapped, index=series.index, name=series.name)
 
 
 def generate_power_plot(power_df, mission_id, hours_back=72):
@@ -247,7 +343,7 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72):
         if "MeanWaveDirection" in hourly.columns:
             plt.plot(
                 hourly.index,
-                hourly["MeanWaveDirection"],
+                unwrap_degree_series(hourly["MeanWaveDirection"]),
                 label="Wave Dir (°)",
                 color="green",
             )
@@ -621,10 +717,10 @@ def plot_telemetry_page_with_notes(
     annotations = assign_note_letters(list(note_annotations or []))
 
     extent = [
-        float(df_clean['longitude'].min()) - 0.1,
-        float(df_clean['longitude'].max()) + 0.1,
-        float(df_clean['latitude'].min()) - 0.1,
-        float(df_clean['latitude'].max()) + 0.1,
+        float(df_clean['longitude'].min()) - 0.05,
+        float(df_clean['longitude'].max()) + 0.05,
+        float(df_clean['latitude'].min()) - 0.05,
+        float(df_clean['latitude'].max()) + 0.05,
     ]
 
     map_ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
@@ -638,16 +734,18 @@ def plot_telemetry_page_with_notes(
     _setup_report_map(map_ax, padded_extent)
 
     norm = mcolors.Normalize(vmin=0, vmax=4)
-    cmap = cm.get_cmap('plasma')
+    cmap = cmo.speed
+    sog = telemetry_speed_over_ground_series(df_clean)
+    color_values = sog if sog is not None and sog.notna().any() else "tab:blue"
     scatter = map_ax.scatter(
         df_clean['longitude'],
         df_clean['latitude'],
-        c=df_clean['speedOverGround'] if 'speedOverGround' in df_clean.columns else 'tab:blue',
+        c=color_values,
         cmap=cmap,
         norm=norm,
         s=20,
-        edgecolor='k',
-        linewidth=0.2,
+        linewidths=0,
+        edgecolors="none",
         transform=ccrs.PlateCarree(),
     )
     cbar = fig.colorbar(scatter, ax=map_ax, orientation='vertical', shrink=0.8, pad=0.08)
@@ -744,13 +842,15 @@ def plot_telemetry_for_report(
     start_time = df['lastLocationFix'].min()
     latest_time = df['lastLocationFix'].max()
 
-    extent = [df['longitude'].min() - 0.1, df['longitude'].max() + 0.1, df['latitude'].min() - 0.1, df['latitude'].max() + 0.1]
+    extent = [df['longitude'].min() - 0.05, df['longitude'].max() + 0.05, df['latitude'].min() - 0.05, df['latitude'].max() + 0.05]
     _setup_report_map(ax, extent)
 
     norm = mcolors.Normalize(vmin=0, vmax=4)
-    cmap = cm.get_cmap('plasma')
+    cmap = cmo.speed
+    sog = telemetry_speed_over_ground_series(df)
+    color_values = sog if sog is not None and sog.notna().any() else "tab:blue"
 
-    scatter = ax.scatter(df['longitude'], df['latitude'], c=df['speedOverGround'], cmap=cmap, norm=norm, s=20, edgecolor='k', linewidth=0.2, transform=ccrs.PlateCarree())
+    scatter = ax.scatter(df['longitude'], df['latitude'], c=color_values, cmap=cmap, norm=norm, s=20, linewidths=0, edgecolors="none", transform=ccrs.PlateCarree())
 
     fig = ax.get_figure()
     cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', shrink=0.8, pad=0.08)
@@ -806,9 +906,17 @@ _TEXT_PAGE_LEFT_MARGIN = 0.05
 _TEXT_PAGE_RIGHT_MARGIN = 0.05
 _TEXT_PAGE_TOP_MARGIN = 0.90
 _TEXT_PAGE_BOTTOM_MARGIN = 0.10
-_TEXT_PAGE_BODY_PROPS = {'va': 'top', 'ha': 'left', 'fontsize': 9, 'family': 'monospace'}
+_TEXT_PAGE_BODY_PROPS = {
+    "va": "top",
+    "ha": "left",
+    "fontsize": 10,
+    "family": REPORT_PDF_FONT_PRIMARY,
+}
+_TEXT_PAGE_LINE_SPACING = 1.15
 _TEXT_PAGE_WRAP_WIDTH = 100
+# Lines per page for the text axes box at _TEXT_PAGE_LINE_SPACING.
 _TEXT_PAGE_LINES_PER_PAGE = 58
+_TEXT_PAGE_SUPTITLE_KWARGS = {"fontsize": 16, "fontfamily": REPORT_PDF_FONT_PRIMARY}
 
 
 def _flatten_sections_to_lines(sections: List[Dict[str, Any]]) -> List[str]:
@@ -850,25 +958,74 @@ def _flatten_sections_to_lines(sections: List[Dict[str, Any]]) -> List[str]:
     return rendered
 
 
+def _justify_line_fill(line: str, width: int) -> str:
+    """Pad a wrapped line to `width` characters by expanding spaces between words."""
+    if not line:
+        return line
+    raw = line.rstrip("\n")
+    if not raw.strip():
+        return line
+    st = raw.strip()
+    if st and set(st) == {"-"}:
+        return line
+    m = re.match(r"^(\s*)", raw)
+    leading = m.group(1) if m else ""
+    content = raw[len(leading) :].rstrip()
+    if not content or " " not in content:
+        return line
+    words = content.split()
+    if len(words) < 2:
+        return line
+    base_one_space = " ".join(words)
+    available = width - len(leading)
+    if available <= 0 or len(base_one_space) >= available:
+        return line
+    if len(base_one_space) < max(24, int(available * 0.52)):
+        return line
+    extra = available - len(base_one_space)
+    gaps = len(words) - 1
+    if gaps <= 0 or extra < 0:
+        return line
+    per = extra // gaps
+    rem = extra % gaps
+    parts: List[str] = []
+    for i, w in enumerate(words):
+        parts.append(w)
+        if i >= gaps:
+            break
+        nspaces = 1 + per + (1 if i < rem else 0)
+        parts.append(" " * nspaces)
+    justified = leading + "".join(parts)
+    if len(justified) > width:
+        return line
+    return justified
+
+
 def render_text_sections(
     add_footer_and_save,
     *,
     page_title: str,
     sections: List[Dict[str, Any]],
     page_size=(8.27, 11.69),
+    justify_body: bool = True,
 ) -> None:
     """Render an ordered list of text sections across one or more PDF pages.
 
     Each page uses the same bounded text-axes pattern as `plot_errors_for_report`
-    (figure-coord margins, monospace text, manual wrapping). When the flattened
+    (figure-coord margins, report sans-serif text, manual wrapping). When the flattened
     line list is longer than what fits on one page, additional pages are emitted
     with a "(continued)" suptitle. Saving and footer/page-number stamping is
     delegated to the supplied `add_footer_and_save` callback (the existing
     closure inside `generate_weekly_report`).
+
+    When ``justify_body`` is True, wrapped body lines are padded to ``_TEXT_PAGE_WRAP_WIDTH``
+    by expanding inter-word spaces (TOC and similar pages should pass False).
     """
     lines = _flatten_sections_to_lines(sections)
     if not lines:
         return
+    if justify_body:
+        lines = [_justify_line_fill(line, _TEXT_PAGE_WRAP_WIDTH) for line in lines]
 
     pages = [
         lines[i:i + _TEXT_PAGE_LINES_PER_PAGE]
@@ -878,7 +1035,7 @@ def render_text_sections(
     for page_idx, page_lines in enumerate(pages):
         fig = plt.figure(figsize=page_size)
         suptitle = page_title if page_idx == 0 else f"{page_title} (continued)"
-        fig.suptitle(suptitle, fontsize=16)
+        fig.suptitle(suptitle, **_TEXT_PAGE_SUPTITLE_KWARGS)
 
         text_ax = fig.add_axes([
             _TEXT_PAGE_LEFT_MARGIN,
@@ -887,8 +1044,40 @@ def render_text_sections(
             _TEXT_PAGE_TOP_MARGIN - _TEXT_PAGE_BOTTOM_MARGIN,
         ])
         text_ax.set_axis_off()
-        text_ax.text(0, 1.0, "\n".join(page_lines), **_TEXT_PAGE_BODY_PROPS)
+        text_ax.text(0, 1.0, "\n".join(page_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
         add_footer_and_save(fig)
+
+
+def estimate_text_sections_page_count(sections: List[Dict[str, Any]]) -> int:
+    """Estimate number of pages render_text_sections will produce."""
+    lines = _flatten_sections_to_lines(sections)
+    if not lines:
+        return 0
+    return max(1, math.ceil(len(lines) / _TEXT_PAGE_LINES_PER_PAGE))
+
+
+def plot_table_of_contents_page(
+    add_footer_and_save,
+    toc_entries: List[Dict[str, Any]],
+) -> None:
+    """Render a simple table of contents page with page numbers."""
+    sections: List[Dict[str, Any]] = [{
+        "heading": None,
+        "lines": ["This table of contents reflects final rendered page numbers."],
+    }]
+    lines: List[str] = []
+    for entry in toc_entries:
+        title = str(entry.get("title", "Section")).strip()
+        page_number = entry.get("page_number")
+        page_text = f"{page_number}" if page_number is not None else "N/A"
+        lines.append(f"{title.ljust(78, '.')} {page_text}")
+    sections.append({"heading": "Contents", "lines": lines or ["(No sections available)"]})
+    render_text_sections(
+        add_footer_and_save,
+        page_title="Table of Contents",
+        sections=sections,
+        justify_body=False,
+    )
 
 
 def plot_summary_page(
@@ -902,14 +1091,7 @@ def plot_summary_page(
     error_report,
     mission_goals: Optional[List[models.MissionGoal]] = None,
 ):
-    """
-    Creates a mission summary page with key statistics from all data sources.
-
-    Builds an ordered list of sections and delegates layout/pagination to the
-    shared `render_text_sections` helper, replacing the previous dual-column
-    `fig.text` + `y_pos -= 0.X` math that caused blocks to collide when content
-    grew (e.g. long Mission Goals overlapping the Vehicle Errors block).
-    """
+    """Creates a two-column mission summary page with key statistics."""
 
     def format_block(title, stats, unit):
         lines = [f"{title}:"]
@@ -976,11 +1158,20 @@ def plot_summary_page(
         error_lines.append("  • No errors with severity.")
     sections.append({"heading": "Vehicle Errors", "lines": error_lines})
 
-    render_text_sections(
-        add_footer_and_save,
-        page_title="Mission Summary Statistics",
-        sections=sections,
-    )
+    left_sections = sections[0::2]
+    right_sections = sections[1::2]
+    left_lines = _flatten_sections_to_lines(left_sections)
+    right_lines = _flatten_sections_to_lines(right_sections)
+
+    fig = plt.figure(figsize=(8.27, 11.69))
+    fig.suptitle("Mission Summary Statistics", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    left_ax = fig.add_axes([0.05, 0.10, 0.43, 0.80])
+    right_ax = fig.add_axes([0.52, 0.10, 0.43, 0.80])
+    left_ax.set_axis_off()
+    right_ax.set_axis_off()
+    left_ax.text(0, 1.0, "\n".join(left_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
+    right_ax.text(0, 1.0, "\n".join(right_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
+    add_footer_and_save(fig)
 
 def plot_ctd_for_report(fig, df: pd.DataFrame):
     """
@@ -988,11 +1179,18 @@ def plot_ctd_for_report(fig, df: pd.DataFrame):
     Assumes a pre-filtered and pre-processed DataFrame.
     """
     if df.empty:
-        fig.text(0.5, 0.5, "No CTD data in the selected range.", ha='center', va='center')
+        fig.text(
+            0.5,
+            0.5,
+            "No CTD data in the selected range.",
+            ha="center",
+            va="center",
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("CTD Summary", fontsize=16)
+    fig.suptitle("CTD Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
 
     # Plot Temperature
     if "WaterTemperature" in df.columns:
@@ -1017,32 +1215,86 @@ def plot_ctd_for_report(fig, df: pd.DataFrame):
 
     axs[2].set_xlabel("Time (UTC)")
 
+
+def plot_c3_for_report(fig, df: pd.DataFrame):
+    """Plot C3 channels with fluorometer temperature overlays."""
+    if df.empty:
+        fig.text(
+            0.5,
+            0.5,
+            "No C3 data in the selected range.",
+            ha="center",
+            va="center",
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
+        return
+    axs = fig.subplots(3, 1, sharex=True)
+    fig.suptitle("C3 Fluorometer Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    channel_specs = [
+        ("C1_Avg", "Channel 1", "tab:blue"),
+        ("C2_Avg", "Channel 2", "tab:green"),
+        ("C3_Avg", "Channel 3", "tab:purple"),
+    ]
+    for idx, (column_name, channel_label, color) in enumerate(channel_specs):
+        if column_name in df.columns:
+            axs[idx].plot(df["Timestamp"], df[column_name], color=color, label=f"{channel_label} (RFU)")
+            axs[idx].set_ylabel("RFU")
+            axs[idx].grid(True, alpha=0.3)
+            axs[idx].legend(loc="upper left")
+        if "Temperature_Fluor" in df.columns:
+            temperature_axis = axs[idx].twinx()
+            temperature_axis.plot(
+                df["Timestamp"], df["Temperature_Fluor"], color="tab:red", alpha=0.6, linestyle="--", label="Temp (C)"
+            )
+            temperature_axis.set_ylabel("Temp (C)", color="tab:red")
+            temperature_axis.tick_params(axis="y", labelcolor="tab:red")
+    axs[2].set_xlabel("Time (UTC)")
+
 def plot_errors_for_report(add_footer_and_save, df: pd.DataFrame) -> None:
     """
     Creates one or more PDF pages with a bulleted list of recent vehicle errors.
 
     Delegates layout/margins/wrapping to `render_text_sections`, matching the
-    same bounded-axes + monospace + textwrap pattern used elsewhere in reports.
+    same bounded-axes + report font + textwrap pattern used elsewhere in reports.
     """
     if df.empty:
         fig = plt.figure(figsize=(8.27, 11.69))
         fig.text(
             0.5, 0.5,
             "No vehicle errors reported in the selected range.",
-            ha='center', va='center',
+            ha="center",
+            va="center",
+            family=REPORT_PDF_FONT_PRIMARY,
         )
         add_footer_and_save(fig)
         return
 
     df_display = df.copy().tail(15)
 
+    vehicle_column = "VehicleName" if "VehicleName" in df_display.columns else "vehicleName"
+    message_column = "ErrorMessage" if "ErrorMessage" in df_display.columns else "error_Message"
+    timestamp_column = "Timestamp" if "Timestamp" in df_display.columns else "timeStamp"
+
     body_lines: List[str] = []
     for _, row in df_display.iterrows():
-        vehicle = row.get('vehicleName', 'N/A')
-        message = str(row.get('error_Message', 'No message.'))
+        vehicle_value = row.get(vehicle_column)
+        message_value = row.get(message_column)
+        timestamp_value = row.get(timestamp_column)
+
+        vehicle = str(vehicle_value).strip() if pd.notna(vehicle_value) else "N/A"
+        message = str(message_value).strip() if pd.notna(message_value) else "No message."
+        if not message:
+            message = "No message."
         message = message.replace('@', '@\u200B')
 
-        entry_text = f"• {vehicle}: {message}"
+        timestamp_text = ""
+        if pd.notna(timestamp_value):
+            try:
+                timestamp_text = pd.to_datetime(timestamp_value, utc=True).strftime("%Y-%m-%d %H:%M:%S UTC")
+            except Exception:
+                timestamp_text = str(timestamp_value)
+
+        entry_text = f"• {timestamp_text} | {vehicle}: {message}" if timestamp_text else f"• {vehicle}: {message}"
         wrapped_lines = textwrap.wrap(
             entry_text,
             width=_TEXT_PAGE_WRAP_WIDTH,
@@ -1067,11 +1319,18 @@ def plot_weather_for_report(fig, df: pd.DataFrame):
     Assumes a pre-filtered and pre-processed DataFrame.
     """
     if df.empty:
-        fig.text(0.5, 0.5, "No weather data in the selected range.", ha='center', va='center')
+        fig.text(
+            0.5,
+            0.5,
+            "No weather data in the selected range.",
+            ha="center",
+            va="center",
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("Weather Summary", fontsize=16)
+    fig.suptitle("Weather Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
 
     # Plot Air Temperature
     if "AirTemperature" in df.columns:
@@ -1104,11 +1363,18 @@ def plot_wave_for_report(fig, df: pd.DataFrame):
     Assumes a pre-filtered and pre-processed DataFrame.
     """
     if df.empty:
-        fig.text(0.5, 0.5, "No wave data in the selected range.", ha='center', va='center')
+        fig.text(
+            0.5,
+            0.5,
+            "No wave data in the selected range.",
+            ha="center",
+            va="center",
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("Wave Summary", fontsize=16)
+    fig.suptitle("Wave Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
 
     # Plot Significant Wave Height
     if "SignificantWaveHeight" in df.columns:
@@ -1124,9 +1390,14 @@ def plot_wave_for_report(fig, df: pd.DataFrame):
         axs[1].grid(True, alpha=0.3)
         axs[1].legend(loc="upper left")
 
-    # Plot Mean Wave Direction
+    # Plot Mean Wave Direction (display-only unwrap to avoid 0/360 jumps)
     if "MeanWaveDirection" in df.columns:
-        axs[2].plot(df["Timestamp"], df["MeanWaveDirection"], "y-", label="Mean Direction (°)")
+        axs[2].plot(
+            df["Timestamp"],
+            unwrap_degree_series(df["MeanWaveDirection"]),
+            "y-",
+            label="Mean Direction (°)",
+        )
         axs[2].set_ylabel("Direction (°)")
         axs[2].grid(True, alpha=0.3)
         axs[2].legend(loc="upper left")

@@ -1,5 +1,5 @@
 import logging  # Add logging
-from typing import Dict, List
+from typing import Dict, List, Optional
  
 import numpy as np
 import pandas as pd
@@ -539,6 +539,16 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     return df_processed
+
+
+def telemetry_speed_over_ground_series(df: pd.DataFrame) -> Optional[pd.Series]:
+    """Return numeric speed-over-ground (knots) if present, raw or preprocessed column names."""
+    if df.empty:
+        return None
+    for col in ("speedOverGround", "SpeedOverGround"):
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors="coerce")
+    return None
 
 
 def preprocess_slocum_track_df(df: pd.DataFrame) -> pd.DataFrame:

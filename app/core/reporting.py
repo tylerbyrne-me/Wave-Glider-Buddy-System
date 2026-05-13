@@ -19,8 +19,21 @@ from . import models, utils
 from .plotting import (plot_ctd_for_report, plot_errors_for_report,
                           plot_mission_notes_page, plot_power_for_report, plot_summary_page,
                           plot_telemetry_page_with_notes, plot_wave_for_report, plot_weather_for_report,
-                          render_text_sections)
-from .processors import preprocess_ctd_df, preprocess_wave_df, preprocess_weather_df
+                          render_text_sections, estimate_text_sections_page_count,
+                          plot_table_of_contents_page, plot_c3_for_report,
+                          report_pdf_rc_context, REPORT_PDF_FONT_PRIMARY)
+from .processors import (
+    preprocess_ais_df,
+    preprocess_ctd_df,
+    preprocess_error_df,
+    preprocess_fluorometer_df,
+    preprocess_wave_df,
+    preprocess_weather_df,
+    telemetry_speed_over_ground_series,
+)
+from .summaries import get_ais_summary, get_ais_summary_stats
+from .report_view_model import ReportViewModelInput, build_report_view_model
+from .report_renderers import RendererRequest, render_report_with_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +43,138 @@ REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Define the path to the company logo. **Please update 'your_logo_name.png' to your actual logo file name.**
 LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "web" / "static" / "images" / "otn_logo.png"
+
+
+def default_weekly_report_date_window() -> tuple[date, date]:
+    """UTC calendar window used for default weekly reports (matches admin UI weekly preset)."""
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=7)
+    return start_date, end_date
+
+
+# Data types loaded for standard weekly / default admin weekly reports (order stable for caches/logs).
+WEEKLY_REPORT_DATA_TYPES: List[str] = [
+    "telemetry",
+    "power",
+    "ctd",
+    "weather",
+    "waves",
+    "solar",
+    "fluorometer",
+    "ais",
+    "errors",
+]
+
+
+class WeeklyReportPreflightError(Exception):
+    """Raised when every report dataset is empty after load (PDF cannot be built)."""
+
+
+def load_mission_notes_for_report(session: SQLModelSession, mission_id: str) -> List[models.MissionNote]:
+    """Mission notes flagged for inclusion in PDF reports, oldest first."""
+    statement = (
+        select(models.MissionNote)
+        .where(
+            models.MissionNote.mission_id == mission_id,
+            models.MissionNote.include_in_report == True,  # noqa: E712
+        )
+        .order_by(models.MissionNote.created_at_utc.asc())
+    )
+    return session.exec(statement).all()
+
+
+async def generate_weekly_report_pdf_for_mission(
+    session: SQLModelSession,
+    mission_id: str,
+    *,
+    current_user: Optional[models.User],
+    options: models.ReportGenerationOptions,
+    mission_overview: Optional[models.MissionOverview],
+) -> str:
+    """Load weekly report inputs and return the generated PDF URL path (does not commit).
+
+    Shared by the admin ``generate-weekly-report`` API and ``create_and_save_weekly_report`` (cron).
+    Uses the same ``load_multiple`` scope, date-window rules, and ``ReportGenerationOptions`` as the
+    admin route when the same ``options`` instance is passed.
+    """
+    from .data_service import get_data_service
+
+    data_service = get_data_service()
+    data_results = await data_service.load_multiple(
+        report_types=WEEKLY_REPORT_DATA_TYPES,
+        mission_id=mission_id,
+        current_user=current_user,
+    )
+
+    telemetry_df = data_results.get("telemetry", (pd.DataFrame(), "", None))[0]
+    power_df = data_results.get("power", (pd.DataFrame(), "", None))[0]
+    ctd_df = data_results.get("ctd", (pd.DataFrame(), "", None))[0]
+    weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
+    wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
+    solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
+    fluorometer_df = data_results.get("fluorometer", (pd.DataFrame(), "", None))[0]
+    ais_df = data_results.get("ais", (pd.DataFrame(), "", None))[0]
+    error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
+
+    for report_type in WEEKLY_REPORT_DATA_TYPES:
+        if data_results.get(report_type, (pd.DataFrame(), "", None))[1] == "Error":
+            logger.error("Error loading %s data for mission '%s'.", report_type, mission_id)
+
+    frames = [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, fluorometer_df, ais_df, error_df]
+    if all(f.empty for f in frames):
+        raise WeeklyReportPreflightError(f"No report data available for mission '{mission_id}'.")
+
+    source_path = next(
+        (
+            result[1]
+            for result in data_results.values()
+            if isinstance(result, tuple) and len(result) > 1 and result[1] and result[1] != "Error"
+        ),
+        "Unknown",
+    )
+
+    goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
+    mission_goals = session.exec(goals_statement).all()
+    mission_notes = load_mission_notes_for_report(session, mission_id)
+
+    sensor_tracker_deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(models.SensorTrackerDeployment.mission_id == mission_id)
+    ).first()
+
+    selected_start_date = options.start_date
+    selected_end_date = options.end_date
+    if selected_start_date is None and selected_end_date is None:
+        selected_start_date, selected_end_date = default_weekly_report_date_window()
+        logger.info(
+            "Weekly report default UTC date window for mission '%s': %s -> %s",
+            mission_id,
+            selected_start_date.isoformat(),
+            selected_end_date.isoformat(),
+        )
+
+    return await generate_weekly_report_with_renderer(
+        renderer=options.report_renderer,
+        mission_id=mission_id,
+        telemetry_df=telemetry_df,
+        power_df=power_df,
+        solar_df=solar_df,
+        ctd_df=ctd_df,
+        weather_df=weather_df,
+        wave_df=wave_df,
+        fluorometer_df=fluorometer_df,
+        ais_df=ais_df,
+        error_df=error_df,
+        mission_goals=mission_goals,
+        mission_notes=mission_notes,
+        start_date=selected_start_date,
+        end_date=selected_end_date,
+        plots_to_include=list(options.plots_to_include),
+        custom_filename=options.custom_filename,
+        sensor_tracker_deployment=sensor_tracker_deployment,
+        mission_overview=mission_overview,
+        source_path=source_path,
+    )
+
 
 def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     """
@@ -70,9 +215,10 @@ def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     distances = R * c
     summary["total_distance_km"] = distances.sum()
 
-    # Calculate average speed
-    if 'speedOverGround' in df_clean.columns and not df_clean['speedOverGround'].isnull().all():
-        summary["avg_speed_knots"] = df_clean['speedOverGround'].mean()
+    # Calculate average speed (raw or preprocessed column name)
+    sog = telemetry_speed_over_ground_series(df_clean)
+    if sog is not None and sog.notna().any():
+        summary["avg_speed_knots"] = float(sog.mean())
 
     return summary
 
@@ -286,7 +432,9 @@ def _build_mission_note_annotations(
     return annotations
 
 
-async def generate_weekly_report(
+async def generate_weekly_report_with_renderer(
+    *,
+    renderer: str,
     mission_id: str,
     telemetry_df: pd.DataFrame,
     power_df: pd.DataFrame,
@@ -294,6 +442,8 @@ async def generate_weekly_report(
     ctd_df: pd.DataFrame,
     weather_df: pd.DataFrame,
     wave_df: pd.DataFrame,
+    fluorometer_df: pd.DataFrame,
+    ais_df: pd.DataFrame,
     error_df: pd.DataFrame,
     mission_goals: Optional[List[models.MissionGoal]] = None,
     mission_notes: Optional[List[models.MissionNote]] = None,
@@ -302,6 +452,138 @@ async def generate_weekly_report(
     plots_to_include: Optional[List[str]] = None,
     custom_filename: Optional[str] = None,
     sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
+    mission_overview: Optional[models.MissionOverview] = None,
+    source_path: Optional[str] = None,
+) -> str:
+    def _apply_date_filter(
+        df: pd.DataFrame,
+        *,
+        timestamp_column: str,
+        start: Optional[date],
+        end: Optional[date],
+    ) -> pd.DataFrame:
+        if df.empty or timestamp_column not in df.columns:
+            return df
+        filtered = df.copy()
+        filtered[timestamp_column] = utils.parse_timestamp_column(
+            filtered[timestamp_column], errors="coerce", utc=True
+        )
+        if start:
+            filtered = filtered[filtered[timestamp_column] >= pd.to_datetime(start).tz_localize("UTC")]
+        if end:
+            end_inclusive = pd.to_datetime(end).tz_localize("UTC") + timedelta(days=1)
+            filtered = filtered[filtered[timestamp_column] < end_inclusive]
+        return filtered
+
+    ais_for_view_model = preprocess_ais_df(ais_df.copy()) if not ais_df.empty else ais_df.copy()
+    ais_for_view_model = _apply_date_filter(
+        ais_for_view_model,
+        timestamp_column="LastSeenTimestamp",
+        start=start_date,
+        end=end_date,
+    )
+    error_for_view_model = preprocess_error_df(error_df.copy()) if not error_df.empty else error_df.copy()
+    error_for_view_model = _apply_date_filter(
+        error_for_view_model,
+        timestamp_column="Timestamp",
+        start=start_date,
+        end=end_date,
+    )
+
+    mission_title = (
+        sensor_tracker_deployment.title
+        if sensor_tracker_deployment and sensor_tracker_deployment.title
+        else mission_id
+    )
+    platform_name = (
+        sensor_tracker_deployment.platform_name
+        if sensor_tracker_deployment and sensor_tracker_deployment.platform_name
+        else "Unknown"
+    )
+    view_model_input = ReportViewModelInput(
+        mission_id=mission_id,
+        mission_title=mission_title,
+        platform_name=platform_name,
+        source_path=source_path or "Unknown",
+        start_date=start_date,
+        end_date=end_date,
+        mission_goals=mission_goals or [],
+        sensor_tracker_deployment=sensor_tracker_deployment,
+        ais_df=ais_for_view_model,
+        error_df=error_for_view_model,
+    )
+    view_model = build_report_view_model(view_model_input)
+
+    report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
+    report_dir = REPORTS_ROOT / report_dir_name
+    report_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    filename_base = f"hybrid_{utils.sanitize_path_segment(mission_id)}_{timestamp}"
+
+    legacy_plots = list(plots_to_include or [])
+    external_append_sections: List[str] = []
+    if renderer == "hybrid_html":
+        legacy_plots = [plot_name for plot_name in legacy_plots if plot_name not in {"errors", "ais"}]
+        external_append_sections = ["Vehicle Errors", "AIS Report"]
+
+    async def _run_legacy_renderer() -> str:
+        return await generate_weekly_report(
+            mission_id=mission_id,
+            telemetry_df=telemetry_df,
+            power_df=power_df,
+            solar_df=solar_df,
+            ctd_df=ctd_df,
+            weather_df=weather_df,
+            wave_df=wave_df,
+            fluorometer_df=fluorometer_df,
+            ais_df=ais_df,
+            error_df=error_df,
+            mission_goals=mission_goals,
+            mission_notes=mission_notes,
+            start_date=start_date,
+            end_date=end_date,
+            plots_to_include=legacy_plots,
+            custom_filename=custom_filename,
+            sensor_tracker_deployment=sensor_tracker_deployment,
+            mission_overview=mission_overview,
+            source_path=source_path,
+            external_append_sections=external_append_sections,
+        )
+
+    request = RendererRequest(
+        renderer=renderer,
+        report_dir=report_dir,
+        report_filename_base=filename_base,
+        view_model=view_model,
+    )
+    return await render_report_with_strategy(
+        request=request,
+        reports_root=REPORTS_ROOT,
+        run_legacy_renderer=_run_legacy_renderer,
+    )
+
+
+async def generate_weekly_report(
+    mission_id: str,
+    telemetry_df: pd.DataFrame,
+    power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    ctd_df: pd.DataFrame,
+    weather_df: pd.DataFrame,
+    wave_df: pd.DataFrame,
+    fluorometer_df: pd.DataFrame,
+    ais_df: pd.DataFrame,
+    error_df: pd.DataFrame,
+    mission_goals: Optional[List[models.MissionGoal]] = None,
+    mission_notes: Optional[List[models.MissionNote]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    plots_to_include: Optional[List[str]] = None,
+    custom_filename: Optional[str] = None,
+    sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
+    mission_overview: Optional[models.MissionOverview] = None,
+    source_path: Optional[str] = None,
+    external_append_sections: Optional[List[str]] = None,
 ) -> str:
     """
     Generates a weekly PDF report for a mission with telemetry and power plots.
@@ -314,6 +596,8 @@ async def generate_weekly_report(
         ctd_df: DataFrame with CTD data.
         weather_df: DataFrame with weather data.
         wave_df: DataFrame with wave data.
+        fluorometer_df: DataFrame with C3 fluorometer data.
+        ais_df: DataFrame with AIS data.
         error_df: DataFrame with vehicle error data.
         start_date: Optional start date for filtering data.
         end_date: Optional end date for filtering data.
@@ -362,7 +646,7 @@ async def generate_weekly_report(
     url_path = f"/static/mission_reports/{report_dir_name}/{filename}"
 
     if plots_to_include is None:
-        plots_to_include = ["telemetry", "power"]
+        plots_to_include = ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais"]
 
     # Create copies to avoid modifying the original dataframes and to define the filtered variables
     telemetry_df_filtered = telemetry_df.copy()
@@ -371,6 +655,8 @@ async def generate_weekly_report(
     ctd_df_filtered = ctd_df.copy()
     weather_df_filtered = weather_df.copy()
     wave_df_filtered = wave_df.copy()
+    fluorometer_df_filtered = fluorometer_df.copy()
+    ais_df_filtered = ais_df.copy()
     error_df_filtered = error_df.copy()
 
     # Filter dataframes based on the provided date range if they are not empty
@@ -438,6 +724,34 @@ async def generate_weekly_report(
                 wave_df_processed = wave_df_processed[wave_df_processed['Timestamp'] < end_date_inclusive]
             wave_df_filtered = wave_df_processed
 
+    if not fluorometer_df_filtered.empty:
+        fluorometer_df_processed = preprocess_fluorometer_df(fluorometer_df_filtered)
+        if not fluorometer_df_processed.empty and "Timestamp" in fluorometer_df_processed.columns:
+            if start_date:
+                fluorometer_df_processed = fluorometer_df_processed[
+                    fluorometer_df_processed["Timestamp"] >= pd.to_datetime(start_date).tz_localize("UTC")
+                ]
+            if end_date:
+                end_date_inclusive = pd.to_datetime(end_date).tz_localize("UTC") + timedelta(days=1)
+                fluorometer_df_processed = fluorometer_df_processed[
+                    fluorometer_df_processed["Timestamp"] < end_date_inclusive
+                ]
+            fluorometer_df_filtered = fluorometer_df_processed
+
+    if not ais_df_filtered.empty:
+        ais_df_processed = preprocess_ais_df(ais_df_filtered)
+        if not ais_df_processed.empty and "LastSeenTimestamp" in ais_df_processed.columns:
+            if start_date:
+                ais_df_processed = ais_df_processed[
+                    ais_df_processed["LastSeenTimestamp"] >= pd.to_datetime(start_date).tz_localize("UTC")
+                ]
+            if end_date:
+                end_date_inclusive = pd.to_datetime(end_date).tz_localize("UTC") + timedelta(days=1)
+                ais_df_processed = ais_df_processed[
+                    ais_df_processed["LastSeenTimestamp"] < end_date_inclusive
+                ]
+            ais_df_filtered = ais_df_processed
+
     # Filter Error data
     if not error_df_filtered.empty and 'timeStamp' in error_df_filtered.columns:
         error_df_filtered['timeStamp'] = utils.parse_timestamp_column(
@@ -448,6 +762,8 @@ async def generate_weekly_report(
         if end_date:
             end_date_inclusive = pd.to_datetime(end_date).tz_localize('UTC') + timedelta(days=1)
             error_df_filtered = error_df_filtered[error_df_filtered['timeStamp'] < end_date_inclusive]
+    if not error_df_filtered.empty:
+        error_df_filtered = preprocess_error_df(error_df_filtered)
 
     # Extract vehicle name from power data
     vehicle_name = None
@@ -477,33 +793,105 @@ async def generate_weekly_report(
         end_date=end_date,
     )
 
-    date_range_str = "Full Mission History"
+    date_range_str = "From mission start to mission end"
     if start_date and end_date:
-        date_range_str = f"From: {start_date.strftime('%Y-%m-%d')} To: {end_date.strftime('%Y-%m-%d')}"
+        date_range_str = f"From: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
     elif start_date:
-        date_range_str = f"From: {start_date.strftime('%Y-%m-%d')}"
+        date_range_str = f"From: {start_date.strftime('%Y-%m-%d')} to mission end"
     elif end_date:
-        date_range_str = f"To: {end_date.strftime('%Y-%m-%d')}"
+        date_range_str = f"From mission start to {end_date.strftime('%Y-%m-%d')}"
 
-    with PdfPages(file_path) as pdf:
-        # --- Calculate total pages for the footer ---
-        page_count_list = [
-            True,  # Title page
-            True,  # Summary page
-            sensor_tracker_deployment is not None,  # Sensor Tracker metadata page
-            "telemetry" in plots_to_include and not telemetry_df_filtered.empty,
-            (
-                "telemetry" in plots_to_include
-                and not telemetry_df_filtered.empty
-                and bool(telemetry_note_annotations)
-            ),  # Mission Notes page (follows telemetry track)
-            "power" in plots_to_include and not power_df_filtered.empty,
-            "ctd" in plots_to_include and not ctd_df_filtered.empty,
-            "weather" in plots_to_include and not weather_df_filtered.empty,
-            "waves" in plots_to_include and not wave_df_filtered.empty,
-            "errors" in plots_to_include and not error_df_filtered.empty,
+    enabled_sensor_cards: List[str] = []
+    if mission_overview and mission_overview.enabled_sensor_cards:
+        try:
+            enabled_sensor_cards = json.loads(mission_overview.enabled_sensor_cards)
+        except Exception:
+            enabled_sensor_cards = []
+    has_c3_card_enabled = any(
+        sensor_name in enabled_sensor_cards
+        for sensor_name in ("fluorometer", "c3")
+    ) or not enabled_sensor_cards
+
+    def _field_lines(fields: List[tuple]) -> List[str]:
+        lines = [f"{label}: {value}" for label, value in fields if value]
+        return lines or ["(No information available)"]
+
+    def _build_mission_details_sections() -> List[Dict[str, Any]]:
+        mission_title = sensor_tracker_deployment.title if sensor_tracker_deployment and sensor_tracker_deployment.title else mission_id
+        platform_name = sensor_tracker_deployment.platform_name if sensor_tracker_deployment and sensor_tracker_deployment.platform_name else vehicle_name
+        return [
+            {
+                "heading": f"{mission_title} / {platform_name or 'Unknown Platform'}",
+                "lines": _field_lines([
+                    ("Start time", sensor_tracker_deployment.start_time.strftime("%Y-%m-%d %H:%M:%S UTC") if sensor_tracker_deployment and sensor_tracker_deployment.start_time else None),
+                    ("End time", sensor_tracker_deployment.end_time.strftime("%Y-%m-%d %H:%M:%S UTC") if sensor_tracker_deployment and sensor_tracker_deployment.end_time else None),
+                    ("Deployment Description", sensor_tracker_deployment.deployment_comment if sensor_tracker_deployment else None),
+                    ("Sea/Region", sensor_tracker_deployment.sea_name if sensor_tracker_deployment else None),
+                    ("Mission Goals", "; ".join(goal.description for goal in (mission_goals or [])) if mission_goals else None),
+                    ("Agencies", sensor_tracker_deployment.agencies if sensor_tracker_deployment else None),
+                    ("Roles", sensor_tracker_deployment.agencies_role if sensor_tracker_deployment else None),
+                    ("Acknowledgements", sensor_tracker_deployment.acknowledgement if sensor_tracker_deployment else None),
+                ]),
+            }
         ]
-        total_pages = sum(page_count_list)
+
+    with report_pdf_rc_context(), PdfPages(file_path) as pdf:
+        mission_details_sections = _build_mission_details_sections() + [
+            {
+                "heading": "Deployment and Recovery Details",
+                "lines": _field_lines([
+                    ("Deployment Cruise", sensor_tracker_deployment.deployment_cruise if sensor_tracker_deployment else None),
+                    ("Recovery Cruise", sensor_tracker_deployment.recovery_cruise if sensor_tracker_deployment else None),
+                    ("Deployment Personnel", sensor_tracker_deployment.deployment_personnel if sensor_tracker_deployment else None),
+                    ("Recovery Personnel", sensor_tracker_deployment.recovery_personnel if sensor_tracker_deployment else None),
+                    ("Program and Technical", sensor_tracker_deployment.program if sensor_tracker_deployment else None),
+                ]),
+            },
+            {
+                "heading": "Publication, Attribution, and Data",
+                "lines": _field_lines([
+                    ("Publisher", sensor_tracker_deployment.publisher_name if sensor_tracker_deployment else None),
+                    ("Publisher Email", sensor_tracker_deployment.publisher_email if sensor_tracker_deployment else None),
+                    ("Publisher URL", sensor_tracker_deployment.publisher_url if sensor_tracker_deployment else None),
+                    ("Publisher Country", sensor_tracker_deployment.publisher_country if sensor_tracker_deployment else None),
+                    ("Data Repository", sensor_tracker_deployment.data_repository_link if sensor_tracker_deployment else None),
+                    ("Creator", sensor_tracker_deployment.creator_name if sensor_tracker_deployment else None),
+                    ("Creator Email", sensor_tracker_deployment.creator_email if sensor_tracker_deployment else None),
+                    ("Creator URL", sensor_tracker_deployment.creator_url if sensor_tracker_deployment else None),
+                    ("Contributer", sensor_tracker_deployment.contributor_name if sensor_tracker_deployment else None),
+                    ("Contributer Role", sensor_tracker_deployment.contributor_role if sensor_tracker_deployment else None),
+                    ("Contributer Email", sensor_tracker_deployment.contributors_email if sensor_tracker_deployment else None),
+                    ("Remote Data Source", source_path),
+                ]),
+            },
+        ]
+        section_entries: List[Dict[str, Any]] = [
+            {"title": "Title Page", "page_count": 1},
+            {"title": "Table of Contents", "page_count": 1},
+            {"title": "Mission Details", "page_count": estimate_text_sections_page_count(mission_details_sections)},
+            {"title": "Glider Instruments and Sensors", "page_count": 1 if sensor_tracker_deployment is not None else 0},
+            {"title": "Summary Statistics", "page_count": 1},
+            {"title": "Telemetry Map", "page_count": 1 if "telemetry" in plots_to_include and not telemetry_df_filtered.empty else 0},
+            {"title": "Mission Notes", "page_count": 1 if "telemetry" in plots_to_include and not telemetry_df_filtered.empty and bool(telemetry_note_annotations) else 0},
+            {"title": "Power", "page_count": 1 if "power" in plots_to_include and not power_df_filtered.empty else 0},
+            {"title": "CTD", "page_count": 1 if "ctd" in plots_to_include and not ctd_df_filtered.empty else 0},
+            {"title": "Weather", "page_count": 1 if "weather" in plots_to_include and not weather_df_filtered.empty else 0},
+            {"title": "Waves", "page_count": 1 if "waves" in plots_to_include and not wave_df_filtered.empty else 0},
+            {"title": "C3", "page_count": 1 if "c3" in plots_to_include and has_c3_card_enabled and not fluorometer_df_filtered.empty else 0},
+            {"title": "Vehicle Errors", "page_count": 1 if "errors" in plots_to_include and not error_df_filtered.empty else 0},
+            {"title": "AIS Report", "page_count": 1 if "ais" in plots_to_include and not ais_df_filtered.empty else 0},
+        ]
+        for section_name in (external_append_sections or []):
+            section_entries.append({"title": section_name, "page_count": 1})
+        running_page = 1
+        toc_entries: List[Dict[str, Any]] = []
+        for entry in section_entries:
+            count = int(entry["page_count"])
+            if count <= 0:
+                continue
+            toc_entries.append({"title": entry["title"], "page_number": running_page})
+            running_page += count
+        total_pages = running_page - 1
         page_num = 0
 
         def add_footer_and_save(fig_to_save):
@@ -511,7 +899,16 @@ async def generate_weekly_report(
             nonlocal page_num
             page_num += 1
             # Add footer text to the bottom right of the figure.
-            fig_to_save.text(0.95, 0.01, f'Page {page_num} of {total_pages}', ha='right', va='bottom', size=8, color='gray')
+            fig_to_save.text(
+                0.95,
+                0.01,
+                f"Page {page_num} of {total_pages}",
+                ha="right",
+                va="bottom",
+                size=8,
+                color="gray",
+                family=REPORT_PDF_FONT_PRIMARY,
+            )
             pdf.savefig(fig_to_save)
             plt.close(fig_to_save)
 
@@ -520,7 +917,7 @@ async def generate_weekly_report(
 
         # Start drawing from the top of the page.
         current_y = 0.90
-        fig.text(0.5, current_y, title_for_pdf, ha='center', size=24, weight='bold', wrap=True)
+        fig.text(0.5, current_y, title_for_pdf, ha="center", size=24, weight="bold", wrap=True, family=REPORT_PDF_FONT_PRIMARY)
 
         # --- Add Logo Below Title ---
         if LOGO_PATH.exists():
@@ -546,20 +943,35 @@ async def generate_weekly_report(
         else:
             current_y -= 0.15  # Leave a gap if no logo
 
-        fig.text(0.5, current_y, f"Mission: {mission_id}", ha='center', size=20, wrap=True)
+        platform_name = sensor_tracker_deployment.platform_name if sensor_tracker_deployment and sensor_tracker_deployment.platform_name else (vehicle_name or "Unknown")
+        mission_title = sensor_tracker_deployment.title if sensor_tracker_deployment and sensor_tracker_deployment.title else mission_id
+        fig.text(0.5, current_y, f"Platform Name: {platform_name}", ha="center", size=18, wrap=True, family=REPORT_PDF_FONT_PRIMARY)
 
         current_y -= 0.07
-        if vehicle_name:
-            fig.text(0.5, current_y, f"Vehicle: {vehicle_name}", ha='center', size=16, wrap=True)
-            current_y -= 0.05
-
-        fig.text(0.5, current_y, date_range_str, ha='center', size=16, wrap=True)
+        fig.text(0.5, current_y, f"mID: {mission_id}    Mission Title: {mission_title}", ha="center", size=14, wrap=True, family=REPORT_PDF_FONT_PRIMARY)
         current_y -= 0.05
-        fig.text(0.5, current_y, f"Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}", ha='center', size=12, wrap=True)
+
+        fig.text(0.5, current_y, date_range_str, ha="center", size=16, wrap=True, family=REPORT_PDF_FONT_PRIMARY)
+        current_y -= 0.05
+        fig.text(
+            0.5,
+            current_y,
+            f"Generated on: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            ha="center",
+            size=12,
+            wrap=True,
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
 
         add_footer_and_save(fig)
 
-        # --- Page 2: Mission Summary ---
+        # --- Page 2: Table of Contents ---
+        plot_table_of_contents_page(add_footer_and_save, toc_entries)
+
+        # --- Mission Details (includes deployment/recovery and publication blocks) ---
+        render_text_sections(add_footer_and_save, page_title="Mission Details", sections=mission_details_sections)
+
+        # --- Mission Summary ---
         try:
             plot_summary_page(
                 add_footer_and_save,
@@ -575,10 +987,10 @@ async def generate_weekly_report(
         except Exception as e:
             logger.error(f"Failed to generate summary page for mission '{mission_id}': {e}", exc_info=True)
             fig_err = plt.figure(figsize=(8.27, 11.69))
-            fig_err.text(0.5, 0.5, f"Error generating summary page:\n{e}", ha='center', va='center', color='red', wrap=True)
+            fig_err.text(0.5, 0.5, f"Error generating summary page:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
             add_footer_and_save(fig_err)
 
-        # --- Page 3: Sensor Tracker Metadata (if available) ---
+        # --- Sensor Tracker Metadata (if available) ---
         if sensor_tracker_deployment:
             try:
                 # Deployment mission code for instrument rows (matches missions router lookups)
@@ -638,143 +1050,27 @@ async def generate_weekly_report(
                                 lines.append(f"    └ {sensor.sensor_identifier}")
                         return lines
 
-                    # --- Page 3a: Sensor Tracker Metadata (base) ---
-                    deployment_info_lines: List[str] = []
-                    if sensor_tracker_deployment.title:
-                        deployment_info_lines.append(f"Title: {sensor_tracker_deployment.title}")
-                    if sensor_tracker_deployment.platform_name:
-                        deployment_info_lines.append(f"Platform: {sensor_tracker_deployment.platform_name}")
-                    if sensor_tracker_deployment.start_time:
-                        deployment_info_lines.append(
-                            f"Start: {sensor_tracker_deployment.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-                        )
-                    if sensor_tracker_deployment.end_time:
-                        deployment_info_lines.append(
-                            f"End: {sensor_tracker_deployment.end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-                        )
-                    if sensor_tracker_deployment.agencies:
-                        deployment_info_lines.append(f"Agencies: {sensor_tracker_deployment.agencies}")
-                    if sensor_tracker_deployment.agencies_role:
-                        deployment_info_lines.append(f"Role: {sensor_tracker_deployment.agencies_role}")
-
                     science_title = "Science Computer Instruments"
                     if science_instruments and getattr(science_instruments[0], "data_logger_serial", None):
                         science_title = f"Science Computer Instruments (SN: {science_instruments[0].data_logger_serial})"
 
                     base_sections: List[Dict[str, Any]] = [
-                        {"heading": "Deployment Information", "lines": deployment_info_lines or ["(No deployment information)"]},
                         {"heading": "Platform Direct Instruments", "lines": _instrument_section_lines(platform_instruments)},
                         {"heading": "Flight Computer Instruments", "lines": _instrument_section_lines(flight_instruments)},
                         {"heading": science_title, "lines": _instrument_section_lines(science_instruments)},
                     ]
                     render_text_sections(
                         add_footer_and_save,
-                        page_title="Sensor Tracker Metadata",
+                        page_title="Glider Instrument and Sensors",
                         sections=base_sections,
                     )
-
-                    # --- Page 3b: Sensor Tracker - Additional Information ---
-                    if sensor_tracker_deployment.deployment_comment or sensor_tracker_deployment.acknowledgement:
-                        additional_sections: List[Dict[str, Any]] = [
-                            {
-                                "heading": "Deployment Description",
-                                "lines": [sensor_tracker_deployment.deployment_comment]
-                                          if sensor_tracker_deployment.deployment_comment
-                                          else ["(No deployment description available)"],
-                            },
-                            {
-                                "heading": "Acknowledgements",
-                                "lines": [sensor_tracker_deployment.acknowledgement]
-                                          if sensor_tracker_deployment.acknowledgement
-                                          else ["(No acknowledgements provided)"],
-                            },
-                        ]
-                        render_text_sections(
-                            add_footer_and_save,
-                            page_title="Sensor Tracker Metadata - Additional Information",
-                            sections=additional_sections,
-                        )
-
-                    # --- Page 3c: Sensor Tracker - Extended Information (Phase 1B) ---
-                    has_phase1b_data = any([
-                        sensor_tracker_deployment.deployment_cruise,
-                        sensor_tracker_deployment.recovery_cruise,
-                        sensor_tracker_deployment.deployment_personnel,
-                        sensor_tracker_deployment.recovery_personnel,
-                        sensor_tracker_deployment.data_repository_link,
-                        sensor_tracker_deployment.publisher_name,
-                        sensor_tracker_deployment.creator_name,
-                        sensor_tracker_deployment.contributor_name,
-                        sensor_tracker_deployment.program,
-                        sensor_tracker_deployment.sea_name,
-                        sensor_tracker_deployment.transmission_system,
-                        sensor_tracker_deployment.positioning_system,
-                    ])
-
-                    if has_phase1b_data:
-                        def _field_lines(fields: List[tuple]) -> List[str]:
-                            """Convert (label, value) pairs into 'Label: value' lines, skipping empty values."""
-                            lines = [f"{label}: {value}" for label, value in fields if value]
-                            return lines or ["(No information available)"]
-
-                        extended_sections: List[Dict[str, Any]] = [
-                            {
-                                "heading": "Deployment Details",
-                                "lines": _field_lines([
-                                    ("Deployment Cruise", sensor_tracker_deployment.deployment_cruise),
-                                    ("Recovery Cruise", sensor_tracker_deployment.recovery_cruise),
-                                    ("Deployment Personnel", sensor_tracker_deployment.deployment_personnel),
-                                    ("Recovery Personnel", sensor_tracker_deployment.recovery_personnel),
-                                    ("WMO ID", sensor_tracker_deployment.wmo_id),
-                                ]),
-                            },
-                            {
-                                "heading": "Publication & Data Access",
-                                "lines": _field_lines([
-                                    ("Publisher", sensor_tracker_deployment.publisher_name),
-                                    ("Publisher Email", sensor_tracker_deployment.publisher_email),
-                                    ("Publisher URL", sensor_tracker_deployment.publisher_url),
-                                    ("Publisher Country", sensor_tracker_deployment.publisher_country),
-                                    ("Data Repository", sensor_tracker_deployment.data_repository_link),
-                                    ("Metadata Link", sensor_tracker_deployment.metadata_link),
-                                ]),
-                            },
-                            {
-                                "heading": "Attribution",
-                                "lines": _field_lines([
-                                    ("Creator", sensor_tracker_deployment.creator_name),
-                                    ("Creator Email", sensor_tracker_deployment.creator_email),
-                                    ("Creator URL", sensor_tracker_deployment.creator_url),
-                                    ("Creator Sector", sensor_tracker_deployment.creator_sector),
-                                    ("Contributor", sensor_tracker_deployment.contributor_name),
-                                    ("Contributor Role", sensor_tracker_deployment.contributor_role),
-                                    ("Contributor Email", sensor_tracker_deployment.contributors_email),
-                                ]),
-                            },
-                            {
-                                "heading": "Program & Technical",
-                                "lines": _field_lines([
-                                    ("Program", sensor_tracker_deployment.program),
-                                    ("Site", sensor_tracker_deployment.site),
-                                    ("Sea/Region", sensor_tracker_deployment.sea_name),
-                                    ("Transmission System", sensor_tracker_deployment.transmission_system),
-                                    ("Positioning System", sensor_tracker_deployment.positioning_system),
-                                    ("References", sensor_tracker_deployment.references),
-                                ]),
-                            },
-                        ]
-                        render_text_sections(
-                            add_footer_and_save,
-                            page_title="Sensor Tracker Metadata - Extended Information",
-                            sections=extended_sections,
-                        )
                 finally:
                     session.close()
 
             except Exception as e:
                 logger.error(f"Failed to generate Sensor Tracker metadata page for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating Sensor Tracker metadata:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating Sensor Tracker metadata:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
 
         # --- Page 4: Telemetry Track ---
@@ -795,7 +1091,7 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate telemetry plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating telemetry plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating telemetry plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"Telemetry data for mission '{mission_id}' is empty or not selected. Skipping telemetry plot.")
@@ -810,7 +1106,7 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate power plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating power plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating power plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"Power data for mission '{mission_id}' is empty or not selected. Skipping power plot.")
@@ -825,7 +1121,7 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate CTD plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating CTD plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating CTD plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"CTD data for mission '{mission_id}' is empty or not selected. Skipping CTD plot.")
@@ -840,7 +1136,7 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate weather plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating weather plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating weather plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"Weather data for mission '{mission_id}' is empty or not selected. Skipping weather plot.")
@@ -855,10 +1151,25 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate wave plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating wave plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating wave plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"Wave data for mission '{mission_id}' is empty or not selected. Skipping wave plot.")
+
+        # --- C3 Fluorometer Report ---
+        if "c3" in plots_to_include and has_c3_card_enabled and not fluorometer_df_filtered.empty:
+            try:
+                fig_c3 = plt.figure(figsize=(11.69, 8.27))
+                plot_c3_for_report(fig_c3, fluorometer_df_filtered)
+                fig_c3.tight_layout(rect=[0, 0.03, 1, 0.95])
+                add_footer_and_save(fig_c3)
+            except Exception as e:
+                logger.error(f"Failed to generate C3 plot for mission '{mission_id}': {e}", exc_info=True)
+                fig_err = plt.figure(figsize=(8.27, 11.69))
+                fig_err.text(0.5, 0.5, f"Error generating C3 plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
+                add_footer_and_save(fig_err)
+        elif "c3" in plots_to_include and not has_c3_card_enabled:
+            logger.info("C3 section skipped for mission '%s': fluorometer sensor card not active.", mission_id)
 
         # --- Page 8: Error Report ---
         if "errors" in plots_to_include and not error_df_filtered.empty:
@@ -867,10 +1178,43 @@ async def generate_weekly_report(
             except Exception as e:
                 logger.error(f"Failed to generate error plot for mission '{mission_id}': {e}", exc_info=True)
                 fig_err = plt.figure(figsize=(8.27, 11.69))
-                fig_err.text(0.5, 0.5, f"Error generating error plot:\n{e}", ha='center', va='center', color='red', wrap=True)
+                fig_err.text(0.5, 0.5, f"Error generating error plot:\n{e}", ha='center', va='center', color='red', wrap=True, family=REPORT_PDF_FONT_PRIMARY)
                 add_footer_and_save(fig_err)
         else:
             logger.warning(f"Error data for mission '{mission_id}' is empty or not selected. Skipping error plot.")
+
+        if "ais" in plots_to_include and not ais_df_filtered.empty:
+            ais_stats = get_ais_summary_stats(ais_df_filtered, max_age_hours=24 * 365)
+            ais_targets = get_ais_summary(ais_df_filtered, max_age_hours=24 * 365)[:25]
+            generated_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            target_lines: List[str] = []
+            for row in ais_targets:
+                seen_time = row.get("LastSeenTimestamp")
+                if seen_time is not None and pd.notna(seen_time):
+                    seen_text = pd.to_datetime(seen_time, utc=True).strftime("%Y-%m-%d %H:%M:%S UTC")
+                else:
+                    seen_text = "N/A"
+                target_lines.append(
+                    f"{seen_text} | {row.get('ShipName', 'Unknown')} | MMSI {row.get('MMSI', 'N/A')} | "
+                    f"{row.get('Category', 'N/A')} | {row.get('Destination', 'N/A')}"
+                )
+            ais_sections = [
+                {
+                    "heading": f"From {start_date.strftime('%Y-%m-%d') if start_date else 'mission start'} to {end_date.strftime('%Y-%m-%d') if end_date else 'mission end'}",
+                    "lines": [
+                        f"AIS report generated: {generated_at_utc}",
+                        f"Total vessels: {ais_stats.get('total_vessels', 0)}",
+                        f"Class A: {ais_stats.get('class_a_count', 0)}",
+                        f"Class B: {ais_stats.get('class_b_count', 0)}",
+                        f"Hazardous: {ais_stats.get('hazardous_count', 0)}",
+                    ],
+                },
+                {
+                    "heading": "AIS Targets",
+                    "lines": target_lines or ["(No targets available)"],
+                },
+            ]
+            render_text_sections(add_footer_and_save, page_title="AIS Report", sections=ais_sections)
     return url_path
 
 
@@ -878,106 +1222,27 @@ async def create_and_save_weekly_report(mission_id: str, session: SQLModelSessio
     """
     Loads data, generates a standard weekly report, and saves the URL to the database.
     Designed to be called by an automated scheduler.
-    """
-    # NOTE: Use data_service instead of importing from app.py to avoid circular dependencies
-    from .data_service import get_data_service
 
+    Delegates to :func:`generate_weekly_report_pdf_for_mission` with default
+    ``ReportGenerationOptions`` — the same pipeline as
+    ``POST /api/reporting/missions/{mission_id}/generate-weekly-report`` when the admin
+    accepts default options.
+    """
     logger.info(f"AUTOMATED: Starting weekly report generation for mission '{mission_id}'.")
     try:
-        # Use data service for data loading (no circular dependency)
-        data_service = get_data_service()
-        
-        # Load data sources concurrently
-        report_types = ["telemetry", "power", "solar", "ctd", "weather", "waves", "errors"]
-        results = await data_service.load_multiple(report_types, mission_id, hours_back=168)  # 1 week
-
-        def _extract_report_dataframe(report_type: str) -> pd.DataFrame:
-            result = results.get(report_type)
-            if isinstance(result, tuple):
-                source_path = result[1] if len(result) > 1 else "unknown"
-                df = result[0] if len(result) > 0 and isinstance(result[0], pd.DataFrame) else pd.DataFrame()
-            elif isinstance(result, pd.DataFrame):
-                source_path = "unknown"
-                df = result
-            else:
-                source_path = "missing"
-                df = pd.DataFrame()
-
-            if source_path == "Error":
-                logger.error("AUTOMATED: Data loading failed for %s (%s).", report_type, mission_id)
-            elif df.empty:
-                logger.warning(
-                    "AUTOMATED: No %s data available for %s (source=%s).",
-                    report_type,
-                    mission_id,
-                    source_path,
-                )
-            else:
-                logger.info(
-                    "AUTOMATED: Loaded %s rows for %s (%s, source=%s).",
-                    len(df),
-                    report_type,
-                    mission_id,
-                    source_path,
-                )
-
-            return df
-
-        telemetry_df = _extract_report_dataframe("telemetry")
-        power_df = _extract_report_dataframe("power")
-        solar_df = _extract_report_dataframe("solar")
-        ctd_df = _extract_report_dataframe("ctd")
-        weather_df = _extract_report_dataframe("weather")
-        wave_df = _extract_report_dataframe("waves")
-        error_df = _extract_report_dataframe("errors")
-
-        if all(
-            frame.empty
-            for frame in [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, error_df]
-        ):
-            raise ValueError(f"AUTOMATED: No report datasets available for mission '{mission_id}'.")
-
-        # Fetch mission goals
-        goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
-        mission_goals = session.exec(goals_statement).all()
-        notes_statement = (
-            select(models.MissionNote)
-            .where(
-                models.MissionNote.mission_id == mission_id,
-                models.MissionNote.include_in_report == True,  # noqa: E712
-            )
-            .order_by(models.MissionNote.created_at_utc.asc())
-        )
-        mission_notes = session.exec(notes_statement).all()
-
-        # Generate report with an explicit weekly date window so the PDF period
-        # reflects the automated 7-day scope instead of "Full Mission History".
-        report_end_date = datetime.now(timezone.utc).date()
-        report_start_date = report_end_date - timedelta(days=7)
-
-        # Generate report with default (weekly) naming
-        report_url = await generate_weekly_report(
-            mission_id=mission_id,
-            telemetry_df=telemetry_df,
-            power_df=power_df,
-            solar_df=solar_df,
-            ctd_df=ctd_df,
-            weather_df=weather_df,
-            wave_df=wave_df,
-            error_df=error_df,
-            mission_goals=mission_goals,
-            mission_notes=mission_notes,
-            start_date=report_start_date,
-            end_date=report_end_date,
-        )
-
-        # Get or create MissionOverview
+        options = models.ReportGenerationOptions()
         mission_overview = session.exec(
             select(models.MissionOverview).where(models.MissionOverview.mission_id == mission_id)
         ).first()
+        report_url = await generate_weekly_report_pdf_for_mission(
+            session,
+            mission_id,
+            current_user=None,
+            options=options,
+            mission_overview=mission_overview,
+        )
         if not mission_overview:
             mission_overview = models.MissionOverview(mission_id=mission_id)
-
         mission_overview.weekly_report_url = report_url
         session.add(mission_overview)
         session.commit()
