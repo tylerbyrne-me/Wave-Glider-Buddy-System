@@ -14,7 +14,7 @@ from ..core import models, utils
 from ..core.data_service import get_data_service
 from ..core.db import get_db_session
 from ..core.reporting import (
-    generate_weekly_report_with_renderer,
+    generate_weekly_report,
     default_weekly_report_date_window,
     generate_weekly_report_pdf_for_mission,
     WeeklyReportPreflightError,
@@ -173,7 +173,6 @@ async def generate_mission_report(
 async def generate_report_with_sensor_tracker(
     mission_id: str,
     report_type: str = Body(..., embed=True, description="Report type: 'weekly' or 'end_of_mission'"),
-    report_renderer: str = Body(default="matplotlib", embed=True, description="Renderer strategy: 'matplotlib' or 'hybrid_html'."),
     force_refresh_sensor_tracker: bool = Body(default=False, embed=True, description="Force refresh Sensor Tracker data"),
     save_to_overview: bool = Body(default=True, embed=True, description="Save report URL to mission overview"),
     session: SQLModelSession = Depends(get_db_session),
@@ -319,8 +318,7 @@ async def generate_report_with_sensor_tracker(
 
     # Generate report with all plot types included
     plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "c3", "errors", "ais"]
-    report_url = await generate_weekly_report_with_renderer(
-        renderer=report_renderer,
+    report_url = await generate_weekly_report(
         mission_id=mission_id,
         telemetry_df=telemetry_df,
         power_df=power_df,

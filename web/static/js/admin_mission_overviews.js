@@ -285,7 +285,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                         'POST',
                         {
                             report_type: reportType,
-                            report_renderer: 'hybrid_html',
                             force_refresh_sensor_tracker: forceRefresh,
                             save_to_overview: true
                         }
@@ -305,18 +304,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                             reportDownloadLink.textContent = `Download ${reportType === 'end_of_mission' ? 'End of Mission' : 'Weekly'} Report`;
                         }
                         if (reportResult) reportResult.style.display = 'block';
-                        const usedHybridRenderer = Boolean(reportUrl && reportUrl.includes('_hybrid.pdf'));
                         if (reportStatus) {
-                            reportStatus.innerHTML = usedHybridRenderer
-                                ? '<div class="alert alert-success">Report generated successfully using hybrid HTML renderer.</div>'
-                                : '<div class="alert alert-warning">Report generated using legacy renderer fallback.</div>';
+                            reportStatus.innerHTML =
+                                '<div class="alert alert-success">Report generated successfully.</div>';
                         }
-                        showToast(
-                            usedHybridRenderer
-                                ? 'Report generated successfully (hybrid HTML renderer)!'
-                                : 'Report generated with legacy fallback.',
-                            usedHybridRenderer ? 'success' : 'warning'
-                        );
+                        showToast('Report generated successfully.', 'success');
                         
                         const missionInfo = await apiRequest(`/api/missions/${selectedMissionId}/info`, 'GET');
                         renderReportSummary(missionInfo);

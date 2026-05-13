@@ -32,8 +32,6 @@ from .processors import (
     telemetry_speed_over_ground_series,
 )
 from .summaries import get_ais_summary, get_ais_summary_stats
-from .report_view_model import ReportViewModelInput, build_report_view_model
-from .report_renderers import RendererRequest, render_report_with_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +150,7 @@ async def generate_weekly_report_pdf_for_mission(
             selected_end_date.isoformat(),
         )
 
-    return await generate_weekly_report_with_renderer(
-        renderer=options.report_renderer,
+    return await generate_weekly_report(
         mission_id=mission_id,
         telemetry_df=telemetry_df,
         power_df=power_df,
@@ -432,137 +429,6 @@ def _build_mission_note_annotations(
     return annotations
 
 
-async def generate_weekly_report_with_renderer(
-    *,
-    renderer: str,
-    mission_id: str,
-    telemetry_df: pd.DataFrame,
-    power_df: pd.DataFrame,
-    solar_df: pd.DataFrame,
-    ctd_df: pd.DataFrame,
-    weather_df: pd.DataFrame,
-    wave_df: pd.DataFrame,
-    fluorometer_df: pd.DataFrame,
-    ais_df: pd.DataFrame,
-    error_df: pd.DataFrame,
-    mission_goals: Optional[List[models.MissionGoal]] = None,
-    mission_notes: Optional[List[models.MissionNote]] = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-    plots_to_include: Optional[List[str]] = None,
-    custom_filename: Optional[str] = None,
-    sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
-    mission_overview: Optional[models.MissionOverview] = None,
-    source_path: Optional[str] = None,
-) -> str:
-    def _apply_date_filter(
-        df: pd.DataFrame,
-        *,
-        timestamp_column: str,
-        start: Optional[date],
-        end: Optional[date],
-    ) -> pd.DataFrame:
-        if df.empty or timestamp_column not in df.columns:
-            return df
-        filtered = df.copy()
-        filtered[timestamp_column] = utils.parse_timestamp_column(
-            filtered[timestamp_column], errors="coerce", utc=True
-        )
-        if start:
-            filtered = filtered[filtered[timestamp_column] >= pd.to_datetime(start).tz_localize("UTC")]
-        if end:
-            end_inclusive = pd.to_datetime(end).tz_localize("UTC") + timedelta(days=1)
-            filtered = filtered[filtered[timestamp_column] < end_inclusive]
-        return filtered
-
-    ais_for_view_model = preprocess_ais_df(ais_df.copy()) if not ais_df.empty else ais_df.copy()
-    ais_for_view_model = _apply_date_filter(
-        ais_for_view_model,
-        timestamp_column="LastSeenTimestamp",
-        start=start_date,
-        end=end_date,
-    )
-    error_for_view_model = preprocess_error_df(error_df.copy()) if not error_df.empty else error_df.copy()
-    error_for_view_model = _apply_date_filter(
-        error_for_view_model,
-        timestamp_column="Timestamp",
-        start=start_date,
-        end=end_date,
-    )
-
-    mission_title = (
-        sensor_tracker_deployment.title
-        if sensor_tracker_deployment and sensor_tracker_deployment.title
-        else mission_id
-    )
-    platform_name = (
-        sensor_tracker_deployment.platform_name
-        if sensor_tracker_deployment and sensor_tracker_deployment.platform_name
-        else "Unknown"
-    )
-    view_model_input = ReportViewModelInput(
-        mission_id=mission_id,
-        mission_title=mission_title,
-        platform_name=platform_name,
-        source_path=source_path or "Unknown",
-        start_date=start_date,
-        end_date=end_date,
-        mission_goals=mission_goals or [],
-        sensor_tracker_deployment=sensor_tracker_deployment,
-        ais_df=ais_for_view_model,
-        error_df=error_for_view_model,
-    )
-    view_model = build_report_view_model(view_model_input)
-
-    report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
-    report_dir = REPORTS_ROOT / report_dir_name
-    report_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
-    filename_base = f"hybrid_{utils.sanitize_path_segment(mission_id)}_{timestamp}"
-
-    legacy_plots = list(plots_to_include or [])
-    external_append_sections: List[str] = []
-    if renderer == "hybrid_html":
-        legacy_plots = [plot_name for plot_name in legacy_plots if plot_name not in {"errors", "ais"}]
-        external_append_sections = ["Vehicle Errors", "AIS Report"]
-
-    async def _run_legacy_renderer() -> str:
-        return await generate_weekly_report(
-            mission_id=mission_id,
-            telemetry_df=telemetry_df,
-            power_df=power_df,
-            solar_df=solar_df,
-            ctd_df=ctd_df,
-            weather_df=weather_df,
-            wave_df=wave_df,
-            fluorometer_df=fluorometer_df,
-            ais_df=ais_df,
-            error_df=error_df,
-            mission_goals=mission_goals,
-            mission_notes=mission_notes,
-            start_date=start_date,
-            end_date=end_date,
-            plots_to_include=legacy_plots,
-            custom_filename=custom_filename,
-            sensor_tracker_deployment=sensor_tracker_deployment,
-            mission_overview=mission_overview,
-            source_path=source_path,
-            external_append_sections=external_append_sections,
-        )
-
-    request = RendererRequest(
-        renderer=renderer,
-        report_dir=report_dir,
-        report_filename_base=filename_base,
-        view_model=view_model,
-    )
-    return await render_report_with_strategy(
-        request=request,
-        reports_root=REPORTS_ROOT,
-        run_legacy_renderer=_run_legacy_renderer,
-    )
-
-
 async def generate_weekly_report(
     mission_id: str,
     telemetry_df: pd.DataFrame,
@@ -583,7 +449,6 @@ async def generate_weekly_report(
     sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
     mission_overview: Optional[models.MissionOverview] = None,
     source_path: Optional[str] = None,
-    external_append_sections: Optional[List[str]] = None,
 ) -> str:
     """
     Generates a weekly PDF report for a mission with telemetry and power plots.
@@ -881,8 +746,6 @@ async def generate_weekly_report(
             {"title": "Vehicle Errors", "page_count": 1 if "errors" in plots_to_include and not error_df_filtered.empty else 0},
             {"title": "AIS Report", "page_count": 1 if "ais" in plots_to_include and not ais_df_filtered.empty else 0},
         ]
-        for section_name in (external_append_sections or []):
-            section_entries.append({"title": section_name, "page_count": 1})
         running_page = 1
         toc_entries: List[Dict[str, Any]] = []
         for entry in section_entries:
