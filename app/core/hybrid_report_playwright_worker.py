@@ -8,20 +8,27 @@ isolates Chromium/Node from the worker's address space.
 
 Usage:
     python hybrid_report_playwright_worker.py <absolute_html_path> <absolute_output_pdf_path>
+
+RPM-based servers (RHEL, Rocky, AlmaLinux, …): ``playwright install-deps`` uses apt and will
+fail. Install shared libraries with dnf, then either use Playwright's downloaded Chromium or set
+``PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`` to a distro Chromium binary. Example::
+
+    sudo dnf install -y alsa-lib atk at-spi2-atk cups-libs gtk3 libdrm libXcomposite libXdamage libXext libXfixes libXi libXrandr libxcb libxkbcommon mesa-libgbm nss nspr pango
+
+Optional env:
+
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+        If set to an existing executable, Playwright uses it instead of the bundled Chromium.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Chromium flags commonly required on Linux servers, containers, and locked-down hosts.
-_CHROMIUM_LAUNCH_ARGS = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--no-zygote",
-]
+try:
+    from playwright_chromium_utils import chromium_launch_kwargs
+except ModuleNotFoundError:  # pragma: no cover - depends on sys.path[0]
+    from app.core.playwright_chromium_utils import chromium_launch_kwargs
 
 
 def main() -> None:
@@ -38,7 +45,7 @@ def main() -> None:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=_CHROMIUM_LAUNCH_ARGS)
+        browser = playwright.chromium.launch(**chromium_launch_kwargs())
         try:
             page = browser.new_page()
             page.goto(html_path.as_uri(), wait_until="domcontentloaded", timeout=120_000)

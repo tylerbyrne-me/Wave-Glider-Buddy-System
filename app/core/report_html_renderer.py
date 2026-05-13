@@ -10,6 +10,8 @@ from typing import Any, Dict
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from .playwright_chromium_utils import chromium_launch_kwargs
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -17,15 +19,6 @@ TEMPLATES_ROOT = PROJECT_ROOT / "web" / "templates"
 STATIC_ROOT = PROJECT_ROOT / "web" / "static"
 
 _PLAYWRIGHT_WORKER = Path(__file__).resolve().parent / "hybrid_report_playwright_worker.py"
-
-# Same flags as the subprocess worker; used only for WAVE_GLIDER_PLAYWRIGHT_INPROCESS=1.
-_CHROMIUM_LAUNCH_ARGS = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--no-zygote",
-]
 
 
 def _render_hybrid_phase1_html(view_model: Dict[str, Any]) -> str:
@@ -45,7 +38,7 @@ async def _render_hybrid_phase1_pdf_inprocess(*, html_file_path: Path, output_pd
     from playwright.async_api import async_playwright
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True, args=_CHROMIUM_LAUNCH_ARGS)
+        browser = await playwright.chromium.launch(**chromium_launch_kwargs())
         try:
             page = await browser.new_page()
             await page.goto(html_file_path.as_uri(), wait_until="domcontentloaded", timeout=120_000)
