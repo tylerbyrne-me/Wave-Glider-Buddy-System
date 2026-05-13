@@ -1091,7 +1091,7 @@ def plot_summary_page(
     error_report,
     mission_goals: Optional[List[models.MissionGoal]] = None,
 ):
-    """Creates a two-column mission summary page with key statistics."""
+    """Mission summary page: optional Mission Goals in a full-width band at the top, then two-column statistics."""
 
     def format_block(title, stats, unit):
         lines = [f"{title}:"]
@@ -1121,12 +1121,13 @@ def plot_summary_page(
         power_lines.append(f"      • {name}: {avg_w:.2f} W")
     sections.append({"heading": "Power Summary (Averages)", "lines": power_lines})
 
+    goal_sections: List[Dict[str, Any]] = []
     if mission_goals:
         goal_lines = []
         for goal in mission_goals:
             status = "✓" if goal.is_completed else "☐"
             goal_lines.append(f" {status} {goal.description}")
-        sections.append({"heading": "Mission Goals", "lines": goal_lines})
+        goal_sections.append({"heading": "Mission Goals", "lines": goal_lines})
 
     ctd_lines: List[str] = []
     if ctd_report.get("WaterTemperature"): ctd_lines.extend(format_block("Water Temp", ctd_report["WaterTemperature"], "°C"))
@@ -1165,8 +1166,25 @@ def plot_summary_page(
 
     fig = plt.figure(figsize=(8.27, 11.69))
     fig.suptitle("Mission Summary Statistics", **_TEXT_PAGE_SUPTITLE_KWARGS)
-    left_ax = fig.add_axes([0.05, 0.10, 0.43, 0.80])
-    right_ax = fig.add_axes([0.52, 0.10, 0.43, 0.80])
+    if goal_sections:
+        goals_lines = _flatten_sections_to_lines(goal_sections)
+        goals_ax = fig.add_axes([0.05, 0.58, 0.90, 0.28])
+        goals_ax.set_axis_off()
+        goals_ax.text(
+            0,
+            1.0,
+            "\n".join(goals_lines),
+            linespacing=_TEXT_PAGE_LINE_SPACING,
+            **_TEXT_PAGE_BODY_PROPS,
+        )
+        left_rect = [0.05, 0.10, 0.43, 0.44]
+        right_rect = [0.52, 0.10, 0.43, 0.44]
+    else:
+        left_rect = [0.05, 0.10, 0.43, 0.80]
+        right_rect = [0.52, 0.10, 0.43, 0.80]
+
+    left_ax = fig.add_axes(left_rect)
+    right_ax = fig.add_axes(right_rect)
     left_ax.set_axis_off()
     right_ax.set_axis_off()
     left_ax.text(0, 1.0, "\n".join(left_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
