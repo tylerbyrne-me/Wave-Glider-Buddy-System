@@ -24,6 +24,7 @@ from .styling import (
     LANDSCAPE_CONTENT_WIDTH_PT,
     MARGIN_SIDE,
     NoteCard,
+    GoalCard,
     PORTRAIT_CONTENT_HEIGHT_PT,
     SectionHeader,
     _escape_xml_text,
@@ -183,6 +184,26 @@ def build_instruments_page(
     return out
 
 
+def _mission_goal_meta_line(goal: models.MissionGoal) -> str:
+    """One-line meta for GoalCard (time + user), aligned with mission note cards."""
+    if goal.is_completed:
+        ts_raw = goal.completed_at_utc or goal.created_at_utc
+        if ts_raw is None:
+            tstr = "unknown time"
+        else:
+            ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=timezone.utc)
+            tstr = ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        who = (goal.completed_by_username or "").strip()
+        return f"Completed {tstr}" + (f" · {who}" if who else "")
+    ts_raw = goal.created_at_utc
+    if ts_raw is None:
+        tstr = "unknown time"
+    else:
+        ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=timezone.utc)
+        tstr = ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return f"Created {tstr}"
+
+
 def build_summary(
     *,
     mission_telemetry_summary: dict,
@@ -277,14 +298,23 @@ def build_summary(
     if mission_goals:
         out.append(Spacer(1, 8))
         out.append(Paragraph("Mission goals", styles["Heading2"]))
+        out.append(
+            Paragraph(
+                "Open goals show an empty ring; completed goals show a green checkmark.",
+                styles["Caption"],
+            )
+        )
+        out.append(Spacer(1, 8))
         for g in mission_goals:
-            mark = "[x]" if g.is_completed else "[ ]"
             out.append(
-                Paragraph(
-                    f"{mark} {g.description.replace('&', '&amp;')}",
-                    styles["Body"],
+                GoalCard(
+                    is_completed=bool(g.is_completed),
+                    meta_line=_mission_goal_meta_line(g),
+                    body=g.description or "",
+                    styles=styles,
                 )
             )
+            out.append(Spacer(1, 10))
 
     return out
 

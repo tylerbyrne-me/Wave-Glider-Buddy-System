@@ -712,7 +712,6 @@ def write_weekly_mission_pdf(
         if notes_flow:
             story.append(PageBreak())
             story.extend(notes_flow)
-            story.append(PageBreak())
 
     landscape_any = False
 

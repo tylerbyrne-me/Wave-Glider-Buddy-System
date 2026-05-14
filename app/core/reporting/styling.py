@@ -306,6 +306,57 @@ class NoteCard(Flowable):
         self._body.drawOn(self.canv, 36, 0)
 
 
+class GoalCard(Flowable):
+    """Completion badge + time/user meta + goal description (mirrors NoteCard layout)."""
+
+    def __init__(
+        self,
+        *,
+        is_completed: bool,
+        meta_line: str,
+        body: str,
+        styles: dict[str, ParagraphStyle],
+    ):
+        self.is_completed = is_completed
+        esc = (body or "").replace("&", "&amp;").replace("<", "&lt;")
+        self._meta = Paragraph(meta_line.replace("&", "&amp;"), styles["Caption"])
+        self._body = Paragraph(esc or "(no description)", styles["Body"])
+        self.h = 0.0
+
+    def wrap(self, avail_width: float, avail_height: float) -> tuple[float, float]:
+        badge_w = 28
+        inner_w = avail_width - badge_w - 8
+        _, h1 = self._meta.wrap(inner_w, avail_height)
+        _, h2 = self._body.wrap(inner_w, avail_height)
+        self.h = max(32.0, h1 + h2 + 8)
+        return avail_width, self.h
+
+    def draw(self) -> None:
+        cx, cy = 14.0, self.h / 2.0
+        r = 11.0
+        self.canv.saveState()
+        if self.is_completed:
+            self.canv.setFillColor(COLOR_SEV_OK)
+            self.canv.circle(cx, cy, r, fill=1, stroke=0)
+            self.canv.setStrokeColor(colors.white)
+            self.canv.setLineWidth(2.2)
+            self.canv.setLineCap(1)
+            # Check mark
+            self.canv.line(cx - 5.0, cy - 0.5, cx - 1.5, cy - 4.0)
+            self.canv.line(cx - 1.5, cy - 4.0, cx + 6.5, cy + 5.0)
+        else:
+            self.canv.setFillColor(colors.white)
+            self.canv.setStrokeColor(COLOR_RULE)
+            self.canv.setLineWidth(1.2)
+            self.canv.circle(cx, cy, r, fill=1, stroke=1)
+            self.canv.setStrokeColor(COLOR_MUTED)
+            self.canv.setLineWidth(1.6)
+            self.canv.line(cx - 4.5, cy, cx + 4.5, cy)
+        self.canv.restoreState()
+        self._meta.drawOn(self.canv, 36, self.h - 14)
+        self._body.drawOn(self.canv, 36, 0)
+
+
 def severity_color(severity: Optional[str]) -> Any:
     if not severity:
         return COLOR_MUTED
