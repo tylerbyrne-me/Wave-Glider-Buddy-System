@@ -682,9 +682,8 @@ def plot_telemetry_page_with_notes(
     extent-padded so E-W or N-S dominant tracks both fill the page area
     instead of being letterboxed by Cartopy's equal-aspect projection.
 
-    Mission notes are NOT rendered on this page — call
-    `plot_mission_notes_page` afterwards to emit a follow-up page listing
-    them. The map itself only shows the lettered markers.
+    Mission notes are NOT rendered on this page — the PDF report pipeline
+    renders a separate mission-notes section. The map only shows lettered markers.
     """
     if df.empty or 'longitude' not in df.columns or 'latitude' not in df.columns:
         ax = fig.add_subplot(1, 1, 1)
@@ -764,103 +763,6 @@ def plot_telemetry_page_with_notes(
     fig.tight_layout(pad=3.0)
 
 
-def plot_mission_notes_page(
-    add_footer_and_save,
-    note_annotations: List[Dict[str, Any]],
-) -> None:
-    """Render the mission notes list on its own page (auto-paginates).
-
-    Notes are grouped by cluster: cluster-mates (A, A1, A2, ...) appear
-    together before the next cluster (B, B1, ...) so the layout matches
-    the marker scheme on the telemetry map. Layout/wrapping/pagination is
-    delegated to the shared `render_text_sections` helper, so a long list
-    naturally spills onto additional pages.
-    """
-    if not note_annotations:
-        return
-
-    annotations = assign_note_letters(list(note_annotations))
-
-    sorted_annotations = sorted(
-        annotations,
-        key=lambda note: (
-            note.get("cluster_letter") or note.get("letter") or "?",
-            note.get("cluster_sub_idx", 0),
-        ),
-    )
-
-    sections: List[Dict[str, Any]] = [
-        {
-            "heading": None,
-            "lines": [
-                "Mission notes for the report period, keyed by the letter shown on the telemetry map."
-            ],
-        }
-    ]
-    for note in sorted_annotations:
-        event_time = note.get("event_time")
-        if isinstance(event_time, datetime):
-            event_time_text = event_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-        else:
-            event_time_text = "unknown time"
-        letter = str(note.get("letter") or "?").strip()
-        username = str(note.get("created_by_username") or "").strip()
-        body_text = str(note.get("full_note_text") or "").strip()
-        meta_line = (
-            f"— {username} on {event_time_text}" if username else f"— {event_time_text}"
-        )
-        sections.append({
-            "heading": f"{letter}  —  {event_time_text}",
-            "lines": [body_text or "(no content)", meta_line],
-        })
-
-    render_text_sections(
-        add_footer_and_save,
-        page_title="Mission Notes",
-        sections=sections,
-    )
-
-
-def plot_telemetry_for_report(
-    ax,
-    df: pd.DataFrame,
-    note_annotations: Optional[List[Dict[str, Any]]] = None,
-):
-    """Single-axis telemetry plot for embedded/legacy use.
-
-    Renders the speed-coloured track, start/end markers, and clustered
-    lettered note markers on the supplied Axes. Callers wanting the full
-    page + dedicated notes-page flow should use `plot_telemetry_page_with_notes`
-    + `plot_mission_notes_page` instead.
-    """
-    df = df.sort_values(by='lastLocationFix')
-
-    if df.empty or 'longitude' not in df.columns or 'latitude' not in df.columns:
-        ax.text(0.5, 0.5, "No telemetry data in the selected range.", horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
-        return
-
-    start_time = df['lastLocationFix'].min()
-    latest_time = df['lastLocationFix'].max()
-
-    extent = [df['longitude'].min() - 0.05, df['longitude'].max() + 0.05, df['latitude'].min() - 0.05, df['latitude'].max() + 0.05]
-    _setup_report_map(ax, extent)
-
-    norm = mcolors.Normalize(vmin=0, vmax=4)
-    cmap = cmo.speed
-    sog = telemetry_speed_over_ground_series(df)
-    color_values = sog if sog is not None and sog.notna().any() else "tab:blue"
-
-    scatter = ax.scatter(df['longitude'], df['latitude'], c=color_values, cmap=cmap, norm=norm, s=20, linewidths=0, edgecolors="none", transform=ccrs.PlateCarree())
-
-    fig = ax.get_figure()
-    cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', shrink=0.8, pad=0.08)
-    cbar.set_label('Speed Over Ground (knots)')
-
-    annotations = assign_note_letters(list(note_annotations or []))
-    _annotate_note_markers(ax, annotations)
-    _annotate_track_start_end(ax, df)
-    ax.set_title(f"Telemetry Track\n{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC")
-    
 def plot_power_for_report(ax1, df: pd.DataFrame):
     """Plots the detailed power summary on the given axes for a PDF report."""
     # The 'gliderTimeStamp' column is expected from the power data source.
@@ -896,300 +798,10 @@ def plot_power_for_report(ax1, df: pd.DataFrame):
     ax2.legend(lines + lines2, labels + labels2, loc='upper left')
     
     ax1.set_title("Power Subsystem Summary")
-    
-# --- Shared text-page renderer ---------------------------------------------
-# Generalizes the bounded-axes + textwrap pattern used by `plot_errors_for_report`
-# so the Summary page, Sensor Tracker metadata pages, and Mission Note Appendix
-# all share one layout path with consistent margins, wrapping, and pagination.
-
-_TEXT_PAGE_LEFT_MARGIN = 0.05
-_TEXT_PAGE_RIGHT_MARGIN = 0.05
-_TEXT_PAGE_TOP_MARGIN = 0.90
-_TEXT_PAGE_BOTTOM_MARGIN = 0.10
-_TEXT_PAGE_BODY_PROPS = {
-    "va": "top",
-    "ha": "left",
-    "fontsize": 10,
-    "family": REPORT_PDF_FONT_PRIMARY,
-}
-_TEXT_PAGE_LINE_SPACING = 1.15
-_TEXT_PAGE_WRAP_WIDTH = 100
-# Lines per page for the text axes box at _TEXT_PAGE_LINE_SPACING.
-_TEXT_PAGE_LINES_PER_PAGE = 58
-_TEXT_PAGE_SUPTITLE_KWARGS = {"fontsize": 16, "fontfamily": REPORT_PDF_FONT_PRIMARY}
 
 
-def _flatten_sections_to_lines(sections: List[Dict[str, Any]]) -> List[str]:
-    """Flatten section dicts into a single pre-wrapped line list.
+REPORT_FIG_SUPTITLE_KWARGS = {"fontsize": 16, "fontfamily": REPORT_PDF_FONT_PRIMARY}
 
-    Each section dict supports: heading (str), lines (list[str]), indent (int).
-    A blank separator is inserted between sections; the heading is followed by
-    a dashed underline. Body lines are wrapped to fit the page width minus the
-    indent prefix using `textwrap.wrap(break_long_words=True, break_on_hyphens=False)`
-    -- the same options already used by `plot_errors_for_report` so long URLs
-    and comma-separated lists actually break.
-    """
-    rendered: List[str] = []
-    for idx, section in enumerate(sections):
-        if idx > 0:
-            rendered.append("")
-        heading = section.get("heading")
-        if heading:
-            rendered.append(heading)
-            rendered.append("-" * min(len(heading) + 4, _TEXT_PAGE_WRAP_WIDTH))
-        indent = section.get("indent", 0)
-        prefix = "  " * indent
-        for line in section.get("lines", []):
-            if not line:
-                rendered.append("")
-                continue
-            wrapped = textwrap.wrap(
-                line,
-                width=max(_TEXT_PAGE_WRAP_WIDTH - len(prefix), 20),
-                break_long_words=True,
-                break_on_hyphens=False,
-            )
-            if not wrapped:
-                rendered.append("")
-                continue
-            rendered.append(prefix + wrapped[0])
-            for cont in wrapped[1:]:
-                rendered.append(prefix + "    " + cont)
-    return rendered
-
-
-def _justify_line_fill(line: str, width: int) -> str:
-    """Pad a wrapped line to `width` characters by expanding spaces between words."""
-    if not line:
-        return line
-    raw = line.rstrip("\n")
-    if not raw.strip():
-        return line
-    st = raw.strip()
-    if st and set(st) == {"-"}:
-        return line
-    m = re.match(r"^(\s*)", raw)
-    leading = m.group(1) if m else ""
-    content = raw[len(leading) :].rstrip()
-    if not content or " " not in content:
-        return line
-    words = content.split()
-    if len(words) < 2:
-        return line
-    base_one_space = " ".join(words)
-    available = width - len(leading)
-    if available <= 0 or len(base_one_space) >= available:
-        return line
-    if len(base_one_space) < max(24, int(available * 0.52)):
-        return line
-    extra = available - len(base_one_space)
-    gaps = len(words) - 1
-    if gaps <= 0 or extra < 0:
-        return line
-    per = extra // gaps
-    rem = extra % gaps
-    parts: List[str] = []
-    for i, w in enumerate(words):
-        parts.append(w)
-        if i >= gaps:
-            break
-        nspaces = 1 + per + (1 if i < rem else 0)
-        parts.append(" " * nspaces)
-    justified = leading + "".join(parts)
-    if len(justified) > width:
-        return line
-    return justified
-
-
-def render_text_sections(
-    add_footer_and_save,
-    *,
-    page_title: str,
-    sections: List[Dict[str, Any]],
-    page_size=(8.27, 11.69),
-    justify_body: bool = True,
-) -> None:
-    """Render an ordered list of text sections across one or more PDF pages.
-
-    Each page uses the same bounded text-axes pattern as `plot_errors_for_report`
-    (figure-coord margins, report sans-serif text, manual wrapping). When the flattened
-    line list is longer than what fits on one page, additional pages are emitted
-    with a "(continued)" suptitle. Saving and footer/page-number stamping is
-    delegated to the supplied `add_footer_and_save` callback (the existing
-    closure inside `generate_weekly_report`).
-
-    When ``justify_body`` is True, wrapped body lines are padded to ``_TEXT_PAGE_WRAP_WIDTH``
-    by expanding inter-word spaces (TOC and similar pages should pass False).
-    """
-    lines = _flatten_sections_to_lines(sections)
-    if not lines:
-        return
-    if justify_body:
-        lines = [_justify_line_fill(line, _TEXT_PAGE_WRAP_WIDTH) for line in lines]
-
-    pages = [
-        lines[i:i + _TEXT_PAGE_LINES_PER_PAGE]
-        for i in range(0, len(lines), _TEXT_PAGE_LINES_PER_PAGE)
-    ]
-
-    for page_idx, page_lines in enumerate(pages):
-        fig = plt.figure(figsize=page_size)
-        suptitle = page_title if page_idx == 0 else f"{page_title} (continued)"
-        fig.suptitle(suptitle, **_TEXT_PAGE_SUPTITLE_KWARGS)
-
-        text_ax = fig.add_axes([
-            _TEXT_PAGE_LEFT_MARGIN,
-            _TEXT_PAGE_BOTTOM_MARGIN,
-            1 - _TEXT_PAGE_LEFT_MARGIN - _TEXT_PAGE_RIGHT_MARGIN,
-            _TEXT_PAGE_TOP_MARGIN - _TEXT_PAGE_BOTTOM_MARGIN,
-        ])
-        text_ax.set_axis_off()
-        text_ax.text(0, 1.0, "\n".join(page_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
-        add_footer_and_save(fig)
-
-
-def estimate_text_sections_page_count(sections: List[Dict[str, Any]]) -> int:
-    """Estimate number of pages render_text_sections will produce."""
-    lines = _flatten_sections_to_lines(sections)
-    if not lines:
-        return 0
-    return max(1, math.ceil(len(lines) / _TEXT_PAGE_LINES_PER_PAGE))
-
-
-def plot_table_of_contents_page(
-    add_footer_and_save,
-    toc_entries: List[Dict[str, Any]],
-) -> None:
-    """Render a simple table of contents page with page numbers."""
-    sections: List[Dict[str, Any]] = [{
-        "heading": None,
-        "lines": ["This table of contents reflects final rendered page numbers."],
-    }]
-    lines: List[str] = []
-    for entry in toc_entries:
-        title = str(entry.get("title", "Section")).strip()
-        page_number = entry.get("page_number")
-        page_text = f"{page_number}" if page_number is not None else "N/A"
-        lines.append(f"{title.ljust(78, '.')} {page_text}")
-    sections.append({"heading": "Contents", "lines": lines or ["(No sections available)"]})
-    render_text_sections(
-        add_footer_and_save,
-        page_title="Table of Contents",
-        sections=sections,
-        justify_body=False,
-    )
-
-
-def plot_summary_page(
-    add_footer_and_save,
-    telemetry_mission,
-    telemetry_report,
-    power_report,
-    ctd_report,
-    weather_report,
-    wave_report,
-    error_report,
-    mission_goals: Optional[List[models.MissionGoal]] = None,
-):
-    """Mission summary page: optional Mission Goals in a full-width band at the top, then two-column statistics."""
-
-    def format_block(title, stats, unit):
-        lines = [f"{title}:"]
-        if "avg" in stats: lines.append(f"  • Avg: {stats['avg']:.2f} {unit}")
-        if "min" in stats: lines.append(f"  • Min: {stats['min']:.2f} {unit}")
-        if "max" in stats: lines.append(f"  • Max: {stats['max']:.2f} {unit}")
-        return lines
-
-    sections: List[Dict[str, Any]] = []
-
-    telemetry_lines = [
-        "Report Period:",
-        f"  • Distance Traveled: {telemetry_report.get('total_distance_km', 0.0):.2f} km",
-        f"  • Average Speed: {telemetry_report.get('avg_speed_knots', 0.0):.2f} knots",
-        "",
-        "Total Mission:",
-        f"  • Distance Traveled: {telemetry_mission.get('total_distance_km', 0.0):.2f} km",
-    ]
-    sections.append({"heading": "Telemetry Summary", "lines": telemetry_lines})
-
-    power_lines = [
-        f"  • Total Input: {power_report.get('avg_total_input_W', 0.0):.2f} W",
-        f"  • Total Output: {power_report.get('avg_total_output_W', 0.0):.2f} W",
-        "  • Solar Panel Input:",
-    ]
-    for name, avg_w in power_report.get("avg_solar_panel_W", {}).items():
-        power_lines.append(f"      • {name}: {avg_w:.2f} W")
-    sections.append({"heading": "Power Summary (Averages)", "lines": power_lines})
-
-    goal_sections: List[Dict[str, Any]] = []
-    if mission_goals:
-        goal_lines = []
-        for goal in mission_goals:
-            status = "✓" if goal.is_completed else "☐"
-            goal_lines.append(f" {status} {goal.description}")
-        goal_sections.append({"heading": "Mission Goals", "lines": goal_lines})
-
-    ctd_lines: List[str] = []
-    if ctd_report.get("WaterTemperature"): ctd_lines.extend(format_block("Water Temp", ctd_report["WaterTemperature"], "°C"))
-    if ctd_report.get("Salinity"): ctd_lines.extend(format_block("Salinity", ctd_report["Salinity"], "PSU"))
-    if ctd_report.get("Conductivity"): ctd_lines.extend(format_block("Conductivity", ctd_report["Conductivity"], "S/m"))
-    if ctd_lines:
-        sections.append({"heading": "Oceanographic (CTD)", "lines": ctd_lines})
-
-    weather_lines: List[str] = []
-    if weather_report.get("AirTemperature"): weather_lines.extend(format_block("Air Temp", weather_report["AirTemperature"], "°C"))
-    if weather_report.get("WindSpeed"): weather_lines.extend(format_block("Wind Speed", weather_report["WindSpeed"], "kt"))
-    if weather_report.get("WindGust"): weather_lines.append(f"  • Max Gust: {weather_report['WindGust']['max']:.2f} kt")
-    if weather_report.get("BarometricPressure"): weather_lines.extend(format_block("Pressure", weather_report["BarometricPressure"], "mbar"))
-    if weather_lines:
-        sections.append({"heading": "Meteorological (Weather)", "lines": weather_lines})
-
-    wave_lines: List[str] = []
-    if wave_report.get("SignificantWaveHeight"): wave_lines.extend(format_block("Sig. Wave Height", wave_report["SignificantWaveHeight"], "m"))
-    if wave_report.get("WavePeriod"): wave_lines.extend(format_block("Peak Period", wave_report["WavePeriod"], "s"))
-    if wave_lines:
-        sections.append({"heading": "Sea State (Waves)", "lines": wave_lines})
-
-    error_lines = [f"  • Total Errors: {error_report.get('total_errors', 0)}"]
-    severity_items = error_report.get("by_severity", {}).items()
-    if severity_items:
-        for sev, count in severity_items:
-            error_lines.append(f"  • {sev}: {count}")
-    else:
-        error_lines.append("  • No errors with severity.")
-    sections.append({"heading": "Vehicle Errors", "lines": error_lines})
-
-    left_sections = sections[0::2]
-    right_sections = sections[1::2]
-    left_lines = _flatten_sections_to_lines(left_sections)
-    right_lines = _flatten_sections_to_lines(right_sections)
-
-    fig = plt.figure(figsize=(8.27, 11.69))
-    fig.suptitle("Mission Summary Statistics", **_TEXT_PAGE_SUPTITLE_KWARGS)
-    if goal_sections:
-        goals_lines = _flatten_sections_to_lines(goal_sections)
-        goals_ax = fig.add_axes([0.05, 0.58, 0.90, 0.28])
-        goals_ax.set_axis_off()
-        goals_ax.text(
-            0,
-            1.0,
-            "\n".join(goals_lines),
-            linespacing=_TEXT_PAGE_LINE_SPACING,
-            **_TEXT_PAGE_BODY_PROPS,
-        )
-        left_rect = [0.05, 0.10, 0.43, 0.44]
-        right_rect = [0.52, 0.10, 0.43, 0.44]
-    else:
-        left_rect = [0.05, 0.10, 0.43, 0.80]
-        right_rect = [0.52, 0.10, 0.43, 0.80]
-
-    left_ax = fig.add_axes(left_rect)
-    right_ax = fig.add_axes(right_rect)
-    left_ax.set_axis_off()
-    right_ax.set_axis_off()
-    left_ax.text(0, 1.0, "\n".join(left_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
-    right_ax.text(0, 1.0, "\n".join(right_lines), linespacing=_TEXT_PAGE_LINE_SPACING, **_TEXT_PAGE_BODY_PROPS)
-    add_footer_and_save(fig)
 
 def plot_ctd_for_report(fig, df: pd.DataFrame):
     """
@@ -1208,7 +820,7 @@ def plot_ctd_for_report(fig, df: pd.DataFrame):
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("CTD Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    fig.suptitle("CTD Summary", **REPORT_FIG_SUPTITLE_KWARGS)
 
     # Plot Temperature
     if "WaterTemperature" in df.columns:
@@ -1247,7 +859,7 @@ def plot_c3_for_report(fig, df: pd.DataFrame):
         )
         return
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("C3 Fluorometer Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    fig.suptitle("C3 Fluorometer Summary", **REPORT_FIG_SUPTITLE_KWARGS)
     channel_specs = [
         ("C1_Avg", "Channel 1", "tab:blue"),
         ("C2_Avg", "Channel 2", "tab:green"),
@@ -1268,68 +880,6 @@ def plot_c3_for_report(fig, df: pd.DataFrame):
             temperature_axis.tick_params(axis="y", labelcolor="tab:red")
     axs[2].set_xlabel("Time (UTC)")
 
-def plot_errors_for_report(add_footer_and_save, df: pd.DataFrame) -> None:
-    """
-    Creates one or more PDF pages with a bulleted list of recent vehicle errors.
-
-    Delegates layout/margins/wrapping to `render_text_sections`, matching the
-    same bounded-axes + report font + textwrap pattern used elsewhere in reports.
-    """
-    if df.empty:
-        fig = plt.figure(figsize=(8.27, 11.69))
-        fig.text(
-            0.5, 0.5,
-            "No vehicle errors reported in the selected range.",
-            ha="center",
-            va="center",
-            family=REPORT_PDF_FONT_PRIMARY,
-        )
-        add_footer_and_save(fig)
-        return
-
-    df_display = df.copy().tail(15)
-
-    vehicle_column = "VehicleName" if "VehicleName" in df_display.columns else "vehicleName"
-    message_column = "ErrorMessage" if "ErrorMessage" in df_display.columns else "error_Message"
-    timestamp_column = "Timestamp" if "Timestamp" in df_display.columns else "timeStamp"
-
-    body_lines: List[str] = []
-    for _, row in df_display.iterrows():
-        vehicle_value = row.get(vehicle_column)
-        message_value = row.get(message_column)
-        timestamp_value = row.get(timestamp_column)
-
-        vehicle = str(vehicle_value).strip() if pd.notna(vehicle_value) else "N/A"
-        message = str(message_value).strip() if pd.notna(message_value) else "No message."
-        if not message:
-            message = "No message."
-        message = message.replace('@', '@\u200B')
-
-        timestamp_text = ""
-        if pd.notna(timestamp_value):
-            try:
-                timestamp_text = pd.to_datetime(timestamp_value, utc=True).strftime("%Y-%m-%d %H:%M:%S UTC")
-            except Exception:
-                timestamp_text = str(timestamp_value)
-
-        entry_text = f"• {timestamp_text} | {vehicle}: {message}" if timestamp_text else f"• {vehicle}: {message}"
-        wrapped_lines = textwrap.wrap(
-            entry_text,
-            width=_TEXT_PAGE_WRAP_WIDTH,
-            break_long_words=True,
-            break_on_hyphens=False,
-        )
-        body_lines.extend(wrapped_lines)
-        body_lines.append("")
-
-    if body_lines and body_lines[-1] == "":
-        body_lines.pop()
-
-    render_text_sections(
-        add_footer_and_save,
-        page_title="Vehicle Error Report",
-        sections=[{"heading": None, "lines": body_lines}],
-    )
 
 def plot_weather_for_report(fig, df: pd.DataFrame):
     """
@@ -1348,7 +898,7 @@ def plot_weather_for_report(fig, df: pd.DataFrame):
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("Weather Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    fig.suptitle("Weather Summary", **REPORT_FIG_SUPTITLE_KWARGS)
 
     # Plot Air Temperature
     if "AirTemperature" in df.columns:
@@ -1392,7 +942,7 @@ def plot_wave_for_report(fig, df: pd.DataFrame):
         return
 
     axs = fig.subplots(3, 1, sharex=True)
-    fig.suptitle("Wave Summary", **_TEXT_PAGE_SUPTITLE_KWARGS)
+    fig.suptitle("Wave Summary", **REPORT_FIG_SUPTITLE_KWARGS)
 
     # Plot Significant Wave Height
     if "SignificantWaveHeight" in df.columns:

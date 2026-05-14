@@ -18,6 +18,7 @@ from ..core.reporting import (
     default_weekly_report_date_window,
     generate_weekly_report_pdf_for_mission,
     WeeklyReportPreflightError,
+    load_mission_goals_for_report,
     load_mission_notes_for_report,
 )
 
@@ -287,8 +288,7 @@ async def generate_report_with_sensor_tracker(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch source data.")
     
     # Fetch mission goals
-    goals_statement = select(models.MissionGoal).where(models.MissionGoal.mission_id == mission_id).order_by(models.MissionGoal.created_at_utc)
-    mission_goals = session.exec(goals_statement).all()
+    mission_goals = load_mission_goals_for_report(session, mission_id)
     logger.info(f"Found {len(mission_goals)} goals for mission '{mission_id}' to include in report.")
     mission_notes = load_mission_notes_for_report(session, mission_id)
     logger.info(

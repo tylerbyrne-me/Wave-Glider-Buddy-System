@@ -1,0 +1,287 @@
+"""Mission PDF report generation (ReportLab + matplotlib charts)."""
+
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta, timezone
+from typing import List, Optional
+
+import pandas as pd
+from sqlalchemy import or_
+from sqlmodel import Session as SQLModelSession, select
+
+from .. import models, utils
+from .builder import write_weekly_mission_pdf
+from .constants import LOGO_PATH, REPORTS_ROOT
+
+logger = logging.getLogger(__name__)
+
+
+def default_weekly_report_date_window() -> tuple[date, date]:
+    """UTC calendar window used for default weekly reports (matches admin UI weekly preset)."""
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=7)
+    return start_date, end_date
+
+
+WEEKLY_REPORT_DATA_TYPES: List[str] = [
+    "telemetry",
+    "power",
+    "ctd",
+    "weather",
+    "waves",
+    "solar",
+    "fluorometer",
+    "ais",
+    "errors",
+]
+
+
+class WeeklyReportPreflightError(Exception):
+    """Raised when every report dataset is empty after load (PDF cannot be built)."""
+
+
+def load_mission_notes_for_report(session: SQLModelSession, mission_id: str) -> List[models.MissionNote]:
+    """Mission notes flagged for PDF reports, oldest first.
+
+    Matches both folder-style mission ids (e.g. ``m219-SV3-1121``) and deployment
+    codes (e.g. ``m219``) so notes stored under either key appear on the map and
+    the Mission notes section.
+    """
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
+    statement = (
+        select(models.MissionNote)
+        .where(
+            or_(
+                models.MissionNote.mission_id == mission_id,
+                models.MissionNote.mission_id == mission_base,
+            ),
+            models.MissionNote.include_in_report == True,  # noqa: E712
+        )
+        .order_by(models.MissionNote.created_at_utc.asc())
+    )
+    return session.exec(statement).all()
+
+
+def load_mission_goals_for_report(session: SQLModelSession, mission_id: str) -> List[models.MissionGoal]:
+    """Mission goals for PDF reports, matching folder-style ids and deployment codes (e.g. m219-SV3-1121 vs m219)."""
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
+    statement = (
+        select(models.MissionGoal)
+        .where(
+            or_(
+                models.MissionGoal.mission_id == mission_id,
+                models.MissionGoal.mission_id == mission_base,
+            )
+        )
+        .order_by(models.MissionGoal.created_at_utc)
+    )
+    return session.exec(statement).all()
+
+
+async def generate_weekly_report_pdf_for_mission(
+    session: SQLModelSession,
+    mission_id: str,
+    *,
+    current_user: Optional[models.User],
+    options: models.ReportGenerationOptions,
+    mission_overview: Optional[models.MissionOverview],
+) -> str:
+    """Load weekly report inputs and return the generated PDF URL path (does not commit)."""
+    from ..data_service import get_data_service
+
+    data_service = get_data_service()
+    data_results = await data_service.load_multiple(
+        report_types=WEEKLY_REPORT_DATA_TYPES,
+        mission_id=mission_id,
+        current_user=current_user,
+    )
+
+    telemetry_df = data_results.get("telemetry", (pd.DataFrame(), "", None))[0]
+    power_df = data_results.get("power", (pd.DataFrame(), "", None))[0]
+    ctd_df = data_results.get("ctd", (pd.DataFrame(), "", None))[0]
+    weather_df = data_results.get("weather", (pd.DataFrame(), "", None))[0]
+    wave_df = data_results.get("waves", (pd.DataFrame(), "", None))[0]
+    solar_df = data_results.get("solar", (pd.DataFrame(), "", None))[0]
+    fluorometer_df = data_results.get("fluorometer", (pd.DataFrame(), "", None))[0]
+    ais_df = data_results.get("ais", (pd.DataFrame(), "", None))[0]
+    error_df = data_results.get("errors", (pd.DataFrame(), "", None))[0]
+
+    for report_type in WEEKLY_REPORT_DATA_TYPES:
+        if data_results.get(report_type, (pd.DataFrame(), "", None))[1] == "Error":
+            logger.error("Error loading %s data for mission '%s'.", report_type, mission_id)
+
+    frames = [telemetry_df, power_df, solar_df, ctd_df, weather_df, wave_df, fluorometer_df, ais_df, error_df]
+    if all(f.empty for f in frames):
+        raise WeeklyReportPreflightError(f"No report data available for mission '{mission_id}'.")
+
+    source_path = next(
+        (
+            result[1]
+            for result in data_results.values()
+            if isinstance(result, tuple) and len(result) > 1 and result[1] and result[1] != "Error"
+        ),
+        "Unknown",
+    )
+
+    mission_goals = load_mission_goals_for_report(session, mission_id)
+    mission_notes = load_mission_notes_for_report(session, mission_id)
+
+    sensor_tracker_deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(models.SensorTrackerDeployment.mission_id == mission_id)
+    ).first()
+
+    selected_start_date = options.start_date
+    selected_end_date = options.end_date
+    if selected_start_date is None and selected_end_date is None:
+        selected_start_date, selected_end_date = default_weekly_report_date_window()
+        logger.info(
+            "Weekly report default UTC date window for mission '%s': %s -> %s",
+            mission_id,
+            selected_start_date.isoformat(),
+            selected_end_date.isoformat(),
+        )
+
+    return await generate_weekly_report(
+        mission_id=mission_id,
+        telemetry_df=telemetry_df,
+        power_df=power_df,
+        solar_df=solar_df,
+        ctd_df=ctd_df,
+        weather_df=weather_df,
+        wave_df=wave_df,
+        fluorometer_df=fluorometer_df,
+        ais_df=ais_df,
+        error_df=error_df,
+        mission_goals=mission_goals,
+        mission_notes=mission_notes,
+        start_date=selected_start_date,
+        end_date=selected_end_date,
+        plots_to_include=list(options.plots_to_include),
+        custom_filename=options.custom_filename,
+        sensor_tracker_deployment=sensor_tracker_deployment,
+        mission_overview=mission_overview,
+        source_path=source_path,
+    )
+
+
+async def generate_weekly_report(
+    mission_id: str,
+    telemetry_df: pd.DataFrame,
+    power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    ctd_df: pd.DataFrame,
+    weather_df: pd.DataFrame,
+    wave_df: pd.DataFrame,
+    fluorometer_df: pd.DataFrame,
+    ais_df: pd.DataFrame,
+    error_df: pd.DataFrame,
+    mission_goals: Optional[List[models.MissionGoal]] = None,
+    mission_notes: Optional[List[models.MissionNote]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    plots_to_include: Optional[List[str]] = None,
+    custom_filename: Optional[str] = None,
+    sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
+    mission_overview: Optional[models.MissionOverview] = None,
+    source_path: Optional[str] = None,
+) -> str:
+    """Generate a weekly (or custom) mission PDF and return its URL path under /static/..."""
+    report_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    safe_mission_id = utils.sanitize_path_segment(mission_id)
+    report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
+    report_dir = REPORTS_ROOT / report_dir_name
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Generating report for mission '%s' with custom_filename: '%s'", mission_id, custom_filename)
+
+    if custom_filename and custom_filename.strip():
+        safe_base_name = (
+            "".join(c for c in custom_filename if c.isalnum() or c in (" ", "_", "-")).strip() or "report"
+        )
+        if "end_of_mission" in safe_base_name.lower() or "endofmission" in safe_base_name.lower():
+            title_for_pdf = "End of Mission Report"
+        elif "weekly" in safe_base_name.lower():
+            title_for_pdf = "Weekly Mission Report"
+        else:
+            title_for_pdf = f"Mission Report: {safe_base_name.replace('_', ' ').title()}"
+        base_name = safe_base_name.replace(" ", "_")
+        if safe_mission_id not in base_name:
+            base_name = f"{base_name}_{safe_mission_id}"
+        filename = f"{base_name}_{report_timestamp}.pdf"
+    else:
+        title_for_pdf = "Weekly Mission Report"
+        filename = f"weekly_report_{safe_mission_id}_{report_timestamp}.pdf"
+
+    file_path = report_dir / filename
+    url_path = f"/static/mission_reports/{report_dir_name}/{filename}"
+
+    if plots_to_include is None:
+        plots_to_include = ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais"]
+
+    write_weekly_mission_pdf(
+        file_path=file_path,
+        mission_id=mission_id,
+        title_for_pdf=title_for_pdf,
+        telemetry_df=telemetry_df,
+        power_df=power_df,
+        solar_df=solar_df,
+        ctd_df=ctd_df,
+        weather_df=weather_df,
+        wave_df=wave_df,
+        fluorometer_df=fluorometer_df,
+        ais_df=ais_df,
+        error_df=error_df,
+        mission_goals=mission_goals,
+        mission_notes=mission_notes,
+        start_date=start_date,
+        end_date=end_date,
+        plots_to_include=plots_to_include,
+        sensor_tracker_deployment=sensor_tracker_deployment,
+        mission_overview=mission_overview,
+        source_path=source_path,
+    )
+    return url_path
+
+
+async def create_and_save_weekly_report(mission_id: str, session: SQLModelSession):
+    """Loads data, generates a standard weekly report, and saves the URL to the database."""
+    logger.info("AUTOMATED: Starting weekly report generation for mission '%s'.", mission_id)
+    try:
+        options = models.ReportGenerationOptions()
+        mission_overview = session.exec(
+            select(models.MissionOverview).where(models.MissionOverview.mission_id == mission_id)
+        ).first()
+        report_url = await generate_weekly_report_pdf_for_mission(
+            session,
+            mission_id,
+            current_user=None,
+            options=options,
+            mission_overview=mission_overview,
+        )
+        if not mission_overview:
+            mission_overview = models.MissionOverview(mission_id=mission_id)
+        mission_overview.weekly_report_url = report_url
+        session.add(mission_overview)
+        session.commit()
+        logger.info(
+            "AUTOMATED: Successfully generated and saved weekly report for mission '%s'. URL: %s",
+            mission_id,
+            report_url,
+        )
+    except Exception as e:
+        logger.error("AUTOMATED: Failed to generate weekly report for mission '%s': %s", mission_id, e, exc_info=True)
+
+
+__all__ = [
+    "REPORTS_ROOT",
+    "LOGO_PATH",
+    "WEEKLY_REPORT_DATA_TYPES",
+    "WeeklyReportPreflightError",
+    "default_weekly_report_date_window",
+    "load_mission_goals_for_report",
+    "load_mission_notes_for_report",
+    "generate_weekly_report_pdf_for_mission",
+    "generate_weekly_report",
+    "create_and_save_weekly_report",
+]

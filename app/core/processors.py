@@ -1,4 +1,5 @@
 import logging  # Add logging
+import re
 from typing import Dict, List, Optional
  
 import numpy as np
@@ -335,6 +336,50 @@ def preprocess_ais_df(df):
     return df_processed
 
 
+def parse_error_message(message: str) -> dict[str, Optional[str]]:
+    """Extract display fields from raw vehicle error strings (best-effort).
+
+    Returns keys: severity, source, code, detail.
+    """
+    text = (message or "").strip()
+    out: dict[str, Optional[str]] = {
+        "severity": None,
+        "source": None,
+        "code": None,
+        "detail": text if text else None,
+    }
+    if not text:
+        return out
+
+    sev_m = re.match(
+        r"^(?P<sev>CRITICAL|WARNING|WARN|INFO|ERROR|NOTICE|DEBUG)\s*=\s*(?P<rest>.*)$",
+        text,
+        flags=re.I | re.DOTALL,
+    )
+    if sev_m:
+        sev = sev_m.group("sev").upper()
+        if sev == "WARN":
+            sev = "WARNING"
+        out["severity"] = sev
+        rest = (sev_m.group("rest") or "").strip()
+    else:
+        rest = text
+
+    # Optional "Source: detail" prefix (short head before first colon)
+    if ":" in rest[:160]:
+        head, _, tail = rest.partition(":")
+        head_stripped = head.strip()
+        if len(head_stripped) < 100 and not head_stripped.lower().startswith("http"):
+            out["source"] = head_stripped
+            rest = tail.strip()
+
+    brk = re.search(r"\[(?P<code>[^\]]+)\]", rest)
+    if brk:
+        out["code"] = brk.group("code").strip()
+    out["detail"] = rest.strip() if rest else text
+    return out
+
+
 def preprocess_error_df(df):
     timestamp_col = "Timestamp"
     df_processed = _initial_dataframe_setup(df, timestamp_col)
@@ -363,6 +408,19 @@ def preprocess_error_df(df):
         # SelfCorrected could be boolean-like; convert if necessary, e.g.:
         # elif target_col == "SelfCorrected":
         #     df_processed[target_col] = df_processed[target_col].astype(bool) # Or map specific strings to bool
+
+    if "ErrorMessage" in df_processed.columns:
+        parsed_rows = [parse_error_message(str(v) if pd.notna(v) else "") for v in df_processed["ErrorMessage"]]
+        df_processed["parsed_severity"] = [p["severity"] for p in parsed_rows]
+        df_processed["parsed_source"] = [p["source"] for p in parsed_rows]
+        df_processed["parsed_code"] = [p["code"] for p in parsed_rows]
+        df_processed["parsed_detail"] = [p["detail"] for p in parsed_rows]
+    else:
+        df_processed["parsed_severity"] = np.nan
+        df_processed["parsed_source"] = np.nan
+        df_processed["parsed_code"] = np.nan
+        df_processed["parsed_detail"] = np.nan
+
     return df_processed
 
 
