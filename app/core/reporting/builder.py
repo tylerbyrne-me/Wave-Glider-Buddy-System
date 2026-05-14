@@ -749,6 +749,11 @@ def write_weekly_mission_pdf(
         _append_landscape_section(
             sections.build_wg_vm4_offloads_landscape_section(offload_rows, date_range_str)
         )
+    elif "wg_vm4" in plots_to_include and not has_wg_vm4_card_enabled:
+        logger.info(
+            "Weekly PDF: WG-VM4 offload table omitted (wg_vm4 not in mission_overview.enabled_sensor_cards). mission_id=%r",
+            mission_id,
+        )
 
     if landscape_any:
         story.append(NextPageTemplate("portrait"))

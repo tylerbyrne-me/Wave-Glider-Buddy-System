@@ -146,13 +146,25 @@ def load_offload_logs_for_report(
         .order_by(event_ts.desc())
     )
     rows = list(session.exec(statement).all())
-    if rows:
-        logger.info(
-            "Weekly report offload logs for mission_id=%r: %s row(s) (parser trace prefixes: %s).",
-            mission_id,
-            len(rows),
-            prefixes,
-        )
+    window_start = (
+        datetime.combine(start_date, time.min, tzinfo=timezone.utc).isoformat()
+        if start_date is not None
+        else "open"
+    )
+    window_end_excl = (
+        (datetime.combine(end_date, time.min, tzinfo=timezone.utc) + timedelta(days=1)).isoformat()
+        if end_date is not None
+        else "open"
+    )
+    logger.info(
+        "Weekly report offload query mission_id=%r: matched %s row(s); "
+        "parser_trace_prefixes=%s; utc_event_ts>=%s and utc_event_ts<%s (end date inclusive through end-of-day UTC).",
+        mission_id,
+        len(rows),
+        prefixes,
+        window_start,
+        window_end_excl,
+    )
     return rows
 
 
