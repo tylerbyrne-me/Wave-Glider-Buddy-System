@@ -938,12 +938,18 @@ async def create_offload_log_for_station(
     field_season_year = active_season.year if active_season else None
 
     offload_log_data = offload_log_in.model_dump()
+    sheet_mission_id = offload_log_data.pop("mission_id", None)
     offload_log_data["logged_by_username"] = current_user.username
     offload_log_data["station_id"] = station_id
     offload_log_data["field_season_year"] = field_season_year
     offload_log_data["created_by_source"] = "user"
     offload_log_data["updated_by_source"] = "user"
     offload_log_data["updated_at_utc"] = datetime.now(timezone.utc)
+
+    if not (offload_log_data.get("parser_session_ref") or "").strip():
+        mid_sheet = (sheet_mission_id or "").strip()
+        if mid_sheet:
+            offload_log_data["parser_session_ref"] = f"{mid_sheet}:station_offload_sheet:{station_id}"
 
     db_offload_log = models.OffloadLog.model_validate(offload_log_data)
     session.add(db_offload_log)

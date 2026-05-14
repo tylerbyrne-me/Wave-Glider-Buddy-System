@@ -380,6 +380,7 @@ export function initializeWgVm4OffloadSection() {
         }
 
         const formData = new FormData(wgVm4OffloadForm);
+        const missionIdForSheet = (document.body.dataset.missionId || '').trim();
         const offloadedStatus = String(formData.get('offloaded_status_log') || '').trim();
         const normalizedWasOffloaded = offloadedStatus === 'Yes' ? true : offloadedStatus === 'No' || offloadedStatus === 'Partial' ? false : null;
         const notes = buildUserNotes(toNullableTrimmed(formData.get('comments_log')), offloadedStatus);
@@ -399,6 +400,7 @@ export function initializeWgVm4OffloadSection() {
             vrl_file_name: toNullableTrimmed(formData.get('vrl_file_name_log')),
             offload_notes_file_size: toNullableTrimmed(formData.get('vrl_file_size_log')),
             user_notes: notes,
+            ...(missionIdForSheet ? { mission_id: missionIdForSheet } : {}),
         };
         Object.keys(payload).forEach((key) => {
             if (payload[key] === null || payload[key] === '') delete payload[key];
@@ -420,7 +422,7 @@ export function initializeWgVm4OffloadSection() {
                     { is_flagged: true, note: flagNote }
                 );
             }
-            const missionId = (document.body.dataset.missionId || '').trim();
+            const missionId = missionIdForSheet;
             if (missionId) {
                 await apiRequest(
                     `/api/station_metadata/${encodeURIComponent(currentStationData.station_id)}`,

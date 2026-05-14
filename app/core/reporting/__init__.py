@@ -85,12 +85,22 @@ def load_offload_logs_for_report(
     start_date: Optional[date],
     end_date: Optional[date],
 ) -> List[models.OffloadLog]:
-    """VM4/parser offload rows for the weekly PDF.
+    """Operator **station offload sheet** rows for the weekly PDF (truth source).
 
-    Rows are matched to ``mission_id`` via ``parser_run_id`` / ``parser_session_ref``
-    prefixes (``{mission_id}:``, deployment code, Sensor Tracker folder id when known,
-    and ``{deployment_code}-`` when the request uses the short deployment code only).
-    Manual entries without those fields cannot be attributed and are excluded.
+    Only ``offload_logs`` with ``created_by_source == 'user'`` are included. Automated
+    WG-VM4 CSV/parser rows (``created_by_source == 'parser'``) are **excluded** so the PDF is not
+    driven by parser ingest or other VM4 dashboard side effects.
+
+    Mission scoping for user rows:
+
+    - **Preferred:** ``parser_session_ref`` shaped like
+      ``{mission_id}:station_offload_sheet:{station_id}``, set on sheet POST when the client sends
+      ``mission_id`` (same value as the dashboard mission context).
+    - **Also:** ``parser_run_id`` / ``parser_session_ref`` prefix match (for merged or legacy rows
+      that already carry WG-VM4 parser-style ids).
+    - **Legacy fallback:** empty parser fields and ``station_metadata.last_offload_by_glider`` in
+      the mission alias set (set by a separate station PUT after sheet submit in ``wg_vm4.js``;
+      prefer ``mission_id`` on the sheet POST so the log row alone is authoritative).
 
     The report window uses the same UTC inclusive/exclusive bounds as
     ``_filter_report_dataframes`` (end date is inclusive through end-of-day UTC).
@@ -131,7 +141,27 @@ def load_offload_logs_for_report(
         models.OffloadLog.log_timestamp_utc,
     )
 
-    filters: List[Any] = [mission_match]
+    parser_trace_match = mission_match
+    parser_run_blank = or_(
+        models.OffloadLog.parser_run_id.is_(None),
+        models.OffloadLog.parser_run_id == "",
+    )
+    parser_session_blank = or_(
+        models.OffloadLog.parser_session_ref.is_(None),
+        models.OffloadLog.parser_session_ref == "",
+    )
+    alias_lower = [p.lower() for p in prefixes if p]
+    station_sheet_match = and_(
+        models.OffloadLog.created_by_source == "user",
+        parser_run_blank,
+        parser_session_blank,
+        models.StationMetadata.last_offload_by_glider.isnot(None),
+        func.lower(models.StationMetadata.last_offload_by_glider).in_(alias_lower),
+    )
+    mission_or_sheet = or_(parser_trace_match, station_sheet_match)
+    operator_sheet_only = models.OffloadLog.created_by_source == "user"
+
+    filters: List[Any] = [and_(operator_sheet_only, mission_or_sheet)]
     if start_date is not None:
         filters.append(
             event_ts >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
@@ -142,6 +172,7 @@ def load_offload_logs_for_report(
 
     statement = (
         select(models.OffloadLog)
+        .join(models.StationMetadata, models.OffloadLog.station_id == models.StationMetadata.station_id)
         .where(and_(*filters))
         .order_by(event_ts.desc())
     )
@@ -157,8 +188,9 @@ def load_offload_logs_for_report(
         else "open"
     )
     logger.info(
-        "Weekly report offload query mission_id=%r: matched %s row(s); "
-        "parser_trace_prefixes=%s; utc_event_ts>=%s and utc_event_ts<%s (end date inclusive through end-of-day UTC).",
+        "Weekly report offload query mission_id=%r: matched %s operator sheet row(s) "
+        "(created_by_source=user only; parser ingest excluded); parser_trace_prefixes=%s; "
+        "utc_event_ts>=%s and utc_event_ts<%s (end date inclusive through end-of-day UTC).",
         mission_id,
         len(rows),
         prefixes,

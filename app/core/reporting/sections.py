@@ -531,7 +531,7 @@ def build_wg_vm4_offloads_landscape_section(
         col_widths=[station_w, stat_w, time_w, vrl_w, ver_w],
     )
     return [
-        Paragraph("WG-VM4 station offloads", styles["Heading1"]),
+        Paragraph("WG-VM4 station offload sheet", styles["Heading1"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 8),
         tbl,

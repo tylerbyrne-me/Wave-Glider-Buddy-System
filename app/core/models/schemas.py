@@ -323,6 +323,15 @@ class OffloadLogCreate(SQLModel):
     user_notes: Optional[str] = None
     parser_run_id: Optional[str] = None
     parser_session_ref: Optional[str] = None
+    mission_id: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Mission folder or deployment code from the WG-VM4 offload sheet context; "
+            "not stored on the row—used to set parser_session_ref as "
+            "{mission_id}:station_offload_sheet:{station_id} for weekly report attribution."
+        ),
+    )
 
 
 class OffloadLogUpdate(SQLModel):
