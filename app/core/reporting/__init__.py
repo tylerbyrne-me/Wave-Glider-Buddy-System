@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Any, List, Optional
 
 import pandas as pd
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_
 from sqlmodel import Session as SQLModelSession, select
 
 from .. import models, utils
@@ -79,6 +79,55 @@ def load_mission_goals_for_report(session: SQLModelSession, mission_id: str) -> 
     return session.exec(statement).all()
 
 
+def load_offload_logs_for_report(
+    session: SQLModelSession,
+    mission_id: str,
+    start_date: Optional[date],
+    end_date: Optional[date],
+) -> List[models.OffloadLog]:
+    """VM4/parser offload rows for the weekly PDF.
+
+    Rows are matched to ``mission_id`` via ``parser_run_id`` / ``parser_session_ref``
+    prefixes (``{mission_id}:`` or deployment code prefix). Manual entries without
+    those fields cannot be attributed and are excluded.
+
+    The report window uses the same UTC inclusive/exclusive bounds as
+    ``_filter_report_dataframes`` (end date is inclusive through end-of-day UTC).
+    """
+    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
+    run_prefix = or_(
+        models.OffloadLog.parser_run_id.startswith(f"{mission_id}:"),
+        models.OffloadLog.parser_run_id.startswith(f"{mission_base}:"),
+    )
+    session_prefix = or_(
+        models.OffloadLog.parser_session_ref.startswith(f"{mission_id}:"),
+        models.OffloadLog.parser_session_ref.startswith(f"{mission_base}:"),
+    )
+    mission_match = or_(run_prefix, session_prefix)
+
+    event_ts = func.coalesce(
+        models.OffloadLog.offload_end_time_utc,
+        models.OffloadLog.offload_start_time_utc,
+        models.OffloadLog.log_timestamp_utc,
+    )
+
+    filters: List[Any] = [mission_match]
+    if start_date is not None:
+        filters.append(
+            event_ts >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        )
+    if end_date is not None:
+        end_exclusive = datetime.combine(end_date, time.min, tzinfo=timezone.utc) + timedelta(days=1)
+        filters.append(event_ts < end_exclusive)
+
+    statement = (
+        select(models.OffloadLog)
+        .where(and_(*filters))
+        .order_by(event_ts.desc())
+    )
+    return list(session.exec(statement).all())
+
+
 async def generate_weekly_report_pdf_for_mission(
     session: SQLModelSession,
     mission_id: str,
@@ -142,6 +191,10 @@ async def generate_weekly_report_pdf_for_mission(
             selected_end_date.isoformat(),
         )
 
+    offload_logs = load_offload_logs_for_report(
+        session, mission_id, selected_start_date, selected_end_date
+    )
+
     return await generate_weekly_report(
         mission_id=mission_id,
         telemetry_df=telemetry_df,
@@ -162,6 +215,7 @@ async def generate_weekly_report_pdf_for_mission(
         sensor_tracker_deployment=sensor_tracker_deployment,
         mission_overview=mission_overview,
         source_path=source_path,
+        offload_logs=offload_logs,
     )
 
 
@@ -185,6 +239,7 @@ async def generate_weekly_report(
     sensor_tracker_deployment: Optional[models.SensorTrackerDeployment] = None,
     mission_overview: Optional[models.MissionOverview] = None,
     source_path: Optional[str] = None,
+    offload_logs: Optional[List[models.OffloadLog]] = None,
 ) -> str:
     """Generate a weekly (or custom) mission PDF and return its URL path under /static/..."""
     report_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
@@ -217,7 +272,7 @@ async def generate_weekly_report(
     url_path = f"/static/mission_reports/{report_dir_name}/{filename}"
 
     if plots_to_include is None:
-        plots_to_include = ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais"]
+        plots_to_include = ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais", "wg_vm4"]
 
     write_weekly_mission_pdf(
         file_path=file_path,
@@ -240,6 +295,7 @@ async def generate_weekly_report(
         sensor_tracker_deployment=sensor_tracker_deployment,
         mission_overview=mission_overview,
         source_path=source_path,
+        offload_logs=offload_logs or [],
     )
     return url_path
 
@@ -281,6 +337,7 @@ __all__ = [
     "default_weekly_report_date_window",
     "load_mission_goals_for_report",
     "load_mission_notes_for_report",
+    "load_offload_logs_for_report",
     "generate_weekly_report_pdf_for_mission",
     "generate_weekly_report",
     "create_and_save_weekly_report",

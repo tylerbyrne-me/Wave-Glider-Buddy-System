@@ -20,6 +20,7 @@ from ..core.reporting import (
     WeeklyReportPreflightError,
     load_mission_goals_for_report,
     load_mission_notes_for_report,
+    load_offload_logs_for_report,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,7 +318,8 @@ async def generate_report_with_sensor_tracker(
         )
 
     # Generate report with all plot types included
-    plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "c3", "errors", "ais"]
+    plots_to_include = ["telemetry", "power", "solar", "ctd", "weather", "waves", "c3", "errors", "ais", "wg_vm4"]
+    offload_logs = load_offload_logs_for_report(session, mission_id, selected_start_date, selected_end_date)
     report_url = await generate_weekly_report(
         mission_id=mission_id,
         telemetry_df=telemetry_df,
@@ -338,6 +340,7 @@ async def generate_report_with_sensor_tracker(
         sensor_tracker_deployment=sensor_tracker_deployment,  # Pass Sensor Tracker metadata
         mission_overview=mission_overview,
         source_path=source_path,
+        offload_logs=offload_logs,
     )
     
     if save_to_overview:

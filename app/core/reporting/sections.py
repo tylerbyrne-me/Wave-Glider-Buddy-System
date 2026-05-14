@@ -475,6 +475,69 @@ def build_c3_section(fluorometer_df: pd.DataFrame, period_label: str) -> List[An
     ]
 
 
+def _offload_display_time_utc(log: models.OffloadLog) -> str:
+    raw = log.offload_end_time_utc or log.offload_start_time_utc or log.log_timestamp_utc
+    if raw is None:
+        return ""
+    if isinstance(raw, datetime):
+        return raw.strftime("%Y-%m-%d %H:%M:%S")
+    return str(raw)
+
+
+def _offload_status_pill_label(was_offloaded: Optional[bool]) -> str:
+    if was_offloaded is True:
+        return "SUCCESS"
+    if was_offloaded is False:
+        return "ERROR"
+    return "UNKNOWN"
+
+
+def _offload_verified_text(v: Optional[bool]) -> str:
+    if v is True:
+        return "Yes"
+    if v is False:
+        return "No"
+    return "—"
+
+
+def build_wg_vm4_offloads_landscape_section(
+    offload_logs: Sequence[models.OffloadLog],
+    period_label: str,
+) -> List[Any]:
+    """Landscape table of VM4/parser offload attempts for the report window."""
+    if not offload_logs:
+        return []
+    styles = build_paragraph_styles()
+    lw = float(LANDSCAPE_CONTENT_WIDTH_PT)
+    station_w, stat_w, time_w, ver_w = 88.0, 72.0, 128.0, 52.0
+    vrl_w = max(120.0, lw - station_w - stat_w - time_w - ver_w)
+    headers = ["Station ID", "Offload status", "Time (UTC)", "VRL file", "Verified on RUDICS"]
+    rows: List[List[Any]] = []
+    for log in offload_logs:
+        status_lbl = _offload_status_pill_label(log.was_offloaded)
+        rows.append(
+            [
+                Paragraph(_escape_xml_text(log.station_id), styles["TableCell"]),
+                severity_pill_cell(status_lbl, styles, col_width_pt=stat_w - 4),
+                Paragraph(_escape_xml_text(_offload_display_time_utc(log)), styles["TableCell"]),
+                Paragraph(_escape_xml_text(str(log.vrl_file_name or "—")), styles["TableCell"]),
+                Paragraph(_escape_xml_text(_offload_verified_text(log.vrl_verified_on_rudics)), styles["TableCell"]),
+            ]
+        )
+    tbl = styled_data_table(
+        headers,
+        rows,
+        styles=styles,
+        col_widths=[station_w, stat_w, time_w, vrl_w, ver_w],
+    )
+    return [
+        Paragraph("WG-VM4 station offloads", styles["Heading1"]),
+        DataPeriodBanner(period_label, styles),
+        Spacer(1, 8),
+        tbl,
+    ]
+
+
 def build_errors_section(error_df: pd.DataFrame, period_label: str) -> List[Any]:
     if error_df.empty:
         return []

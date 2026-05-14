@@ -463,7 +463,9 @@ def write_weekly_mission_pdf(
     sensor_tracker_deployment: Optional[models.SensorTrackerDeployment],
     mission_overview: Optional[models.MissionOverview],
     source_path: Optional[str],
+    offload_logs: Optional[List[models.OffloadLog]] = None,
 ) -> None:
+    offload_rows = list(offload_logs or [])
     (
         telemetry_df_filtered,
         power_df_filtered,
@@ -539,6 +541,7 @@ def write_weekly_mission_pdf(
     has_c3_card_enabled = any(
         sensor_name in enabled_sensor_cards for sensor_name in ("fluorometer", "c3")
     ) or not enabled_sensor_cards
+    has_wg_vm4_card_enabled = ("wg_vm4" in enabled_sensor_cards) or not enabled_sensor_cards
 
     styles = build_paragraph_styles()
     doc = WeeklyReportDocTemplate(
@@ -737,6 +740,14 @@ def write_weekly_mission_pdf(
         _append_landscape_section(sections.build_waves_section(wave_df_filtered, date_range_str))
     if "c3" in plots_to_include and has_c3_card_enabled and not fluorometer_df_filtered.empty:
         _append_landscape_section(sections.build_c3_section(fluorometer_df_filtered, date_range_str))
+    if (
+        "wg_vm4" in plots_to_include
+        and has_wg_vm4_card_enabled
+        and offload_rows
+    ):
+        _append_landscape_section(
+            sections.build_wg_vm4_offloads_landscape_section(offload_rows, date_range_str)
+        )
 
     if landscape_any:
         story.append(NextPageTemplate("portrait"))
