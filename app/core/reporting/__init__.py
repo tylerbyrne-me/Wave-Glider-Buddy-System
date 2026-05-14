@@ -88,22 +88,42 @@ def load_offload_logs_for_report(
     """VM4/parser offload rows for the weekly PDF.
 
     Rows are matched to ``mission_id`` via ``parser_run_id`` / ``parser_session_ref``
-    prefixes (``{mission_id}:`` or deployment code prefix). Manual entries without
-    those fields cannot be attributed and are excluded.
+    prefixes (``{mission_id}:``, deployment code, Sensor Tracker folder id when known,
+    and ``{deployment_code}-`` when the request uses the short deployment code only).
+    Manual entries without those fields cannot be attributed and are excluded.
 
     The report window uses the same UTC inclusive/exclusive bounds as
     ``_filter_report_dataframes`` (end date is inclusive through end-of-day UTC).
     """
-    mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
-    run_prefix = or_(
-        models.OffloadLog.parser_run_id.startswith(f"{mission_id}:"),
-        models.OffloadLog.parser_run_id.startswith(f"{mission_base}:"),
+    mid = mission_id.strip()
+    if not mid:
+        return []
+    mission_base = utils.deployment_mission_code_from_mission_id(mid)
+    dep = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mid,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    folder_mission_id = dep.mission_id if dep and dep.mission_id else None
+    prefixes = utils.mission_ids_for_offload_parser_trace_matching(
+        mid, sensor_tracker_folder_mission_id=folder_mission_id
     )
-    session_prefix = or_(
-        models.OffloadLog.parser_session_ref.startswith(f"{mission_id}:"),
-        models.OffloadLog.parser_session_ref.startswith(f"{mission_base}:"),
-    )
-    mission_match = or_(run_prefix, session_prefix)
+
+    colon_clauses: List[Any] = []
+    for p in prefixes:
+        colon_clauses.append(models.OffloadLog.parser_run_id.startswith(f"{p}:"))
+        colon_clauses.append(models.OffloadLog.parser_session_ref.startswith(f"{p}:"))
+
+    mission_match = or_(*colon_clauses)
+    if mid == mission_base:
+        mission_match = or_(
+            mission_match,
+            models.OffloadLog.parser_run_id.startswith(f"{mission_base}-"),
+            models.OffloadLog.parser_session_ref.startswith(f"{mission_base}-"),
+        )
 
     event_ts = func.coalesce(
         models.OffloadLog.offload_end_time_utc,
@@ -125,7 +145,15 @@ def load_offload_logs_for_report(
         .where(and_(*filters))
         .order_by(event_ts.desc())
     )
-    return list(session.exec(statement).all())
+    rows = list(session.exec(statement).all())
+    if rows:
+        logger.info(
+            "Weekly report offload logs for mission_id=%r: %s row(s) (parser trace prefixes: %s).",
+            mission_id,
+            len(rows),
+            prefixes,
+        )
+    return rows
 
 
 async def generate_weekly_report_pdf_for_mission(
@@ -176,8 +204,14 @@ async def generate_weekly_report_pdf_for_mission(
     mission_goals = load_mission_goals_for_report(session, mission_id)
     mission_notes = load_mission_notes_for_report(session, mission_id)
 
+    mission_base_for_dep = utils.deployment_mission_code_from_mission_id(mission_id)
     sensor_tracker_deployment = session.exec(
-        select(models.SensorTrackerDeployment).where(models.SensorTrackerDeployment.mission_id == mission_id)
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mission_id,
+                models.SensorTrackerDeployment.mission_id == mission_base_for_dep,
+            )
+        )
     ).first()
 
     selected_start_date = options.start_date

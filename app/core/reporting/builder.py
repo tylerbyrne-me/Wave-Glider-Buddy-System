@@ -541,7 +541,8 @@ def write_weekly_mission_pdf(
     has_c3_card_enabled = any(
         sensor_name in enabled_sensor_cards for sensor_name in ("fluorometer", "c3")
     ) or not enabled_sensor_cards
-    has_wg_vm4_card_enabled = ("wg_vm4" in enabled_sensor_cards) or not enabled_sensor_cards
+    normalized_cards = {str(c).strip().lower() for c in enabled_sensor_cards}
+    has_wg_vm4_card_enabled = ("wg_vm4" in normalized_cards) or not enabled_sensor_cards
 
     styles = build_paragraph_styles()
     doc = WeeklyReportDocTemplate(

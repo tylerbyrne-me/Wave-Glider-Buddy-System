@@ -63,6 +63,33 @@ def deployment_mission_code_from_mission_id(mission_id: str) -> str:
     return trimmed
 
 
+def mission_ids_for_offload_parser_trace_matching(
+    mission_id: str,
+    *,
+    sensor_tracker_folder_mission_id: Optional[str] = None,
+) -> tuple[str, ...]:
+    """Mission id strings used to match WG-VM4 ``parser_run_id`` / ``parser_session_ref`` (``id:…`` prefix).
+
+    The VM4 parser stores ``{mission_id passed to the parser}:{timestamp}``. Reports may be
+    requested with a folder-style id (``m219-SV3-1121``) or deployment code (``m219``); logs may
+    use either form. When ``sensor_tracker_folder_mission_id`` is set (typically the deployment
+    row's ``mission_id``), it is included so short-code report requests still match folder-prefixed
+    parser rows.
+    """
+    mid = (mission_id or "").strip()
+    if not mid:
+        return ()
+    base = deployment_mission_code_from_mission_id(mid)
+    out: List[str] = []
+    for candidate in (mid, base):
+        if candidate and candidate not in out:
+            out.append(candidate)
+    folder = (sensor_tracker_folder_mission_id or "").strip()
+    if folder and folder not in out:
+        out.append(folder)
+    return tuple(out)
+
+
 def parse_mission_note_datetime_prefix(note_content: Optional[str]) -> Optional[datetime]:
     """
     Parse mission note prefix timestamp in format:
