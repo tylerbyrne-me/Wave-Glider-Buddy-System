@@ -15,6 +15,14 @@ from enum import Enum
 import httpx
 
 from ..config import settings
+from ..core.fluorometer_channels import (
+    build_fluorometer_channel_map,
+    default_file_stem,
+    find_fluorometer_instrument,
+    fluorometer_parameter_identifiers,
+    parameters_include_fluorometer_channels,
+    pick_latest_parameters_for_instrument,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +70,22 @@ class SensorTrackerService:
         self.username_override = username_override
         self.password_override = password_override
         self._configure_client()
+
+    def _build_api_headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        token_value = self.token_override or settings.sensor_tracker_token
+        if token_value:
+            headers["Authorization"] = f"Token {token_value}"
+        return headers
+
+    def _httpx_auth(self) -> Optional[tuple]:
+        if settings.sensor_tracker_token or self.token_override:
+            return None
+        username = self.username_override or settings.sensor_tracker_username
+        password = self.password_override or settings.sensor_tracker_password
+        if username and password:
+            return (username, password)
+        return None
     
     def _configure_client(self):
         """Configure the Sensor Tracker client with settings from config."""
@@ -1201,6 +1225,7 @@ class SensorTrackerService:
                                     "instrument_id": instrument.get("id"),
                                     "instrument_identifier": instrument.get("identifier"),
                                     "instrument_short_name": instrument.get("short_name"),
+                                    "instrument_long_name": instrument.get("long_name"),
                                     "instrument_serial": instrument.get("serial"),
                                     "instrument_name": instrument.get("name"),
                                     "start_time": inst_rel.get("start_time"),
@@ -1322,6 +1347,7 @@ class SensorTrackerService:
                         "instrument_id": instrument.get("id"),
                         "instrument_identifier": instrument.get("identifier"),
                         "instrument_short_name": instrument.get("short_name"),
+                        "instrument_long_name": instrument.get("long_name"),
                         "instrument_serial": instrument.get("serial"),
                         "instrument_name": instrument.get("name"),
                         "start_time": inst_rel.get("start_time"),
@@ -1503,4 +1529,150 @@ class SensorTrackerService:
     
     # Note: get_deployment_info removed - use fetch_deployment() instead
     # fetch_deployment() already handles different ID formats
+
+    async def fetch_parameters_by_identifier(
+        self,
+        identifier: str,
+        depth: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Sensor Tracker parameters by exact identifier.
+
+        The parameter API rejects ``instrument`` and ``sensor`` filter keys (HTTP 403).
+        Use ``identifier=Fluorometer Samples 2_c1Avg`` with depth>=3 so ``instrument.serial``
+        is included for disambiguation when multiple configuration rows exist.
+        """
+        if not identifier:
+            return []
+
+        filters = {"identifier": identifier, "depth": depth}
+
+        try:
+            if hasattr(stc, "parameter"):
+                response = stc.parameter.get(filters)
+                if response and hasattr(response, "dict"):
+                    return self._normalize_api_results(response.dict)
+        except Exception as e:
+            logger.debug(f"sensor_tracker_client parameter.get failed, using direct API: {e}")
+
+        base_url = stc.HOST.rstrip("/")
+        url = f"{base_url}/api/parameter/"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                params=filters,
+                headers=self._build_api_headers(),
+                auth=self._httpx_auth(),
+            )
+            response.raise_for_status()
+            return self._normalize_api_results(response.json())
+
+    async def fetch_fluorometer_channel_parameters(
+        self,
+        instrument_id: int,
+        *,
+        instrument_serial: Optional[str] = None,
+        file_stem: Optional[str] = None,
+        depth: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Load Fluorometer Samples 2 channel parameters for one instrument.
+
+        Each channel is requested by exact ST identifier; rows are filtered by
+        instrument.id and instrument.serial (see pick_latest_parameters_for_instrument).
+        """
+        if not instrument_id:
+            return []
+
+        stem = file_stem or default_file_stem()
+        collected: List[Dict[str, Any]] = []
+
+        for param_identifier in fluorometer_parameter_identifiers(stem):
+            rows = await self.fetch_parameters_by_identifier(param_identifier, depth=depth)
+            picked = pick_latest_parameters_for_instrument(
+                rows,
+                instrument_id,
+                instrument_serial=instrument_serial,
+            )
+            if picked:
+                collected.extend(picked)
+            else:
+                logger.debug(
+                    "No parameter row for identifier '%s' matching instrument_id=%s serial=%s "
+                    "(API returned %s row(s))",
+                    param_identifier,
+                    instrument_id,
+                    instrument_serial,
+                    len(rows),
+                )
+
+        if collected:
+            logger.info(
+                "Resolved %s fluorometer parameter(s) for instrument_id=%s serial=%s: %s",
+                len(collected),
+                instrument_id,
+                instrument_serial,
+                [p.get("identifier") for p in collected],
+            )
+        return collected
+
+    async def enrich_fluorometer_channel_map(
+        self,
+        parsed_deployment: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Resolve fluorometer channel parameters and set parsed_deployment["fluorometer_channel_map"].
+
+        Only call when the mission overview has the fluorometer sensor card enabled.
+        """
+        fluor_inst = find_fluorometer_instrument(parsed_deployment)
+        if not fluor_inst:
+            logger.info(
+                "No fluorometer instrument (Fluorometer Samples 2 / Turner C3) on deployment; skipping channel map"
+            )
+            parsed_deployment["fluorometer_channel_map"] = None
+            return None
+
+        instrument_id = fluor_inst.get("instrument_id")
+        instrument_serial = fluor_inst.get("instrument_serial")
+        parameters = await self.fetch_fluorometer_channel_parameters(
+            instrument_id,
+            instrument_serial=instrument_serial,
+        )
+
+        if not parameters_include_fluorometer_channels(parameters):
+            logger.warning(
+                "No Fluorometer Samples 2 parameters for instrument %s (%s) serial=%s",
+                instrument_id,
+                fluor_inst.get("instrument_identifier"),
+                instrument_serial,
+            )
+            parsed_deployment["fluorometer_channel_map"] = None
+            return None
+
+        channel_map = build_fluorometer_channel_map(
+            parameters,
+            file_stem=default_file_stem(),
+            sensor_serial=instrument_serial,
+            sensor_tracker_sensor_id=instrument_id,
+            instrument_identifier=fluor_inst.get("instrument_identifier"),
+        )
+
+        if not channel_map:
+            logger.warning(
+                "Could not build channel map from parameters for instrument %s",
+                fluor_inst.get("instrument_identifier"),
+            )
+            parsed_deployment["fluorometer_channel_map"] = None
+            return None
+
+        parsed_deployment["fluorometer_channel_map"] = channel_map
+        logger.info(
+            "Built fluorometer channel map for instrument '%s' (id=%s): %s",
+            fluor_inst.get("instrument_identifier"),
+            instrument_id,
+            list((channel_map.get("channels") or {}).keys()),
+        )
+        return channel_map
 

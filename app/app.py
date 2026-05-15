@@ -69,6 +69,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from fastapi.security import OAuth2PasswordRequestForm  # type: ignore
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import or_
 from sqlmodel import (  # type: ignore
     SQLModel,
     inspect,
@@ -88,6 +89,10 @@ from .core.auth import (get_current_active_user, get_current_admin_user,
 from .config import settings
 from .core import models  # type: ignore
 from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context, reporting, ess_waypoints) # type: ignore
+from .core.fluorometer_channels import (
+    build_channel_labels_for_display,
+    is_fluorometer_card_enabled,
+)
 from .core.security import create_access_token, verify_password
 from .core.db import SQLModelSession, get_db_session, sqlite_engine
 from .core.scheduler import set_scheduler
@@ -1999,7 +2004,7 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
     """Shared dashboard rendering logic for both active and historical missions."""
 
     # Load mission overview data for sensor card configuration
-    mission_overview = session.get(models.MissionOverview, mission)
+    mission_overview = utils.find_mission_overview_for_mission(session, mission)
     enabled_sensor_cards = []
     
     if mission_overview:
@@ -2130,6 +2135,23 @@ async def _render_dashboard(request: Request, mission: str, current_user: models
 
     # Add sensor card configuration to context
     context["enabled_sensor_cards"] = enabled_sensor_cards
+
+    mission_base = utils.deployment_mission_code_from_mission_id(mission)
+    sensor_tracker_deployment = session.exec(
+        select(models.SensorTrackerDeployment).where(
+            or_(
+                models.SensorTrackerDeployment.mission_id == mission,
+                models.SensorTrackerDeployment.mission_id == mission_base,
+            )
+        )
+    ).first()
+    channel_map = None
+    if (
+        is_fluorometer_card_enabled(mission_overview, enabled_cards=enabled_sensor_cards)
+        and sensor_tracker_deployment
+    ):
+        channel_map = sensor_tracker_deployment.fluorometer_channel_map
+    context["fluorometer_channel_labels"] = build_channel_labels_for_display(channel_map)
     
     # Determine if this is a realtime mission (only for active missions)
     is_realtime = mission in settings.active_realtime_missions if not is_historical else False

@@ -701,6 +701,15 @@ class SensorTrackerDeployment(SQLModel, table=True):
     
     # Full parsed data (JSON for flexibility)
     full_metadata: Optional[Dict] = SQLModelField(sa_column=Column(JSON), description="Complete parsed deployment data")
+
+    # Fluorometer: ST parameter long_name and display alias per CSV column (C1_Avg, etc.)
+    fluorometer_channel_map: Optional[Dict] = SQLModelField(
+        default=None,
+        sa_column=Column(JSON),
+        description=(
+            "Per-channel ST metadata keyed by CSV column; synced when fluorometer card is enabled"
+        ),
+    )
     
     # Sync metadata
     last_synced_at: Optional[datetime] = None

@@ -82,6 +82,7 @@
   {% set wave_values = wave_info['values'] if wave_info and wave_info['values'] else {} %}
   {% set vr2c_values = vr2c_info['values'] if vr2c_info and vr2c_info['values'] else {} %}
   {% set fluorometer_values = fluorometer_info['values'] if fluorometer_info and fluorometer_info['values'] else {} %}
+  {% set fluorometer_channel_labels = fluorometer_channel_labels if fluorometer_channel_labels is defined else {} %}
   {% set wg_vm4_values = wg_vm4_info['values'] if wg_vm4_info and wg_vm4_info['values'] else {} %}
   <div class="row mt-3" id="dashboard-main-content"> {# Added mt-3 for spacing below new banner #}
     <!-- Left Navigation Panel (Summary Cards) -->
@@ -253,7 +254,9 @@
             <h5>Fluorometer</h5>
             <div class="mini-summary">
               {% if fluorometer_info and fluorometer_values %}
-                C1: {{ "%.1f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else 'N/A' }}<br>
+                {% set c1_lbl = fluorometer_channel_labels.get('C1_Avg', {'text': 'C1 Avg', 'subscript': none}) %}
+                {{ c1_lbl.text }}{% if c1_lbl.subscript %}<sub>{{ c1_lbl.subscript }}</sub>{% endif %}:
+                {{ "%.1f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else 'N/A' }}<br>
                 Temp: {{ "%.1f"|format(fluorometer_values.get('Temperature_Fluor')) if fluorometer_values.get('Temperature_Fluor') is not none else 'N/A' }} °C
               {% else %} N/A {% endif %}
             </div>
@@ -1853,14 +1856,20 @@
             {% if fluorometer_info and fluorometer_values %}
             <div class="detail-summary-box mb-3">
               <ul class="list-unstyled">
+                {% set c1_lbl = fluorometer_channel_labels.get('C1_Avg', {'text': 'C1 Avg', 'subscript': none}) %}
+                {% set c2_lbl = fluorometer_channel_labels.get('C2_Avg', {'text': 'C2 Avg', 'subscript': none}) %}
+                {% set c3_lbl = fluorometer_channel_labels.get('C3_Avg', {'text': 'C3 Avg', 'subscript': none}) %}
                 <li>
-                  C1 Avg: {{ "%.2f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  {{ c1_lbl.text }}{% if c1_lbl.subscript %}<sub>{{ c1_lbl.subscript }}</sub>{% endif %}:
+                  {{ "%.2f"|format(fluorometer_values.get('C1_Avg')) if fluorometer_values.get('C1_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C2 Avg: {{ "%.2f"|format(fluorometer_values.get('C2_Avg')) if fluorometer_values.get('C2_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  {{ c2_lbl.text }}{% if c2_lbl.subscript %}<sub>{{ c2_lbl.subscript }}</sub>{% endif %}:
+                  {{ "%.2f"|format(fluorometer_values.get('C2_Avg')) if fluorometer_values.get('C2_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
-                  C3 Avg: {{ "%.2f"|format(fluorometer_values.get('C3_Avg')) if fluorometer_values.get('C3_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
+                  {{ c3_lbl.text }}{% if c3_lbl.subscript %}<sub>{{ c3_lbl.subscript }}</sub>{% endif %}:
+                  {{ "%.2f"|format(fluorometer_values.get('C3_Avg')) if fluorometer_values.get('C3_Avg') is not none else '<span class="na-value">N/A</span>' | safe }}
                 </li>
                 <li>
                   Temperature (°C): {{ "%.2f"|format(fluorometer_values.get('Temperature_Fluor')) if fluorometer_values.get('Temperature_Fluor') is not none else '<span class="na-value">N/A</span>' | safe }}
@@ -2088,6 +2097,9 @@
 {% endblock %}
 
 {% block body_extra_js %}
+  <script>
+    window.FLUOROMETER_CHANNEL_LABELS = {{ fluorometer_channel_labels | tojson | safe }};
+  </script>
   <script type="module" src="/static/js/dashboard.js?v={{ app_version }}"></script>
   <script type="module" src="/static/js/wg_vm4.js" defer></script> {# Load WG-VM4 specific JS #}
   <script>

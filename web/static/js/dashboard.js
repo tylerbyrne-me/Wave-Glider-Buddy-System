@@ -36,6 +36,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         hour12: false,
     });
 
+    function fluorometerDatasetLabel(columnKey, fallbackText) {
+        const labels = window.FLUOROMETER_CHANNEL_LABELS || {};
+        const entry = labels[columnKey];
+        if (!entry || !entry.text) {
+            return fallbackText;
+        }
+        if (entry.subscript) {
+            return `${entry.text} (${entry.subscript})`;
+        }
+        return entry.text;
+    }
+
     function formatUtcChartTick(value) {
         const date = value instanceof Date ? value : new Date(value);
         if (Number.isNaN(date.getTime())) return '';
@@ -2608,7 +2620,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const datasets = [];
         if (chartData.some(d => d.C1_Avg !== null && d.C1_Avg !== undefined)) {
             datasets.push({
-                label: 'C1 Avg',
+                label: fluorometerDatasetLabel('C1_Avg', 'C1 Avg'),
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.C1_Avg })),
                 borderColor: CHART_COLORS.FLUORO_C_AVG_PRIMARY,
                 yAxisID: 'yPrimary',
@@ -2617,7 +2629,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         if (chartData.some(d => d.C2_Avg !== null && d.C2_Avg !== undefined)) {
             datasets.push({
-                label: 'C2 Avg',
+                label: fluorometerDatasetLabel('C2_Avg', 'C2 Avg'),
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.C2_Avg })),
                 borderColor: CHART_COLORS.WAVES_SIG_HEIGHT, // Re-use a distinct color
                 yAxisID: 'yPrimary', // Share the primary Y-axis
@@ -2626,7 +2638,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         if (chartData.some(d => d.C3_Avg !== null && d.C3_Avg !== undefined)) {
             datasets.push({
-                label: 'C3 Avg',
+                label: fluorometerDatasetLabel('C3_Avg', 'C3 Avg'),
                 data: chartData.map(item => ({ x: new Date(item.Timestamp), y: item.C3_Avg })),
                 borderColor: CHART_COLORS.WAVES_PERIOD, // Re-use another distinct color
                 yAxisID: 'yPrimary', // Share the primary Y-axis

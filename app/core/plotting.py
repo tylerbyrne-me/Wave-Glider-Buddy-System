@@ -846,8 +846,21 @@ def plot_ctd_for_report(fig, df: pd.DataFrame):
     axs[2].set_xlabel("Time (UTC)")
 
 
-def plot_c3_for_report(fig, df: pd.DataFrame):
-    """Plot C3 channels with fluorometer temperature overlays."""
+def plot_c3_for_report(
+    fig,
+    df: pd.DataFrame,
+    channel_map: Optional[dict] = None,
+):
+    """Plot C3 channels with fluorometer temperature overlays.
+
+    When channel_map is provided (from Sensor Tracker sync), legend labels use aliases
+    (e.g. C1 Avg with Chl-a subscript). Otherwise defaults to C1/C2/C3 Avg.
+    """
+    from .fluorometer_channels import (
+        channel_y_axis_label,
+        format_channel_label_matplotlib,
+    )
+
     if df.empty:
         fig.text(
             0.5,
@@ -861,14 +874,16 @@ def plot_c3_for_report(fig, df: pd.DataFrame):
     axs = fig.subplots(3, 1, sharex=True)
     fig.suptitle("C3 Fluorometer Summary", **REPORT_FIG_SUPTITLE_KWARGS)
     channel_specs = [
-        ("C1_Avg", "Channel 1", "tab:blue"),
-        ("C2_Avg", "Channel 2", "tab:green"),
-        ("C3_Avg", "Channel 3", "tab:purple"),
+        ("C1_Avg", "tab:blue"),
+        ("C2_Avg", "tab:green"),
+        ("C3_Avg", "tab:purple"),
     ]
-    for idx, (column_name, channel_label, color) in enumerate(channel_specs):
+    for idx, (column_name, color) in enumerate(channel_specs):
         if column_name in df.columns:
-            axs[idx].plot(df["Timestamp"], df[column_name], color=color, label=f"{channel_label} (RFU)")
-            axs[idx].set_ylabel("RFU")
+            channel_label = format_channel_label_matplotlib(column_name, channel_map)
+            y_label = channel_y_axis_label(column_name, channel_map)
+            axs[idx].plot(df["Timestamp"], df[column_name], color=color, label=channel_label)
+            axs[idx].set_ylabel(y_label)
             axs[idx].grid(True, alpha=0.3)
             axs[idx].legend(loc="upper left")
         if "Temperature_Fluor" in df.columns:

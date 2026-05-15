@@ -19,6 +19,7 @@ import pandas as pd
 from ..core import models
 from ..core import utils
 from ..core.db import get_db_session
+from ..core.fluorometer_channels import is_fluorometer_card_enabled
 from ..config import settings
 from .sensor_tracker_service import SensorTrackerService, SENSOR_TRACKER_AVAILABLE
 
@@ -142,6 +143,20 @@ class SensorTrackerSyncService:
                 f"{len(parsed_deployment.get('platform_instruments', []))} platform instruments, "
                 f"{len(parsed_deployment.get('instruments', []))} total instruments"
             )
+
+            mission_overview = self._load_mission_overview(session, mission_id)
+            if is_fluorometer_card_enabled(mission_overview):
+                logger.info(
+                    "Fluorometer card enabled for mission '%s'; syncing channel parameters",
+                    mission_id,
+                )
+                await self.sensor_tracker_service.enrich_fluorometer_channel_map(parsed_deployment)
+            else:
+                logger.info(
+                    "Fluorometer card not enabled for mission '%s'; skipping channel parameter sync",
+                    mission_id,
+                )
+                parsed_deployment["fluorometer_channel_map"] = None
             
             # Extract deployment number and mission ID from parsed data
             deployment_number = parsed_deployment.get("deployment_number")
@@ -254,6 +269,7 @@ class SensorTrackerSyncService:
             
             # Store full metadata
             deployment.full_metadata = parsed_deployment
+            deployment.fluorometer_channel_map = parsed_deployment.get("fluorometer_channel_map")
             
             # Update sync status
             deployment.last_synced_at = datetime.now(timezone.utc)
@@ -461,6 +477,16 @@ class SensorTrackerSyncService:
         
         return instrument
     
+    def _load_mission_overview(
+        self,
+        session: SQLModelSession,
+        mission_id: str,
+    ) -> Optional[models.MissionOverview]:
+        """
+        Load mission overview for sync (matches folder ids like m219-SV3-1121 to deployment m219).
+        """
+        return utils.find_mission_overview_for_mission(session, mission_id)
+
     def _parse_datetime(self, value: Any) -> Optional[datetime]:
         """
         Parse a datetime value from various formats to a datetime object.

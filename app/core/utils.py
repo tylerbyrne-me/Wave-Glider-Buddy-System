@@ -2,7 +2,7 @@ import logging
 import re
 import warnings
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -42,6 +42,56 @@ _MISSION_NOTE_PREFIX_PATTERN = re.compile(
     r"^\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:\s*UTC)?\s*:\s*",
     re.IGNORECASE,
 )
+
+
+def find_mission_overview_for_mission(session: Any, mission_id: str) -> Optional[Any]:
+    """
+    Resolve MissionOverview for a dashboard or sync mission id.
+
+    Tries exact id, deployment code (e.g. m219), and folder-style ids that embed the code
+    (e.g. m219-SV3-1121 when syncing deployment m219).
+    """
+    from sqlmodel import select
+
+    from .models import MissionOverview
+
+    if not mission_id or not str(mission_id).strip():
+        return None
+
+    trimmed = mission_id.strip()
+    mission_base = deployment_mission_code_from_mission_id(trimmed)
+
+    for key in (trimmed, mission_base):
+        if not key:
+            continue
+        overview = session.get(MissionOverview, key)
+        if overview:
+            return overview
+
+    if not mission_base:
+        return None
+
+    pattern_candidates = session.exec(
+        select(MissionOverview).where(
+            (MissionOverview.mission_id == mission_base)
+            | (MissionOverview.mission_id.like(f"{mission_base}-%"))  # type: ignore[attr-defined]
+            | (MissionOverview.mission_id.like(f"%-{mission_base}"))  # type: ignore[attr-defined]
+        )
+    ).all()
+
+    exact_base = [o for o in pattern_candidates if o.mission_id == mission_base]
+    if len(exact_base) == 1:
+        return exact_base[0]
+
+    code_matches = [
+        o
+        for o in pattern_candidates
+        if deployment_mission_code_from_mission_id(o.mission_id) == mission_base
+    ]
+    if len(code_matches) == 1:
+        return code_matches[0]
+
+    return None
 
 
 def deployment_mission_code_from_mission_id(mission_id: str) -> str:

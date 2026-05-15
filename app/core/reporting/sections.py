@@ -459,7 +459,12 @@ def build_waves_section(wave_df: pd.DataFrame, period_label: str) -> List[Any]:
     ]
 
 
-def build_c3_section(fluorometer_df: pd.DataFrame, period_label: str) -> List[Any]:
+def build_c3_section(
+    fluorometer_df: pd.DataFrame,
+    period_label: str,
+    *,
+    channel_map: dict | None = None,
+) -> List[Any]:
     if fluorometer_df.empty:
         return []
     styles = build_paragraph_styles()
@@ -469,6 +474,7 @@ def build_c3_section(fluorometer_df: pd.DataFrame, period_label: str) -> List[An
         Spacer(1, 6),
         charts.chart_c3_image(
             fluorometer_df,
+            channel_map=channel_map,
             max_width_pt=LANDSCAPE_CONTENT_WIDTH_PT,
             max_height_pt=_landscape_chart_max_height_pt(),
         ),

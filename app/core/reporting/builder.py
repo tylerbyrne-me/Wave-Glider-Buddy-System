@@ -740,7 +740,16 @@ def write_weekly_mission_pdf(
     if "waves" in plots_to_include and not wave_df_filtered.empty:
         _append_landscape_section(sections.build_waves_section(wave_df_filtered, date_range_str))
     if "c3" in plots_to_include and has_c3_card_enabled and not fluorometer_df_filtered.empty:
-        _append_landscape_section(sections.build_c3_section(fluorometer_df_filtered, date_range_str))
+        fluorometer_channel_map = None
+        if sensor_tracker_deployment and has_c3_card_enabled:
+            fluorometer_channel_map = sensor_tracker_deployment.fluorometer_channel_map
+        _append_landscape_section(
+            sections.build_c3_section(
+                fluorometer_df_filtered,
+                date_range_str,
+                channel_map=fluorometer_channel_map,
+            )
+        )
     if (
         "wg_vm4" in plots_to_include
         and has_wg_vm4_card_enabled
