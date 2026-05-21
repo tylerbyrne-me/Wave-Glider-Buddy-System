@@ -96,6 +96,7 @@ from .core.fluorometer_channels import (
 from .core.security import create_access_token, verify_password
 from .core.db import SQLModelSession, get_db_session, sqlite_engine
 from .core.scheduler import set_scheduler
+from .core.startup_leader import try_acquire_startup_leader
 from .forms.form_definitions import get_static_form_schema # Import the new function
 from .routers import station_metadata_router, auth as auth_router  # Import auth_router
 from .routers import schedule as schedule_router
@@ -1160,6 +1161,7 @@ async def load_incremental_data_with_overlap(
 
 # --- Background Cache Refresh Task (APScheduler instantiation temporarily commented out) ---
 scheduler = AsyncIOScheduler()  # Uncomment APScheduler
+_scheduler_started_by_this_worker: bool = False
 
 
 async def refresh_active_mission_cache():
@@ -1453,51 +1455,62 @@ async def startup_event():
     MISSION_PLANS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Mission plans directory checked/created at: {MISSION_PLANS_DIR}")
 
-    # Step 1: Sync remote data to local storage
-    logger.info("STARTUP: Syncing remote data to local storage...")
-    try:
-        from .core.sync_service import sync_all_realtime_missions
-        sync_results = await sync_all_realtime_missions()
-        total_successful = sum(r["successful"] for r in sync_results.values())
-        total_failed = sum(r["failed"] for r in sync_results.values())
-        logger.info(
-            f"STARTUP: Sync complete - {total_successful} files synced, {total_failed} failed. "
-            f"Results: {sync_results}"
+    is_leader = try_acquire_startup_leader(DATA_STORE_DIR / ".app_leader.lock")
+
+    if is_leader:
+        # Step 1: Sync remote data to local storage
+        logger.info("STARTUP: Syncing remote data to local storage...")
+        try:
+            from .core.sync_service import sync_all_realtime_missions
+            sync_results = await sync_all_realtime_missions()
+            total_successful = sum(r["successful"] for r in sync_results.values())
+            total_failed = sum(r["failed"] for r in sync_results.values())
+            logger.info(
+                f"STARTUP: Sync complete - {total_successful} files synced, {total_failed} failed. "
+                f"Results: {sync_results}"
+            )
+        except Exception as e:
+            logger.error(f"STARTUP: Error syncing data to local storage: {e}", exc_info=True)
+            # Continue anyway - may have some local data or can fall back to remote
+
+        # Step 2: Initialize cache from local storage (faster than remote)
+        logger.info("STARTUP: Initializing cache from local storage...")
+        try:
+            cached_count = await initialize_startup_cache()
+            logger.info(f"STARTUP: Successfully cached {cached_count} data sources from local storage")
+        except Exception as e:
+            logger.error(f"STARTUP: Error initializing cache: {e}", exc_info=True)
+
+        # Add background refresh using configured interval (default: 10 minutes from .env)
+        scheduler.add_job(
+            refresh_active_mission_cache,
+            "interval",
+            minutes=settings.background_cache_refresh_interval_minutes,
+            id="active_mission_refresh_job",
         )
-    except Exception as e:
-        logger.error(f"STARTUP: Error syncing data to local storage: {e}", exc_info=True)
-        # Continue anyway - may have some local data or can fall back to remote
-    
-    # Step 2: Initialize cache from local storage (faster than remote)
-    logger.info("STARTUP: Initializing cache from local storage...")
-    try:
-        cached_count = await initialize_startup_cache()
-        logger.info(f"STARTUP: Successfully cached {cached_count} data sources from local storage")
-    except Exception as e:
-        logger.error(f"STARTUP: Error initializing cache: {e}", exc_info=True)
+        logger.info(
+            f"Background cache refresh scheduled every "
+            f"{settings.background_cache_refresh_interval_minutes} minutes"
+        )
+        scheduler.add_job(
+            run_weekly_reports_job,
+            'cron',
+            day_of_week='thu',
+            hour=12,
+            minute=0,
+            timezone='UTC',
+            id='weekly_report_job'
+        )
 
-    # Add background refresh using configured interval (default: 10 minutes from .env)
-    scheduler.add_job(
-        refresh_active_mission_cache,
-        "interval",
-        minutes=settings.background_cache_refresh_interval_minutes,
-        id="active_mission_refresh_job",
-    )
-    logger.info(f"Background cache refresh scheduled every {settings.background_cache_refresh_interval_minutes} minutes")
-    scheduler.add_job(
-        run_weekly_reports_job,
-        'cron',
-        day_of_week='thu',
-        hour=12,
-        minute=0,
-        timezone='UTC',
-        id='weekly_report_job'
-    )
-
-    scheduler.start()
-    # Register scheduler for access by other modules
-    set_scheduler(scheduler)
-    logger.info("APScheduler started for minimal background cache refresh.")
+        global _scheduler_started_by_this_worker
+        scheduler.start()
+        _scheduler_started_by_this_worker = True
+        set_scheduler(scheduler)
+        logger.info("APScheduler started for minimal background cache refresh.")
+    else:
+        logger.info(
+            "STARTUP: Skipping sync, cache warm, and APScheduler on non-leader worker."
+        )
 
     # --- Database Initialization with File Lock ---
     # Restore DB initialization and form loading
@@ -1558,7 +1571,8 @@ async def startup_event():
         )
         _initialize_database_and_users()
 
-    asyncio.create_task(refresh_active_mission_cache())  # Restore cache refresh
+    if is_leader:
+        asyncio.create_task(refresh_active_mission_cache())
 
     global mission_forms_db  # Restore form loading
     if settings.forms_storage_mode == "local_json":
@@ -1587,11 +1601,10 @@ async def startup_event():
 
 @app.on_event("shutdown") 
 def shutdown_event():
-    if (
-        "scheduler" in globals() and scheduler.running
-    ):  # Check if scheduler was initialized and started
+    global _scheduler_started_by_this_worker
+    if _scheduler_started_by_this_worker and scheduler.running:
         scheduler.shutdown()
-    logger.info("APScheduler shut down.")
+        logger.info("APScheduler shut down.")
 
 
 async def _process_loaded_data_for_home_view(

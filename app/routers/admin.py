@@ -44,7 +44,13 @@ def _format_trigger(trigger) -> models.JobTriggerInfo:
 async def get_scheduler_jobs():
     """Retrieves a list of all jobs currently scheduled in APScheduler."""
     from ..core.scheduler import get_scheduler
-    scheduler = get_scheduler()
+    try:
+        scheduler = get_scheduler()
+    except RuntimeError:
+        logger.info(
+            "Scheduler not available on this worker (non-leader gunicorn process)."
+        )
+        return []
     
     jobs_list = []
     now_utc = datetime.now(timezone.utc)

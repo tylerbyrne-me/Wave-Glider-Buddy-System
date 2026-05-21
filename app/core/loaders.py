@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import os
@@ -16,6 +17,25 @@ logger = logging.getLogger(
 DEFAULT_TIMEOUT = 10.0  # seconds
 RETRY_COUNT = 2  # Number of retries for loaders
 from ..config import settings # Import settings to access the map
+
+
+def _read_local_csv(file_path: Path) -> Tuple[pd.DataFrame, Optional[datetime]]:
+    """Sync helper for thread pool: read local CSV and mtime."""
+    df = pd.read_csv(file_path)
+    file_mod_time = None
+    try:
+        mtime = os.path.getmtime(file_path)
+        file_mod_time = datetime.fromtimestamp(mtime, tz=timezone.utc)
+    except (OSError, ValueError) as e:
+        logger.debug(f"Could not get file modification time for {file_path}: {e}")
+    return df, file_mod_time
+
+
+def _parse_csv_text(csv_text: str) -> pd.DataFrame:
+    """Sync helper for thread pool: parse CSV from HTTP response body."""
+    return pd.read_csv(io.StringIO(csv_text))
+
+
 async def load_report(
     report_type: str,
     mission_id: str,
@@ -55,39 +75,21 @@ async def load_report(
 
     if base_path:
         file_path = Path(base_path) / mission_id / filename
-        # Reading file is synchronous, keep the function async for consistency if remote is an option
         try:
-            df = pd.read_csv(file_path)
-            # Get file modification time
-            file_mod_time = None
-            try:
-                mtime = os.path.getmtime(file_path)
-                file_mod_time = datetime.fromtimestamp(mtime, tz=timezone.utc)
-            except (OSError, ValueError) as e:
-                logger.debug(f"Could not get file modification time for {file_path}: {e}")
+            df, file_mod_time = await asyncio.to_thread(_read_local_csv, file_path)
             return df, file_mod_time
         except FileNotFoundError as e:
-            # If base_url is also provided, we might want to fall back. For
-            # now, if base_path is given, we assume it's the primary target.
-            # Log this as it's an important operational detail if a file is
-            # expected but not found.
             logger.info(
                 f"File not found at local path: {file_path}. Error: {e}"
             )
             return None, None
     elif base_url:
         url = f"{str(base_url).rstrip('/')}/{mission_id}/{filename}"
-        # If an external client is provided, use it directly without an
-        # additional 'async with'. If no client is provided, create one for # noqa
-        # this specific operation.
         if client:
-            # Assuming the client passed in might have its own
-            # transport/retry config
             try:
                 response = await client.get(url, timeout=DEFAULT_TIMEOUT)
                 response.raise_for_status()
-                df = pd.read_csv(io.StringIO(response.text))
-                # Get Last-Modified header
+                df = await asyncio.to_thread(_parse_csv_text, response.text)
                 file_mod_time = None
                 last_modified_header = response.headers.get("Last-Modified")
                 if last_modified_header:
@@ -96,24 +98,23 @@ async def load_report(
                         if file_mod_time.tzinfo is None:
                             file_mod_time = file_mod_time.replace(tzinfo=timezone.utc)
                     except (ValueError, TypeError) as e:
-                        logger.debug(f"Could not parse Last-Modified header '{last_modified_header}' for {url}: {e}")
+                        logger.debug(
+                            f"Could not parse Last-Modified header '{last_modified_header}' "
+                            f"for {url}: {e}"
+                        )
                 return df, file_mod_time
             except httpx.RequestError as e:
                 logger.error(f"HTTP request failed for {url}: {e}")
                 return None, None
         else:
-            # This case should ideally not be hit if app.py always provides a
-            # client for remote calls.
-            # However, as a fallback or for direct CLI usage: # noqa
             try:
                 transport = httpx.HTTPTransport(retries=RETRY_COUNT)
                 async with httpx.AsyncClient(
                     timeout=DEFAULT_TIMEOUT, transport=transport
-                ) as current_client:  # Fallback to create a client
+                ) as current_client:
                     response = await current_client.get(url)
                     response.raise_for_status()
-                    df = pd.read_csv(io.StringIO(response.text))
-                    # Get Last-Modified header
+                    df = await asyncio.to_thread(_parse_csv_text, response.text)
                     file_mod_time = None
                     last_modified_header = response.headers.get("Last-Modified")
                     if last_modified_header:
@@ -122,7 +123,10 @@ async def load_report(
                             if file_mod_time.tzinfo is None:
                                 file_mod_time = file_mod_time.replace(tzinfo=timezone.utc)
                         except (ValueError, TypeError) as e:
-                            logger.debug(f"Could not parse Last-Modified header '{last_modified_header}' for {url}: {e}")
+                            logger.debug(
+                                f"Could not parse Last-Modified header '{last_modified_header}' "
+                                f"for {url}: {e}"
+                            )
                     return df, file_mod_time
             except httpx.RequestError as e:
                 logger.error(f"HTTP request failed for {url}: {e}")
