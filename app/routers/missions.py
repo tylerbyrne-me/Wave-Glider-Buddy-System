@@ -1719,27 +1719,54 @@ async def get_available_historical_missions(
                         # and convert to "1071-m169" format
                         found_mapping = False
                         for map_key, map_value in settings.remote_mission_folder_map.items():
-                            # Check if this mapping value matches the folder name
-                            # and if the key contains the mission base
-                            if (map_value == folder_name or 
-                                map_value.lower() == folder_name.lower() or
-                                f" {mission_base}" in map_key or
-                                map_key.endswith(mission_base)):
-                                # Extract project number from key (e.g., "1071" from "1071 m169")
-                                # Key format could be: "1071 m169", "1071-m169", "1071m169", etc.
-                                project_match = re.match(r'^(\d+)', map_key)
-                                if project_match:
-                                    project_num = project_match.group(1)
-                                    mission_id = f"{project_num}-{mission_base}"  # "1071-m169"
-                                    mission_ids.add(mission_id)
-                                    logger.info(f"Extracted mission ID: {mission_id} from folder {folder_name} via mapping key '{map_key}'")
-                                    found_mapping = True
-                                    break
-                        
-                        # Fallback: if no mapping found, use just the mission base (e.g., "m169")
+                            value_matches_folder = (
+                                map_value == folder_name
+                                or map_value.lower() == folder_name.lower()
+                            )
+                            key_matches_mission = (
+                                f" {mission_base}" in map_key
+                                or map_key.endswith(mission_base)
+                                or map_key.endswith(f"-{mission_base}")
+                            )
+                            if not (value_matches_folder or key_matches_mission):
+                                continue
+
+                            # Folder-style SV3 ids (e.g. m219-SV3-1121): map key is the mission id
+                            if value_matches_folder:
+                                mission_ids.add(map_key)
+                                logger.info(
+                                    f"Extracted mission ID: {map_key} from folder {folder_name} "
+                                    f"via mapping value '{map_value}'"
+                                )
+                                found_mapping = True
+                                break
+
+                            # Legacy project-mission keys (e.g. 1121-m171 or "1121 m171")
+                            project_match = re.match(r'^(\d+)', map_key)
+                            if project_match:
+                                project_num = project_match.group(1)
+                                mission_id = f"{project_num}-{mission_base}"
+                                mission_ids.add(mission_id)
+                                logger.info(
+                                    f"Extracted mission ID: {mission_id} from folder {folder_name} "
+                                    f"via mapping key '{map_key}'"
+                                )
+                                found_mapping = True
+                                break
+
                         if not found_mapping:
-                            logger.warning(f"No mapping found for folder {folder_name}, using base mission ID: {mission_base}")
-                            mission_ids.add(mission_base)
+                            # SV3 folders use the full directory name as the mission id
+                            if re.match(r'^m\d+-SV3-\d+$', folder_name, re.IGNORECASE):
+                                mission_ids.add(folder_name)
+                                logger.info(
+                                    f"No mapping for folder {folder_name}; using folder name as mission ID"
+                                )
+                            else:
+                                logger.warning(
+                                    f"No mapping found for folder {folder_name}, "
+                                    f"using base mission ID: {mission_base}"
+                                )
+                                mission_ids.add(mission_base)
                     else:
                         logger.info(f"No mission ID match for: {folder_name}")
                 

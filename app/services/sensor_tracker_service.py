@@ -43,6 +43,21 @@ class HistoryOption(str, Enum):
     ON_DATE = "On Date"
 
 
+def format_attached_time_for_api(deployment_start_time: Any) -> Optional[str]:
+    """
+    Format deployment start time for Sensor Tracker ``attached_time`` filters.
+
+    Date-only values are treated by ST as start-of-day, which omits instruments
+    attached later on the deployment day. Pass the full timestamp when available.
+    """
+    if deployment_start_time is None:
+        return None
+    if isinstance(deployment_start_time, datetime):
+        return deployment_start_time.strftime("%Y-%m-%d %H:%M:%S")
+    value = str(deployment_start_time).strip()
+    return value or None
+
+
 class SensorTrackerService:
     """
     Service for interacting with Sensor Tracker API and parsing deployment data.
@@ -741,7 +756,7 @@ class SensorTrackerService:
         
         Args:
             platform_name: The platform name (string, e.g., "SV3-1070 (C34164NS)")
-            attached_time: Optional deployment start time to filter (e.g., "2025-10-10")
+            attached_time: Optional deployment start time to filter (e.g., "2025-10-10 14:30:00")
             depth: Depth parameter for the API (default 1)
             
         Returns:
@@ -816,7 +831,7 @@ class SensorTrackerService:
         Args:
             instrument_id: Instrument ID (preferred if available)
             instrument_identifier: Instrument identifier (e.g., "CTD", "ADCP", "vm4")
-            attached_time: Optional deployment start time to filter (e.g., "2025-10-10")
+            attached_time: Optional deployment start time to filter (e.g., "2025-10-10 14:30:00")
             depth: Depth parameter for the API (default 1)
             
         Returns:
@@ -913,7 +928,7 @@ class SensorTrackerService:
         
         Args:
             data_logger_identifier: Data logger identifier (e.g., "science computer", "flight computer")
-            attached_time: Optional deployment start time to filter (e.g., "2025-10-10")
+            attached_time: Optional deployment start time to filter (e.g., "2025-10-10 14:30:00")
             depth: Depth parameter for the API (default 1)
             
         Returns:
@@ -1040,7 +1055,7 @@ class SensorTrackerService:
         
         Args:
             platform_name: The platform name (string, e.g., "SV3-1070 (C34164NS)")
-            attached_time: Optional deployment start time to filter (e.g., "2025-10-10")
+            attached_time: Optional deployment start time to filter (e.g., "2025-10-10 14:30:00")
             depth: Depth parameter for the API (default 1)
             
         Returns:
@@ -1147,16 +1162,7 @@ class SensorTrackerService:
             logger.warning(f"Could not determine platform name for platform_id {platform_id}")
             return parsed_deployment
         
-        # Get deployment start time for filtering
-        deployment_start_time = parsed_deployment.get("start_time")
-        # Format time for API (just date part if it's a datetime string)
-        attached_time = None
-        if deployment_start_time:
-            # Extract date part if it's a datetime string
-            if isinstance(deployment_start_time, str):
-                attached_time = deployment_start_time.split()[0] if ' ' in deployment_start_time else deployment_start_time
-            else:
-                attached_time = str(deployment_start_time)
+        attached_time = format_attached_time_for_api(parsed_deployment.get("start_time"))
         
         try:
             # Fetch data loggers on platform using the correct endpoint

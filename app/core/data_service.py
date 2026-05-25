@@ -731,11 +731,14 @@ async def _load_from_remote_sources(
             mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
             
             for key, value in settings.remote_mission_folder_map.items():
-                if (key.endswith(f" {mission_base}") or 
-                    key.endswith(mission_base) or 
-                    key == mission_base or
-                    f" {mission_base}" in key or
-                    key.endswith(f"-{mission_base}")):
+                if (
+                    key.endswith(f" {mission_base}")
+                    or key.endswith(mission_base)
+                    or key == mission_base
+                    or f" {mission_base}" in key
+                    or key.endswith(f"-{mission_base}")
+                    or utils.deployment_mission_code_from_mission_id(key) == mission_base
+                ):
                     remote_mission_folder = value
                     logger.info(f"Mapped mission {mission_id} to remote folder {remote_mission_folder} via key '{key}' (fuzzy match)")
                     break
