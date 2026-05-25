@@ -1,4 +1,11 @@
-"""Mission PDF report generation (ReportLab + matplotlib charts)."""
+"""Mission PDF report generation (ReportLab + matplotlib charts).
+
+Public entry points:
+- ``generate_weekly_report`` / ``generate_weekly_report_pdf_for_mission`` — weekly window (default last 7 UTC days).
+- ``write_mission_pdf`` (in ``builder``) — assembles the PDF; ``report_mode="end_of_mission"`` collates ISO weeks.
+
+End-of-mission layout is implemented in ``builder.write_mission_pdf``; week boundaries live in ``week_windows``.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +18,8 @@ from sqlalchemy import and_, func, or_
 from sqlmodel import Session as SQLModelSession, select
 
 from .. import models, utils
-from .builder import write_weekly_mission_pdf
+from .builder import write_mission_pdf, write_weekly_mission_pdf
+from .week_windows import WeekWindow, compute_iso_week_windows, resolve_mission_time_bounds
 from .constants import LOGO_PATH, REPORTS_ROOT
 
 logger = logging.getLogger(__name__)
@@ -318,8 +326,14 @@ async def generate_weekly_report(
     mission_overview: Optional[models.MissionOverview] = None,
     source_path: Optional[str] = None,
     offload_logs: Optional[List[models.OffloadLog]] = None,
+    report_mode: str = "weekly",
 ) -> str:
-    """Generate a weekly (or custom) mission PDF and return its URL path under /static/..."""
+    """Generate a mission PDF and return its URL path under /static/...
+
+    ``report_mode="weekly"`` (default): one date window, single summary + sensor sections.
+    ``report_mode="end_of_mission"``: full mission collated by ISO calendar week; also inferred
+    when ``custom_filename`` contains ``end_of_mission`` or both ``start_date`` and ``end_date`` are None.
+    """
     report_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     safe_mission_id = utils.sanitize_path_segment(mission_id)
     report_dir_name = utils.mission_storage_dir_name(mission_id, "reporting")
@@ -352,7 +366,15 @@ async def generate_weekly_report(
     if plots_to_include is None:
         plots_to_include = ["telemetry", "power", "ctd", "weather", "waves", "c3", "errors", "ais", "wg_vm4"]
 
-    write_weekly_mission_pdf(
+    resolved_mode = report_mode
+    if resolved_mode != "end_of_mission" and custom_filename and (
+        "end_of_mission" in custom_filename.lower() or "endofmission" in custom_filename.lower()
+    ):
+        resolved_mode = "end_of_mission"
+    if resolved_mode != "end_of_mission" and start_date is None and end_date is None:
+        resolved_mode = "end_of_mission"
+
+    write_mission_pdf(
         file_path=file_path,
         mission_id=mission_id,
         title_for_pdf=title_for_pdf,
@@ -374,6 +396,7 @@ async def generate_weekly_report(
         mission_overview=mission_overview,
         source_path=source_path,
         offload_logs=offload_logs or [],
+        report_mode=resolved_mode,  # type: ignore[arg-type]
     )
     return url_path
 
@@ -412,11 +435,16 @@ __all__ = [
     "LOGO_PATH",
     "WEEKLY_REPORT_DATA_TYPES",
     "WeeklyReportPreflightError",
+    "WeekWindow",
     "default_weekly_report_date_window",
+    "compute_iso_week_windows",
+    "resolve_mission_time_bounds",
     "load_mission_goals_for_report",
     "load_mission_notes_for_report",
     "load_offload_logs_for_report",
     "generate_weekly_report_pdf_for_mission",
     "generate_weekly_report",
     "create_and_save_weekly_report",
+    "write_mission_pdf",
+    "write_weekly_mission_pdf",
 ]

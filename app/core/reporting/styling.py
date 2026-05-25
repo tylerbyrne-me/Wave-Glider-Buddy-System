@@ -1,4 +1,9 @@
-"""ReportLab styles, palette, reusable flowables, and WeeklyReportDocTemplate."""
+"""ReportLab styles, palette, reusable flowables, and WeeklyReportDocTemplate.
+
+Page margins (``MARGIN_*``) define the content frame. Running headers are drawn in the top margin
+above that frame (``HEADER_TEXT_FROM_PAGE_TOP``, ``HEADER_RULE_FROM_PAGE_TOP``) — do not place
+header text relative to ``MARGIN_TOP`` with a small offset or the rule will cross the text.
+"""
 
 from __future__ import annotations
 
@@ -41,9 +46,13 @@ COLOR_SEV_WARNING = colors.HexColor("#B45309")
 COLOR_SEV_INFO = colors.HexColor("#1D4ED8")
 COLOR_SEV_OK = colors.HexColor("#15803D")
 
-MARGIN_SIDE = 18 * mm
-MARGIN_TOP = 20 * mm
-MARGIN_BOTTOM = 16 * mm
+MARGIN_SIDE = 12 * mm
+MARGIN_TOP = 14 * mm
+MARGIN_BOTTOM = 10 * mm
+
+# Running header sits in the top margin (above the content frame).
+HEADER_TEXT_FROM_PAGE_TOP = 5 * mm
+HEADER_RULE_FROM_PAGE_TOP = 8 * mm
 
 A4_PORTRAIT = A4
 A4_LANDSCAPE = landscape(A4)
@@ -492,38 +501,35 @@ class WeeklyReportDocTemplate(BaseDocTemplate):
             canvas.drawRightString(pw - MARGIN_SIDE, MARGIN_BOTTOM - 6, f"Page {canvas.getPageNumber()}")
             canvas.restoreState()
 
-        def on_portrait(canvas: Any, doc: BaseDocTemplate) -> None:
-            canvas.saveState()
-            y_rule = ph - MARGIN_TOP + 8 * mm
-            canvas.setStrokeColor(COLOR_ACCENT)
-            canvas.setLineWidth(0.5)
-            canvas.line(MARGIN_SIDE, y_rule, pw - MARGIN_SIDE, y_rule)
+        def _draw_running_header(canvas: Any, page_w: float, page_h: float, doc: BaseDocTemplate) -> None:
+            """Mission title + rule in top margin; rule sits below text, above content frame."""
+            y_text = page_h - HEADER_TEXT_FROM_PAGE_TOP
+            y_rule = page_h - HEADER_RULE_FROM_PAGE_TOP
             canvas.setFont(_REGISTERED_FONT, 8.5)
             canvas.setFillColor(COLOR_BODY)
-            canvas.drawString(MARGIN_SIDE, ph - MARGIN_TOP + 10, doc._mission_header[:120])  # type: ignore[attr-defined]
+            canvas.drawString(MARGIN_SIDE, y_text, doc._mission_header[:120])  # type: ignore[attr-defined]
             canvas.setFillColor(COLOR_PRIMARY)
-            canvas.drawRightString(pw - MARGIN_SIDE, ph - MARGIN_TOP + 10, doc._report_title[:80])  # type: ignore[attr-defined]
+            canvas.drawRightString(page_w - MARGIN_SIDE, y_text, doc._report_title[:80])  # type: ignore[attr-defined]
+            canvas.setStrokeColor(COLOR_ACCENT)
+            canvas.setLineWidth(0.5)
+            canvas.line(MARGIN_SIDE, y_rule, page_w - MARGIN_SIDE, y_rule)
+
+        def on_portrait(canvas: Any, doc: BaseDocTemplate) -> None:
+            canvas.saveState()
+            _draw_running_header(canvas, pw, ph, doc)
             canvas.setFont(_REGISTERED_FONT, 8)
             canvas.setFillColor(COLOR_MUTED)
             footer = f"Page {canvas.getPageNumber()} · Generated {doc._generated_utc}"  # type: ignore[attr-defined]
-            canvas.drawString(MARGIN_SIDE, 10, footer)
+            canvas.drawString(MARGIN_SIDE, 6, footer)
             canvas.restoreState()
 
         def on_landscape(canvas: Any, doc: BaseDocTemplate) -> None:
             canvas.saveState()
-            y_rule = lh - MARGIN_TOP + 8 * mm
-            canvas.setStrokeColor(COLOR_ACCENT)
-            canvas.setLineWidth(0.5)
-            canvas.line(MARGIN_SIDE, y_rule, lw - MARGIN_SIDE, y_rule)
-            canvas.setFont(_REGISTERED_FONT, 8.5)
-            canvas.setFillColor(COLOR_BODY)
-            canvas.drawString(MARGIN_SIDE, lh - MARGIN_TOP + 10, doc._mission_header[:120])  # type: ignore[attr-defined]
-            canvas.setFillColor(COLOR_PRIMARY)
-            canvas.drawRightString(lw - MARGIN_SIDE, lh - MARGIN_TOP + 10, doc._report_title[:80])  # type: ignore[attr-defined]
+            _draw_running_header(canvas, lw, lh, doc)
             canvas.setFont(_REGISTERED_FONT, 8)
             canvas.setFillColor(COLOR_MUTED)
             footer = f"Page {canvas.getPageNumber()} · Generated {doc._generated_utc}"  # type: ignore[attr-defined]
-            canvas.drawString(MARGIN_SIDE, 10, footer)
+            canvas.drawString(MARGIN_SIDE, 6, footer)
             canvas.restoreState()
 
         BaseDocTemplate.__init__(
@@ -547,23 +553,31 @@ class WeeklyReportDocTemplate(BaseDocTemplate):
     def afterFlowable(self, flowable: Flowable) -> None:
         if isinstance(flowable, Paragraph):
             st_name = getattr(flowable.style, "name", "")
-            if st_name == "Heading1":
-                text = flowable.getPlainText()
-                try:
-                    self.notify("TOCEntry", (0, text, self.page))
-                except Exception:  # noqa: BLE001
-                    pass
-                try:
-                    key = f"h-{self._heading_count}"
-                    self._heading_count += 1
-                    self.canv.bookmarkPage(key)
-                    self.canv.addOutlineEntry(text, key, level=0, closed=False)
-                except Exception:  # noqa: BLE001
-                    pass
+            if st_name not in ("Heading1", "Heading2"):
+                return
+            text = flowable.getPlainText()
+            toc_level = 0 if st_name == "Heading1" else 1
+            outline_level = toc_level
+            try:
+                self.notify("TOCEntry", (toc_level, text, self.page))
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                key = f"h-{self._heading_count}"
+                self._heading_count += 1
+                self.canv.bookmarkPage(key)
+                self.canv.addOutlineEntry(
+                    text,
+                    key,
+                    level=outline_level,
+                    closed=(st_name == "Heading2"),
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def build_toc_flowable(styles: dict[str, ParagraphStyle]) -> TableOfContents:
-    # Heading1 TOCEntry uses level=0; dotsMinLevel defaults to 1 which suppresses dot leaders.
+    # Heading1 -> TOCEntry level 0; Heading2 -> level 1 (nested under week headings in EOM).
     toc = TableOfContents(dotsMinLevel=0, rightColumnWidth=56)
     toc.levelStyles = [
         ParagraphStyle(
@@ -574,6 +588,15 @@ def build_toc_flowable(styles: dict[str, ParagraphStyle]) -> TableOfContents:
             leftIndent=0,
             firstLineIndent=0,
             spaceBefore=2,
+        ),
+        ParagraphStyle(
+            name="TOC2",
+            parent=styles["Body"],
+            fontSize=9,
+            leading=12,
+            leftIndent=18,
+            firstLineIndent=0,
+            spaceBefore=0,
         ),
     ]
     return toc

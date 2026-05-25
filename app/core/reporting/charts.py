@@ -1,4 +1,8 @@
-"""Render matplotlib report figures to ReportLab Image flowables."""
+"""Render matplotlib report figures to ReportLab Image flowables.
+
+Sizing uses ``LANDSCAPE_CONTENT_*`` / portrait helpers from ``styling``; ``pad_inches`` and
+``tight_layout`` rects control whitespace inside the PNG, not the PDF margins.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +39,7 @@ def _fig_to_image(
 ) -> Image:
     buf = io.BytesIO()
     try:
-        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", pad_inches=0.08, facecolor="white")
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", pad_inches=0.04, facecolor="white")
     finally:
         plt.close(fig)
     buf.seek(0)
@@ -78,7 +82,7 @@ def chart_power_image(
     with report_pdf_rc_context():
         fig, ax = plt.subplots(figsize=(11.69, 8.27))
         plot_power_for_report(ax, power_df)
-        fig.tight_layout(pad=2.0)
+        fig.tight_layout(pad=1.2)
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)
 
 
@@ -92,7 +96,7 @@ def chart_ctd_image(
     with report_pdf_rc_context():
         fig = plt.figure(figsize=(11.69, 8.27))
         plot_ctd_for_report(fig, ctd_df)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.97])
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)
 
 
@@ -106,7 +110,7 @@ def chart_weather_image(
     with report_pdf_rc_context():
         fig = plt.figure(figsize=(11.69, 8.27))
         plot_weather_for_report(fig, weather_df)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.97])
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)
 
 
@@ -120,7 +124,7 @@ def chart_wave_image(
     with report_pdf_rc_context():
         fig = plt.figure(figsize=(11.69, 8.27))
         plot_wave_for_report(fig, wave_df)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.97])
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)
 
 
@@ -135,5 +139,5 @@ def chart_c3_image(
     with report_pdf_rc_context():
         fig = plt.figure(figsize=(11.69, 8.27))
         plot_c3_for_report(fig, fluorometer_df, channel_map=channel_map)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout(rect=[0, 0.02, 1, 0.97])
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)

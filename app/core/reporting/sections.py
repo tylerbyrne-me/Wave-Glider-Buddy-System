@@ -1,4 +1,9 @@
-"""Platypus flowables for each report section (cover, TOC, tables, charts)."""
+"""Platypus flowables for each report section (cover, TOC, tables, charts).
+
+``Heading1`` / ``Heading2`` paragraphs drive the PDF TOC and bookmarks (see ``styling.WeeklyReportDocTemplate``).
+``build_week_summary_header`` wraps ``build_summary`` for EOM per-week pages. Telemetry sections use
+``KeepTogether`` so titles and track plots stay on one page.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +13,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 from reportlab.lib import colors as rl_colors
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
 
-from .. import models
+from .. import models, utils
 from ..plotting import assign_note_letters
 from ..summaries import get_ais_summary, get_ais_summary_stats
 from . import charts
@@ -26,7 +31,6 @@ from .styling import (
     NoteCard,
     GoalCard,
     PORTRAIT_CONTENT_HEIGHT_PT,
-    SectionHeader,
     _escape_xml_text,
     build_paragraph_styles,
     build_toc_flowable,
@@ -42,13 +46,15 @@ def _pw() -> float:
 
 
 def _landscape_chart_max_height_pt() -> float:
-    """Room under Heading1 + DataPeriodBanner + spacers on a landscape page."""
-    return max(120.0, LANDSCAPE_CONTENT_HEIGHT_PT - 100.0)
+    """Room under Heading2 + DataPeriodBanner + spacers on a landscape page."""
+    return max(120.0, LANDSCAPE_CONTENT_HEIGHT_PT - 85.0)
 
 
-def _telemetry_chart_max_height_pt() -> float:
+def _telemetry_chart_max_height_pt(*, compact: bool = False) -> float:
     """Room under optional section chrome inside the portrait frame."""
-    return max(200.0, PORTRAIT_CONTENT_HEIGHT_PT - 140.0)
+    reserve = 120.0 if compact else 140.0
+    floor = 160.0 if compact else 200.0
+    return max(floor, PORTRAIT_CONTENT_HEIGHT_PT - reserve)
 
 
 def build_cover(
@@ -215,11 +221,13 @@ def build_summary(
     report_period_error_summary: dict,
     mission_goals: Optional[Sequence[models.MissionGoal]],
     period_label: str,
+    show_period_banner: bool = True,
 ) -> List[Any]:
     styles = build_paragraph_styles()
     out: List[Any] = []
-    out.append(DataPeriodBanner(period_label, styles))
-    out.append(Spacer(1, 8))
+    if show_period_banner:
+        out.append(DataPeriodBanner(period_label, styles))
+        out.append(Spacer(1, 8))
 
     out.append(Paragraph("Navigation and Power", styles["Heading2"]))
     kpis: List[KPI] = [
@@ -319,19 +327,150 @@ def build_summary(
     return out
 
 
+def build_executive_summary(
+    *,
+    mission_telemetry_summary: dict,
+    report_period_power_summary: dict,
+    report_period_ctd_summary: dict,
+    report_period_weather_summary: dict,
+    report_period_wave_summary: dict,
+    report_period_error_summary: dict,
+    ais_total_vessels: int,
+    mission_goals: Optional[Sequence[models.MissionGoal]],
+    mission_date_range_str: str,
+) -> List[Any]:
+    """Mission-wide rollup for end-of-mission front matter (unfiltered mission totals)."""
+    styles = build_paragraph_styles()
+    out: List[Any] = []
+    out.append(DataPeriodBanner(f"Full mission · {mission_date_range_str}", styles))
+    out.append(Spacer(1, 8))
+    out.append(Paragraph("Navigation and power", styles["Heading2"]))
+    kpis: List[KPI] = [
+        KPI("Distance (mission)", f"{mission_telemetry_summary.get('total_distance_km', 0.0):.2f}", "km"),
+        KPI("Avg SOG (mission)", f"{mission_telemetry_summary.get('avg_speed_knots', 0.0):.2f}", "kt"),
+        KPI("Power in (avg)", f"{report_period_power_summary.get('avg_total_input_W', 0.0):.2f}", "W"),
+        KPI("Power out (avg)", f"{report_period_power_summary.get('avg_total_output_W', 0.0):.2f}", "W"),
+        KPI("Errors (total)", str(report_period_error_summary.get("total_errors", 0)), ""),
+        KPI("AIS vessels", str(ais_total_vessels), ""),
+    ]
+    out.append(kpi_row_table(kpis, styles))
+    out.append(Spacer(1, 10))
+
+    def _stat_block(title: str, d: dict, unit: str) -> List[KPI]:
+        items: List[KPI] = []
+        if "avg" in d:
+            items.append(KPI(f"{title} avg", f"{d['avg']:.2f}", unit))
+        if "min" in d:
+            items.append(KPI(f"{title} min", f"{d['min']:.2f}", unit))
+        if "max" in d:
+            items.append(KPI(f"{title} max", f"{d['max']:.2f}", unit))
+        return items
+
+    ocean: List[KPI] = []
+    wt = report_period_ctd_summary.get("WaterTemperature")
+    if wt:
+        ocean.extend(_stat_block("Water temp", wt, "°C"))
+    sal = report_period_ctd_summary.get("Salinity")
+    if sal:
+        ocean.extend(_stat_block("Salinity", sal, "PSU"))
+    if ocean:
+        out.append(Paragraph("Oceanographic (CTD)", styles["Heading2"]))
+        out.append(kpi_row_table(ocean, styles))
+        out.append(Spacer(1, 8))
+
+    wx: List[KPI] = []
+    hs = report_period_wave_summary.get("SignificantWaveHeight")
+    if hs:
+        wx.extend(_stat_block("Sig. wave hgt", hs, "m"))
+    ws = report_period_weather_summary.get("WindSpeed")
+    if ws:
+        wx.extend(_stat_block("Wind", ws, "kt"))
+    if wx:
+        out.append(Paragraph("Sea state and weather", styles["Heading2"]))
+        out.append(kpi_row_table(wx, styles))
+
+    if mission_goals:
+        out.append(Spacer(1, 8))
+        out.append(Paragraph("Mission goals", styles["Heading2"]))
+        for g in mission_goals:
+            out.append(
+                GoalCard(
+                    is_completed=bool(g.is_completed),
+                    meta_line=_mission_goal_meta_line(g),
+                    body=g.description or "",
+                    styles=styles,
+                )
+            )
+            out.append(Spacer(1, 8))
+    return out
+
+
+def build_week_summary_header(
+    *,
+    week_label: str,
+    mission_telemetry_summary: dict,
+    report_period_telemetry_summary: dict,
+    report_period_power_summary: dict,
+    report_period_ctd_summary: dict,
+    report_period_weather_summary: dict,
+    report_period_wave_summary: dict,
+    report_period_error_summary: dict,
+    period_label: str,
+) -> List[Any]:
+    """ISO week Heading1 (TOC bookmark) plus weekly-style summary blocks for that week."""
+    styles = build_paragraph_styles()
+    out: List[Any] = [
+        Paragraph(week_label.replace("&", "&amp;"), styles["Heading1"]),
+        Spacer(1, 6),
+    ]
+    out.extend(
+        build_summary(
+            mission_telemetry_summary=mission_telemetry_summary,
+            report_period_telemetry_summary=report_period_telemetry_summary,
+            report_period_power_summary=report_period_power_summary,
+            report_period_ctd_summary=report_period_ctd_summary,
+            report_period_weather_summary=report_period_weather_summary,
+            report_period_wave_summary=report_period_wave_summary,
+            report_period_error_summary=report_period_error_summary,
+            mission_goals=None,
+            period_label=period_label,
+            show_period_banner=False,
+        )
+    )
+    return out
+
+
+def build_week_skipped_stub(*, week_label: str) -> List[Any]:
+    """TOC-visible stub when a week has no telemetry (comms gap)."""
+    styles = build_paragraph_styles()
+    return [
+        Paragraph(week_label.replace("&", "&amp;"), styles["Heading1"]),
+        Paragraph("No data — week skipped (no telemetry in this ISO week).", styles["Muted"]),
+        Spacer(1, 8),
+    ]
+
+
 def build_telemetry_section(
     telemetry_df: pd.DataFrame,
     note_annotations: List[Dict[str, Any]],
     *,
     report_distance_km: float,
+    section_title: str = "Telemetry",
+    compact: bool = False,
+    keep_together: bool = True,
 ) -> List[Any]:
     if telemetry_df.empty or "lastLocationFix" not in telemetry_df.columns:
         return []
     styles = build_paragraph_styles()
-    out: List[Any] = []
-    df = telemetry_df.dropna(subset=["latitude", "longitude"]).sort_values("lastLocationFix")
+    parts: List[Any] = [Paragraph(section_title.replace("&", "&amp;"), styles["Heading2"]), Spacer(1, 4)]
+    df = telemetry_df.dropna(subset=["latitude", "longitude"]).copy()
+    df["lastLocationFix"] = utils.parse_timestamp_column(
+        df["lastLocationFix"], errors="coerce", utc=True
+    )
+    df = df.dropna(subset=["lastLocationFix"]).sort_values("lastLocationFix")
     if df.empty:
         return []
+    out = parts
     start = df["lastLocationFix"].min()
     end = df["lastLocationFix"].max()
     lat0, lon0 = float(df.iloc[0]["latitude"]), float(df.iloc[0]["longitude"])
@@ -353,12 +492,14 @@ def build_telemetry_section(
     # builder's list before build_mission_notes_section runs assign again for PDF.
     chart_annotations = [dict(a) for a in note_annotations] if note_annotations else []
     img = charts.chart_telemetry_image(
-        telemetry_df,
+        df,
         chart_annotations,
         max_width_pt=_pw(),
-        max_height_pt=_telemetry_chart_max_height_pt(),
+        max_height_pt=_telemetry_chart_max_height_pt(compact=compact),
     )
     out.append(img)
+    if keep_together and len(out) > 1:
+        return [KeepTogether(out)]
     return out
 
 
@@ -367,7 +508,7 @@ def build_mission_notes_section(note_annotations: List[Dict[str, Any]]) -> List[
         return []
     styles = build_paragraph_styles()
     out: List[Any] = []
-    out.append(Paragraph("Mission notes", styles["Heading1"]))
+    out.append(Paragraph("Mission notes", styles["Heading2"]))
     out.append(
         Paragraph(
             "Notes are keyed to letters on the telemetry map.",
@@ -399,7 +540,7 @@ def build_power_section(power_df: pd.DataFrame, period_label: str) -> List[Any]:
         return []
     styles = build_paragraph_styles()
     out: List[Any] = [
-        Paragraph("Power subsystem", styles["Heading1"]),
+        Paragraph("Power", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 6),
         charts.chart_power_image(
@@ -416,7 +557,7 @@ def build_ctd_section(ctd_df: pd.DataFrame, period_label: str) -> List[Any]:
         return []
     styles = build_paragraph_styles()
     return [
-        Paragraph("CTD summary", styles["Heading1"]),
+        Paragraph("CTD", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 6),
         charts.chart_ctd_image(
@@ -432,7 +573,7 @@ def build_weather_section(weather_df: pd.DataFrame, period_label: str) -> List[A
         return []
     styles = build_paragraph_styles()
     return [
-        Paragraph("Weather summary", styles["Heading1"]),
+        Paragraph("Weather", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 6),
         charts.chart_weather_image(
@@ -448,7 +589,7 @@ def build_waves_section(wave_df: pd.DataFrame, period_label: str) -> List[Any]:
         return []
     styles = build_paragraph_styles()
     return [
-        Paragraph("Wave summary", styles["Heading1"]),
+        Paragraph("Waves", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 6),
         charts.chart_wave_image(
@@ -469,7 +610,7 @@ def build_c3_section(
         return []
     styles = build_paragraph_styles()
     return [
-        Paragraph("C3 fluorometer summary", styles["Heading1"]),
+        Paragraph("C3 fluorometer", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 6),
         charts.chart_c3_image(
@@ -537,7 +678,7 @@ def build_wg_vm4_offloads_landscape_section(
         col_widths=[station_w, stat_w, time_w, vrl_w, ver_w],
     )
     return [
-        Paragraph("WG-VM4 station offload sheet", styles["Heading1"]),
+        Paragraph("WG-VM4 station offload sheet", styles["Heading2"]),
         DataPeriodBanner(period_label, styles),
         Spacer(1, 8),
         tbl,

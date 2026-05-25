@@ -337,10 +337,11 @@ async def generate_report_with_sensor_tracker(
         end_date=selected_end_date,
         plots_to_include=plots_to_include,
         custom_filename=custom_filename,
-        sensor_tracker_deployment=sensor_tracker_deployment,  # Pass Sensor Tracker metadata
+        sensor_tracker_deployment=sensor_tracker_deployment,
         mission_overview=mission_overview,
         source_path=source_path,
         offload_logs=offload_logs,
+        report_mode="end_of_mission" if report_type == "end_of_mission" else "weekly",
     )
     
     if save_to_overview:
