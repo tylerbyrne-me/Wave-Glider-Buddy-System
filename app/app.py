@@ -3,6 +3,7 @@ import json  # For saving/loading forms to/from JSON
 import calendar # For month range calculation
 import shutil
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -96,7 +97,7 @@ from .core.fluorometer_channels import (
 from .core.security import create_access_token, verify_password
 from .core.db import SQLModelSession, get_db_session, sqlite_engine
 from .core.scheduler import set_scheduler
-from .core.startup_leader import try_acquire_startup_leader
+from .core.startup_leader import try_acquire_startup_leader, is_startup_leader
 from .forms.form_definitions import get_static_form_schema # Import the new function
 from .routers import station_metadata_router, auth as auth_router  # Import auth_router
 from .routers import schedule as schedule_router
@@ -192,6 +193,42 @@ async def add_static_js_no_cache(request, call_next):
     if path.startswith("/static/") and path.endswith(".js"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
+
+
+# Slow-request and app 5xx instrumentation. Cheap; helps attribute 502/504 to either
+# the app (APP5XX) or upstream/client (silence here). SLOWREQ threshold is below the
+# gunicorn --timeout 200 so we see warnings before users see 5xx.
+SLOWREQ_THRESHOLD_SECONDS = 10.0
+
+
+@app.middleware("http")
+async def log_slow_requests(request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+    if duration > SLOWREQ_THRESHOLD_SECONDS:
+        logger.warning(
+            "SLOWREQ %.2fs %s %s -> %s",
+            duration, request.method, request.url.path, response.status_code,
+        )
+    return response
+
+
+@app.middleware("http")
+async def log_app_5xx(request, call_next):
+    response = await call_next(request)
+    if 500 <= response.status_code < 600:
+        logger.warning(
+            "APP5XX status=%d %s %s",
+            response.status_code, request.method, request.url.path,
+        )
+    return response
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    """Liveness probe. No DB, no remote calls. Returns leader status for diagnostics."""
+    return {"status": "ok", "leader": is_startup_leader()}
 
 
 # --- Email Configuration ---
@@ -1275,6 +1312,9 @@ async def refresh_active_mission_cache():
             # Check each report type and only refresh if stale
             refreshed_count = 0
             for report_type in report_types_to_check:
+                # Yield to the event loop between report types so HTTP requests
+                # on the leader worker are not starved while the scheduler runs.
+                await asyncio.sleep(0)
                 try:
                     # Check if data needs refreshing
                     cache_key = create_time_aware_cache_key(

@@ -759,9 +759,14 @@ async def _load_from_remote_sources(
 
     last_accessed_remote_path_if_empty = None
     for constructed_base_url in remote_base_urls_to_try:
-        # Configure client with retries, using RETRY_COUNT from loaders for consistency
+        # Configure client with retries, using RETRY_COUNT from loaders for consistency.
+        # Explicit timeout prevents a hung remote from pinning the worker; aligns with
+        # sync_service.py and loaders.py defaults.
         retry_transport = httpx.AsyncHTTPTransport(retries=loaders.RETRY_COUNT)
-        async with httpx.AsyncClient(transport=retry_transport) as client: # Manage client per attempt
+        async with httpx.AsyncClient(
+            transport=retry_transport,
+            timeout=httpx.Timeout(loaders.DEFAULT_TIMEOUT),
+        ) as client:
             try:
                 logger.debug(f"Attempting remote load for {report_type} (mission: {mission_id}, remote folder: {remote_mission_folder}) from base: {constructed_base_url}")
                 df_attempt, file_mod_time = await loaders.load_report(report_type, mission_id=remote_mission_folder, base_url=constructed_base_url, client=client)
