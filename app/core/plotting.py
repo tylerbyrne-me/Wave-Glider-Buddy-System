@@ -17,7 +17,8 @@ import pandas as pd
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
-import numpy as np # type: ignore
+from matplotlib.patches import FancyArrowPatch, Rectangle
+import numpy as np  # type: ignore
 import logging
 
 from . import models
@@ -365,19 +366,339 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72):
 # These functions are designed to be called by the reporting module.
 # They accept a matplotlib Axes object and draw onto it, rather than creating a new figure.
 
+REPORT_MAP_OCEAN_COLOR = "#B8D4E8"
+REPORT_MAP_LAND_COLOR = "#C4A882"
+_NM_PER_KM = 1.0 / 1.852
+_KM_PER_DEG_LAT = 111.32
+_SCALE_BAR_CANDIDATES_KM = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000)
+
+# Track extent and overlay layout — corner-anchored, fraction-based (no fixed degrees).
+TRACK_EXTENT_PADDING_FRACTION = 0.12
+TRACK_EXTENT_MIN_SPAN_DEG = 0.02
+OVERLAY_STRIP_FRACTION = 0.20
+OVERLAY_STRIP_MIN_FRACTION = 0.12
+INSET_SIZE_FRACTION = (0.22, 0.18)  # (width, height) as fraction of map axes
+STRIP_COMPASS_AXES_X = 0.12  # left third of strip (transAxes)
+STRIP_SCALE_AXES_X = 0.50  # center of strip (transAxes)
+STRIP_ELEMENT_Y_FRACTION = 0.45  # vertical center within strip band
+INSET_MARGIN_FRACTION = 0.025
+MAP_LAYOUT_WIDTH_RESERVE_IN = 1.3
+MAP_LAYOUT_HEIGHT_RESERVE_IN = 1.2
+MAP_TIGHT_LAYOUT_PAD = 1.0
+
+
+def _track_bounding_extent(
+    longitudes,
+    latitudes,
+    *,
+    padding_fraction: float = TRACK_EXTENT_PADDING_FRACTION,
+    min_span_deg: float = TRACK_EXTENT_MIN_SPAN_DEG,
+) -> List[float]:
+    """Bounding box around track coordinates with symmetric percentage padding."""
+    west = float(np.min(longitudes))
+    east = float(np.max(longitudes))
+    south = float(np.min(latitudes))
+    north = float(np.max(latitudes))
+
+    center_lon = (west + east) / 2.0
+    center_lat = (south + north) / 2.0
+    lon_span = max(east - west, min_span_deg)
+    lat_span = max(north - south, min_span_deg)
+    pad_lon = lon_span * padding_fraction
+    pad_lat = lat_span * padding_fraction
+    half_lon = lon_span / 2.0
+    half_lat = lat_span / 2.0
+    return [
+        center_lon - half_lon - pad_lon,
+        center_lon + half_lon + pad_lon,
+        center_lat - half_lat - pad_lat,
+        center_lat + half_lat + pad_lat,
+    ]
+
+
+def _compute_overlay_strip_extent(
+    data_extent: List[float],
+    *,
+    strip_fraction: float = OVERLAY_STRIP_FRACTION,
+) -> tuple[List[float], float]:
+    """Add a southern strip reserved for overlays and return its degree height."""
+    west, east, south, north = data_extent
+    lat_span = max(north - south, TRACK_EXTENT_MIN_SPAN_DEG)
+    strip_deg = lat_span * strip_fraction
+    return [west, east, south - strip_deg, north], strip_deg
+
+
+def _resolve_overlay_strip_fraction(
+    strip_deg: float,
+    extent: List[float],
+    *,
+    min_fraction: float = OVERLAY_STRIP_MIN_FRACTION,
+) -> float:
+    """Resolve strip fraction in the final extent, with minimum clamp."""
+    total_lat = max(extent[3] - extent[2], 1e-6)
+    return max(strip_deg / total_lat, min_fraction)
+
+
+def _geo_point_from_corner(
+    extent: List[float],
+    corner: str,
+    x_fraction: float,
+    y_fraction: float,
+) -> tuple[float, float]:
+    """Geographic lon/lat offset inward from an extent corner."""
+    west, east, south, north = extent
+    lon_span = east - west
+    lat_span = north - south
+    if corner == "sw":
+        return west + lon_span * x_fraction, south + lat_span * y_fraction
+    if corner == "se":
+        return east - lon_span * x_fraction, south + lat_span * y_fraction
+    if corner == "nw":
+        return west + lon_span * x_fraction, north - lat_span * y_fraction
+    if corner == "ne":
+        return east - lon_span * x_fraction, north - lat_span * y_fraction
+    raise ValueError(f"Unknown corner {corner!r}")
+
+
+def _axes_point_from_corner(
+    corner: str,
+    x_margin: float,
+    y_margin: float,
+) -> tuple[float, float, str, str]:
+    """Axes-fraction (x, y, ha, va) anchored to a map corner."""
+    if corner == "sw":
+        return x_margin, y_margin, "left", "bottom"
+    if corner == "se":
+        return 1.0 - x_margin, y_margin, "right", "bottom"
+    if corner == "nw":
+        return x_margin, 1.0 - y_margin, "left", "top"
+    if corner == "ne":
+        return 1.0 - x_margin, 1.0 - y_margin, "right", "top"
+    raise ValueError(f"Unknown corner {corner!r}")
+
+
+def _figure_rect_from_axes_corner(
+    axes_pos,
+    corner: str,
+    width_fraction: float,
+    height_fraction: float,
+    margin_fraction: float,
+) -> List[float]:
+    """Figure-fraction [x, y, w, h] for an overlay inset anchored to a map corner."""
+    width = axes_pos.width * width_fraction
+    height = axes_pos.height * height_fraction
+    margin_x = axes_pos.width * margin_fraction
+    margin_y = axes_pos.height * margin_fraction
+    if corner == "sw":
+        x = axes_pos.x0 + margin_x
+        y = axes_pos.y0 + margin_y
+    elif corner == "se":
+        x = axes_pos.x0 + axes_pos.width - width - margin_x
+        y = axes_pos.y0 + margin_y
+    elif corner == "nw":
+        x = axes_pos.x0 + margin_x
+        y = axes_pos.y0 + axes_pos.height - height - margin_y
+    elif corner == "ne":
+        x = axes_pos.x0 + axes_pos.width - width - margin_x
+        y = axes_pos.y0 + axes_pos.height - height - margin_y
+    else:
+        raise ValueError(f"Unknown corner {corner!r}")
+    return [x, y, width, height]
+
+
+def _extent_center_and_spans_km(extent: List[float]) -> tuple[float, float, float, float]:
+    """Return center lat/lon and lat/lon span in km for a [west, east, south, north] extent."""
+    west, east, south, north = extent
+    mid_lat = (south + north) / 2.0
+    cos_lat = max(math.cos(math.radians(mid_lat)), 0.2)
+    lat_km = max((north - south) * _KM_PER_DEG_LAT, 1e-6)
+    lon_km = max((east - west) * _KM_PER_DEG_LAT * cos_lat, 1e-6)
+    return mid_lat, (west + east) / 2.0, lat_km, lon_km
+
+
+def _nice_scale_bar_length_km(view_span_km: float) -> float:
+    """Pick a readable scale-bar length (~22% of the shorter map dimension)."""
+    target = max(view_span_km * 0.22, 0.5)
+    chosen = float(_SCALE_BAR_CANDIDATES_KM[0])
+    for candidate in _SCALE_BAR_CANDIDATES_KM:
+        if candidate <= target:
+            chosen = float(candidate)
+    return chosen
+
+
+def _km_to_lon_degrees(km: float, lat: float) -> float:
+    cos_lat = max(math.cos(math.radians(lat)), 0.2)
+    return km / (_KM_PER_DEG_LAT * cos_lat)
+
+
+def _regional_inset_extent(
+    main_extent: List[float],
+    *,
+    expansion: float = 4.0,
+    min_span_deg: float = 3.0,
+    max_span_deg: float = 25.0,
+) -> List[float]:
+    """Expand the main map bbox for a regional locator inset (land/ocean context only)."""
+    west, east, south, north = main_extent
+    lon_span = max(east - west, 1e-6)
+    lat_span = max(north - south, 1e-6)
+    center_lon = (west + east) / 2.0
+    center_lat = (south + north) / 2.0
+    span = max(lon_span, lat_span) * expansion
+    span = max(min_span_deg, min(max_span_deg, span))
+    half = span / 2.0
+    return [center_lon - half, center_lon + half, center_lat - half, center_lat + half]
+
+
 def _setup_report_map(ax, extent):
     """Configures a Cartopy map with basic features for PDF reports."""
     ax.set_extent(extent)
-    ax.coastlines(resolution='10m')
-    ax.add_feature(cfeature.LAND, facecolor='brown', zorder=0)
-    ax.add_feature(cfeature.BORDERS, linestyle=':')
-    g1 = ax.gridlines(draw_labels=True, linewidth=0.25, color='gray', alpha=0.5, linestyle='--')
+    ax.add_feature(cfeature.OCEAN, facecolor=REPORT_MAP_OCEAN_COLOR, zorder=0)
+    ax.add_feature(cfeature.LAND, facecolor=REPORT_MAP_LAND_COLOR, zorder=1)
+    ax.coastlines(resolution="10m", zorder=2)
+    ax.add_feature(cfeature.BORDERS, linestyle=":", zorder=2)
+    g1 = ax.gridlines(draw_labels=True, linewidth=0.25, color="gray", alpha=0.5, linestyle="--")
     g1.top_labels = False
     g1.right_labels = False
-    g1.xlabel_style = {'size': 10}
-    g1.ylabel_style = {'size': 10}
+    g1.xlabel_style = {"size": 10}
+    g1.ylabel_style = {"size": 10}
     g1.xformatter = LONGITUDE_FORMATTER
     g1.yformatter = LATITUDE_FORMATTER
+
+
+def _setup_report_inset_map(ax, extent: List[float]) -> None:
+    """Regional locator inset: land/ocean only, no grid labels."""
+    ax.set_extent(extent)
+    ax.add_feature(cfeature.OCEAN, facecolor=REPORT_MAP_OCEAN_COLOR, zorder=0)
+    ax.add_feature(cfeature.LAND, facecolor=REPORT_MAP_LAND_COLOR, zorder=1)
+    ax.coastlines(resolution="50m", zorder=2)
+
+
+def _add_report_map_scale_and_compass(
+    ax,
+    extent: List[float],
+    strip_fraction: float,
+) -> None:
+    """Overlay strip: compass (left), scale bar + labels (center). Inset is drawn separately."""
+    _mid_lat, _mid_lon, lat_km, lon_km = _extent_center_and_spans_km(extent)
+    view_span_km = min(lat_km, lon_km)
+    bar_km = _nice_scale_bar_length_km(view_span_km)
+    bar_nm = bar_km * _NM_PER_KM
+
+    west, east, south, north = extent
+    strip_fraction = max(strip_fraction, OVERLAY_STRIP_MIN_FRACTION)
+    strip_deg = (north - south) * strip_fraction
+    bar_lat = south + strip_deg * STRIP_ELEMENT_Y_FRACTION
+    bar_lon_half = _km_to_lon_degrees(bar_km, bar_lat) / 2.0
+    center_lon = (west + east) / 2.0
+    bar_lon_start = center_lon - bar_lon_half
+    bar_lon_end = center_lon + bar_lon_half
+    tick_h = strip_deg * 0.10
+
+    ax.plot(
+        [bar_lon_start, bar_lon_end],
+        [bar_lat, bar_lat],
+        color="black",
+        linewidth=2.0,
+        solid_capstyle="butt",
+        transform=ccrs.PlateCarree(),
+        zorder=8,
+    )
+    for lon in (bar_lon_start, bar_lon_end):
+        ax.plot(
+            [lon, lon],
+            [bar_lat - tick_h, bar_lat + tick_h],
+            color="black",
+            linewidth=1.5,
+            transform=ccrs.PlateCarree(),
+            zorder=8,
+        )
+
+    strip_y = strip_fraction * STRIP_ELEMENT_Y_FRACTION
+    label_y = strip_fraction * 0.72
+    ax.text(
+        STRIP_SCALE_AXES_X,
+        label_y,
+        f"{bar_nm:.0f} nm\n{bar_km:.0f} km",
+        transform=ax.transAxes,
+        fontsize=8,
+        fontweight="bold",
+        va="bottom",
+        ha="center",
+        linespacing=1.15,
+        color="black",
+        bbox=dict(boxstyle="round,pad=0.30", facecolor="white", edgecolor="#D1D5DB", alpha=0.92),
+        zorder=9,
+    )
+
+    compass_x = STRIP_COMPASS_AXES_X
+    arrow_height = strip_fraction * 0.38
+    arrow = FancyArrowPatch(
+        (compass_x, strip_y - arrow_height * 0.35),
+        (compass_x, strip_y + arrow_height * 0.55),
+        transform=ax.transAxes,
+        arrowstyle="-|>",
+        mutation_scale=11,
+        linewidth=1.4,
+        color="black",
+        zorder=9,
+    )
+    ax.add_patch(arrow)
+    ax.text(
+        compass_x,
+        label_y,
+        "N",
+        transform=ax.transAxes,
+        fontsize=9,
+        fontweight="bold",
+        ha="center",
+        va="bottom",
+        color="black",
+        bbox=dict(boxstyle="round,pad=0.18", facecolor="white", edgecolor="#D1D5DB", alpha=0.92),
+        zorder=9,
+    )
+
+
+def _add_report_regional_inset(
+    fig,
+    map_ax,
+    main_extent: List[float],
+    regional_extent: List[float],
+    strip_fraction: float,
+) -> None:
+    """Bottom-right regional inset anchored to the overlay strip."""
+    inset_height_fraction = strip_fraction * 0.85
+    inset_rect = _figure_rect_from_axes_corner(
+        map_ax.get_position(),
+        "se",
+        INSET_SIZE_FRACTION[0],
+        inset_height_fraction,
+        INSET_MARGIN_FRACTION,
+    )
+
+    inset_ax = fig.add_axes(inset_rect, projection=ccrs.PlateCarree())
+    inset_ax.set_facecolor("white")
+    inset_ax.patch.set_alpha(0.97)
+    _setup_report_inset_map(inset_ax, regional_extent)
+
+    west, east, south, north = main_extent
+    inset_ax.add_patch(
+        Rectangle(
+            (west, south),
+            east - west,
+            north - south,
+            linewidth=1.5,
+            edgecolor="#B91C1C",
+            facecolor="none",
+            transform=ccrs.PlateCarree(),
+            zorder=5,
+        )
+    )
+    for spine in inset_ax.spines.values():
+        spine.set_edgecolor("#374151")
+        spine.set_linewidth(1.2)
+    inset_ax.set_zorder(map_ax.get_zorder() + 1)
+
 
 def _annotate_track_start_end(ax, tele):
     """Adds start and end markers to a track plot for PDF reports."""
@@ -678,9 +999,13 @@ def plot_telemetry_page_with_notes(
 ) -> None:
     """Render the full-page telemetry-track report on `fig`.
 
-    The map fills the entire page (with the standard title + colorbar),
-    extent-padded so E-W or N-S dominant tracks both fill the page area
+    The map fills the entire page (with the standard title + colorbar).
+    Extent is derived from the track bounding box plus percentage padding,
+    then aspect-adjusted so E-W or N-S dominant tracks fill the page area
     instead of being letterboxed by Cartopy's equal-aspect projection.
+
+    A dynamic southern overlay strip is added to reserve room for context
+    overlays: compass (left), scale bar (center), regional inset (right).
 
     Mission notes are NOT rendered on this page — the PDF report pipeline
     renders a separate mission-notes section. The map only shows lettered markers.
@@ -715,21 +1040,24 @@ def plot_telemetry_page_with_notes(
 
     annotations = assign_note_letters(list(note_annotations or []))
 
-    extent = [
-        float(df_clean['longitude'].min()) - 0.05,
-        float(df_clean['longitude'].max()) + 0.05,
-        float(df_clean['latitude'].min()) - 0.05,
-        float(df_clean['latitude'].max()) + 0.05,
-    ]
+    extent = _track_bounding_extent(
+        df_clean["longitude"],
+        df_clean["latitude"],
+    )
 
     map_ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
 
     # Estimate the page-content cell so we can pad the extent and avoid the
     # equal-aspect letterboxing that otherwise hides axis labels off-page.
-    # The reserved 1.5"/2.0" leaves room for margins, title, and colorbar.
+    # Reserve modest space for title and colorbar while maximizing map pixel area.
     fig_width_in, fig_height_in = fig.get_size_inches()
-    target_aspect = max(fig_width_in - 1.5, 1e-3) / max(fig_height_in - 2.0, 1e-3)
-    padded_extent = _pad_extent_to_aspect(extent, target_aspect)
+    target_aspect = max(fig_width_in - MAP_LAYOUT_WIDTH_RESERVE_IN, 1e-3) / max(
+        fig_height_in - MAP_LAYOUT_HEIGHT_RESERVE_IN,
+        1e-3,
+    )
+    strip_extent, strip_deg = _compute_overlay_strip_extent(extent)
+    padded_extent = _pad_extent_to_aspect(strip_extent, target_aspect)
+    strip_fraction = _resolve_overlay_strip_fraction(strip_deg, padded_extent)
     _setup_report_map(map_ax, padded_extent)
 
     norm = mcolors.Normalize(vmin=0, vmax=4)
@@ -747,11 +1075,14 @@ def plot_telemetry_page_with_notes(
         edgecolors="none",
         transform=ccrs.PlateCarree(),
     )
-    cbar = fig.colorbar(scatter, ax=map_ax, orientation='vertical', shrink=0.8, pad=0.08)
+    cbar = fig.colorbar(scatter, ax=map_ax, orientation='vertical', shrink=0.92, pad=0.05)
     cbar.set_label('Speed Over Ground (knots)')
 
     _annotate_track_start_end(map_ax, df_clean)
     _annotate_note_markers(map_ax, annotations)
+
+    regional_extent = _regional_inset_extent(padded_extent)
+    _add_report_map_scale_and_compass(map_ax, padded_extent, strip_fraction)
 
     start_time = df_clean['lastLocationFix'].min()
     latest_time = df_clean['lastLocationFix'].max()
@@ -760,7 +1091,8 @@ def plot_telemetry_page_with_notes(
         f"{start_time.strftime('%Y-%m-%d %H:%M')} to {latest_time.strftime('%Y-%m-%d %H:%M')} UTC"
     )
 
-    fig.tight_layout(pad=3.0)
+    fig.tight_layout(pad=MAP_TIGHT_LAYOUT_PAD)
+    _add_report_regional_inset(fig, map_ax, padded_extent, regional_extent, strip_fraction)
 
 
 def plot_power_for_report(ax1, df: pd.DataFrame):

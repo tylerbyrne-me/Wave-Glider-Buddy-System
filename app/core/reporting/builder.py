@@ -397,7 +397,9 @@ def _filter_report_dataframes(
     )
 
 
-def _load_instrument_blocks(session: SQLModelSession, mission_id: str) -> List[Tuple[str, List[str]]]:
+def _load_instrument_blocks(
+    session: SQLModelSession, mission_id: str
+) -> List[Tuple[str, List[Dict[str, str]]]]:
     mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
     instruments = session.exec(
         select(models.MissionInstrument)
@@ -424,32 +426,31 @@ def _load_instrument_blocks(session: SQLModelSession, mission_id: str) -> List[T
         elif inst.data_logger_type == "science":
             science_instruments.append(inst)
 
-    def _instrument_section_lines(items: List[models.MissionInstrument]) -> List[str]:
+    def _instrument_section_rows(items: List[models.MissionInstrument]) -> List[Dict[str, str]]:
         if not items:
-            return ["(None)"]
-        lines: List[str] = []
+            return []
+        rows: List[Dict[str, str]] = []
         for inst in items:
-            inst_name = inst.instrument_name or inst.instrument_identifier
-            inst_serial = inst.instrument_serial or "N/A"
-            if inst_serial != "N/A":
-                lines.append(f"ITEM:{inst_name} ({inst_serial})")
-            else:
-                lines.append(f"ITEM:{inst_name}")
-            sensors = session.exec(
-                select(models.MissionSensor).where(models.MissionSensor.instrument_id == inst.id)
-            ).all()
-            for sensor in sensors:
-                lines.append(f"SUB:{sensor.sensor_identifier}")
-        return lines
+            rows.append(
+                {
+                    "name": inst.instrument_identifier or "",
+                    "description": (
+                        inst.instrument_long_name or inst.instrument_short_name or ""
+                    ),
+                    "manufacturer": inst.instrument_manufacturer or "",
+                    "serial": inst.instrument_serial or "",
+                }
+            )
+        return rows
 
     science_title = "Science computer instruments"
     if science_instruments and getattr(science_instruments[0], "data_logger_serial", None):
         science_title = f"Science computer instruments (SN: {science_instruments[0].data_logger_serial})"
 
     return [
-        ("Platform direct instruments", _instrument_section_lines(platform_instruments)),
-        ("Flight computer instruments", _instrument_section_lines(flight_instruments)),
-        (science_title, _instrument_section_lines(science_instruments)),
+        ("Platform direct instruments", _instrument_section_rows(platform_instruments)),
+        ("Flight computer instruments", _instrument_section_rows(flight_instruments)),
+        (science_title, _instrument_section_rows(science_instruments)),
     ]
 
 

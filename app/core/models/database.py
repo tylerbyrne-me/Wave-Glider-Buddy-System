@@ -735,6 +735,8 @@ class MissionInstrument(SQLModel, table=True):
     # Instrument details
     instrument_identifier: str = SQLModelField(index=True, description="e.g., 'CTD', 'ADCP', 'GPSWaves-Sensor'")
     instrument_short_name: Optional[str] = None
+    instrument_long_name: Optional[str] = None
+    instrument_manufacturer: Optional[str] = None
     instrument_serial: Optional[str] = None
     instrument_name: Optional[str] = None
     

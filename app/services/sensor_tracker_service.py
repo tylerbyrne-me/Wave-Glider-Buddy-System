@@ -1232,6 +1232,7 @@ class SensorTrackerService:
                                     "instrument_identifier": instrument.get("identifier"),
                                     "instrument_short_name": instrument.get("short_name"),
                                     "instrument_long_name": instrument.get("long_name"),
+                                    "instrument_manufacturer_id": instrument.get("manufacturer"),
                                     "instrument_serial": instrument.get("serial"),
                                     "instrument_name": instrument.get("name"),
                                     "start_time": inst_rel.get("start_time"),
@@ -1354,6 +1355,7 @@ class SensorTrackerService:
                         "instrument_identifier": instrument.get("identifier"),
                         "instrument_short_name": instrument.get("short_name"),
                         "instrument_long_name": instrument.get("long_name"),
+                        "instrument_manufacturer_id": instrument.get("manufacturer"),
                         "instrument_serial": instrument.get("serial"),
                         "instrument_name": instrument.get("name"),
                         "start_time": inst_rel.get("start_time"),
@@ -1503,6 +1505,40 @@ class SensorTrackerService:
         
         return parsed_deployment
     
+    async def fetch_manufacturers(self) -> Dict[int, str]:
+        """
+        Fetch all manufacturers from Sensor Tracker and return id -> name map.
+        """
+        try:
+            if not hasattr(stc, "manufacturer"):
+                logger.warning("sensor_tracker_client has no manufacturer endpoint")
+                return {}
+            response = stc.manufacturer.get()
+            if not response or not hasattr(response, "dict"):
+                return {}
+            raw = response.dict
+            items: List[Any]
+            if isinstance(raw, list):
+                items = raw
+            elif isinstance(raw, dict) and "results" in raw:
+                items = raw["results"]
+            elif isinstance(raw, dict):
+                items = [raw]
+            else:
+                return {}
+            result: Dict[int, str] = {}
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                mfr_id = item.get("id")
+                name = item.get("name")
+                if mfr_id is not None and name:
+                    result[int(mfr_id)] = str(name)
+            return result
+        except Exception as e:
+            logger.warning(f"Could not fetch manufacturers from Sensor Tracker: {e}")
+            return {}
+
     def test_connection(self) -> bool:
         """
         Test the Sensor Tracker connection.

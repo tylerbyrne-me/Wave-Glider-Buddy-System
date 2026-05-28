@@ -350,6 +350,10 @@ class SensorTrackerSyncService:
                     session.delete(sensor)
                 session.delete(instrument)
             
+            manufacturers_map: Dict[int, str] = {}
+            if self.sensor_tracker_service:
+                manufacturers_map = await self.sensor_tracker_service.fetch_manufacturers()
+
             # Get data loggers from parsed deployment
             data_loggers = parsed_deployment.get("data_loggers", [])
             
@@ -373,7 +377,8 @@ class SensorTrackerSyncService:
                         data_logger_name=logger_name,
                         data_logger_identifier=logger_identifier,
                         data_logger_serial=logger_serial,
-                        is_platform_direct=False
+                        is_platform_direct=False,
+                        manufacturers_map=manufacturers_map,
                     )
             
             # Process instruments directly on platform (not via data logger)
@@ -381,7 +386,8 @@ class SensorTrackerSyncService:
             for inst_data in platform_instruments:
                 await self._create_instrument_record(
                     mission_id, inst_data, session,
-                    is_platform_direct=True
+                    is_platform_direct=True,
+                    manufacturers_map=manufacturers_map,
                 )
             
             session.commit()
@@ -424,7 +430,8 @@ class SensorTrackerSyncService:
         data_logger_name: Optional[str] = None,
         data_logger_identifier: Optional[str] = None,
         data_logger_serial: Optional[str] = None,
-        is_platform_direct: bool = False
+        is_platform_direct: bool = False,
+        manufacturers_map: Optional[Dict[int, str]] = None,
     ):
         """
         Create an instrument record and its associated sensors.
@@ -440,11 +447,18 @@ class SensorTrackerSyncService:
             data_logger_serial: Serial number of the data logger (e.g. Science Computer)
             is_platform_direct: True if instrument is directly on platform
         """
+        mfr_id = inst_data.get("instrument_manufacturer_id")
+        manufacturer_name: Optional[str] = None
+        if mfr_id is not None and manufacturers_map:
+            manufacturer_name = manufacturers_map.get(int(mfr_id))
+
         instrument = models.MissionInstrument(
             mission_id=mission_id,
             sensor_tracker_instrument_id=inst_data.get("instrument_id"),
             instrument_identifier=inst_data.get("instrument_identifier") or "unknown",
             instrument_short_name=inst_data.get("instrument_short_name"),
+            instrument_long_name=inst_data.get("instrument_long_name"),
+            instrument_manufacturer=manufacturer_name,
             instrument_serial=inst_data.get("instrument_serial"),
             instrument_name=inst_data.get("instrument_name"),
             start_time=self._parse_datetime(inst_data.get("start_time")),

@@ -132,56 +132,62 @@ def build_mission_details_sections(
     return out
 
 
-def _instrument_lines_to_value_paragraph(lines: Sequence[str], styles: dict[str, ParagraphStyle]) -> Paragraph:
-    """Turn ITEM:/SUB: lines from builder into HTML bullets (no raw Unicode box-drawing)."""
-    if not lines or (len(lines) == 1 and lines[0] == "(None)"):
-        return Paragraph("—", styles["Body"])
-    parts: List[str] = []
-    for raw in lines:
-        s = str(raw).strip()
-        if s == "(None)":
-            return Paragraph("—", styles["Body"])
-        if s.startswith("SUB:"):
-            inner = _escape_xml_text(s[4:].strip())
-            parts.append(f"&nbsp;&nbsp;&nbsp;&nbsp;&#8211; {inner}")
-        elif s.startswith("ITEM:"):
-            inner = _escape_xml_text(s[5:].strip())
-            parts.append(f"&#8226; {inner}")
-        else:
-            parts.append(f"&#8226; {_escape_xml_text(s)}")
-    return Paragraph("<br/>".join(parts), styles["Body"])
+def _instrument_cell(text: str, styles: dict[str, ParagraphStyle]) -> Paragraph:
+    return Paragraph(_escape_xml_text(text or ""), styles["Body"])
 
 
 def build_instruments_page(
-    instrument_blocks: Sequence[Tuple[str, Sequence[str]]],
+    instrument_blocks: Sequence[Tuple[str, Sequence[Dict[str, str]]]],
 ) -> List[Any]:
-    """Mission-details style: Heading2 + two-column label/value table per instrument group."""
+    """Heading2 + four-column instrument table per group (platform / flight / science)."""
     if not instrument_blocks:
         return []
     styles = build_paragraph_styles()
+    pw = _pw()
+    col_widths = [pw * 0.20, pw * 0.40, pw * 0.22, pw * 0.18]
+    header_labels = [
+        "Instrument Name",
+        "Description",
+        "Manufacturer",
+        "Serial Number",
+    ]
     out: List[Any] = []
-    for heading, lines in instrument_blocks[:3]:
+    for heading, rows in instrument_blocks[:3]:
         out.append(Paragraph(heading.replace("&", "&amp;"), styles["Heading2"]))
-        value_p = _instrument_lines_to_value_paragraph(lines, styles)
-        data = [
-            [
-                Paragraph("<b>Instruments</b>", styles["Caption"]),
-                value_p,
-            ]
+        data: List[List[Any]] = [
+            [Paragraph(f"<b>{label}</b>", styles["Caption"]) for label in header_labels]
         ]
-        t = Table(data, colWidths=[_pw() * 0.26, _pw() * 0.74])
+        if not rows:
+            data.append(
+                [
+                    Paragraph("—", styles["Body"]),
+                    Paragraph("", styles["Body"]),
+                    Paragraph("", styles["Body"]),
+                    Paragraph("", styles["Body"]),
+                ]
+            )
+        else:
+            for row in rows:
+                data.append(
+                    [
+                        _instrument_cell(row.get("name", ""), styles),
+                        _instrument_cell(row.get("description", ""), styles),
+                        _instrument_cell(row.get("manufacturer", ""), styles),
+                        _instrument_cell(row.get("serial", ""), styles),
+                    ]
+                )
+        t = Table(data, colWidths=col_widths, repeatRows=1)
         t.setStyle(
             TableStyle(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("GRID", (0, 0), (-1, -1), 0.25, COLOR_RULE),
-                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [rl_colors.white, COLOR_ZEBRA]),
-                    ("LEFTPADDING", (0, 0), (0, -1), 3),
-                    ("RIGHTPADDING", (0, 0), (0, -1), 2),
-                    ("TOPPADDING", (0, 0), (0, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (0, -1), 2),
-                    ("LEFTPADDING", (1, 0), (1, -1), 6),
-                    ("RIGHTPADDING", (1, 0), (1, -1), 6),
+                    ("BACKGROUND", (0, 0), (-1, 0), COLOR_ZEBRA),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [rl_colors.white, COLOR_ZEBRA]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                 ]
             )
         )
