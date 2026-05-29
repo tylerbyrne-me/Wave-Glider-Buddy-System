@@ -13,9 +13,9 @@ import math
 import pandas as pd
 from sqlalchemy import or_
 from sqlmodel import select
-from .db import SQLModelSession
-from . import models
-from .feature_toggles import is_feature_enabled
+from ..infra.db import SQLModelSession
+from .. import models
+from ..infra.feature_toggles import is_feature_enabled
 from .wg_vm4_payload_parser import WgVm4PayloadParser, OffloadEvent, OffloadEventType
 
 logger = logging.getLogger(__name__)
@@ -448,7 +448,7 @@ class WgVm4StationService:
             if override_field_season_year is not None:
                 field_season_year = override_field_season_year
             else:
-                from ..services.station_season_service import StationSeasonService
+                from ...services.station_season_service import StationSeasonService
                 active_season = StationSeasonService.get_active_season(self.session)
                 field_season_year = active_season.year if active_season else None
             
@@ -743,8 +743,8 @@ async def run_vm4_background_pipeline(
             "parser_disabled": True,
         }
 
-    from .data_service import get_data_service
-    from .processors import preprocess_wg_vm4_info_df, preprocess_wg_vm4_remote_health_df
+    from ..data.data_service import get_data_service
+    from ..data.processors import preprocess_wg_vm4_info_df, preprocess_wg_vm4_remote_health_df
 
     run_started_at = datetime.now(timezone.utc)
     data_service = get_data_service()

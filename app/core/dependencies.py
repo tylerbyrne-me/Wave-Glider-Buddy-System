@@ -41,7 +41,7 @@ def get_session() -> SQLModelSession:
     Example:
         session: SQLModelSession = get_session()
     """
-    from .db import get_db_session
+    from .infra.db import get_db_session
     return Depends(get_db_session)
 
 

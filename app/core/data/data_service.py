@@ -16,10 +16,11 @@ import pandas as pd
 import httpx
 from cachetools import LRUCache
 
-from ..config import settings
-from . import utils, loaders
-from . import models
-from .feature_toggles import is_feature_enabled
+from ...config import settings
+from .. import utils
+from . import loaders
+from .. import models
+from ..infra.feature_toggles import is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -1353,7 +1354,7 @@ class DataService:
 
 
 # Create a singleton instance for convenience
-# Routers can use: from ..core.data_service import data_service
+# Routers can use: from ..core.data.data_service import data_service
 _data_service_instance: Optional[DataService] = None
 
 

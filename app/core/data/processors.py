@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from . import utils
+from .. import utils
 
 logger = logging.getLogger(__name__)  # Get a logger for this module
 

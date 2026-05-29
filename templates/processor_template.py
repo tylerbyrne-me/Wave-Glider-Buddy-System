@@ -5,7 +5,7 @@ This processor handles preprocessing of [data type] dataframes.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 

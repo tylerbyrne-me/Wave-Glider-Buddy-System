@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from typing import List, Optional
 from sqlmodel import select
 from ..core import models
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import logging
 
@@ -18,7 +18,7 @@ from ..core.models import (
     AcknowledgedByInfo,
 )
 from ..core import auth
-from app.core.templates import templates
+from ..core.templates import templates
 from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Announcements"])
@@ -40,7 +40,7 @@ async def get_admin_announcements_page(
     context["platform"] = "wave_glider"
     context["platform_home_url"] = "/wave-glider/home"
     context["show_banner_nav"] = True
-    return templates.TemplateResponse("admin_announcements.html", context)
+    return templates.TemplateResponse("admin/announcements.html", context)
 
 # --- API Endpoints ---
 @router.post("/api/admin/announcements", response_model=AnnouncementRead, status_code=status.HTTP_201_CREATED)

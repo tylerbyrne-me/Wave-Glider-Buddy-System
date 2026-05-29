@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..core.auth import get_current_active_user
 from ..core import models
-from ..core.feature_toggles import is_feature_enabled
+from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.slocum_erddap_client import fetch_slocum_data
 
 logger = logging.getLogger(__name__)

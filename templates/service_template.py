@@ -18,7 +18,7 @@ from sqlmodel import Session as SQLModelSession
 from pandas import DataFrame
 
 from ..core import models
-from ..core.error_handlers import handle_processing_error, ErrorContext
+from ..core.infra.error_handlers import handle_processing_error, ErrorContext
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from enum import Enum
 from sqlmodel import SQLModel, Field, Column, Text, Integer, Float, Boolean
-from ..error_types import ErrorCategory
+from ..infra.error_types import ErrorCategory
 
 # Use the same ErrorCategory enum for consistency
 ErrorCategoryEnum = ErrorCategory

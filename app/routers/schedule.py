@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import date, datetime, timedelta, timezone
 from sqlmodel import select, delete
 from ..core import models
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import (
     get_current_active_user, get_current_admin_user, get_optional_current_user, get_user_from_db
 )
@@ -13,7 +13,7 @@ import io
 import ics
 import csv
 import logging
-from app.core.templates import templates
+from ..core.templates import templates
 from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Schedule"])

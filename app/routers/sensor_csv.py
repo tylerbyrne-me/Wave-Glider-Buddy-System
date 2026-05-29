@@ -10,11 +10,11 @@ import pandas as pd
 
 from ..core.auth import get_current_active_user
 from ..core.models import User
-from ..core import processors
-from ..core.processor_framework import get_processor_registry
-from ..core.error_handlers import handle_processing_error, handle_validation_error, ErrorContext
+from ..core.data import processors
+from ..core.data.processor_framework import get_processor_registry
+from ..core.infra.error_handlers import handle_processing_error, handle_validation_error, ErrorContext
 
-router = APIRouter(prefix="/api/sensor_csv", tags=["sensor-csv"])
+router = APIRouter(prefix="/api/sensor_csv", tags=["Sensor CSV"])
 
 # Get processor registry for dynamic processor lookup
 _processor_registry = get_processor_registry()
@@ -63,7 +63,7 @@ async def download_sensor_csv(
     
     try:
         # Use data service with consolidated load_and_preprocess helper
-        from ..core.data_service import get_data_service
+        from ..core.data.data_service import get_data_service
         
         data_service = get_data_service()
         preprocessor = SENSOR_PROCESSORS[sensor_type]

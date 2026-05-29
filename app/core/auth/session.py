@@ -7,7 +7,7 @@ from sqlmodel import \
     Session as SQLModelSession  # type: ignore # Import Session and alias it
 from sqlmodel import select
 
-from .models import (User, UserCreate,  # Added UserUpdateForAdmin
+from ..models import (User, UserCreate,  # Added UserUpdateForAdmin
                              UserInDB, UserRoleEnum, UserUpdateForAdmin)
 from .security import (  # TokenData imported from here, added get_password_hash
     TokenData,
@@ -17,7 +17,7 @@ from .security import (  # TokenData imported from here, added get_password_hash
 )
 # ALGORITHM and SECRET_KEY are used by decode_access_token internally,
 # assuming it fetches them from settings.
-from .db import get_db_session  # Import the new get_db_session
+from ..infra.db import get_db_session  # Import the new get_db_session
 
 # Color palette for user shifts
 USER_COLORS = [

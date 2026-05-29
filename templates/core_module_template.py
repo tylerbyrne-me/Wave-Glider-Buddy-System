@@ -11,7 +11,7 @@ import numpy as np
 
 # Import other core modules as needed
 from . import utils
-from .data_service import get_data_service
+from .data.data_service import get_data_service
 from .error_handlers import handle_processing_error, ErrorContext
 
 logger = logging.getLogger(__name__)

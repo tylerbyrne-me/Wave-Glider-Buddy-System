@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import select
 from ..core import models
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 from ..services.chatbot_service import chatbot_service
 from ..services.llm_service import llm_service, ContextSource
@@ -67,7 +67,7 @@ async def admin_faqs_page(
     context["platform_home_url"] = "/wave-glider/home"
     context["show_banner_nav"] = True
     return templates.TemplateResponse(
-        "admin_faqs.html",
+        "admin/faqs.html",
         context
     )
 
@@ -83,7 +83,7 @@ async def slocum_admin_faqs_page(
     context["platform_home_url"] = "/slocum/home"
     context["show_banner_nav"] = True
     return templates.TemplateResponse(
-        "admin_faqs.html",
+        "admin/faqs.html",
         context
     )
 

@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import csv
 
-from ..core.db import get_db_session
+from ..core.infra.db import get_db_session
 from ..core.auth import get_current_active_user, get_current_admin_user
 from ..core.models import User
 from ..services.error_analysis_service import ErrorAnalysisService
@@ -24,14 +24,14 @@ import io
 import base64
 import matplotlib
 import asyncio
-from ..core import loaders
-from ..core.data_service import get_data_service
-from ..core.error_handlers import handle_processing_error, ErrorContext
+from ..core.data import loaders
+from ..core.data.data_service import get_data_service
+from ..core.infra.error_handlers import handle_processing_error, ErrorContext
 from ..config import settings
 import matplotlib.pyplot as plt
 matplotlib.use('Agg')  # Use non-interactive backend
 
-router = APIRouter(prefix="/api/errors", tags=["error-analysis"])
+router = APIRouter(prefix="/api/errors", tags=["Error Analysis"])
 
 
 @router.get("/classify")
@@ -425,7 +425,7 @@ async def download_recent_errors_csv(
     """Download recent errors (last 24 hours) as CSV"""
     try:
         # Use data service (no circular dependency)
-        from ..core.summaries import get_recent_errors
+        from ..core.data.summaries import get_recent_errors
         from ..services.error_classification_service import classify_error_message
         
         data_service = get_data_service()

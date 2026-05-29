@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from . import utils  # Import the utils module
-from .constants import get_ess_state
+from .. import utils  # Import the utils module
+from ..constants import get_ess_state
 from .processors import preprocess_telemetry_df  # type: ignore
 from .processors import preprocess_wg_vm4_df  # type: ignore
 from .processors import (preprocess_ais_df, preprocess_ctd_df,  # type: ignore
@@ -762,7 +762,7 @@ def get_ais_summary(ais_df, max_age_hours=24):
     )
     
     # Import vessel categories here to avoid circular imports
-    from .vessel_categories import get_vessel_category, is_hazardous_vessel, get_ais_class_info
+    from ..vessel_categories import get_vessel_category, is_hazardous_vessel, get_ais_class_info
     
     vessels = []
     for _, row in latest_by_mmsi.iterrows():
@@ -836,7 +836,7 @@ def get_ais_summary_stats(ais_df, max_age_hours=24):
         }
     
     # Import vessel categories here to avoid circular imports
-    from .vessel_categories import get_vessel_summary_stats
+    from ..vessel_categories import get_vessel_summary_stats
     
     stats = get_vessel_summary_stats(vessels)
     

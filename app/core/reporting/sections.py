@@ -17,7 +17,7 @@ from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyl
 
 from .. import models, utils
 from ..plotting import assign_note_letters
-from ..summaries import get_ais_summary, get_ais_summary_stats
+from ..data.summaries import get_ais_summary, get_ais_summary_stats
 from . import charts
 from .styling import (
     A4_PORTRAIT,
@@ -136,8 +136,19 @@ def _instrument_cell(text: str, styles: dict[str, ParagraphStyle]) -> Paragraph:
     return Paragraph(_escape_xml_text(text or ""), styles["Body"])
 
 
+def _instrument_name_cell(row: Dict[str, Any], styles: dict[str, ParagraphStyle]) -> Paragraph:
+    name = _escape_xml_text(row.get("name", ""))
+    bullets = row.get("sensor_bullets") or []
+    if not bullets:
+        return Paragraph(name, styles["Body"])
+    parts = [name]
+    for label in bullets:
+        parts.append(f"&nbsp;&nbsp;&#8226; {_escape_xml_text(str(label))}")
+    return Paragraph("<br/>".join(parts), styles["Body"])
+
+
 def build_instruments_page(
-    instrument_blocks: Sequence[Tuple[str, Sequence[Dict[str, str]]]],
+    instrument_blocks: Sequence[Tuple[str, Sequence[Dict[str, Any]]]],
 ) -> List[Any]:
     """Heading2 + four-column instrument table per group (platform / flight / science)."""
     if not instrument_blocks:
@@ -170,7 +181,7 @@ def build_instruments_page(
             for row in rows:
                 data.append(
                     [
-                        _instrument_cell(row.get("name", ""), styles),
+                        _instrument_name_cell(row, styles),
                         _instrument_cell(row.get("description", ""), styles),
                         _instrument_cell(row.get("manufacturer", ""), styles),
                         _instrument_cell(row.get("serial", ""), styles),

@@ -3,11 +3,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional, Dict, List
 from ..core import models, utils
 from ..core.auth import get_current_active_user, get_optional_current_user
-from ..core.db import get_db_session, SQLModelSession
-from app.core.templates import templates
+from ..core.infra.db import get_db_session, SQLModelSession
+from ..core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
-from ..core.feature_toggles import is_feature_enabled
+from ..core.infra.feature_toggles import is_feature_enabled
 from sqlmodel import select
 from sqlalchemy import or_
 import logging

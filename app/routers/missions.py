@@ -11,11 +11,11 @@ from sqlmodel import select
 from sqlalchemy import or_
 from ..core import models, utils
 from ..core.pic_handoff_optional_sensors import get_pic_handoff_optional_sensor_keys
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_current_admin_user, get_optional_current_user
 import shutil
 import logging
-from app.core.templates import templates
+from ..core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
 import httpx
@@ -428,7 +428,7 @@ async def get_admin_mission_overviews_page(
     context["platform_home_url"] = "/wave-glider/home"
     context["show_banner_nav"] = True
     return templates.TemplateResponse(
-        "admin_mission_overviews.html",
+        "admin/mission_overviews.html",
         context,
     )
 

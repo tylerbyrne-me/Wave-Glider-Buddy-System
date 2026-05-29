@@ -17,9 +17,9 @@ from email.utils import format_datetime as format_http_datetime
 
 from ..core.auth import get_current_active_user
 from ..core import models
-from ..core.db import get_db_session, SQLModelSession
-from ..core.map_utils import prepare_track_points, generate_live_kml_with_track
-from ..core.data_service import get_data_service
+from ..core.infra.db import get_db_session, SQLModelSession
+from ..core.geo.map_utils import prepare_track_points, generate_live_kml_with_track
+from ..core.data.data_service import get_data_service
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ async def get_live_kml(
         mission_ids = token_record.mission_ids.split(',')
         
         # Use data service (no circular dependency)
-        from ..core.processors import preprocess_telemetry_df
+        from ..core.data.processors import preprocess_telemetry_df
         
         # Fetch data for all missions
         all_track_points = []

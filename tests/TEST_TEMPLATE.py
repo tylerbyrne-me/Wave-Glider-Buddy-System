@@ -83,7 +83,7 @@ async def test_data_service_load():
     
     TODO: Update for your specific data service
     """
-    from app.core.data_service import DataService
+    from app.core.data.data_service import DataService
     
     service = DataService()
     df, path = await service.load(
@@ -148,7 +148,7 @@ def test_processor_function():
     TODO: Update for your specific processor
     """
     import pandas as pd
-    from app.core.processors import preprocess_your_data
+    from app.core.data.processors import preprocess_your_data
     
     # Create test DataFrame
     test_df = pd.DataFrame({
@@ -176,7 +176,7 @@ def test_import_works():
     TODO: Update for your specific imports
     """
     # Test imports
-    from app.core.data_service import DataService
+    from app.core.data.data_service import DataService
     from app.core.models.database import YourModel
     from app.routers.map_router import router
     
@@ -196,8 +196,8 @@ async def test_full_flow():
     
     TODO: Update for your specific flow
     """
-    from app.core.data_service import DataService
-    from app.core.processors import preprocess_data
+    from app.core.data.data_service import DataService
+    from app.core.data.processors import preprocess_data
     
     # 1. Load data
     service = DataService()

@@ -10,11 +10,11 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import JSONResponse, Response
 import logging
 
-from ..auth_utils import get_current_active_user
+from ..core.auth import get_current_active_user
 from ..core import models
-from ..core.data_service import get_data_service
-from ..core.error_handlers import handle_processing_error, handle_data_not_found, handle_validation_error, ErrorContext
-from ..db import get_db_session, SQLModelSession
+from ..core.data.data_service import get_data_service
+from ..core.infra.error_handlers import handle_processing_error, handle_data_not_found, handle_validation_error, ErrorContext
+from ..core.infra.db import get_db_session, SQLModelSession
 
 logger = logging.getLogger(__name__)
 

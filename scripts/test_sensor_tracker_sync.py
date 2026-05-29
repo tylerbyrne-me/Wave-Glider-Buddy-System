@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.services.sensor_tracker_sync_service import SensorTrackerSyncService, SENSOR_TRACKER_AVAILABLE
-from app.core.db import get_db_session
+from app.core.infra.db import get_db_session
 from sqlmodel import select
 from app.core import models, utils
 

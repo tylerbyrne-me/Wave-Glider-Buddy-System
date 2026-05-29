@@ -5,7 +5,7 @@ from typing import Optional
 from sqlmodel import Session as SQLModelSession, select
 
 from app.core import models
-from app.core.db import sqlite_engine
+from app.core.infra.db import sqlite_engine
 
 
 logging.basicConfig(level=logging.INFO)

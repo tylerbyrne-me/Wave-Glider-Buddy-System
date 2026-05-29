@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlmodel import select, or_, func
 from ..core import models
 from ..core.models.database import Announcement
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_optional_current_user
 from ..core.templates import templates
 from ..core.template_context import get_template_context

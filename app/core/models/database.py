@@ -779,6 +779,8 @@ class MissionSensor(SQLModel, table=True):
     # Sensor details
     sensor_identifier: str = SQLModelField(index=True, description="e.g., 'dissolved_oxygen - 3151', 'ctd_pump'")
     sensor_short_name: Optional[str] = None
+    sensor_long_name: Optional[str] = None
+    sensor_manufacturer: Optional[str] = None
     sensor_serial: Optional[str] = None
     
     # Timing

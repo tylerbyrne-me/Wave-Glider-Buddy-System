@@ -20,9 +20,9 @@ from fastapi.responses import StreamingResponse
 from ..config import settings
 from ..core.auth import get_current_active_user
 from ..core import models
-from ..core.feature_toggles import is_feature_enabled
+from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.slocum_erddap_client import fetch_slocum_ctd_data, fetch_slocum_dashboard_data, list_slocum_datasets
-from ..core import processors
+from ..core.data import processors
 
 logger = logging.getLogger(__name__)
 

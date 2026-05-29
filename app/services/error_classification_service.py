@@ -5,7 +5,7 @@ Refactored for better maintainability and performance
 
 import re
 from typing import Dict, List, Optional, Tuple
-from ..core.error_types import ErrorCategory, ErrorPattern
+from ..core.infra.error_types import ErrorCategory, ErrorPattern
 
 class ErrorClassifier:
     """Optimized error classifier with compiled patterns"""

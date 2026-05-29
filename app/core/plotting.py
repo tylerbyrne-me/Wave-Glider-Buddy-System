@@ -22,11 +22,11 @@ import numpy as np  # type: ignore
 import logging
 
 from . import models
-from .processors import (preprocess_ctd_df, preprocess_power_df,
+from .data.processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
-from .processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
-from .bathymetry import fetch_etopo_bathymetry, nice_contour_levels
-from .feature_toggles import is_report_bathymetry_contours_enabled
+from .data.processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
+from .geo.bathymetry import fetch_etopo_bathymetry, nice_contour_levels
+from .infra.feature_toggles import is_report_bathymetry_contours_enabled
 
 logger = logging.getLogger(__name__)
 

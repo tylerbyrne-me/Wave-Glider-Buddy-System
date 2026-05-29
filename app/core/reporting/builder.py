@@ -23,8 +23,8 @@ from sqlalchemy import or_
 from sqlmodel import Session as SQLModelSession, select
 
 from .. import models, utils
-from ..db import get_db_session
-from ..processors import (
+from ..infra.db import get_db_session
+from ..data.processors import (
     preprocess_ais_df,
     preprocess_ctd_df,
     preprocess_error_df,
@@ -37,7 +37,7 @@ from .constants import LOGO_PATH, REPORTS_ROOT
 from .styling import WeeklyReportDocTemplate, build_paragraph_styles
 from . import sections
 from .week_windows import compute_iso_week_windows, resolve_mission_time_bounds
-from ..summaries import get_ais_summary_stats
+from ..data.summaries import get_ais_summary_stats
 
 logger = logging.getLogger(__name__)
 
@@ -397,9 +397,42 @@ def _filter_report_dataframes(
     )
 
 
+def _sensor_bullet_label(sensor: models.MissionSensor) -> str:
+    return sensor.sensor_identifier or ""
+
+
+def _instrument_row_from_model(
+    inst: models.MissionInstrument,
+    sensors: Optional[List[models.MissionSensor]] = None,
+) -> Dict[str, Any]:
+    bullets = [_sensor_bullet_label(s) for s in (sensors or []) if _sensor_bullet_label(s)]
+    return {
+        "name": inst.instrument_identifier or "",
+        "description": inst.instrument_long_name or inst.instrument_short_name or "",
+        "manufacturer": inst.instrument_manufacturer or "",
+        "serial": inst.instrument_serial or "",
+        "sensor_bullets": bullets,
+    }
+
+
+def _instrument_section_rows(
+    session: SQLModelSession,
+    items: List[models.MissionInstrument],
+) -> List[Dict[str, Any]]:
+    if not items:
+        return []
+    rows: List[Dict[str, Any]] = []
+    for inst in items:
+        sensors = session.exec(
+            select(models.MissionSensor).where(models.MissionSensor.instrument_id == inst.id)
+        ).all()
+        rows.append(_instrument_row_from_model(inst, sensors))
+    return rows
+
+
 def _load_instrument_blocks(
     session: SQLModelSession, mission_id: str
-) -> List[Tuple[str, List[Dict[str, str]]]]:
+) -> List[Tuple[str, List[Dict[str, Any]]]]:
     mission_base = utils.deployment_mission_code_from_mission_id(mission_id)
     instruments = session.exec(
         select(models.MissionInstrument)
@@ -426,31 +459,14 @@ def _load_instrument_blocks(
         elif inst.data_logger_type == "science":
             science_instruments.append(inst)
 
-    def _instrument_section_rows(items: List[models.MissionInstrument]) -> List[Dict[str, str]]:
-        if not items:
-            return []
-        rows: List[Dict[str, str]] = []
-        for inst in items:
-            rows.append(
-                {
-                    "name": inst.instrument_identifier or "",
-                    "description": (
-                        inst.instrument_long_name or inst.instrument_short_name or ""
-                    ),
-                    "manufacturer": inst.instrument_manufacturer or "",
-                    "serial": inst.instrument_serial or "",
-                }
-            )
-        return rows
-
     science_title = "Science computer instruments"
     if science_instruments and getattr(science_instruments[0], "data_logger_serial", None):
         science_title = f"Science computer instruments (SN: {science_instruments[0].data_logger_serial})"
 
     return [
-        ("Platform direct instruments", _instrument_section_rows(platform_instruments)),
-        ("Flight computer instruments", _instrument_section_rows(flight_instruments)),
-        (science_title, _instrument_section_rows(science_instruments)),
+        ("Platform direct instruments", _instrument_section_rows(session, platform_instruments)),
+        ("Flight computer instruments", _instrument_section_rows(session, flight_instruments)),
+        (science_title, _instrument_section_rows(session, science_instruments)),
     ]
 
 

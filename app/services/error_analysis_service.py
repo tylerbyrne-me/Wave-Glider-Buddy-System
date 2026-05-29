@@ -9,12 +9,12 @@ from typing import List, Dict, Optional, Tuple
 from sqlmodel import Session, select, func, and_, or_
 
 from .error_classification_service import ErrorClassifier
-from ..core.error_types import ErrorCategory
+from ..core.infra.error_types import ErrorCategory
 from ..core.models.error_analysis import (
     ClassifiedError, ErrorCategoryStats, ErrorPattern,
     ErrorCategoryEnum, ErrorSeverityEnum, ErrorTrendData, ErrorDashboardSummary
 )
-from ..core.processors import preprocess_error_df
+from ..core.data.processors import preprocess_error_df
 
 class ErrorAnalysisService:
     """Service for analyzing and tracking error data"""

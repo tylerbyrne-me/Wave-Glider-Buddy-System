@@ -208,7 +208,7 @@ class WgVm4PayloadParser:
         for _, row in df.iterrows():
             try:
                 # Extract basic data - use robust parser to handle mixed formats
-                from . import utils
+                from .. import utils
                 timestamp = utils.parse_timestamp_robust(row['timeStamp'], errors='coerce')
                 if pd.isna(timestamp):
                     continue  # Skip invalid timestamps

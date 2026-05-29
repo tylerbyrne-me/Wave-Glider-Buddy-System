@@ -8,7 +8,9 @@ from rich.console import Console  # Keep this
 from rich.table import Table
 
 from ..config import settings  # Import settings
-from ..core import forecast, loaders, plotting, summaries
+from ..core.geo import forecast
+from ..core.data import loaders, summaries
+from ..core import plotting
 # Specific plotting functions are still useful to import directly if only they are used from plotting
 from ..core.plotting import (generate_ctd_plot, generate_power_plot,
                              generate_wave_plot, generate_weather_plot)

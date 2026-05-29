@@ -16,7 +16,7 @@ logger = logging.getLogger(
 )  # Keep this for actual operational logging
 DEFAULT_TIMEOUT = 10.0  # seconds
 RETRY_COUNT = 2  # Number of retries for loaders
-from ..config import settings # Import settings to access the map
+from ...config import settings # Import settings to access the map
 
 
 def _read_local_csv(file_path: Path) -> Tuple[pd.DataFrame, Optional[datetime]]:

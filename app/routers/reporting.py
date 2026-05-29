@@ -11,8 +11,8 @@ from sqlmodel import select
 
 from ..core.auth import get_current_admin_user
 from ..core import models, utils
-from ..core.data_service import get_data_service
-from ..core.db import get_db_session
+from ..core.data.data_service import get_data_service
+from ..core.infra.db import get_db_session
 from ..core.reporting import (
     generate_weekly_report,
     default_weekly_report_date_window,

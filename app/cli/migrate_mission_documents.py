@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 from sqlmodel import Session as SQLModelSession, select
 
 from app.core import models, utils
-from app.core.db import sqlite_engine
+from app.core.infra.db import sqlite_engine
 
 
 logging.basicConfig(level=logging.INFO)

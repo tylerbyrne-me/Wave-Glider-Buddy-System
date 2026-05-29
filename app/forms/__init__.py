@@ -1,0 +1,1 @@
+"""Static form schema definitions."""

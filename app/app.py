@@ -89,17 +89,21 @@ from .core.auth import (get_current_active_user, get_current_admin_user,
                          get_optional_current_user)
 from .config import settings
 from .core import models  # type: ignore
-from .core import (forecast, loaders, processors, summaries, utils, feature_toggles, template_context, reporting, ess_waypoints) # type: ignore
+from .core import utils, template_context, reporting  # type: ignore
+from .core.geo import forecast
+from .core.data import loaders, processors, summaries
+from .core.infra import feature_toggles
+from .core.stations import ess_waypoints
 from .core.fluorometer_channels import (
     build_channel_labels_for_display,
     is_fluorometer_card_enabled,
 )
-from .core.security import create_access_token, verify_password
-from .core.db import SQLModelSession, get_db_session, sqlite_engine
-from .core.scheduler import set_scheduler
-from .core.startup_leader import try_acquire_startup_leader, is_startup_leader
+from .core.auth.security import create_access_token, verify_password
+from .core.infra.db import SQLModelSession, get_db_session, sqlite_engine
+from .core.infra.scheduler import set_scheduler
+from .core.infra.startup_leader import try_acquire_startup_leader, is_startup_leader
 from .forms.form_definitions import get_static_form_schema # Import the new function
-from .routers import station_metadata_router, auth as auth_router  # Import auth_router
+from .routers import station_metadata, auth as auth_router
 from .routers import schedule as schedule_router
 from .routers import forms as forms_router
 from .routers import announcements as announcements_router
@@ -110,7 +114,7 @@ from .routers import reporting as reporting_router
 from .routers import admin as admin_router
 from .routers import error_analysis as error_analysis_router
 from .routers import sensor_csv as sensor_csv_router
-from .routers import map_router, live_kml_router
+from .routers import map, live_kml
 from .routers import knowledge_base as knowledge_base_router
 from .routers import user_notes as user_notes_router
 from .routers import shared_tips as shared_tips_router
@@ -120,7 +124,7 @@ from .routers import slocum as slocum_router
 from .routers import slocum_mission_files as slocum_mission_files_router
 
 # Admin imports
-from .core.admin_sqladmin import setup_sqladmin
+from .core.auth.admin_sqladmin import setup_sqladmin
 
 # --- Conditional import for fcntl ---
 IS_UNIX = True
@@ -129,31 +133,6 @@ try:
 except ImportError:
     IS_UNIX = False
     fcntl = None  # type: ignore # Make fcntl None on non-Unix systems
-
-# --- New Models (Ideally in app/core/models.py) ---
-
-
-# --- Mission Info Models (Imported from models.py) ---
-# These are just for reference, the actual definitions are in app/core/models.py
-# We will import them below.
-# class MissionOverview(SQLModel, table=True): ...
-# class MissionGoal(SQLModel, table=True): ...
-# class MissionNote(SQLModel, table=True): ...
-#
-# class MissionOverviewUpdate(BaseModel): ...
-# class MissionGoalCreate(BaseModel): ...
-# class MissionGoalUpdate(BaseModel): ...
-# class MissionNoteCreate(BaseModel): ...
-# class MissionInfoResponse(BaseModel): ...
-
-# --- Home Page Panel Models ---
-# (UpcomingShift, MyTimesheetStatus, and MissionGoalToggle have been moved to app/core/models.py)
-
-
-
-
-
-# --- End New Models ---
 
 app = FastAPI()
 
@@ -253,15 +232,15 @@ APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_DIR.parent
 # Construct the path to the templates directory
 TEMPLATES_DIR = PROJECT_ROOT / "web" / "templates"
-from app.core.templates import templates
+from .core.templates import templates
 
 # --- Define path for local form storage (for testing) ---
 DATA_STORE_DIR = PROJECT_ROOT / "data_store"
 LOCAL_FORMS_DB_FILE = DATA_STORE_DIR / "submitted_forms.json"
 
-# Include the station_metadata_router.
+# Include the station metadata router.
 app.include_router(
-    station_metadata_router.router, prefix="/api", tags=["Station Metadata"]
+    station_metadata.router, prefix="/api", tags=["Station Metadata"]
 )
 
 app.mount(
@@ -282,8 +261,8 @@ app.include_router(reporting_router.router)
 app.include_router(admin_router.router)
 app.include_router(error_analysis_router.router)
 app.include_router(sensor_csv_router.router)
-app.include_router(map_router.router)
-app.include_router(live_kml_router.router)
+app.include_router(map.router)
+app.include_router(live_kml.router)
 app.include_router(knowledge_base_router.router)
 app.include_router(user_notes_router.router)
 app.include_router(shared_tips_router.router)
@@ -304,7 +283,7 @@ from .core.template_context import get_template_context
 # ---
 
 # Import cache and utilities from data_service (no circular dependency - app imports from core)
-from .core.data_service import (
+from .core.data.data_service import (
     data_cache,
     CACHE_STRATEGIES,
     CACHE_EXPIRY_MINUTES,
@@ -635,7 +614,7 @@ def trim_data_to_range(
         Trimmed DataFrame
     """
     # Delegate to the data_service version which has the updated logic
-    from app.core.data_service import trim_data_to_range as data_service_trim
+    from app.core.data.data_service import trim_data_to_range as data_service_trim
     return data_service_trim(df, start_date, end_date, hours_back)
 
 
@@ -1039,7 +1018,7 @@ async def load_data_source(
         Tuple of (DataFrame, source_path, file_modification_time)
     """
     # Import here to avoid circular dependency at module level
-    from .core.data_service import get_data_service
+    from .core.data.data_service import get_data_service
     
     data_service = get_data_service()
     return await data_service.load(
@@ -1261,7 +1240,7 @@ async def refresh_active_mission_cache():
     active_missions = filtered_missions
     
     # Get database session for checking sensor card configurations
-    from .core.db import SQLModelSession, sqlite_engine
+    from .core.infra.db import SQLModelSession, sqlite_engine
     with SQLModelSession(sqlite_engine) as session:
         for mission_id in active_missions:
             logger.info(f"BACKGROUND TASK: Checking cache for active mission: {mission_id}")
@@ -1729,7 +1708,7 @@ async def _process_loaded_data_for_home_view(
     errors_update_info = {"time_ago_str": "N/A", "latest_timestamp_str": "N/A"}
 
     # Get file modification times for each report type (when source file was last updated)
-    from .core.data_service import get_cache_timestamp
+    from .core.data.data_service import get_cache_timestamp
     
     # Determine source preference from source_paths_map (check if any path indicates remote)
     source_preference = None
@@ -1812,7 +1791,7 @@ async def _process_loaded_data_for_home_view(
                 ais_update_info = utils.get_df_latest_update_info(data_frames.get("ais"), timestamp_col="LastSeenTimestamp")
         
         # Process all AIS data for the collapsible tab
-        from .core.processors import preprocess_ais_df
+        from .core.data.processors import preprocess_ais_df
         all_ais_df = preprocess_ais_df(data_frames.get("ais"))
         if not all_ais_df.empty:
             # Get the latest record for each MMSI
@@ -1894,7 +1873,7 @@ async def _process_loaded_data_for_home_view(
             logger.debug(f"Errors cache timestamp not found for mission {mission_id}, source_preference {source_preference}, falling back to data timestamp")
             # Fall back to max timestamp in data if cache timestamp not available
             # Preprocess the errors data first to ensure "Timestamp" column exists
-            from .core.processors import preprocess_error_df
+            from .core.data.processors import preprocess_error_df
             try:
                 errors_df_processed = preprocess_error_df(data_frames.get("errors"))
                 if not errors_df_processed.empty and "Timestamp" in errors_df_processed.columns:
@@ -3109,7 +3088,7 @@ async def download_recent_ais_csv(
             raise HTTPException(status_code=404, detail="No AIS data found for this mission")
         
         # Get recent AIS data using the same logic as the dashboard
-        from .core.summaries import get_ais_summary
+        from .core.data.summaries import get_ais_summary
         recent_vessels = get_ais_summary(ais_df, max_age_hours=hours)
         
         # Create CSV
@@ -3180,7 +3159,7 @@ async def download_all_ais_csv(
             raise HTTPException(status_code=404, detail="No AIS data found for this mission")
         
         # Process all AIS data using the same logic as the dashboard
-        from .core.summaries import get_ais_summary
+        from .core.data.summaries import get_ais_summary
         all_vessels = get_ais_summary(ais_df, max_age_hours=8760)  # 1 year to get all data
         
         # Create CSV
@@ -3399,7 +3378,7 @@ async def get_admin_user_management_page(
     context["platform_home_url"] = "/wave-glider/home"
     context["show_banner_nav"] = True
     return templates.TemplateResponse(
-        "admin_user_management.html",
+        "admin/user_management.html",
         context
     )
 

@@ -12,8 +12,8 @@ from fastapi import FastAPI
 from sqladmin import Admin, ModelView
 from sqlmodel import Session as SQLModelSession
 
-from app.core.admin_auth import create_sqladmin_auth_backend
-from app.core.db import sqlite_engine
+from app.core.auth.admin_auth import create_sqladmin_auth_backend
+from app.core.infra.db import sqlite_engine
 from app.config import settings
 from app.core.models.database import (
     Announcement,

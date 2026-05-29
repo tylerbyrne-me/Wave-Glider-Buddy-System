@@ -14,10 +14,10 @@ from sqladmin.authentication import AuthenticationBackend
 from sqlmodel import Session as SQLModelSession, select
 
 from app.core.auth import get_user_from_db
-from app.core.db import get_db_session
+from app.core.infra.db import get_db_session
 from app.core.models.database import UserInDB
 from app.core.models.enums import UserRoleEnum
-from app.core.security import verify_password, decode_access_token
+from app.core.auth.security import verify_password, decode_access_token
 
 logger = logging.getLogger(__name__)
 

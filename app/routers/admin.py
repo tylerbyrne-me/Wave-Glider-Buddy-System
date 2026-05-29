@@ -43,7 +43,7 @@ def _format_trigger(trigger) -> models.JobTriggerInfo:
 @router.get("/scheduler/jobs", response_model=List[models.ScheduledJob], summary="Get Status of Scheduled Jobs")
 async def get_scheduler_jobs():
     """Retrieves a list of all jobs currently scheduled in APScheduler."""
-    from ..core.scheduler import get_scheduler
+    from ..core.infra.scheduler import get_scheduler
     try:
         scheduler = get_scheduler()
     except RuntimeError:

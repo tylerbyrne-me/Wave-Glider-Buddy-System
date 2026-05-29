@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .models.database import StationMetadata
+from ..models.database import StationMetadata
 
 
 def station_in_ops_registry_list(station: StationMetadata) -> bool:

@@ -5,14 +5,14 @@ from datetime import datetime, timedelta, timezone
 from sqlmodel import select, or_
 from ..core import models, utils
 from ..core.pic_handoff_optional_sensors import PIC_HANDOFF_OPTIONAL_SENSOR_REGISTRY
-from ..core.db import get_db_session, SQLModelSession
+from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.auth import get_current_active_user, get_optional_current_user
 from ..config import settings
 import json
 import logging
 from pathlib import Path
 from ..forms.form_definitions import get_static_form_schema
-from app.core.templates import templates
+from ..core.templates import templates
 from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Forms"])
@@ -237,8 +237,8 @@ async def get_form_template(
         # Convert Pydantic model to dict for mutation and .get() access
         schema = schema_obj.model_dump(mode="python")
 
-        from app.core.data_service import get_data_service
-        from app.core import summaries
+        from app.core.data.data_service import get_data_service
+        from app.core.data import summaries
 
         def _user_display_name(user_in_db: models.UserInDB) -> str:
             name = (user_in_db.full_name or user_in_db.username or "").strip()

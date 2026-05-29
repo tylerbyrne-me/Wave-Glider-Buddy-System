@@ -4,7 +4,7 @@ Feature toggle utilities for enabling/disabling application features.
 from typing import Dict, Any, Set, List
 import json
 from functools import lru_cache
-from ..config import settings
+from ...config import settings
 
 
 # Cache the feature context to avoid repeated dictionary creation

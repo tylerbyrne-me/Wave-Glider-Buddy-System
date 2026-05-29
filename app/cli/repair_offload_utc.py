@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from sqlmodel import select
 
 from app.core import models
-from app.core.db import SQLModelSession, sqlite_engine
+from app.core.infra.db import SQLModelSession, sqlite_engine
 
 
 logging.basicConfig(level=logging.INFO)

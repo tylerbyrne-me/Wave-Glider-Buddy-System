@@ -1,4 +1,4 @@
-# c:\Users\ty225269\Documents\Python Playground\Wave Glider Project\app\config.py
+# Wave Glider Buddy System — application settings (app/config.py)
 import json
 import logging
 from typing import Any, Optional  # Import Any and Optional
@@ -131,20 +131,20 @@ class Settings(BaseSettings):
     mission_media_max_files_per_upload: int = 10
     
     # --- Chatbot Vector Search Settings ---
-    vector_search_enabled: bool = True  # Enable vector search (requires chromadb and sentence-transformers)
+    vector_search_enabled: bool = False  # Enable vector search (requires chromadb and sentence-transformers)
     vector_similarity_threshold: float = 0.35  # Minimum similarity for matches (0.0-1.0, 0.35 works well)
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # Embedding model name
-    vector_chunking_enabled: bool = True  # Enable chunking for document vectorization
+    vector_chunking_enabled: bool = False  # Enable chunking for document vectorization
     vector_chunking_min_chars: int = 2000  # Chunk documents longer than this
     
     # --- LLM Settings (Ollama) ---
-    llm_enabled: bool = True  # Enable LLM for response synthesis
+    llm_enabled: bool = False  # Enable LLM for response synthesis
     llm_host: str = "http://localhost:11434"  # Ollama server URL
     llm_model: str = "mistral:7b"  # Model to use (mistral:7b recommended for quality + context)
     llm_temperature: float = 0.3  # Lower temperature for more factual/consistent answers
     llm_max_tokens: int = 512  # Max response length (increased for detailed answers)
     llm_timeout: int = 180  # Timeout in seconds (increased for larger context)
-    llm_fallback_to_search: bool = True  # Fall back to search results if LLM unavailable
+    llm_fallback_to_search: bool = False  # Fall back to search results if LLM unavailable
     llm_max_context_chars: int = 6000  # Max context to send to LLM (Mistral supports ~8k tokens)
     
     # Parsed values (not loaded directly from env)

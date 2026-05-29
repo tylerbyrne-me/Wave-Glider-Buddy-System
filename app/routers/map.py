@@ -18,12 +18,12 @@ import httpx
 
 from ..core.auth import get_current_active_user
 from ..core import models
-from ..core.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
-from ..core.processors import preprocess_telemetry_df, preprocess_slocum_track_df
-from ..core.data_service import get_data_service
+from ..core.geo.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
+from ..core.data.processors import preprocess_telemetry_df, preprocess_slocum_track_df
+from ..core.data.data_service import get_data_service
 from ..core.slocum_erddap_client import fetch_slocum_track, ERDDAP_TIMEOUT
-from ..core.feature_toggles import is_feature_enabled
-from ..core.error_handlers import handle_processing_error, handle_data_not_found, ErrorContext
+from ..core.infra.feature_toggles import is_feature_enabled
+from ..core.infra.error_handlers import handle_processing_error, handle_data_not_found, ErrorContext
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +480,7 @@ async def get_multiple_mission_tracks(
         mission_list = [mid.strip() for mid in mission_ids.split(',') if mid.strip()]
         
         if not mission_list:
-            from ..core.error_handlers import handle_validation_error
+            from ..core.infra.error_handlers import handle_validation_error
             raise handle_validation_error(
                 message="No valid mission IDs provided",
                 field="mission_ids"

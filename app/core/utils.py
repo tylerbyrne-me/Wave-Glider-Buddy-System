@@ -466,9 +466,9 @@ def get_df_latest_update_info(
             latest_timestamp_str = latest_timestamp.strftime(
                 "%Y-%m-%d %H:%M:%S UTC"
             )
-            # Import here to avoid circular import
-            from . import summaries
-            time_ago_str = summaries.time_ago(latest_timestamp)
+            # Import here to avoid circular import (summaries lives under core.data)
+            from .data.summaries import time_ago
+            time_ago_str = time_ago(latest_timestamp)
         return {
             "latest_timestamp_str": latest_timestamp_str,
             "time_ago_str": time_ago_str,

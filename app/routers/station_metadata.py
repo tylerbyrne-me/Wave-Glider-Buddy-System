@@ -1,4 +1,4 @@
-# station_metadata_router.py
+# station_metadata.py — station registry, offload logs, field seasons
 import logging
 import re
 from collections import Counter, defaultdict
@@ -17,7 +17,7 @@ from ..core.auth import get_current_active_user, get_current_admin_user
 from ..core import models
 from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
-from ..core.db import SQLModelSession, get_db_session, sqlite_engine
+from ..core.infra.db import SQLModelSession, get_db_session, sqlite_engine
 from ..services.station_overview import build_status_overview_row
 from ..services.station_season_service import StationSeasonService
 from ..services.station_history_service import (
@@ -27,11 +27,11 @@ from ..services.station_history_service import (
     logs_by_season_counts,
     station_mini_summary,
 )
-from ..core.station_registry_policy import (
+from ..core.stations.station_registry_policy import (
     station_blocks_edits,
     offload_log_matches_season_year,
 )
-from ..core.feature_toggles import is_feature_enabled
+from ..core.infra.feature_toggles import is_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -2700,7 +2700,7 @@ async def process_vm4_offloads_for_mission(
             detail="WG-VM4 offload parser is currently disabled by feature toggle",
         )
     
-    from ..core.wg_vm4_station_service import run_vm4_background_pipeline
+    from ..core.stations.wg_vm4_station_service import run_vm4_background_pipeline
 
     async def _run_vm4_pipeline_job(job_mission_id: str, job_field_season_year: Optional[int], job_force_full_scan: bool) -> None:
         with SQLModelSession(sqlite_engine) as job_session:

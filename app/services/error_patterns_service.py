@@ -3,7 +3,7 @@ Error pattern definitions for classification
 Separated from main classification logic for better maintainability
 """
 
-from ..core.error_types import ErrorCategory, ErrorPattern
+from ..core.infra.error_types import ErrorCategory, ErrorPattern
 
 # Pattern definitions organized by category
 NAVIGATION_PATTERNS = [

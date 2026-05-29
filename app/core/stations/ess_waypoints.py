@@ -7,7 +7,7 @@ from typing import Any, Optional, Tuple
 
 from geographiclib.geodesic import Geodesic
 
-from .constants import ESS_PATTERN_LONG_LEG_M, ESS_PATTERN_SHORT_LEG_M
+from ..constants import ESS_PATTERN_LONG_LEG_M, ESS_PATTERN_SHORT_LEG_M
 
 
 def _destination(lat: float, lon: float, bearing_deg: float, distance_m: float) -> Tuple[float, float]:

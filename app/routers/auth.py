@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 from ..core import auth  # Import auth module
 from ..core.auth import get_current_admin_user, get_current_active_user, get_optional_current_user
 from ..core import models
-from ..core.security import create_access_token, verify_password
-from ..core.db import get_db_session
+from ..core.auth.security import create_access_token, verify_password
+from ..core.infra.db import get_db_session
 from ..config import settings
-from app.core.templates import templates
+from ..core.templates import templates
 from ..core.template_context import get_template_context
 
 router = APIRouter(tags=["Authentication"])

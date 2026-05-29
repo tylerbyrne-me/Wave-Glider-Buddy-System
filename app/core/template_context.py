@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .feature_toggles import get_feature_context
+from .infra.feature_toggles import get_feature_context
 from ..config import settings
 
 

@@ -11,7 +11,7 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from . import utils
+from .. import utils
 
 logger = logging.getLogger(__name__)
 

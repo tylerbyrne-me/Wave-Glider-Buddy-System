@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from . import utils
+from .. import utils
 from .processor_utils import initial_dataframe_setup, apply_common_processing
 
 logger = logging.getLogger(__name__)

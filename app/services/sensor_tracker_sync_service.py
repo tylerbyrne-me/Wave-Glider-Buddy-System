@@ -18,7 +18,7 @@ import pandas as pd
 
 from ..core import models
 from ..core import utils
-from ..core.db import get_db_session
+from ..core.infra.db import get_db_session
 from ..core.fluorometer_channels import is_fluorometer_card_enabled
 from ..config import settings
 from .sensor_tracker_service import SensorTrackerService, SENSOR_TRACKER_AVAILABLE
@@ -76,7 +76,7 @@ class SensorTrackerSyncService:
         
         # Use provided session or create a new one
         if session is None:
-            from ..core.db import get_db_session
+            from ..core.infra.db import get_db_session
             session_gen = get_db_session()
             session = next(session_gen)
             should_close = True
@@ -477,12 +477,18 @@ class SensorTrackerSyncService:
         # Create sensor records
         sensors = inst_data.get("sensors", [])
         for sensor_data in sensors:
+            sensor_mfr_id = sensor_data.get("sensor_manufacturer_id")
+            sensor_manufacturer_name: Optional[str] = None
+            if sensor_mfr_id is not None and manufacturers_map:
+                sensor_manufacturer_name = manufacturers_map.get(int(sensor_mfr_id))
             sensor = models.MissionSensor(
                 mission_id=mission_id,
                 instrument_id=instrument.id,
                 sensor_tracker_sensor_id=sensor_data.get("sensor_id"),
                 sensor_identifier=sensor_data.get("sensor_identifier") or "unknown",
                 sensor_short_name=sensor_data.get("sensor_short_name"),
+                sensor_long_name=sensor_data.get("sensor_long_name"),
+                sensor_manufacturer=sensor_manufacturer_name,
                 sensor_serial=sensor_data.get("sensor_serial"),
                 start_time=self._parse_datetime(sensor_data.get("start_time")),
                 end_time=self._parse_datetime(sensor_data.get("end_time"))

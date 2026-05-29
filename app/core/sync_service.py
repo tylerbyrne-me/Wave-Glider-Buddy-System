@@ -14,7 +14,7 @@ import httpx
 import pandas as pd
 
 from ..config import settings
-from . import loaders
+from .data import loaders
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ async def sync_mission(
     Returns:
         Tuple of (successful_syncs: int, failed_syncs: int)
     """
-    from .data_service import CACHE_STRATEGIES
+    from .data.data_service import CACHE_STRATEGIES
     
     if report_types is None:
         # Default to all incremental report types

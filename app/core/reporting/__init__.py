@@ -217,7 +217,7 @@ async def generate_weekly_report_pdf_for_mission(
     mission_overview: Optional[models.MissionOverview],
 ) -> str:
     """Load weekly report inputs and return the generated PDF URL path (does not commit)."""
-    from ..data_service import get_data_service
+    from ..data.data_service import get_data_service
 
     data_service = get_data_service()
     data_results = await data_service.load_multiple(
