@@ -75,6 +75,11 @@ def is_feature_enabled(feature_name: str) -> bool:
     return settings.feature_toggles.get(feature_name, False)
 
 
+def is_report_bathymetry_contours_enabled() -> bool:
+    """ETOPO depth contours on PDF telemetry maps; default on unless explicitly disabled."""
+    return settings.feature_toggles.get("report_bathymetry_contours", True)
+
+
 def get_enabled_features() -> Dict[str, bool]:
     """
     Get all feature toggle states.

@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
-    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true}'
+    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     historical_slocum_datasets: list[str] = []
     # Round time window to this many minutes for hours_back mode so cache key is stable (fewer ERDDAP refetches).
     slocum_cache_window_minutes: int = 15
+
+    # --- ETOPO 2022 Bathymetry (ERDDAP griddap for PDF report map contours) ---
+    etopo_erddap_server: str = "https://oceanwatch.pifsc.noaa.gov/erddap"
+    etopo_dataset_id: str = "ETOPO_2022_v1_15s"
+    etopo_request_timeout: int = 30  # seconds; fetch failures skip contours silently
 
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file

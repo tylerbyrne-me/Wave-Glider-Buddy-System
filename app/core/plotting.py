@@ -25,6 +25,8 @@ from . import models
 from .processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
 from .processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
+from .bathymetry import fetch_etopo_bathymetry, nice_contour_levels
+from .feature_toggles import is_report_bathymetry_contours_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -363,8 +365,14 @@ def generate_wave_plot(wave_df, mission_id, hours_back=72):
 
 
 # --- PDF Report Plotting Functions ---
-# These functions are designed to be called by the reporting module.
-# They accept a matplotlib Axes object and draw onto it, rather than creating a new figure.
+# Telemetry-track maps for weekly and end-of-mission PDFs (plot_telemetry_page_with_notes).
+#
+# Layout pipeline:
+#   1. Track bbox + percentage padding (_track_bounding_extent)
+#   2. Southern overlay strip for compass / scale / inset (_compute_overlay_strip_extent)
+#   3. Aspect padding to fill the page (_pad_extent_to_aspect)
+#   4. Cartopy base map + optional ETOPO bathymetry contours (fetch_etopo_bathymetry)
+#   5. SOG-colored track, then overlay strip elements after tight_layout
 
 REPORT_MAP_OCEAN_COLOR = "#B8D4E8"
 REPORT_MAP_LAND_COLOR = "#C4A882"
@@ -377,7 +385,7 @@ TRACK_EXTENT_PADDING_FRACTION = 0.12
 TRACK_EXTENT_MIN_SPAN_DEG = 0.02
 OVERLAY_STRIP_FRACTION = 0.20
 OVERLAY_STRIP_MIN_FRACTION = 0.12
-INSET_SIZE_FRACTION = (0.22, 0.18)  # (width, height) as fraction of map axes
+INSET_SIZE_FRACTION = (0.22, 0.18)  # inset width; height comes from strip_fraction
 STRIP_COMPASS_AXES_X = 0.12  # left third of strip (transAxes)
 STRIP_SCALE_AXES_X = 0.50  # center of strip (transAxes)
 STRIP_ELEMENT_Y_FRACTION = 0.45  # vertical center within strip band
@@ -437,44 +445,6 @@ def _resolve_overlay_strip_fraction(
     """Resolve strip fraction in the final extent, with minimum clamp."""
     total_lat = max(extent[3] - extent[2], 1e-6)
     return max(strip_deg / total_lat, min_fraction)
-
-
-def _geo_point_from_corner(
-    extent: List[float],
-    corner: str,
-    x_fraction: float,
-    y_fraction: float,
-) -> tuple[float, float]:
-    """Geographic lon/lat offset inward from an extent corner."""
-    west, east, south, north = extent
-    lon_span = east - west
-    lat_span = north - south
-    if corner == "sw":
-        return west + lon_span * x_fraction, south + lat_span * y_fraction
-    if corner == "se":
-        return east - lon_span * x_fraction, south + lat_span * y_fraction
-    if corner == "nw":
-        return west + lon_span * x_fraction, north - lat_span * y_fraction
-    if corner == "ne":
-        return east - lon_span * x_fraction, north - lat_span * y_fraction
-    raise ValueError(f"Unknown corner {corner!r}")
-
-
-def _axes_point_from_corner(
-    corner: str,
-    x_margin: float,
-    y_margin: float,
-) -> tuple[float, float, str, str]:
-    """Axes-fraction (x, y, ha, va) anchored to a map corner."""
-    if corner == "sw":
-        return x_margin, y_margin, "left", "bottom"
-    if corner == "se":
-        return 1.0 - x_margin, y_margin, "right", "bottom"
-    if corner == "nw":
-        return x_margin, 1.0 - y_margin, "left", "top"
-    if corner == "ne":
-        return 1.0 - x_margin, 1.0 - y_margin, "right", "top"
-    raise ValueError(f"Unknown corner {corner!r}")
 
 
 def _figure_rect_from_axes_corner(
@@ -572,6 +542,50 @@ def _setup_report_inset_map(ax, extent: List[float]) -> None:
     ax.add_feature(cfeature.OCEAN, facecolor=REPORT_MAP_OCEAN_COLOR, zorder=0)
     ax.add_feature(cfeature.LAND, facecolor=REPORT_MAP_LAND_COLOR, zorder=1)
     ax.coastlines(resolution="50m", zorder=2)
+
+
+def _add_report_bathymetry_contours(ax, extent: List[float]) -> None:
+    """Draw labeled ETOPO ocean-depth contours under the telemetry track.
+
+    Fetches a bbox subset from NOAA ERDDAP griddap (ETOPO_2022_v1_15s). On fetch
+    or render failure the map is left unchanged.
+    """
+    if not is_report_bathymetry_contours_enabled():
+        return
+
+    grid = fetch_etopo_bathymetry(extent)
+    if grid is None or grid.z.size == 0:
+        return
+
+    z_ocean = np.ma.masked_where(grid.z >= 0, grid.z)
+    if z_ocean.count() == 0:
+        return
+
+    valid_z = z_ocean.compressed()
+    levels = nice_contour_levels(float(np.min(valid_z)), float(np.max(valid_z)))
+    if not levels:
+        return
+
+    try:
+        contour_set = ax.contour(
+            grid.longitude,
+            grid.latitude,
+            z_ocean,
+            levels=levels,
+            colors="#1E3A5F",
+            linewidths=0.5,
+            alpha=0.75,
+            transform=ccrs.PlateCarree(),
+            zorder=1.5,
+        )
+        ax.clabel(
+            contour_set,
+            inline=True,
+            fontsize=6,
+            fmt=lambda value: f"{abs(int(value))} m",
+        )
+    except Exception as exc:
+        logger.warning("Skipping bathymetry contours for extent %s: %s", extent, exc)
 
 
 def _add_report_map_scale_and_compass(
@@ -1004,8 +1018,11 @@ def plot_telemetry_page_with_notes(
     then aspect-adjusted so E-W or N-S dominant tracks fill the page area
     instead of being letterboxed by Cartopy's equal-aspect projection.
 
-    A dynamic southern overlay strip is added to reserve room for context
-    overlays: compass (left), scale bar (center), regional inset (right).
+    A dynamic southern overlay strip reserves room for context overlays:
+    compass (left), scale bar (center), regional inset (right).
+
+    ETOPO 2022 bathymetry depth contours (when enabled) are streamed for the
+    map bbox via ERDDAP griddap and drawn under the track.
 
     Mission notes are NOT rendered on this page — the PDF report pipeline
     renders a separate mission-notes section. The map only shows lettered markers.
@@ -1059,6 +1076,7 @@ def plot_telemetry_page_with_notes(
     padded_extent = _pad_extent_to_aspect(strip_extent, target_aspect)
     strip_fraction = _resolve_overlay_strip_fraction(strip_deg, padded_extent)
     _setup_report_map(map_ax, padded_extent)
+    _add_report_bathymetry_contours(map_ax, padded_extent)
 
     norm = mcolors.Normalize(vmin=0, vmax=4)
     cmap = cmo.speed
