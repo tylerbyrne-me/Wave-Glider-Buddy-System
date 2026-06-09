@@ -215,8 +215,9 @@ async def get_live_kml(
             f"refresh_seconds={refresh_secs} -->\n"
         )
 
-        # Prepend debug info
-        kml_content = debug_comment + kml_payload
+        # Insert debug info after XML declaration (must be first bytes of document)
+        first_newline = kml_payload.index('\n')
+        kml_content = kml_payload[:first_newline + 1] + debug_comment + kml_payload[first_newline + 1:]
 
         # Create ETag that changes when bucket flips or content changes
         body_hash = hashlib.sha256(kml_content.encode("utf-8")).hexdigest()

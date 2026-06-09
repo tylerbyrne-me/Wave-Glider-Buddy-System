@@ -7,6 +7,7 @@ and generate KML files for export to Google Maps/Earth.
 
 from typing import List, Dict, Any, Optional
 import logging
+import re
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -192,6 +193,11 @@ def get_track_bounds(track_points: List[Dict[str, Any]]) -> Optional[Dict[str, f
     }
 
 
+def _safe_style_id(mission_id: str) -> str:
+    """Sanitize mission ID for use in KML style id attributes."""
+    return re.sub(r'[^A-Za-z0-9_]', '_', mission_id)
+
+
 def hex_to_kml_color(hex_color: str, opacity: int = 255) -> str:
     """Convert hex color to KML AABBGGRR format
     
@@ -248,11 +254,12 @@ def generate_live_kml_with_track(
     # Add styles for each mission
     for i, (mission_id, _) in enumerate(mission_tracks):
         color = color_palette[i % len(color_palette)]
+        style_id = _safe_style_id(mission_id)
         # Use 100% opacity for better visibility
         kml_color = hex_to_kml_color(color, opacity=255)
         
         kml_parts.extend([
-            f'<Style id="mission{mission_id}Style">',
+            f'<Style id="mission{style_id}Style">',
             f'  <LineStyle>',
             f'    <color>{kml_color}</color>',
             f'    <width>3</width>',
@@ -263,7 +270,7 @@ def generate_live_kml_with_track(
             f'    </Icon>',
             f'  </IconStyle>',
             f'</Style>',
-            f'<Style id="startStyle{mission_id}">',
+            f'<Style id="startStyle{style_id}">',
             f'  <IconStyle>',
             f'    <color>ff00ff00</color>',
             f'    <scale>1.2</scale>',
@@ -272,7 +279,7 @@ def generate_live_kml_with_track(
             f'    </Icon>',
             f'  </IconStyle>',
             f'</Style>',
-            f'<Style id="endStyle{mission_id}">',
+            f'<Style id="endStyle{style_id}">',
             f'  <IconStyle>',
             f'    <color>ff0000ff</color>',
             f'    <scale>1.2</scale>',
@@ -288,6 +295,8 @@ def generate_live_kml_with_track(
         if not track_points:
             continue
         
+        style_id = _safe_style_id(mission_id)
+
         # Group each mission in its own visible/open Folder
         kml_parts.extend([
             f'<Folder>',
@@ -303,7 +312,7 @@ def generate_live_kml_with_track(
             f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} - Start</name>',
             f'  <description>Start: {first_point.get("timestamp", "N/A")}</description>',
-            f'  <styleUrl>#startStyle{mission_id}</styleUrl>',
+            f'  <styleUrl>#startStyle{style_id}</styleUrl>',
             f'  <Point>',
             f'    <coordinates>{first_point["lon"]},{first_point["lat"]},0</coordinates>',
             f'  </Point>',
@@ -317,7 +326,7 @@ def generate_live_kml_with_track(
             f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} - End</name>',
             f'  <description>End: {last_point.get("timestamp", "N/A")}</description>',
-            f'  <styleUrl>#endStyle{mission_id}</styleUrl>',
+            f'  <styleUrl>#endStyle{style_id}</styleUrl>',
             f'  <Point>',
             f'    <coordinates>{last_point["lon"]},{last_point["lat"]},0</coordinates>',
             f'  </Point>',
@@ -334,7 +343,7 @@ def generate_live_kml_with_track(
             f'  <visibility>1</visibility>',
             f'  <name>Mission {mission_id} Track</name>',
             f'  <description>Mission {mission_id} track with {len(track_points)} points</description>',
-            f'  <styleUrl>#mission{mission_id}Style</styleUrl>',
+            f'  <styleUrl>#mission{style_id}Style</styleUrl>',
             f'  <LineString>',
             f'    <tessellate>1</tessellate>',
             f'    <altitudeMode>clampToGround</altitudeMode>',

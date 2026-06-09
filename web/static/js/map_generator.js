@@ -757,15 +757,19 @@ document.addEventListener('DOMContentLoaded', function() {
         if (downloadBtn) {
             downloadBtn.addEventListener('click', function() {
                 const selectedMission = missionSelect ? missionSelect.value : null;
-                if (selectedMission) {
-                    try {
-                        const timeRangeParams = get_map_time_range_params();
-                        downloadMissionKML(selectedMission, timeRangeParams);
-                    } catch (error) {
-                        displayErrorMessage(error.message);
-                    }
-                } else {
+                if (!selectedMission || selectedMission === '') {
                     displayErrorMessage('Please select a mission');
+                    return;
+                }
+                if (selectedMission === 'all') {
+                    displayErrorMessage('Multi-mission KML export is not available as a static download. Use "Live KML" to export all active missions.');
+                    return;
+                }
+                try {
+                    const timeRangeParams = get_map_time_range_params();
+                    downloadMissionKML(selectedMission, timeRangeParams);
+                } catch (error) {
+                    displayErrorMessage(error.message);
                 }
             });
         }
