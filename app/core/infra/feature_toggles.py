@@ -20,9 +20,7 @@ def _get_cached_feature_context() -> Dict[str, Any]:
     context = {
         "features": features,
         # Individual feature flags for direct template access
-        "is_schedule_enabled": features.get("schedule", False),
         "is_pic_management_enabled": features.get("pic_management", False),
-        "is_payroll_enabled": features.get("payroll", False),
         "is_admin_management_enabled": features.get("admin_management", False),
         "is_station_offloads_enabled": features.get("station_offloads", False),
         "is_vm4_offload_parser_enabled": features.get("vm4_offload_parser", False),
@@ -43,12 +41,9 @@ def _get_cached_feature_context() -> Dict[str, Any]:
         "disabled_features": [name for name, enabled in features.items() if not enabled],
         "has_admin_features": any([
             features.get("admin_management", False),
-            features.get("payroll", False),  # Admin can manage pay periods
         ]),
         "has_user_features": any([
-            features.get("schedule", False),
             features.get("pic_management", False),
-            features.get("payroll", False),
             features.get("forms", False),
         ]),
         "feature_count": len([enabled for enabled in features.values() if enabled]),

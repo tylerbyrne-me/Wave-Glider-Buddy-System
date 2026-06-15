@@ -4,7 +4,7 @@ SQLAdmin configuration and setup.
 This module configures SQLAdmin for database administration.
 SQLAdmin provides a powerful admin interface for SQLAlchemy/SQLModel models.
 
-FOCUS: Core operational models - Users, Stations, Missions, Timesheets, Payroll
+FOCUS: Core operational models - Users, Stations, Missions
 """
 
 import logging
@@ -31,22 +31,18 @@ from app.core.models.database import (
     MissionOverview,
     MissionSensor,
     OffloadLog,
-    PayPeriod,
     SensorTrackerDeployment,
     SensorTrackerOutbox,
     SharedTip,
-    ShiftAssignment,
     StationArrayGroup,
     StationHardwareHistory,
     StationMetadata,
     StationMetadataSeasonSnapshot,
     SubmittedForm,
-    Timesheet,
     TipComment,
     TipContribution,
     UserInDB,
     UserNote,
-    UserUnavailability,
 )
 
 logger = logging.getLogger(__name__)
@@ -256,53 +252,6 @@ class MissionNoteAdmin(ModelView, model=MissionNote):
     icon = "fa fa-sticky-note"
 
 
-class ShiftAssignmentAdmin(ModelView, model=ShiftAssignment):
-    """Admin view for Shift Assignments."""
-    column_list = [
-        ShiftAssignment.id,
-        ShiftAssignment.user_id,
-        ShiftAssignment.start_time_utc,
-        ShiftAssignment.end_time_utc,
-        ShiftAssignment.resource_id,
-    ]
-    column_sortable_list = [ShiftAssignment.start_time_utc, ShiftAssignment.user_id]
-    name = "Shift Assignment"
-    name_plural = "Shift Assignments"
-    icon = "fa fa-clock"
-
-
-class PayPeriodAdmin(ModelView, model=PayPeriod):
-    """Admin view for Pay Periods."""
-    column_list = [
-        PayPeriod.id,
-        PayPeriod.name,
-        PayPeriod.start_date,
-        PayPeriod.end_date,
-        PayPeriod.status,
-    ]
-    column_sortable_list = [PayPeriod.start_date, PayPeriod.status]
-    name = "Pay Period"
-    name_plural = "Pay Periods"
-    icon = "fa fa-calendar-check"
-
-
-class TimesheetAdmin(ModelView, model=Timesheet):
-    """Admin view for Timesheets."""
-    column_list = [
-        Timesheet.id,
-        Timesheet.user_id,
-        Timesheet.pay_period_id,
-        Timesheet.calculated_hours,
-        Timesheet.adjusted_hours,
-        Timesheet.status,
-        Timesheet.submission_timestamp,
-    ]
-    column_sortable_list = [Timesheet.submission_timestamp, Timesheet.status]
-    name = "Timesheet"
-    name_plural = "Timesheets"
-    icon = "fa fa-file-text"
-
-
 class AnnouncementAdmin(ModelView, model=Announcement):
     """Admin view for Announcements."""
     column_list = [
@@ -432,21 +381,6 @@ class UserNoteAdmin(ModelView, model=UserNote):
     icon = "fa fa-sticky-note"
 
 
-class UserUnavailabilityAdmin(ModelView, model=UserUnavailability):
-    """Admin view for User Unavailability."""
-    column_list = [
-        UserUnavailability.id,
-        UserUnavailability.user_id,
-        UserUnavailability.start_time_utc,
-        UserUnavailability.end_time_utc,
-        UserUnavailability.reason,
-    ]
-    column_sortable_list = [UserUnavailability.start_time_utc, UserUnavailability.user_id]
-    name = "User Unavailability"
-    name_plural = "User Unavailability"
-    icon = "fa fa-calendar-times"
-
-
 class SubmittedFormAdmin(ModelView, model=SubmittedForm):
     """Admin view for Submitted Forms."""
     column_list = [
@@ -525,7 +459,6 @@ def setup_sqladmin(app: FastAPI):
     - User management
     - Station operations
     - Mission operations
-    - Timesheets and payroll
     - Sensor tracker integration
     
     Content/knowledge models are handled by FastAPI-Admin to avoid duplication.
@@ -561,10 +494,6 @@ def setup_sqladmin(app: FastAPI):
         admin.add_view(MissionMediaAdmin)
         admin.add_view(MissionGoalAdmin)
         admin.add_view(MissionNoteAdmin)
-        admin.add_view(ShiftAssignmentAdmin)
-        admin.add_view(PayPeriodAdmin)
-        admin.add_view(TimesheetAdmin)
-        admin.add_view(UserUnavailabilityAdmin)
         admin.add_view(SubmittedFormAdmin)
         admin.add_view(MissionInstrumentAdmin)
         admin.add_view(MissionSensorAdmin)

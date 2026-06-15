@@ -12,8 +12,6 @@ from sqlmodel import Relationship, SQLModel
 
 from .enums import (
     UserRoleEnum,
-    PayPeriodStatusEnum,
-    TimesheetStatusEnum,
 )
 
 if TYPE_CHECKING:
@@ -54,11 +52,6 @@ class UserInDB(SQLModel, table=True):
         sa_column=Column(Text),
         description="Personal Sensor Tracker API token for admin sync actions.",
     )
-
-    # Relationships
-    shift_assignments: List["ShiftAssignment"] = Relationship(back_populates="user")
-    unavailabilities: List["UserUnavailability"] = Relationship(back_populates="user")
-    timesheets: List["Timesheet"] = Relationship(back_populates="user")
 
 
 # --- Station Metadata Database Model ---
@@ -423,73 +416,6 @@ class SubmittedForm(SQLModel, table=True):
 
     submitted_by_username: str = SQLModelField(index=True, description="Username of the user who submitted the form.")
     submission_timestamp: datetime = SQLModelField(description="UTC timestamp when the form was submitted.")
-
-
-# --- User Unavailability Database Model ---
-class UserUnavailability(SQLModel, table=True):
-    """User unavailability database table."""
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    user_id: int = SQLModelField(foreign_key="users.id")
-    start_time_utc: datetime
-    end_time_utc: datetime
-    reason: Optional[str] = None
-    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-
-    user: Optional["UserInDB"] = Relationship(back_populates="unavailabilities")
-
-
-# --- Shift Assignment Database Model ---
-class ShiftAssignment(SQLModel, table=True):
-    """Shift assignment database table."""
-    __tablename__ = "shift_assignments"
-
-    id: Optional[int] = SQLModelField(default=None, primary_key=True, description="Unique database ID for the shift assignment.")
-    user_id: int = SQLModelField(foreign_key="users.id", index=True, description="ID of the user assigned to this shift.")
-    start_time_utc: datetime = SQLModelField(index=True, description="UTC start time of the shift.")
-    end_time_utc: datetime = SQLModelField(index=True, description="UTC end time of the shift.")
-    resource_id: str = SQLModelField(index=True, description="Resource identifier for the shift (e.g., day of week, specific date/time slot).")
-
-    # Relationship to User
-    user: Optional["UserInDB"] = Relationship(back_populates="shift_assignments")
-
-    created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-
-
-# --- Pay Period Database Model ---
-class PayPeriod(SQLModel, table=True):
-    """Pay period database table."""
-    __tablename__ = "pay_periods"
-    
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    name: str = SQLModelField(index=True, description="Name of the pay period (e.g., 'June 1-15, 2025').")
-    start_date: date = SQLModelField(description="Start date of the pay period.")
-    end_date: date = SQLModelField(description="End date of the pay period.")
-    status: PayPeriodStatusEnum = SQLModelField(default=PayPeriodStatusEnum.OPEN, description="Status of the pay period.")
-    created_at: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-
-    timesheets: List["Timesheet"] = Relationship(back_populates="pay_period")
-
-
-# --- Timesheet Database Model ---
-class Timesheet(SQLModel, table=True):
-    """Timesheet database table."""
-    __tablename__ = "timesheets"
-    
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    user_id: int = SQLModelField(foreign_key="users.id", index=True)
-    pay_period_id: int = SQLModelField(foreign_key="pay_periods.id", index=True)
-    
-    calculated_hours: float = SQLModelField(description="Total hours calculated from shifts for the period.")
-    adjusted_hours: Optional[float] = SQLModelField(default=None, description="Admin-adjusted hours, overrides calculated_hours if set.")
-    notes: Optional[str] = SQLModelField(default=None, description="Optional notes from the pilot.")
-    reviewer_notes: Optional[str] = SQLModelField(default=None, description="Notes added by the administrator during review.")
-    status: TimesheetStatusEnum = SQLModelField(default=TimesheetStatusEnum.SUBMITTED)
-    submission_timestamp: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-    is_active: bool = SQLModelField(default=True, index=True, description="Indicates if this is the most recent submission for this user/period.")
-    
-    # Relationships
-    user: "UserInDB" = Relationship(back_populates="timesheets")
-    pay_period: "PayPeriod" = Relationship(back_populates="timesheets")
 
 
 # --- Mission Overview Database Model ---

@@ -66,7 +66,6 @@ from fastapi import (  # Added status
 )
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse  # type: ignore
-from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from fastapi.security import OAuth2PasswordRequestForm  # type: ignore
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -81,7 +80,6 @@ from sqlmodel import Field, Relationship # Add for new models
 
 import csv  # For CSV generation
 import io  # For CSV and ICS generation
-import ics  # For ICS file generation
 
 from .core import auth  # Import the auth module itself for its functions
 # Specific user-related functions will be called via auth.func_name(session, ...)
@@ -104,11 +102,9 @@ from .core.infra.scheduler import set_scheduler
 from .core.infra.startup_leader import try_acquire_startup_leader, is_startup_leader
 from .forms.form_definitions import get_static_form_schema # Import the new function
 from .routers import station_metadata, auth as auth_router
-from .routers import schedule as schedule_router
 from .routers import forms as forms_router
 from .routers import announcements as announcements_router
 from .routers import missions as missions_router
-from .routers import payroll as payroll_router
 from .routers import home as home_router
 from .routers import reporting as reporting_router
 from .routers import admin as admin_router
@@ -210,21 +206,6 @@ async def healthz():
     return {"status": "ok", "leader": is_startup_leader()}
 
 
-# --- Email Configuration ---
-conf = ConnectionConfig(
-    MAIL_USERNAME=settings.MAIL_USERNAME,
-    MAIL_PASSWORD=settings.MAIL_PASSWORD,
-    MAIL_FROM=settings.MAIL_FROM,
-    MAIL_PORT=settings.MAIL_PORT,
-    MAIL_SERVER=settings.MAIL_SERVER,
-    MAIL_STARTTLS=settings.MAIL_STARTTLS,
-    MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
-    USE_CREDENTIALS=True,
-    TEMPLATE_FOLDER=Path(__file__).resolve().parent.parent / "web" / "templates" / "email"
-)
-
-
-
 # --- Robust path to templates directory ---
 # Get the directory of the current file (app.py)
 APP_DIR = Path(__file__).resolve().parent
@@ -251,11 +232,9 @@ app.mount(
 app.include_router(
     auth_router.router
 )
-app.include_router(schedule_router.router)
 app.include_router(forms_router.router)
 app.include_router(announcements_router.router)
 app.include_router(missions_router.router)
-app.include_router(payroll_router.router)
 app.include_router(home_router.router)
 app.include_router(reporting_router.router)
 app.include_router(admin_router.router)
@@ -707,15 +686,6 @@ def _initialize_database_and_users():
                     "color": auth.USER_COLORS[(default_user_color_idx + 2) % len(auth.USER_COLORS)],
                     "disabled": False,
                 },
-                {
-                    "username": settings.default_lri_pilot_username, # Special user for LRI-blocked shifts
-                    "full_name": "LRI Piloting Block",
-                    "email": settings.default_lri_pilot_email,
-                    "password": settings.default_lri_pilot_password, # Password doesn't matter as user is disabled
-                    "role": models.UserRoleEnum.pilot, # Can be pilot or a new 'lri' role if needed
-                    "color": "#ADD8E6", # Light Blue for LRI blocks
-                    "disabled": True, # LRI_PILOT cannot log in
-                },
             ]
 
             # Check for each default user and create if missing
@@ -724,8 +694,7 @@ def _initialize_database_and_users():
                 username = user_data_dict["username"]
                 password = user_data_dict["password"]
                 
-                # Skip LRI_PILOT password check since it's disabled anyway
-                if username != settings.default_lri_pilot_username and not password:
+                if not password:
                     logger.warning(
                         f"SECURITY WARNING: Password for default user '{username}' not set in .env. "
                         f"Skipping creation of this user. Set DEFAULT_{username.upper()}_PASSWORD in .env file."
@@ -1454,7 +1423,7 @@ async def startup_event():
     # Setup admin interfaces
     try:
         # Setup SQLAdmin (doesn't require Redis)
-        # Focus: Core operational models (Users, Stations, Missions, Timesheets, etc.)
+        # Focus: Core operational models (Users, Stations, Missions, etc.)
         # Pass the app instance as SQLAdmin requires it for initialization
         setup_sqladmin(app)
         from .config import settings as _settings
@@ -1983,19 +1952,9 @@ async def _process_loaded_data_for_home_view(
 
 
 
-# --- Schedule ---
-# (All schedule-related endpoints, helpers, and DayPilot references have been moved to app/routers/schedule.py and are now removed from this file.)
-# ... existing code ...
 
 
 
-
-
-
-
-# --- Payroll and Timesheet Endpoints ---
-# (All payroll, timesheet, pay period, and related HTML endpoints have been moved to app/routers/payroll.py and are now removed from this file.)
-# ... existing code ...
 
 
 

@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     )
     sqlite_echo_log: bool = False  # Add this line, set to True for SQL logging
 
-    # --- Email Settings for Timesheet Notifications ---
+    # --- Email Settings (optional; retained for future notification features) ---
     # SECURITY: All email settings MUST be configured in .env file
     # These defaults are placeholders and will cause email functionality to fail if not overridden
     MAIL_USERNAME: Optional[str] = None
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
-    feature_toggles_json: str = '{"schedule": true, "pic_management": true, "payroll": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true}'
+    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -120,9 +120,6 @@ class Settings(BaseSettings):
     default_pilot_rt_username: str = "pilot_rt_only"
     default_pilot_rt_password: Optional[str] = None  # MUST be set in .env
     default_pilot_rt_email: str = "pilot_rt@example.com"
-    default_lri_pilot_username: str = "LRI_PILOT"
-    default_lri_pilot_password: Optional[str] = None  # Password doesn't matter (user is disabled), but set in .env for consistency
-    default_lri_pilot_email: str = "lri@example.com"
 
     # --- Mission Media Settings ---
     mission_media_root_path: str = "web/static/mission_media"

@@ -12,8 +12,6 @@ from .enums import (
     SourceEnum,
     UserRoleEnum,
     FormItemTypeEnum,
-    PayPeriodStatusEnum,
-    TimesheetStatusEnum,
     JobStatusEnum,
 )
 from .database import (
@@ -154,7 +152,7 @@ class UserBase(BaseModel):
     username: str = Field(description="Unique username for the user.")
     email: Optional[str] = Field(None, description="Email address of the user.")
     full_name: Optional[str] = Field(None, description="Full name of the user.")
-    color: Optional[str] = Field(default=None, description="User's assigned color for UI elements like schedule shifts.")
+    color: Optional[str] = Field(default=None, description="User's assigned color for UI elements.")
     role: UserRoleEnum = Field(UserRoleEnum.pilot, description="Role of the user, determines access permissions.")
 
 
@@ -564,156 +562,6 @@ class MissionFormDataResponse(MissionFormDataCreate):
 
 
 # ============================================================================
-# Schedule Event Models
-# ============================================================================
-
-class ScheduleEvent(SQLModel):
-    """Schedule event model."""
-    id: str
-    text: str
-    start: datetime
-    end: datetime
-    resource: str
-    backColor: Optional[str] = None
-    type: str = "shift"  # Add a type field, default to "shift"
-    user_role: Optional[UserRoleEnum] = None  # Add user role for styling unavailability
-    user_color: Optional[str] = None  # Add user color for styling unavailability
-    editable: bool = True  # Add editable flag for frontend
-    startEditable: bool = True
-    durationEditable: bool = True
-    resourceEditable: bool = True
-    overlap: bool = False  # Shifts should not overlap with other shifts or unavailability
-    display: str = "auto"  # 'auto' for shifts, 'background' for unavailability
-    groupId: Optional[str] = None  # For grouping events visually (e.g., consecutive LRI blocks)
-    allDay: bool = False  # Add allDay property
-    
-    # Enhanced consecutive shift support
-    consecutive_shifts: Optional[int] = 0  # Number of consecutive shifts
-    is_first_in_sequence: Optional[bool] = True  # Is this the first shift in a sequence
-    is_last_in_sequence: Optional[bool] = True   # Is this the last shift in a sequence
-    total_sequence_length: Optional[int] = 1     # Total length of the shift sequence
-
-
-class ScheduleEventCreate(BaseModel):
-    """Model for creating schedule events."""
-    start: str  # Expect ISO string from client
-    end: str    # Expect ISO string from client
-    resource: str
-    text: Optional[str] = None   # Text is now optional, will be filled by backend
-    id: Optional[str] = None  # Client might send an ID, or backend generates
-
-
-class LRIBlockCreate(BaseModel):
-    """Model for creating LRI blocks."""
-    start_date: date  # Expect YYYY-MM-DD from client
-    end_date: date    # Expect YYYY-MM-DD from client
-    reason: Optional[str] = None  # Optional reason for the block
-
-
-class UserUnavailabilityBase(SQLModel):
-    """Base model for user unavailability."""
-    start_time_utc: datetime
-    end_time_utc: datetime
-    reason: Optional[str] = None
-
-
-class UserUnavailabilityCreate(BaseModel):
-    """Model for creating user unavailability."""
-    start_time_utc: datetime
-    end_time_utc: datetime
-    reason: Optional[str] = None
-
-
-class UserUnavailabilityResponse(BaseModel):
-    """Response model for user unavailability."""
-    id: int
-    user_id: int
-    start_time_utc: datetime
-    end_time_utc: datetime
-    reason: Optional[str] = None
-    username: str  # For frontend display
-    user_role: UserRoleEnum  # For frontend coloring
-    user_color: str  # For frontend coloring
-    created_at_utc: datetime
-
-
-# ============================================================================
-# PIC Handoff Model
-# ============================================================================
-
-class PicHandoffLinkInfo(BaseModel):
-    """Model for PIC handoff link information."""
-    form_db_id: int  # The database ID of the SubmittedForm
-    mission_id: str
-    form_title: str  # Should typically be "PIC Handoff Checklist" or similar
-    submitted_by_username: str
-    submission_timestamp: datetime
-
-
-# ============================================================================
-# Pay Period and Timesheet Models
-# ============================================================================
-
-class PayPeriodCreate(BaseModel):
-    """Model for creating a pay period."""
-    name: str
-    start_date: date
-    end_date: date
-
-
-class PayPeriodUpdate(SQLModel):
-    """Model for updating a pay period."""
-    name: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    status: Optional[PayPeriodStatusEnum] = None
-
-
-class MonthlyChartData(BaseModel):
-    """Model for monthly chart data."""
-    pilot_name: str
-    total_hours: float
-
-
-class TimesheetCreate(BaseModel):
-    """Model for creating a timesheet."""
-    pay_period_id: int
-    calculated_hours: float
-    notes: Optional[str] = None
-
-
-class TimesheetUpdate(BaseModel):
-    """Model for updating a timesheet."""
-    status: Optional[TimesheetStatusEnum] = None
-    adjusted_hours: Optional[float] = None
-    reviewer_notes: Optional[str] = None
-
-
-class TimesheetStatusForUser(BaseModel):
-    """Model for timesheet status for a user."""
-    pay_period_name: str
-    status: TimesheetStatusEnum
-    reviewer_notes: Optional[str] = None
-    submission_timestamp: datetime
-
-
-class TimesheetRead(BaseModel):
-    """Model for reading a timesheet."""
-    id: int
-    user_id: int
-    username: str  # For display
-    pay_period_id: int
-    pay_period_name: str  # For display
-    calculated_hours: float
-    adjusted_hours: Optional[float]
-    notes: Optional[str]
-    reviewer_notes: Optional[str]  # For display
-    status: TimesheetStatusEnum
-    submission_timestamp: datetime
-    is_active: bool
-
-
-# ============================================================================
 # Mission Info Models
 # ============================================================================
 
@@ -879,19 +727,6 @@ class AnnouncementReadWithAcks(AnnouncementRead):
 # ============================================================================
 # Home Page Panel Models
 # ============================================================================
-
-class UpcomingShift(SQLModel):
-    """Model for upcoming shift information."""
-    mission_id: str
-    start_time_utc: datetime
-    end_time_utc: datetime
-
-
-class MyTimesheetStatus(SQLModel):
-    """Model for user's timesheet status."""
-    current_period_status: str
-    hours_this_period: float
-
 
 class MissionGoalToggle(BaseModel):
     """Model for toggling mission goal completion."""

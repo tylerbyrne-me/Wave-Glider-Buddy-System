@@ -49,7 +49,7 @@ def require_feature_dep(feature_name: str):
     FastAPI dependency-style guard to require a feature for routes/handlers.
 
     Usage:
-        @router.get("/payroll", dependencies=[Depends(require_feature_dep("payroll"))])
+        @router.get("/forms", dependencies=[Depends(require_feature_dep("forms"))])
     """
     def _dependency():
         if not is_feature_enabled(feature_name):

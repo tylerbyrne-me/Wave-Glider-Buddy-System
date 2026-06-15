@@ -226,18 +226,12 @@ document.addEventListener('DOMContentLoaded', async function () { // Made async 
             picManagementDropdown.style.display = (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin') ? 'block' : 'none';
         }
 
-        // Payroll Dropdown
-        const payrollDropdown = document.getElementById('payrollDropdown');
-        if (payrollDropdown) {
-            payrollDropdown.style.display = (currentUserForBanner.role === 'pilot' || currentUserForBanner.role === 'admin') ? 'block' : 'none';
-        }
     } else { // No user logged in, ensure role-specific buttons are hidden
         if (viewFormsBtnBanner) viewFormsBtnBanner.style.display = 'none';
         if (registerUserBtnBanner) registerUserBtnBanner.style.display = 'none';
         if (userManagementBtnBanner) userManagementBtnBanner.style.display = 'none';
         if (document.getElementById('adminManagementDropdown')) document.getElementById('adminManagementDropdown').style.display = 'none';
         if (document.getElementById('picManagementDropdown')) document.getElementById('picManagementDropdown').style.display = 'none';
-        if (document.getElementById('payrollDropdown')) document.getElementById('payrollDropdown').style.display = 'none';
     }
 
     // --- Populate Active Mission Selector in Banner (if present on the page) ---

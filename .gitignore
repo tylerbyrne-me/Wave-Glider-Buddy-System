@@ -42,7 +42,8 @@ __pycache__/
 *.env.*
 !*.env.example
 !.env.template
-*.md 
+*.md
+!README.md
 
 # OS generated files #
 ######################
@@ -93,3 +94,6 @@ secrets/
 
 .cursor
 .vscode
+
+**/archive/
+**/output/m*/

@@ -137,7 +137,6 @@ def get_admin_template_context(**kwargs) -> Dict[str, Any]:
         "is_admin_page": True,
         "admin_features": {
             "user_management": context.get("is_admin_management_enabled", False),
-            "payroll_management": context.get("is_payroll_enabled", False),
             "announcements": context.get("is_admin_management_enabled", False),
             "mission_overviews": context.get("is_admin_management_enabled", False),
             "scheduler_status": context.get("is_admin_management_enabled", False),
@@ -164,9 +163,7 @@ def get_user_template_context(**kwargs) -> Dict[str, Any]:
     context.update({
         "is_user_page": True,
         "user_features": {
-            "schedule": context.get("is_schedule_enabled", False),
             "pic_management": context.get("is_pic_management_enabled", False),
-            "payroll": context.get("is_payroll_enabled", False),
             "forms": context.get("is_forms_enabled", False),
             "station_offloads": context.get("is_station_offloads_enabled", False),
         }

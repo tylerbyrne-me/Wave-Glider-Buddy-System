@@ -43,17 +43,6 @@ class FormItemTypeEnum(str, Enum):
     SENSOR_STATUS = "sensor_status"  # Science sensor: last data time + On/Off toggle
 
 
-class PayPeriodStatusEnum(str, Enum):
-    OPEN = "open"
-    CLOSED = "closed"
-
-
-class TimesheetStatusEnum(str, Enum):
-    SUBMITTED = "submitted"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
 class JobStatusEnum(str, Enum):
     OK = "ok"
     OVERDUE = "overdue"

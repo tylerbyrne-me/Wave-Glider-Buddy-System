@@ -203,45 +203,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    const loadUpcomingShifts = async () => {
-        const content = document.getElementById('upcomingShiftsContent');
-        try {
-            const shifts = await apiRequest('/api/schedule/my-upcoming-shifts', 'GET');
-            if (shifts.length > 0) {
-                content.innerHTML = '<ul class="list-group list-group-flush">' + shifts.map(s => `
-                    <li class="list-group-item">
-                        <strong>Mission ${s.mission_id}</strong><br>
-                        <small>${formatUtcDateTime(s.start_time_utc)} - ${formatUtcDateTime(s.end_time_utc)}</small>
-                    </li>
-                `).join('') + '</ul>';
-            } else {
-                content.innerHTML = '<p class="text-muted p-2">You have no upcoming shifts.</p>';
-            }
-        } catch (error) {
-            content.innerHTML = '<p class="text-danger p-2">Could not load shifts.</p>';
-        }
-    };
-
-    const loadTimesheetStatus = async () => {
-        const content = document.getElementById('timesheetStatusContent');
-        try {
-            const status = await apiRequest('/api/timesheets/my-timesheet-status', 'GET');
-            content.innerHTML = `
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Current Period
-                        <span class="badge bg-primary rounded-pill">${status.current_period_status}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Hours Logged
-                        <span>${status.hours_this_period.toFixed(2)}</span>
-                    </li>
-                </ul>`;
-        } catch (error) {
-            content.innerHTML = '<p class="text-danger p-2">Could not load timesheet status.</p>';
-        }
-    };
-
     // --- MISSION GOAL AND NOTE LOGIC ---
 
     const getMissionContext = (element) => {
@@ -971,12 +932,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const initializePage = () => {
         // Load sidebar and announcement data
         loadAnnouncements();
-        if (FEAT.schedule) {
-            loadUpcomingShifts();
-        }
-        if (FEAT.payroll) {
-            loadTimesheetStatus();
-        }
 
         // Add vehicle names to each mission card
         document.querySelectorAll('.mission-info-section').forEach(missionSection => {

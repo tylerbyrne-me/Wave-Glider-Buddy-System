@@ -117,11 +117,6 @@
           </li>
           {% endif %}
           {% endif %}
-          {% if features.schedule %}
-          <li class="nav-item me-3"> {# Added me-3 for spacing #}
-            <a class="nav-link" href="/schedule.html">Schedule</a>
-          </li>
-          {% endif %}
           {% if platform == 'wave_glider' and features.wave_glider_knowledge_base %}
           <li class="nav-item dropdown me-3">
             <a class="nav-link dropdown-toggle" href="#" id="knowledgeBaseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -153,17 +148,6 @@
             <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
           </li>
           {% endif %}
-          {% if features.payroll %}
-          <li class="nav-item dropdown me-3" id="payrollDropdown" style="display: none;">
-            <a class="nav-link dropdown-toggle" href="#" id="payrollDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Payroll
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="payrollDropdownLink">
-              <li><a class="dropdown-item" href="/payroll/submit.html">Submit Timesheet</a></li>
-              <li><a class="dropdown-item" href="/payroll/my_timesheets.html">My Timesheets</a></li>
-            </ul>
-          </li>
-          {% endif %}
           {% if features.pic_management %}
           <li class="nav-item dropdown me-3" id="picManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
             <a class="nav-link dropdown-toggle" href="#" id="picManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -185,8 +169,6 @@
               <li><a class="dropdown-item" href="/admin/announcements.html">Manage Announcements</a></li>
               <li><a class="dropdown-item" href="/admin/mission_overviews.html">Manage Mission Overviews</a></li>
               <li><a class="dropdown-item" href="/admin/user_management.html">User Management</a></li>
-              <li><a class="dropdown-item" href="/admin/pay_periods.html">Manage Pay Periods</a></li>
-              <li><a class="dropdown-item" href="/admin/timesheets.html">View Submitted Timesheets</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="/api/admin/scheduler_status.html">Scheduler Status</a></li>
             </ul>
