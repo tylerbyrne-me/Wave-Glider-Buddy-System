@@ -1415,6 +1415,17 @@ async def run_weekly_reports_job():
     logger.info("AUTOMATED: Weekly report generation job finished for %s missions.", len(active_missions))
 
 
+async def run_weather_map_prefetch_job():
+    """Scheduled job to prefetch Open-Meteo weather map cache for the home-page wind overlay."""
+    logger.info("AUTOMATED: Prefetching Open-Meteo weather map cache...")
+    try:
+        from .core.geo.weather_map_cache import prefetch_union_bbox_cache
+        summary = await prefetch_union_bbox_cache()
+        logger.info("AUTOMATED: Weather map prefetch finished: %s", summary)
+    except Exception as exc:
+        logger.error("AUTOMATED: Weather map prefetch failed: %s", exc, exc_info=True)
+
+
 # --- FastAPI Lifecycle Events for Scheduler ---
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
@@ -1488,6 +1499,18 @@ async def startup_event():
             minute=0,
             timezone='UTC',
             id='weekly_report_job'
+        )
+        scheduler.add_job(
+            run_weather_map_prefetch_job,
+            "cron",
+            hour=settings.weather_map_prefetch_cron_hour,
+            minute=0,
+            timezone="UTC",
+            id="weather_map_prefetch_job",
+        )
+        logger.info(
+            "Weather map prefetch scheduled daily at %02d:00 UTC",
+            settings.weather_map_prefetch_cron_hour,
         )
 
         global _scheduler_started_by_this_worker

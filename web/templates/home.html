@@ -417,6 +417,48 @@
                         </div>
                     </div>
                     {% endif %}
+                    {% if feature_enabled('weather_map_layers') %}
+                    <!-- Wind weather overlay (Open-Meteo raster) -->
+                    <div id="windWeatherSection" class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label small mb-0">Weather Overlays</label>
+                            <a href="https://open-meteo.com/" target="_blank" rel="noopener" class="text-decoration-none small">
+                                <i class="fas fa-external-link-alt"></i> Open-Meteo
+                            </a>
+                        </div>
+                        <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Wind overlay toggle">
+                            <input type="checkbox" class="btn-check" id="windLayerToggle" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="windLayerToggle">
+                                <i class="fas fa-wind"></i> Wind speed (10 m)
+                            </label>
+                        </div>
+                        <small class="text-muted d-block mb-2">Total wind speed from U/V components; direction not shown in this test.</small>
+                        <div class="row g-2 align-items-center mb-2">
+                            <div class="col-md-8">
+                                <label for="windTimeSlider" class="form-label small mb-1">
+                                    Forecast time: <span id="windTimeLabel" class="fw-semibold">Current</span>
+                                </label>
+                                <input type="range" class="form-range" id="windTimeSlider" min="0" max="0" value="0" disabled>
+                                <small class="text-muted">Current conditions through +7 days (3-hourly steps, UTC)</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="windOpacity" class="form-label small mb-1">
+                                    Opacity: <span id="windOpacityValue">70%</span>
+                                </label>
+                                <input type="range" class="form-range" id="windOpacity" min="0" max="100" value="70" disabled>
+                            </div>
+                        </div>
+                        <div id="windLegend" class="d-flex flex-wrap align-items-center gap-2 small text-muted opacity-50">
+                            <span id="windLegendTitle">Legend:</span>
+                            <span id="windLegendBar" class="d-inline-block rounded border" style="width:160px;height:12px;background:linear-gradient(to right,#ccc,#999);"></span>
+                            <span id="windLegendMin" class="fw-semibold">—</span>
+                            <span>low</span>
+                            <span id="windLegendMax" class="fw-semibold">—</span>
+                            <span>high</span>
+                            <span class="ms-2">Wind: Open-Meteo / DWD ICON</span>
+                        </div>
+                    </div>
+                    {% endif %}
                     <!-- Map Container -->
                     <div id="missionMapContainer" style="height: 400px; border: 1px solid #ddd; border-radius: 4px;"></div>
                     
@@ -470,6 +512,9 @@
 {% block body_extra_js %}
   <!-- Include the Showdown library for Markdown rendering in announcements -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+    {% if feature_enabled('weather_map_layers') %}
+    <script src="https://unpkg.com/@openmeteo/weather-map-layer@0.0.19/dist/index.js"></script>
+    {% endif %}
     <script src="/static/js/home.js" type="module"></script>
     <script src="/static/js/map_generator.js" type="module"></script>
 {% endblock %}

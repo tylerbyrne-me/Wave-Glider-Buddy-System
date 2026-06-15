@@ -7,6 +7,20 @@
 
 import { apiRequest, showToast } from '/static/js/api.js';
 import { formatUtcDate } from '/static/js/datetime_utils.js';
+import {
+    bindWindOverlayContext,
+    initWindOverlay,
+    refreshWindLayerIfActive,
+} from '/static/js/weather_map_layer.js';
+
+/** All track polyline layers (Wave Glider + Slocum) for bbox / z-order helpers. */
+function getAllTrackLayers() {
+    return [...missionTracks, ...slocumTracks].map((track) => track.layer).filter(Boolean);
+}
+
+function notifyWindOverlayTracksChanged() {
+    refreshWindLayerIfActive();
+}
 
 let missionMap = null;
 let missionTracks = [];
@@ -112,6 +126,9 @@ function initializeMissionMap() {
             }
         }
     }
+
+    bindWindOverlayContext(missionMap, getAllTrackLayers);
+    initWindOverlay();
 }
 
 /**
@@ -167,6 +184,7 @@ async function loadMissionTrack(missionId, queryParams = { hours_back: '72' }) {
 
         // Update track info
         updateTrackInfo(missionId, data.point_count, data.bounds);
+        notifyWindOverlayTracksChanged();
 
     } catch (error) {
         showToast(`Error loading track for mission ${missionId}: ${error.message}`, 'danger');
@@ -235,6 +253,7 @@ async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back:
 
         // Update track info
         updateMultipleTrackInfo(data.missions);
+        notifyWindOverlayTracksChanged();
 
     } catch (error) {
         showToast(`Error loading tracks: ${error.message}`, 'danger');
@@ -252,6 +271,7 @@ function clearTracks() {
         });
         missionTracks = [];
     }
+    notifyWindOverlayTracksChanged();
 }
 
 /**
@@ -264,6 +284,7 @@ function clearSlocumTracks() {
         });
         slocumTracks = [];
     }
+    notifyWindOverlayTracksChanged();
 }
 
 /**
@@ -314,6 +335,7 @@ async function loadSlocumTrack(datasetId, hoursBack = 72, colorIndex = 0) {
             missionMap.fitBounds(group.getBounds(), { padding: [50, 50] });
         }
         updateSlocumTrackInfo();
+        notifyWindOverlayTracksChanged();
     } catch (error) {
         showToast(`Error loading Slocum track ${datasetId}: ${error.message}`, 'danger');
     }
@@ -346,6 +368,7 @@ function removeSlocumTrack(datasetId) {
     if (missionMap && track.layer) missionMap.removeLayer(track.layer);
     slocumTracks.splice(idx, 1);
     updateSlocumTrackInfo();
+    notifyWindOverlayTracksChanged();
 }
 
 /**

@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
-    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true}'
+    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -91,6 +91,15 @@ class Settings(BaseSettings):
     etopo_erddap_server: str = "https://oceanwatch.pifsc.noaa.gov/erddap"
     etopo_dataset_id: str = "ETOPO_2022_v1_15s"
     etopo_request_timeout: int = 30  # seconds; fetch failures skip contours silently
+
+    # --- Open-Meteo weather map layer cache (home-page wind overlay) ---
+    weather_map_cache_dir: Path = Path("data_store/weather_cache")
+    weather_map_prefetch_enabled: bool = True
+    weather_map_bbox_pad_deg: float = 1.0
+    weather_map_bbox_snap_deg: float = 1.0
+    weather_map_prefetch_horizon_days: int = 7
+    weather_map_prefetch_step_hours: int = 3
+    weather_map_prefetch_cron_hour: int = 7  # UTC
 
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file

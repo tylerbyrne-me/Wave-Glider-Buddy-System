@@ -7,7 +7,7 @@ and generate KML files for Google Maps/Earth export.
 
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
 from fastapi.responses import JSONResponse, Response
 import logging
 import math
@@ -19,6 +19,7 @@ import httpx
 from ..core.auth import get_current_active_user
 from ..core import models
 from ..core.geo.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
+from ..core.geo import weather_map_cache
 from ..core.data.processors import preprocess_telemetry_df, preprocess_slocum_track_df
 from ..core.data.data_service import get_data_service
 from ..core.slocum_erddap_client import fetch_slocum_track, ERDDAP_TIMEOUT
@@ -576,5 +577,85 @@ async def get_multiple_mission_tracks(
             user_id=str(current_user.id) if current_user else None
         )
 
+
+def _require_weather_map_layers() -> None:
+    if not is_feature_enabled("weather_map_layers"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Weather map layers are disabled (feature_toggles.weather_map_layers).",
+        )
+
+
+@router.get("/api/map/weather/manifest")
+async def get_weather_map_manifest(
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Return cached Open-Meteo manifest with union bbox and proxied om URLs."""
+    _require_weather_map_layers()
+    manifest = weather_map_cache.get_cached_manifest()
+    if manifest is None:
+        try:
+            union_bbox = await weather_map_cache.compute_union_mission_bbox()
+            upstream_manifest = await weather_map_cache.fetch_model_manifest_upstream()
+            om_urls = weather_map_cache.resolve_om_urls_for_manifest(upstream_manifest)
+            manifest = weather_map_cache.build_buddy_manifest(
+                upstream_manifest, union_bbox, om_urls
+            )
+            weather_map_cache.write_buddy_manifest(manifest)
+        except Exception as exc:
+            logger.error("Failed to build weather map manifest: %s", exc, exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Unable to load weather map manifest.",
+            ) from exc
+    return JSONResponse(content=manifest)
+
+
+@router.api_route("/api/map/weather/om/{path:path}", methods=["GET", "HEAD"])
+async def proxy_weather_map_om(
+    path: str,
+    request: Request,
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Proxy Open-Meteo .om files through disk cache."""
+    _require_weather_map_layers()
+    range_header = request.headers.get("range")
+    query_string = str(request.url.query)
+    head_only = request.method == "HEAD"
+    try:
+        status_code, body, headers = await weather_map_cache.proxy_open_meteo_request(
+            path, query_string, range_header, head_only=head_only
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail="Upstream weather map request failed.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Weather map upstream unavailable.",
+        ) from exc
+
+    if head_only:
+        if "Content-Length" not in headers and body:
+            headers["Content-Length"] = str(len(body))
+        return Response(content=b"", status_code=status_code, headers=headers)
+
+    return Response(content=body, status_code=status_code, headers=headers)
+
+
+@router.get("/api/map/weather/cache/status")
+async def get_weather_map_cache_status(
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Return weather map disk cache statistics for debugging."""
+    _require_weather_map_layers()
+    return JSONResponse(content=weather_map_cache.get_cache_status())
 
 
