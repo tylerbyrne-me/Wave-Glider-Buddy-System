@@ -394,10 +394,11 @@ def display_cli_forecast(forecast_data_json):
     hourly = forecast_data_json.get("hourly", {})
     times = hourly.get("time", [])
     temps = hourly.get("temperature_2m", [])
-    winds = hourly.get(
-        "windspeed_10m", []
-    )  # Assuming API returns m/s, convert if needed or adjust label
+    winds = hourly.get("windspeed_10m", [])
     precip = hourly.get("precipitation", [])
+    wind_units = forecast_data_json.get("hourly_units", {}).get("windspeed_10m", "kt")
+    if wind_units == "kn":
+        wind_units = "kt"
 
     if not times:
         console.print(
@@ -408,7 +409,7 @@ def display_cli_forecast(forecast_data_json):
     table = Table(title="48-hour Weather Forecast")
     table.add_column("Time")
     table.add_column("Temp (°C)")
-    table.add_column("Wind (m/s)")  # Or convert to kt and change label
+    table.add_column(f"Wind ({wind_units})")
     table.add_column("Precip (mm)")
     display_limit = 48
     for i in range(min(len(times), display_limit)):

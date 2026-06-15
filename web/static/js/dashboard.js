@@ -1997,6 +1997,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
             const hourly = forecastData.hourly;
             const units = forecastData.hourly_units || {}; // Get units from the forecast data
+            const windSpeedUnit = units.windspeed_10m === 'kn' ? 'kt' : (units.windspeed_10m || 'kt');
             const totalHoursAvailable = hourly.time.length;
             const nearestForecastIndex = findNearestTimeIndexUtc(hourly.time);
 
@@ -2007,7 +2008,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                              '<th>Weather</th>' +
                              `<th>Air Temp (${units.temperature_2m || '°C'})</th>` + // Default unit if not provided
                              `<th>Precip (${units.precipitation || 'mm'})</th>` +   // Default unit
-                             `<th>Wind (${units.windspeed_10m || 'm/s'} @ ${units.winddirection_10m || '°'})</th>`; // Default units
+                             `<th>Wind (${windSpeedUnit} @ ${units.winddirection_10m || '°'})</th>`;
                 tableHtml += '</tr></thead>';
                 tableHtml += '<tbody>';
 
@@ -2263,6 +2264,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         const hourly = marineForecastData.hourly;
         const units = marineForecastData.hourly_units || {};
+        const currentSpeedUnit = units.ocean_current_velocity === 'kn' ? 'kt' : (units.ocean_current_velocity || 'kt');
         const totalHoursAvailable = hourly.time.length;
         const nearestForecastIndex = findNearestTimeIndexUtc(hourly.time);
 
@@ -2273,7 +2275,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                          `<th>Wave Ht (${units.wave_height || 'm'})</th>` +
                          `<th>Wave Prd (${units.wave_period || 's'})</th>` +
                          `<th>Wave Dir (${units.wave_direction || '°'})</th>` +
-                         `<th>Current (${units.ocean_current_velocity || 'm/s'} @ ${units.ocean_current_direction || '°'})</th>`;
+                         `<th>Current (${currentSpeedUnit} @ ${units.ocean_current_direction || '°'})</th>`;
             tableHtml += '</tr></thead>';
             tableHtml += '<tbody>';
 

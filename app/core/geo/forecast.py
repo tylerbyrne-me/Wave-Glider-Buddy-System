@@ -70,7 +70,12 @@ async def _fetch_forecast_data(
 async def get_general_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
     """Fetches general weather forecast data. Returns None on error."""
     final_data: Optional[Dict[str, Any]] = None
-    base_api_params = {"latitude": lat, "longitude": lon, "timezone": "GMT"}
+    base_api_params = {
+        "latitude": lat,
+        "longitude": lon,
+        "timezone": "GMT",
+        "wind_speed_unit": "kn",  # knots — matches onboard vehicle wind (kt)
+    }
 
     logger.info(
         f"Attempting to fetch general forecast from: {GENERAL_API_BASE_URL} "
@@ -106,7 +111,12 @@ async def get_general_meteo_forecast(lat: float, lon: float) -> Optional[Dict[st
 async def get_marine_meteo_forecast(lat: float, lon: float) -> Optional[Dict[str, Any]]:
     """Fetches marine-specific forecast data. Returns None on error."""
     final_data: Optional[Dict[str, Any]] = None
-    base_api_params = {"latitude": lat, "longitude": lon, "timezone": "GMT"}
+    base_api_params = {
+        "latitude": lat,
+        "longitude": lon,
+        "timezone": "GMT",
+        "wind_speed_unit": "kn",  # knots — applies to ocean_current_velocity
+    }
 
     logger.info(
         f"Attempting to fetch marine forecast from: {MARINE_API_BASE_URL} "
