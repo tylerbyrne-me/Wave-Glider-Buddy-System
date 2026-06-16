@@ -154,10 +154,22 @@ h5.mt-3 {
 
 .wgbs-navbar-inner {
     position: relative;
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    width: 100%;
     padding-left: var(--banner-padding-x);
     padding-right: var(--banner-padding-x);
+}
+
+/* Override Bootstrap .navbar > .container-fluid horizontal flex */
+.navbar.wgbs-navbar > .container-fluid.wgbs-navbar-inner {
+    display: flex !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
 }
 
 .wgbs-navbar .navbar-top-row {
@@ -167,22 +179,24 @@ h5.mt-3 {
 
 .wgbs-navbar .navbar-brand-wrap {
     padding-left: 0;
-    max-width: calc(100% - 3rem);
-    padding-right: 8rem;
 }
 
 @media (max-width: 991.98px) {
     .wgbs-navbar .navbar-brand-wrap {
-        padding-right: 0;
         max-width: calc(100% - 3rem);
     }
 }
 
 .wgbs-navbar .navbar-title {
-    font-size: clamp(0.85rem, 3.5vw, 1.25rem);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+@media (max-width: 991.98px) {
+    .wgbs-navbar .navbar-title {
+        font-size: clamp(0.85rem, 3.5vw, 1.25rem);
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }
 
 .wgbs-navbar .navbar-logo {
@@ -219,17 +233,14 @@ h5.mt-3 {
     }
 }
 
-/* Desktop: two-row horizontal banner */
+/* Desktop: restore original two-row banner (top row + bottom nav row) */
 @media (min-width: 992px) {
     .wgbs-navbar {
         min-height: var(--banner-height);
+        height: var(--banner-height);
     }
-
     .wgbs-navbar .navbar-collapse {
-        display: flex !important;
-        flex-direction: column;
-        width: 100%;
-        flex-basis: auto;
+        display: contents !important;
     }
 
     .wgbs-navbar .navbar-user-nav {
@@ -240,7 +251,7 @@ h5.mt-3 {
         flex-direction: row;
         align-items: center;
         margin: 0;
-        padding: 0;
+        padding: 0 var(--banner-padding-x) 0 0;
         z-index: 2;
         border-bottom: none;
     }
@@ -249,10 +260,11 @@ h5.mt-3 {
         height: var(--banner-bottom-row-height);
         display: flex;
         align-items: center;
+        width: 100%;
     }
 
     .wgbs-navbar .navbar-main-nav {
-        flex-direction: row;
+        flex-direction: row !important;
         flex-wrap: wrap;
         align-items: center;
         width: 100%;
