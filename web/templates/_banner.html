@@ -1,73 +1,75 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top" style="height: var(--banner-height);">
-  <div class="container-fluid">
-    <div class="d-flex flex-column w-100"> {# New wrapper div to stack rows vertically #}
-      <!-- Top Row -->
-      <div class="navbar-top-row d-flex align-items-center position-relative" style="height: var(--banner-top-row-height);"> {# Added position-relative for absolute positioning #}
-        <div class="d-flex align-items-center" style="padding-left: var(--banner-padding-x);"> {# Left aligned title #}
-          <a class="navbar-brand d-flex align-items-center" href="{% if platform is none %}/platform{% else %}{{ platform_home_url | default('/wave-glider/home') }}{% endif %}" style="padding-top: 0; padding-bottom: 0; margin-right: 0;">
-            <img src="/static/images/wgbs_logo.svg" alt="Wave Glider Buddy System Logo" class="navbar-logo me-2">
-            <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
-          </a>
-        </div>
-        <!-- Centered UTC Clock - positioned absolutely to stay centered -->
-        <div class="position-absolute top-50 start-50 translate-middle">
-          <span id="utcClockBanner" class="navbar-text"></span>
-        </div>
-        <ul class="navbar-nav ms-auto" style="padding-right: var(--banner-padding-x);"> {# Right aligned user dropdown #}
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false"> {# Removed text-align:right, as it's handled by flexbox #}
-              <span id="usernameDisplayBanner">{{ current_user.username if current_user else 'User' }}</span>
-            </a>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-              <li><a class="dropdown-item" href="/user_settings.html">User Settings</a></li>
-              <li>
-                <a class="dropdown-item" href="#" id="permissionsReferenceBtn"
-                   data-bs-toggle="modal" data-bs-target="#permissionsReferenceModal">
-                  Permissions reference
-                </a>
-              </li>
-              <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item" href="#" id="logoutBtnBanner">Logout</a></li>
-              <li><hr class="dropdown-divider"></li>
-              <li>
-                <div class="px-3 py-1">
-                  <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
-                    <label class="form-check-label small" for="themeSwitch">Dark Mode</label>
-                  </div>
-                </div>
-              </li>
-            </ul>
-          </li>
-        </ul>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top wgbs-navbar">
+  <div class="container-fluid wgbs-navbar-inner">
+    <!-- Top Row: brand, clock, toggler (mobile), user menu positioned via CSS on desktop -->
+    <div class="navbar-top-row d-flex align-items-center w-100 position-relative">
+      <div class="d-flex align-items-center navbar-brand-wrap">
+        <a class="navbar-brand d-flex align-items-center" href="{% if platform is none %}/platform{% else %}{{ platform_home_url | default('/wave-glider/home') }}{% endif %}">
+          <img src="/static/images/wgbs_logo.svg" alt="Wave Glider Buddy System Logo" class="navbar-logo me-2">
+          <h3 class="navbar-title mb-0">Wave Glider Buddy System</h3>
+        </a>
       </div>
+      <div class="navbar-clock-wrap position-absolute top-50 start-50 translate-middle d-none d-md-block">
+        <span id="utcClockBanner" class="navbar-text"></span>
+      </div>
+      <button class="navbar-toggler ms-auto d-lg-none" type="button"
+              data-bs-toggle="collapse" data-bs-target="#bannerNavCollapse"
+              aria-controls="bannerNavCollapse" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+    </div>
 
-      <!-- Bottom Row: show when show_banner_nav is true (false only on platform choice /platform). -->
+    <div class="collapse navbar-collapse" id="bannerNavCollapse">
+      <ul class="navbar-nav navbar-user-nav">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span id="usernameDisplayBanner">{{ current_user.username if current_user else 'User' }}</span>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+            <li><a class="dropdown-item" href="/user_settings.html">User Settings</a></li>
+            <li>
+              <a class="dropdown-item" href="#" id="permissionsReferenceBtn"
+                 data-bs-toggle="modal" data-bs-target="#permissionsReferenceModal">
+                Permissions reference
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="#" id="logoutBtnBanner">Logout</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <div class="px-3 py-1">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
+                  <label class="form-check-label small" for="themeSwitch">Dark Mode</label>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </li>
+      </ul>
+
       {% if show_banner_nav | default(true) %}
-      <div class="navbar-bottom-row" style="height: var(--banner-bottom-row-height);">
-        <ul class="navbar-nav d-flex" style="padding-left: var(--banner-padding-x); width:100%;"> {# Removed justify-content-start for individual item control #}
+      <div class="navbar-bottom-row w-100">
+        <ul class="navbar-nav navbar-main-nav">
           {% if platform == 'wave_glider' %}
-          <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="activeMissionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Active Mission Dashboard
             </a>
             <ul class="dropdown-menu" aria-labelledby="activeMissionDashboardDropdown" id="activeMissionSelectorDropdownMenu">
-              <!-- Active mission options populated by JS -->
               <li><a class="dropdown-item" href="/wave-glider">Loading Missions...</a></li>
             </ul>
           </li>
-          <li class="nav-item dropdown me-3"> {# Added me-3 for spacing #}
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="historicalMissionDashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Historical Mission Dashboard
             </a>
             <ul class="dropdown-menu" aria-labelledby="historicalMissionDashboardDropdown" id="historicalMissionSelectorDropdownMenu">
-              <!-- Historical mission options populated by JS -->
               <li><a class="dropdown-item" href="/wave-glider/historical">Loading Missions...</a></li>
             </ul>
           </li>
           {% endif %}
           {% if platform == 'slocum' %}
-          <li class="nav-item dropdown me-3">
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="slocumActiveDatasetDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Active Dataset Dashboard
             </a>
@@ -75,7 +77,7 @@
               <li><a class="dropdown-item" href="/slocum">Loading...</a></li>
             </ul>
           </li>
-          <li class="nav-item dropdown me-3">
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="slocumHistoricalDatasetDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Historical Dataset Dashboard
             </a>
@@ -83,16 +85,16 @@
               <li><a class="dropdown-item" href="/slocum/historical">Loading...</a></li>
             </ul>
           </li>
-          <li class="nav-item me-3">
+          <li class="nav-item me-lg-3">
             <a class="nav-link" href="/slocum/home">Slocum Home</a>
           </li>
           {% if features.slocum_mission_files %}
-          <li class="nav-item me-3">
+          <li class="nav-item me-lg-3">
             <a class="nav-link" href="/slocum/vehicle-params"><i class="fas fa-cog"></i> Vehicle Parameters</a>
           </li>
           {% endif %}
           {% if features.slocum_knowledge_base %}
-          <li class="nav-item dropdown me-3">
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="slocumKnowledgeBaseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-book"></i> Knowledge Base
             </a>
@@ -118,7 +120,7 @@
           {% endif %}
           {% endif %}
           {% if platform == 'wave_glider' and features.wave_glider_knowledge_base %}
-          <li class="nav-item dropdown me-3">
+          <li class="nav-item dropdown me-lg-3">
             <a class="nav-link dropdown-toggle" href="#" id="knowledgeBaseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               <i class="fas fa-book"></i> Knowledge Base
             </a>
@@ -144,12 +146,12 @@
           {% endif %}
           {% if platform == 'wave_glider' and (features.wave_glider_specific_nav | default(true)) %}
           {% if features.station_offloads %}
-          <li class="nav-item me-3"> {# Added me-3 for spacing #}
+          <li class="nav-item me-lg-3">
             <a class="nav-link" href="/view_station_status.html">Station Offloads</a>
           </li>
           {% endif %}
           {% if features.pic_management %}
-          <li class="nav-item dropdown me-3" id="picManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
+          <li class="nav-item dropdown me-lg-3" id="picManagementDropdown" style="display: none;">
             <a class="nav-link dropdown-toggle" href="#" id="picManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               PIC Management
             </a>
@@ -161,7 +163,7 @@
           </li>
           {% endif %}
           {% if features.admin_management %}
-          <li class="nav-item dropdown me-3" id="adminManagementDropdown" style="display: none;"> {# Added me-3 for spacing #}
+          <li class="nav-item dropdown me-lg-3" id="adminManagementDropdown" style="display: none;">
             <a class="nav-link dropdown-toggle" href="#" id="adminManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Admin Management
             </a>
@@ -175,10 +177,9 @@
           </li>
           {% endif %}
           {% endif %}
-          <!-- Auto-refresh toggle, only visible on dashboard page -->
           {% if is_current_mission_realtime %}
-          <li class="nav-item ms-auto me-3"> {# ms-auto pushes this to the right #}
-            <div class="form-check form-switch d-flex align-items-center"> {# Removed float:right #}
+          <li class="nav-item ms-lg-auto me-lg-3">
+            <div class="form-check form-switch d-flex align-items-center py-2 py-lg-0">
               <input class="form-check-input me-2" type="checkbox" role="switch" id="autoRefreshToggleBanner" checked>
               <label class="form-check-label small text-white" for="autoRefreshToggleBanner" title="Enable/disable auto-refresh. Page will refresh when cache updates (every ~10 minutes).">Auto-Refresh <span id="refreshCountdown"></span></label>
             </div>

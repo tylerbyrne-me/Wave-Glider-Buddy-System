@@ -17,8 +17,11 @@ const WIND_META_URL = '/api/map/weather/manifest';
  * components and derives total wind speed (sqrt(u^2 + v^2)) for raster coloring.
  */
 const WIND_REQUEST_VARIABLE = 'wind_u_component_10m';
-/** Color scale key for total wind speed magnitude (m/s). */
+/** Color scale key for total wind speed magnitude (Open-Meteo values are m/s). */
 const WIND_LEGEND_VARIABLE = 'wind';
+/** Display wind legend in knots to match fleet dashboards and forecast APIs. */
+const MPS_TO_KNOTS = 1.9438444924406;
+const WIND_LEGEND_DISPLAY_UNIT = 'kt';
 const WIND_LAYER_MAX_ZOOM = 12;
 const REGION_BBOX_PAD_DEG = 1.0;
 const FALLBACK_BOUNDS = [-78.0, 36.0, -70.0, 44.0];
@@ -95,6 +98,13 @@ function formatLegendValue(value) {
     return value.toFixed(1);
 }
 
+function metersPerSecondToKnots(metersPerSecond) {
+    if (!Number.isFinite(metersPerSecond)) {
+        return metersPerSecond;
+    }
+    return metersPerSecond * MPS_TO_KNOTS;
+}
+
 /**
  * Build legend gradient/min/max from the same color scale the map tiles use.
  * @param {{type: string, breakpoints?: number[], colors?: number[][], min?: number, max?: number, unit?: string}} colorScale
@@ -164,10 +174,10 @@ function updateWindLegend() {
     }
 
     container.classList.remove('opacity-50');
-    titleEl.textContent = legend.unit ? `Legend (${legend.unit}):` : 'Legend:';
+    titleEl.textContent = `Legend (${WIND_LEGEND_DISPLAY_UNIT}):`;
     bar.style.background = legend.gradient;
-    minEl.textContent = formatLegendValue(legend.min);
-    maxEl.textContent = formatLegendValue(legend.max);
+    minEl.textContent = formatLegendValue(metersPerSecondToKnots(legend.min));
+    maxEl.textContent = formatLegendValue(metersPerSecondToKnots(legend.max));
 }
 
 /**

@@ -20,7 +20,7 @@
             <!-- Tabbed Interface for Mission Briefings -->
             {% if active_missions %}
                 <!-- Nav tabs -->
-                <ul class="nav nav-tabs mt-4" id="missionBriefingTabs" role="tablist">
+                <ul class="nav nav-tabs mt-4 mission-briefing-tabs" id="missionBriefingTabs" role="tablist">
                     {% for mission_id in active_missions %}
                     <li class="nav-item" role="presentation">
                         <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ mission_id }}" data-bs-toggle="tab" data-bs-target="#pane-{{ mission_id }}" type="button" role="tab" aria-controls="pane-{{ mission_id }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
@@ -39,7 +39,7 @@
                             <div class="card-body">
                                 <div class="row">
                                     <!-- Left side: Overview and Notes -->
-                                    <div class="col-lg-7">
+                                    <div class="col-12 col-lg-7">
                                         <!-- Mission Overview Section -->
                                         <div class="d-flex justify-content-between align-items-center mb-3">
                                             <h4 class="mb-0">Mission Overview</h4>
@@ -68,17 +68,17 @@
                                             {% if current_user %}
                                             <form class="mission-media-upload-form mb-3">
                                                 <div class="row g-2">
-                                                    <div class="col-md-5">
+                                                    <div class="col-12 col-md-5">
                                                         <input type="file" class="form-control form-control-sm mission-media-file" accept="image/*,video/*" required>
                                                     </div>
-                                                    <div class="col-md-3">
+                                                    <div class="col-12 col-md-3">
                                                         <select class="form-select form-select-sm mission-media-operation">
                                                             <option value="">Operation type</option>
                                                             <option value="deployment">Deployment</option>
                                                             <option value="recovery">Recovery</option>
                                                         </select>
                                                     </div>
-                                                    <div class="col-md-4">
+                                                    <div class="col-12 col-md-4">
                                                         <input type="text" class="form-control form-control-sm mission-media-caption" placeholder="Caption (optional)">
                                                     </div>
                                                 </div>
@@ -256,7 +256,7 @@
                                         </div>
                                     </div>
                                     <!-- Right side: Goals -->
-                                    <div class="col-lg-5">
+                                    <div class="col-12 col-lg-5 mt-4 mt-lg-0">
                                         <div class="d-flex justify-content-between align-items-center mb-3">
                                           <h4 class="mb-0">Mission Goals</h4>
                                           {% if current_user and current_user.role == 'admin' %}
@@ -325,7 +325,7 @@
                      data-default-hours="24">
                     <!-- Map Controls -->
                     <div class="row mb-3">
-                        <div class="col-md-6 mb-2">
+                        <div class="col-12 col-md-6 mb-2">
                             <label for="mapMissionSelect" class="form-label small">Select Mission</label>
                             <select id="mapMissionSelect" class="form-select form-select-sm">
                                 <option value="all" selected>All Active Missions</option>
@@ -334,7 +334,7 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-4 mb-2">
+                        <div class="col-12 col-md-4 mb-2">
                             <label for="mapTimeRangeMode" class="form-label small">Time Range</label>
                             <select id="mapTimeRangeMode" class="form-select form-select-sm mb-2">
                                 <option value="preset" selected>Preset range</option>
@@ -353,7 +353,7 @@
                                 <small class="text-muted d-block mt-1" title="All telemetry timestamps are handled in UTC.">All times are reported and expected in UTC ISO 8601 format (with `Z`).</small>
                             </div>
                         </div>
-                        <div class="col-md-2 mb-2 d-flex align-items-end">
+                        <div class="col-12 col-md-2 mb-2 d-flex align-items-end">
                             <button id="generateMapBtn" class="btn btn-primary btn-sm w-100">Generate Map</button>
                         </div>
                     </div>

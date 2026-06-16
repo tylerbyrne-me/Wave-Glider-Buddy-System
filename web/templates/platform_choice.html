@@ -7,7 +7,7 @@
     <h1 class="text-center mb-4">Choose Platform</h1>
     <p class="text-center text-muted mb-5">Welcome, {{ current_user.full_name or current_user.username }}. Select a platform to continue.</p>
     <div class="row justify-content-center g-4">
-        <div class="col-md-5">
+        <div class="col-12 col-md-5">
             <a href="/wave-glider/home" class="text-decoration-none">
                 <div class="card h-100 shadow-sm border-primary">
                     <div class="card-body text-center py-5">
@@ -19,7 +19,7 @@
             </a>
         </div>
         {% if feature_enabled('slocum_platform') %}
-        <div class="col-md-5">
+        <div class="col-12 col-md-5">
             <a href="/slocum/home" class="text-decoration-none">
                 <div class="card h-100 shadow-sm border-secondary">
                     <div class="card-body text-center py-5">

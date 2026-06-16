@@ -30,10 +30,18 @@
     <style>
         /* Custom CSS variables for banner */
         :root {
-            --banner-height: 110px; /* Total height of the two-row banner, increased for proper spacing */
+            --banner-height: 110px;
             --banner-top-row-height: 50px;
             --banner-bottom-row-height: 50px;
-            --banner-padding-x: 1.5rem; /* Consistent padding for left/right */
+            --banner-padding-x: 1.5rem;
+        }
+        @media (max-width: 991.98px) {
+            :root {
+                --banner-height: 56px;
+                --banner-top-row-height: 56px;
+                --banner-bottom-row-height: 0px;
+                --banner-padding-x: 1rem;
+            }
         }
         html, body { height: 100%; }
         body { /* Increased padding-top to accommodate taller banner and provide spacing */

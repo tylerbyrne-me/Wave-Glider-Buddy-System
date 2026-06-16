@@ -134,50 +134,140 @@ h5.mt-3 {
     padding-bottom: 0.7rem;
 }
 
-/* Fix responsive banner behavior */
-.navbar {
+@media (max-width: 991.98px) {
+  .navbar-dark.bg-dark {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+}
+
+/* Fixed navbar and collapsible banner layout */
+.wgbs-navbar,
+.navbar.fixed-top {
     position: fixed !important;
     top: 0;
     left: 0;
     right: 0;
     z-index: 1030;
-    min-height: var(--banner-height);
+    min-height: var(--banner-top-row-height);
 }
 
-/* Prevent navbar collapse on smaller screens */
-.navbar-collapse {
-    flex-basis: auto !important;
-    flex-grow: 0 !important;
+.wgbs-navbar-inner {
+    position: relative;
+    flex-direction: column;
+    align-items: stretch;
+    padding-left: var(--banner-padding-x);
+    padding-right: var(--banner-padding-x);
 }
 
-/* Ensure navbar items stay in banner area */
-.navbar-nav {
-    flex-direction: row !important;
-    align-items: center;
+.wgbs-navbar .navbar-top-row {
+    height: var(--banner-top-row-height);
+    min-height: var(--banner-top-row-height);
 }
 
-/* Stack banner rows vertically on very small screens */
-@media (max-width: 576px) {
-    .navbar-top-row,
-    .navbar-bottom-row {
-        flex-direction: column;
+.wgbs-navbar .navbar-brand-wrap {
+    padding-left: 0;
+    max-width: calc(100% - 3rem);
+    padding-right: 8rem;
+}
+
+@media (max-width: 991.98px) {
+    .wgbs-navbar .navbar-brand-wrap {
+        padding-right: 0;
+        max-width: calc(100% - 3rem);
+    }
+}
+
+.wgbs-navbar .navbar-title {
+    font-size: clamp(0.85rem, 3.5vw, 1.25rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wgbs-navbar .navbar-logo {
+    flex-shrink: 0;
+}
+
+/* Mobile: collapsed vertical menu */
+@media (max-width: 991.98px) {
+    .wgbs-navbar .navbar-collapse {
+        max-height: calc(100vh - var(--banner-top-row-height));
+        overflow-y: auto;
+        padding-bottom: 0.75rem;
+    }
+
+    .wgbs-navbar .navbar-user-nav {
+        position: static;
         height: auto;
-        min-height: 25px;
-    }
-    
-    .navbar-top-row .d-flex {
-        justify-content: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
         margin-bottom: 0.5rem;
+        padding-bottom: 0.25rem;
     }
-    
-    .navbar-bottom-row .navbar-nav {
+
+    .wgbs-navbar .navbar-main-nav .nav-link {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .wgbs-navbar .navbar-main-nav .dropdown-menu {
+        position: static !important;
+        float: none;
+        border: none;
+        background-color: rgba(255, 255, 255, 0.05);
+        margin-left: 0.5rem;
+    }
+}
+
+/* Desktop: two-row horizontal banner */
+@media (min-width: 992px) {
+    .wgbs-navbar {
+        min-height: var(--banner-height);
+    }
+
+    .wgbs-navbar .navbar-collapse {
+        display: flex !important;
+        flex-direction: column;
+        width: 100%;
+        flex-basis: auto;
+    }
+
+    .wgbs-navbar .navbar-user-nav {
+        position: absolute;
+        top: 0;
+        right: 0;
+        height: var(--banner-top-row-height);
+        flex-direction: row;
+        align-items: center;
+        margin: 0;
+        padding: 0;
+        z-index: 2;
+        border-bottom: none;
+    }
+
+    .wgbs-navbar .navbar-bottom-row {
+        height: var(--banner-bottom-row-height);
+        display: flex;
+        align-items: center;
+    }
+
+    .wgbs-navbar .navbar-main-nav {
+        flex-direction: row;
         flex-wrap: wrap;
-        justify-content: center;
+        align-items: center;
+        width: 100%;
+        padding-left: 0;
     }
-    
-    .navbar-bottom-row .nav-item {
-        margin: 0.25rem;
-    }
+}
+
+/* Login/register: single-row banner only */
+.wgbs-navbar--simple {
+    min-height: var(--banner-top-row-height);
+}
+
+.wgbs-navbar--simple .wgbs-navbar-inner {
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 /* Increase font size for major banner elements by ~10% */
@@ -237,8 +327,13 @@ h5.mt-3 {
 
 html {
   /* Reduce base font size to scale rem and em units accordingly */
-  /* 100% is typically 16px. 16px * 0.67 = ~10.72px. Using % is often smoother. */
   font-size: 67%;
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 85%;
+  }
 }
 
 body {
@@ -621,16 +716,100 @@ footer .text-muted {
 /* Responsive adjustments for smaller screens */
 @media (max-width: 768px) {
   #dashboard-main-content {
-    flex-direction: column; /* Stack panels on smaller screens */
+    flex-direction: column;
   }
 
   #left-nav-panel {
-    height: auto; /* Allow left panel to size to content */
-    max-height: 201px; /* Scaled: 300px * 0.67 = 201px */
-    overflow-y: auto;
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
     border-right: none;
-    border-bottom: 1px solid var(--card-border); /* Separator line when stacked */
-    margin-bottom: 10px; /* Scaled: 15px * 0.67 = 10.05px, rounded */
+    border-bottom: 1px solid var(--card-border);
+    margin-bottom: 10px;
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  #main-display-area {
+    height: auto;
+    min-height: 0;
+    overflow-y: visible;
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  #main-display-area .input-group[style*="width"] {
+    width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: 0.5rem;
+  }
+
+  #main-display-area .d-flex.flex-wrap .input-group {
+    flex: 1 1 100%;
+  }
+}
+
+/* Mobile touch targets and readable controls */
+@media (max-width: 768px) {
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .btn-sm i.fa-trash-alt,
+  .btn-sm i.fa-pencil-alt,
+  .btn-sm i.fa-eye {
+    font-size: 1rem;
+  }
+
+  .form-control,
+  .form-select,
+  .nav-link,
+  .dropdown-item {
+    min-height: 2.25rem;
+  }
+
+  .nav-tabs .nav-link {
+    min-height: auto;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .home-page-header,
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.5rem;
+  }
+
+  .home-page-header .btn,
+  .page-header-row .btn {
+    width: 100%;
+  }
+
+  .mission-briefing-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mission-briefing-tabs .nav-item {
+    flex-shrink: 0;
+  }
+
+  #seasonManagementSection .btn-group,
+  #seasonManagementSection .btn-group-vertical {
+    width: 100%;
+  }
+
+  #seasonManagementSection .btn {
+    width: 100%;
+  }
+
+  .container,
+  .container-fluid {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 }
 
