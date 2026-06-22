@@ -18,7 +18,11 @@ from ..core import models
 from ..core.crud import station_metadata_crud
 from ..core.models import User as UserModel # UserModel alias is used
 from ..core.infra.db import SQLModelSession, get_db_session, sqlite_engine
-from ..services.station_overview import build_status_overview_row
+from ..services.station_overview import (
+    build_status_overview_row,
+    count_stations_by_status_text,
+    resolve_station_status_text_and_color,
+)
 from ..services.station_season_service import StationSeasonService
 from ..services.station_history_service import (
     aggregate_offload_stats,
@@ -1415,13 +1419,6 @@ async def get_array_history(
     )
     logs = list(session.exec(logs_stmt).all())
     hardware = list(session.exec(hw_stmt).all())
-    logs_by_station: Dict[str, List[Any]] = defaultdict(list)
-    for log in logs:
-        logs_by_station[log.station_id].append(log)
-    summaries = [
-        station_mini_summary(st, logs_by_station.get(st.station_id, []))
-        for st in stations
-    ]
     all_logs_unfiltered = list(
         session.exec(
             select(models.OffloadLog)
@@ -1429,6 +1426,24 @@ async def get_array_history(
             .order_by(models.OffloadLog.log_timestamp_utc.desc())
         ).all()
     )
+    logs_by_station: Dict[str, List[Any]] = defaultdict(list)
+    for log in logs:
+        logs_by_station[log.station_id].append(log)
+    all_logs_by_station: Dict[str, List[Any]] = defaultdict(list)
+    for log in all_logs_unfiltered:
+        all_logs_by_station[log.station_id].append(log)
+    latest_swap_by_station = latest_hardware_swap_ts_by_station(hardware)
+    summaries = [
+        station_mini_summary(
+            st,
+            logs_by_station.get(st.station_id, []),
+            awaiting_first_offload_after_swap=is_awaiting_first_offload_after_swap(
+                all_logs_by_station.get(st.station_id, []),
+                latest_swap_by_station.get(st.station_id),
+            ),
+        )
+        for st in stations
+    ]
     return {
         "array_code": code,
         "array_group": (
@@ -1635,6 +1650,21 @@ async def get_station_analytics_overview(
             }
         )
     hw_changes = list(session.exec(select(models.StationHardwareHistory)).all())
+    latest_swap_by_station = latest_hardware_swap_ts_by_station(hw_changes)
+
+    all_logs_by_station: Dict[str, List[models.OffloadLog]] = defaultdict(list)
+    for log in all_logs:
+        all_logs_by_station[log.station_id].append(log)
+    season_logs_by_station: Dict[str, List[models.OffloadLog]] = defaultdict(list)
+    for log in logs:
+        season_logs_by_station[log.station_id].append(log)
+
+    all_flag_events = list(session.exec(select(models.StationFlagEvent)).all())
+    flag_state_by_station = _resolve_station_flag_state(
+        all_flag_events,
+        target_year=target_year,
+        season_is_closed=season_is_closed,
+    )
 
     by_prefix: Dict[str, Dict[str, Any]] = defaultdict(
         lambda: {
@@ -1817,30 +1847,13 @@ async def get_station_analytics_overview(
     )
 
     n_live = len(live_stations)
-    n_offloaded_display = 0
-    n_failed_display = 0
-    for station in live_stations:
-        latest_station_log = latest_log_by_station.get(station.station_id)
-        if latest_station_log is None:
-            continue
-        if latest_station_log.was_offloaded is True:
-            n_offloaded_display += 1
-        elif latest_station_log.was_offloaded is False:
-            n_failed_display += 1
-    n_skipped = sum(
-        1
-        for s in live_stations
-        if s.display_status_override
-        and str(s.display_status_override).upper() == "SKIPPED"
-    )
-    n_awaiting = sum(
-        1
-        for s in live_stations
-        if s.last_offload_timestamp_utc is None
-        and not (
-            s.display_status_override
-            and str(s.display_status_override).upper() == "SKIPPED"
-        )
+    status_counts = count_stations_by_status_text(
+        live_stations,
+        season_logs_by_station=season_logs_by_station,
+        all_logs_by_station=all_logs_by_station,
+        latest_swap_by_station=latest_swap_by_station,
+        is_awaiting_first_offload_after_swap_fn=is_awaiting_first_offload_after_swap,
+        flag_state_by_station=flag_state_by_station,
     )
 
     return {
@@ -1874,13 +1887,23 @@ async def get_station_analytics_overview(
         },
         "live_season_station_counts": {
             "total_stations": n_live,
-            "display_offloaded": n_offloaded_display,
-            "display_failed_offload": n_failed_display,
-            "display_skipped": n_skipped,
-            "display_awaiting_or_other": max(
-                0, n_live - n_offloaded_display - n_failed_display - n_skipped
+            "display_offloaded": status_counts.get("Offloaded", 0),
+            "display_failed_offload": status_counts.get("Failed Offload", 0),
+            "display_skipped": status_counts.get("Skipped", 0),
+            "display_hardware_swapped_awaiting_offload": status_counts.get(
+                "Hardware Swapped - Awaiting Offload", 0
             ),
-            "awaiting_offload_estimate": n_awaiting,
+            "display_awaiting_offload": status_counts.get("Awaiting Offload", 0),
+            "display_awaiting_status": status_counts.get("Awaiting Status", 0),
+            "display_flagged": status_counts.get("Flagged - Needs Review", 0),
+            "by_status": dict(status_counts),
+            "display_awaiting_or_other": (
+                status_counts.get("Awaiting Offload", 0)
+                + status_counts.get("Awaiting Status", 0)
+                + status_counts.get("Hardware Swapped - Awaiting Offload", 0)
+                + status_counts.get("Flagged - Needs Review", 0)
+            ),
+            "awaiting_offload_estimate": status_counts.get("Awaiting Offload", 0),
         },
     }
 

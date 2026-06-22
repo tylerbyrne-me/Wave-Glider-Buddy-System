@@ -6,6 +6,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from .station_overview import resolve_station_status_text_and_color
+
 
 def _aware_ts(dt: Optional[datetime]) -> datetime:
     if dt is None:
@@ -206,8 +208,13 @@ def build_station_timeline(
     return items
 
 
-def station_mini_summary(station: Any, logs: List[Any]) -> Dict[str, Any]:
-    """Per-station row for array overview."""
+def station_mini_summary(
+    station: Any,
+    logs: List[Any],
+    *,
+    awaiting_first_offload_after_swap: bool = False,
+) -> Dict[str, Any]:
+    """Per-station row for array overview and history analytics."""
     sorted_logs = sorted(logs, key=_offload_effective_ts, reverse=True)
     latest = sorted_logs[0] if sorted_logs else None
     last_ts = None
@@ -219,18 +226,11 @@ def station_mini_summary(station: Any, logs: List[Any]) -> Dict[str, Any]:
             or latest.log_timestamp_utc
         )
         last_success = latest.was_offloaded
-    status_text = "Unknown"
-    if (
-        station.display_status_override
-        and str(station.display_status_override).upper() == "SKIPPED"
-    ):
-        status_text = "Skipped"
-    elif station.was_last_offload_successful is True:
-        status_text = "Offloaded"
-    elif station.was_last_offload_successful is False:
-        status_text = "Failed Offload"
-    elif station.last_offload_timestamp_utc is None:
-        status_text = "Awaiting Offload"
+    status_text, _ = resolve_station_status_text_and_color(
+        station,
+        logs,
+        awaiting_first_offload_after_swap=awaiting_first_offload_after_swap,
+    )
     return {
         "station_id": station.station_id,
         "serial_number": station.serial_number,

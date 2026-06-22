@@ -98,7 +98,10 @@ class StationMetadata(SQLModel, table=True):
     display_status_override: Optional[str] = SQLModelField(
         default=None,
         index=True,
-        description="User override for display status, e.g., SKIPPED",
+        description=(
+            "Manual display status override. Canonical values: SKIPPED, OFFLOADED, "
+            "FAILED_OFFLOAD, HARDWARE_SWAPPED_AWAITING_OFFLOAD."
+        ),
     )
     field_season_year: Optional[int] = SQLModelField(
         default=None,

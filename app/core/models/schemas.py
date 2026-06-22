@@ -207,7 +207,11 @@ class StationMetadataCore(BaseModel):
     notes: Optional[str] = Field(None, description="General notes or comments about the station.")
     otn_metadata: Optional[str] = Field(None, description="Station-level OTN metadata notes shared across seasons.")
     display_status_override: Optional[str] = Field(
-        None, description="Manual override for the station's display status (e.g., 'SKIPPED')."
+        None,
+        description=(
+            "Manual override for display status. Use SKIPPED, OFFLOADED, "
+            "FAILED_OFFLOAD, or HARDWARE_SWAPPED_AWAITING_OFFLOAD."
+        ),
     )
 
     @model_validator(mode="after")

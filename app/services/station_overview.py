@@ -2,11 +2,134 @@
 Build station offload status overview rows from live registry + season-filtered logs.
 
 Status priority (lowest to highest): log-derived status, hardware-swap pending,
-display override (Skipped), season flag (Flagged).
+display status override, season flag (Flagged).
 """
 
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+# Canonical override keys stored in display_status_override (CSV/API).
+DISPLAY_STATUS_OVERRIDE_OPTIONS: Tuple[Tuple[str, str], ...] = (
+    ("SKIPPED", "Skipped"),
+    ("OFFLOADED", "Offloaded"),
+    ("FAILED_OFFLOAD", "Failed Offload"),
+    (
+        "HARDWARE_SWAPPED_AWAITING_OFFLOAD",
+        "Hardware Swapped - Awaiting Offload",
+    ),
+)
+
+_DISPLAY_STATUS_OVERRIDE_BY_KEY: Dict[str, Tuple[str, str]] = {
+    "SKIPPED": ("Skipped", "yellow"),
+    "OFFLOADED": ("Offloaded", "green"),
+    "FAILED_OFFLOAD": ("Failed Offload", "red"),
+    "HARDWARE_SWAPPED_AWAITING_OFFLOAD": (
+        "Hardware Swapped - Awaiting Offload",
+        "purple",
+    ),
+}
+
+
+def normalize_display_status_override(raw: Optional[str]) -> Optional[str]:
+    """Map stored or human-readable override text to a canonical key."""
+    if raw is None or not str(raw).strip():
+        return None
+    normalized = (
+        str(raw).strip().upper().replace("-", "_").replace(" ", "_")
+    )
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    if normalized in _DISPLAY_STATUS_OVERRIDE_BY_KEY:
+        return normalized
+    return None
+
+
+def status_from_display_override(
+    raw: Optional[str],
+) -> Optional[Tuple[str, str]]:
+    """Return (status_text, status_color) for a display_status_override value."""
+    key = normalize_display_status_override(raw)
+    if key is None:
+        return None
+    return _DISPLAY_STATUS_OVERRIDE_BY_KEY.get(key)
+
+
+def resolve_station_status_text_and_color(
+    station: Any,
+    relevant_logs: List[Any],
+    *,
+    is_flagged_for_scope: bool = False,
+    awaiting_first_offload_after_swap: bool = False,
+) -> Tuple[str, str]:
+    """
+    Resolve the display status label and color key for a station.
+
+    relevant_logs should already be filtered to the active season context.
+    awaiting_first_offload_after_swap is computed from all logs vs latest swap.
+    """
+    status_text = "Awaiting Offload"
+    status_color_key = "grey"
+
+    if relevant_logs:
+        sorted_logs = sorted(
+            relevant_logs,
+            key=lambda log: log.log_timestamp_utc,
+            reverse=True,
+        )
+        latest_log = sorted_logs[0]
+        if latest_log.was_offloaded is True:
+            status_text = "Offloaded"
+            status_color_key = "green"
+        elif latest_log.was_offloaded is False:
+            status_text = "Failed Offload"
+            status_color_key = "red"
+        else:
+            status_text = "Awaiting Status"
+            status_color_key = "grey"
+
+    if awaiting_first_offload_after_swap:
+        status_text = "Hardware Swapped - Awaiting Offload"
+        status_color_key = "purple"
+
+    override_status = status_from_display_override(
+        getattr(station, "display_status_override", None)
+    )
+    if override_status is not None:
+        status_text, status_color_key = override_status
+
+    if is_flagged_for_scope:
+        status_text = "Flagged - Needs Review"
+        status_color_key = "orange"
+
+    return status_text, status_color_key
+
+
+def count_stations_by_status_text(
+    stations: List[Any],
+    *,
+    season_logs_by_station: Dict[str, List[Any]],
+    all_logs_by_station: Dict[str, List[Any]],
+    latest_swap_by_station: Dict[str, datetime],
+    is_awaiting_first_offload_after_swap_fn: Any,
+    flag_state_by_station: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Counter:
+    """Count live stations by resolved display status (for analytics panels)."""
+    counts: Counter = Counter()
+    for station in stations:
+        swap_ts = latest_swap_by_station.get(station.station_id)
+        flag_state = (flag_state_by_station or {}).get(station.station_id, {})
+        status_text, _ = resolve_station_status_text_and_color(
+            station,
+            season_logs_by_station.get(station.station_id, []),
+            is_flagged_for_scope=bool(flag_state.get("is_flagged")),
+            awaiting_first_offload_after_swap=is_awaiting_first_offload_after_swap_fn(
+                all_logs_by_station.get(station.station_id, []),
+                swap_ts,
+            ),
+        )
+        counts[status_text] += 1
+    return counts
 
 
 def _format_overview_dt(dt_val) -> str:
@@ -45,8 +168,6 @@ def build_status_overview_row(
             the first post-swap offload is logged; later seasons then use the
             normal log-derived status.
     """
-    status_text = "Unknown"
-    status_color_key = "grey"
     last_offload_timestamp_str = "N/A"
     latest_vrl_file_name = "---"
     latest_arrival_date_str = "---"
@@ -128,33 +249,13 @@ def build_status_overview_row(
                 latest_remote_health_humidity = latest_log.remote_health_humidity
             if getattr(latest_log, "remote_health_report_date", None) is not None:
                 latest_remote_health_report_date = str(latest_log.remote_health_report_date)
-            if latest_log.was_offloaded is True:
-                status_text = "Offloaded"
-                status_color_key = "green"
-            elif latest_log.was_offloaded is False:
-                status_text = "Failed Offload"
-                status_color_key = "red"
-            else:
-                status_text = "Awaiting Status"
-                status_color_key = "grey"
-        else:
-            status_text = "Awaiting Offload"
-            status_color_key = "grey"
-    else:
-        status_text = "Awaiting Offload"
-        status_color_key = "grey"
 
-    if awaiting_first_offload_after_swap:
-        status_text = "Hardware Swapped - Awaiting Offload"
-        status_color_key = "purple"
-
-    if is_flagged_for_scope:
-        status_text = "Flagged - Needs Review"
-        status_color_key = "orange"
-    elif station.display_status_override:
-        if station.display_status_override.upper() == "SKIPPED":
-            status_text = "Skipped"
-            status_color_key = "yellow"
+    status_text, status_color_key = resolve_station_status_text_and_color(
+        station,
+        relevant_logs,
+        is_flagged_for_scope=is_flagged_for_scope,
+        awaiting_first_offload_after_swap=awaiting_first_offload_after_swap,
+    )
 
     return {
         "station_id": station.station_id,

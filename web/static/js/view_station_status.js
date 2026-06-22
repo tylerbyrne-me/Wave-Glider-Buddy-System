@@ -1618,6 +1618,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Offloaded</div><div class="fs-5 text-success">${live.display_offloaded ?? '—'}</div></div></div>
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Failed</div><div class="fs-5 text-danger">${live.display_failed_offload ?? '—'}</div></div></div>
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Skipped</div><div class="fs-5 text-warning">${live.display_skipped ?? '—'}</div></div></div>
+                    <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Hw swap pending</div><div class="fs-5" style="color:#432874">${live.display_hardware_swapped_awaiting_offload ?? '—'}</div></div></div>
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Total logs</div><div class="fs-5">${stats.total_logs ?? 0}</div></div></div>
                     <div class="col-6 col-md-2"><div class="p-2 border border-secondary rounded"><div class="small text-muted">Conflicts</div><div class="fs-5 text-warning">${stats.conflict_logs_pending ?? 0}</div></div></div>
                 </div>
