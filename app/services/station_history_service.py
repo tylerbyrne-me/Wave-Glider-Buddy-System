@@ -1,5 +1,5 @@
 """
-Helpers for station / array history timelines and aggregates.
+Helpers for station / array history timelines, hardware segments, and aggregates.
 """
 
 from collections import defaultdict
@@ -15,11 +15,107 @@ def _aware_ts(dt: Optional[datetime]) -> datetime:
     return dt
 
 
+def resolve_hardware_at_time(
+    segments: List[Any],
+    ts: Optional[datetime],
+) -> Optional[Any]:
+    """
+    Return the hardware history segment effective at ts, or None if no match.
+    A segment is effective when effective_start_utc <= ts < effective_end_utc
+    (or effective_end_utc is None for the open segment).
+    """
+    if ts is None or not segments:
+        return None
+    aware_ts = _aware_ts(ts)
+    for segment in segments:
+        start = _aware_ts(segment.effective_start_utc)
+        end = segment.effective_end_utc
+        if end is not None:
+            end = _aware_ts(end)
+            if start <= aware_ts < end:
+                return segment
+            continue
+        if start <= aware_ts:
+            return segment
+    return None
+
+
 def _offload_effective_ts(log: Any) -> datetime:
+    """Best-effort offload time for ordering and post-swap comparisons."""
     return _aware_ts(
         log.offload_end_time_utc
         or log.offload_start_time_utc
         or log.log_timestamp_utc
+    )
+
+
+def offload_log_attribution_ts(log: Any) -> Optional[datetime]:
+    """
+    Timestamp used to attribute serial/modem on a season export row.
+    Prefers visit start over end when both are present.
+    """
+    raw = (
+        log.offload_start_time_utc
+        or log.offload_end_time_utc
+        or getattr(log, "arrival_date", None)
+        or log.log_timestamp_utc
+    )
+    if raw is None:
+        return None
+    return _aware_ts(raw)
+
+
+def latest_hardware_swap_ts_by_station(
+    hardware_rows: List[Any],
+) -> Dict[str, datetime]:
+    """Return the latest effective_start_utc per station_id."""
+    out: Dict[str, datetime] = {}
+    for row in hardware_rows:
+        start_ts = row.effective_start_utc
+        if start_ts is None:
+            continue
+        prev = out.get(row.station_id)
+        if prev is None or start_ts > prev:
+            out[row.station_id] = start_ts
+    return out
+
+
+def group_hardware_segments_by_station(
+    hardware_rows: List[Any],
+) -> Dict[str, List[Any]]:
+    """Group hardware history rows by station_id."""
+    segments: Dict[str, List[Any]] = defaultdict(list)
+    for row in hardware_rows:
+        segments[row.station_id].append(row)
+    return dict(segments)
+
+
+def has_offload_since_hardware_swap(
+    all_logs: List[Any],
+    latest_swap_ts: Optional[datetime],
+) -> bool:
+    """
+    True when any offload log occurs strictly after the latest hardware swap.
+
+    Scans all logs (not season-filtered) so a post-swap offload in one season
+    clears the pending-swap state in later seasons.
+    """
+    if latest_swap_ts is None:
+        return False
+    swap_ts = _aware_ts(latest_swap_ts)
+    for log in all_logs:
+        if _offload_effective_ts(log) > swap_ts:
+            return True
+    return False
+
+
+def is_awaiting_first_offload_after_swap(
+    all_logs: List[Any],
+    latest_swap_ts: Optional[datetime],
+) -> bool:
+    """True when a swap is on record and no offload has followed it yet."""
+    return latest_swap_ts is not None and not has_offload_since_hardware_swap(
+        all_logs, latest_swap_ts
     )
 
 

@@ -352,13 +352,14 @@ document.addEventListener('DOMContentLoaded', async function () {
                 actionsCell.appendChild(deleteButton);
             }
 
-            // Apply row coloring based on status
-            row.classList.remove('status-awaiting-offload', 'status-offloaded', 'status-failed-offload', 'status-skipped', 'status-flagged', 'status-unknown');
+            // Map API status_color to row CSS (purple = post-swap, awaiting first offload)
+            row.classList.remove('status-awaiting-offload', 'status-offloaded', 'status-failed-offload', 'status-skipped', 'status-flagged', 'status-awaiting-reoffload', 'status-unknown');
             if (station.status_color === 'grey') row.classList.add('status-awaiting-offload');
             else if (station.status_color === 'green') row.classList.add('status-offloaded');
             else if (station.status_color === 'red') row.classList.add('status-failed-offload');
             else if (station.status_color === 'yellow') row.classList.add('status-skipped');
             else if (station.status_color === 'orange') row.classList.add('status-flagged');
+            else if (station.status_color === 'purple') row.classList.add('status-awaiting-reoffload');
             else row.classList.add('status-unknown');
         });
         updateSortIcons();

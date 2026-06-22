@@ -23,8 +23,13 @@ from ..services.station_season_service import StationSeasonService
 from ..services.station_history_service import (
     aggregate_offload_stats,
     build_station_timeline,
+    group_hardware_segments_by_station,
     group_stations_by_status,
+    is_awaiting_first_offload_after_swap,
+    latest_hardware_swap_ts_by_station,
     logs_by_season_counts,
+    offload_log_attribution_ts,
+    resolve_hardware_at_time,
     station_mini_summary,
 )
 from ..core.stations.station_registry_policy import (
@@ -69,6 +74,19 @@ def _resolve_station_flag_state(
             "changed_at_utc": event.changed_at_utc,
         }
     return state_by_station
+
+
+def _load_hardware_history_for_stations(
+    session: SQLModelSession,
+    station_ids: List[str],
+) -> List[models.StationHardwareHistory]:
+    if not station_ids:
+        return []
+    statement = select(models.StationHardwareHistory).where(
+        models.StationHardwareHistory.station_id.in_(station_ids)
+    )
+    return list(session.exec(statement).all())
+
 
 # Create an APIRouter instance
 router = APIRouter()
@@ -1093,6 +1111,12 @@ async def get_station_offload_status_overview(
         description="Season tag for offload logs (None = active season context). Registry rows are always live.",
     ),
 ):
+    """
+    Live registry rows with offload status for the selected season context.
+
+    Hardware-swap status (purple) is based on whether any offload has occurred
+    after the latest swap across all seasons, not only the filtered season.
+    """
     logger.info(
         f"User '{current_user.username}' requesting station offload status overview"
         f"{f' for season {season_year}' if season_year else ' (active season)'}."
@@ -1108,6 +1132,11 @@ async def get_station_offload_status_overview(
         .order_by(models.StationMetadata.station_id)
     )
     stations_metadata = list(session.exec(statement).all())
+
+    station_ids = [s.station_id for s in stations_metadata]
+    latest_swap_by_station = latest_hardware_swap_ts_by_station(
+        _load_hardware_history_for_stations(session, station_ids)
+    )
 
     if season_year is None:
         active = StationSeasonService.get_active_season(session)
@@ -1158,12 +1187,17 @@ async def get_station_offload_status_overview(
                 )
             ]
         flag_state = flag_state_by_station.get(station.station_id, {})
+        swap_ts = latest_swap_by_station.get(station.station_id)
         overview_list.append(
             build_status_overview_row(
                 station,
                 relevant_logs,
                 is_flagged_for_scope=bool(flag_state.get("is_flagged")),
                 flag_note=flag_state.get("flag_note"),
+                awaiting_first_offload_after_swap=is_awaiting_first_offload_after_swap(
+                    station.offload_logs,
+                    swap_ts,
+                ),
             )
         )
 
@@ -2307,7 +2341,12 @@ async def download_season_data(
     current_user: Annotated[UserModel, Depends(get_current_active_user)],
     station_type: Optional[str] = Query(None, description="Filter by station type prefix (e.g., CBS, NCAT)"),
 ):
-    """Download season offload data as CSV, optionally filtered by station type."""
+    """
+    Download season offload data as CSV, optionally filtered by station type.
+
+    One row per offload log. Serial/modem come from the hardware segment that
+    was effective at offload time (not the live registry).
+    """
     logger.info(
         f"User '{current_user.username}' downloading data for season {year}"
         f"{f' (filtered by {station_type})' if station_type else ''}."
@@ -2321,15 +2360,34 @@ async def download_season_data(
     # Get stations for context
     stations = StationSeasonService.get_stations_for_season(session, year)
     station_dict = {s.station_id: s for s in stations}
-    
+
+    station_ids = list({log.station_id for log in logs})
+    segments_by_station = group_hardware_segments_by_station(
+        _load_hardware_history_for_stations(session, station_ids)
+    )
+
     # Build CSV data
     rows = []
     for log in logs:
         station = station_dict.get(log.station_id)
+        hw_segment = resolve_hardware_at_time(
+            segments_by_station.get(log.station_id, []),
+            offload_log_attribution_ts(log),
+        )
+        serial_number = (
+            hw_segment.serial_number
+            if hw_segment is not None
+            else (station.serial_number if station else None)
+        )
+        modem_address = (
+            hw_segment.modem_address
+            if hw_segment is not None
+            else (station.modem_address if station else None)
+        )
         row = {
             "Station ID": log.station_id,
-            "Serial Number": station.serial_number if station else "---",
-            "Modem Address": station.modem_address if station else "---",
+            "Serial Number": serial_number if serial_number is not None else "---",
+            "Modem Address": modem_address if modem_address is not None else "---",
             "RV WP #": station.waypoint_number if station else "---",
             "Logged By": log.logged_by_username,
             "Log Timestamp (UTC)": log.log_timestamp_utc.strftime("%Y-%m-%d %H:%M:%S UTC") if log.log_timestamp_utc else "---",

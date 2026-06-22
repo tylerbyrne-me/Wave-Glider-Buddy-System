@@ -7,13 +7,14 @@
 {% block head_extra_css %}
     {# Font Awesome and Bootstrap CSS are in base.html #}
     <style>
-        /* New Status Colors */
-        .status-awaiting-offload { background-color: #e2e3e5 !important; color: #383d41 !important; } /* Light grey */
-        .status-offloaded { background-color: #d1e7dd !important; color: #0f5132 !important; }        /* Bootstrap success light */
-        .status-failed-offload { background-color: #f8d7da !important; color: #721c24 !important; }   /* Bootstrap danger light */
-        .status-skipped { background-color: #fff3cd !important; color: #664d03 !important; }          /* Bootstrap warning light */
-        .status-flagged { background-color: #ffe5b4 !important; color: #7a3e00 !important; }          /* Attention / flagged */
-        .status-unknown { background-color: #f0f0f0 !important; color: #555 !important; }             /* A generic color for unknown/other */
+        /* Status row colors (see build_status_overview_row / status_color API values) */
+        .status-awaiting-offload { background-color: #e2e3e5 !important; color: #383d41 !important; } /* grey: no offload this season */
+        .status-offloaded { background-color: #d1e7dd !important; color: #0f5132 !important; }        /* green */
+        .status-failed-offload { background-color: #f8d7da !important; color: #721c24 !important; }   /* red */
+        .status-skipped { background-color: #fff3cd !important; color: #664d03 !important; }          /* yellow */
+        .status-flagged { background-color: #ffe5b4 !important; color: #7a3e00 !important; }          /* orange */
+        .status-awaiting-reoffload { background-color: #e2d9f3 !important; color: #432874 !important; } /* purple: swap pending first offload */
+        .status-unknown { background-color: #f0f0f0 !important; color: #555 !important; }
 
 
         th { cursor: pointer; }

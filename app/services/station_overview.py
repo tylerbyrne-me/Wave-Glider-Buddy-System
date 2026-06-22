@@ -1,9 +1,12 @@
 """
-Build station offload status overview rows from live registry objects + season-filtered logs.
+Build station offload status overview rows from live registry + season-filtered logs.
+
+Status priority (lowest to highest): log-derived status, hardware-swap pending,
+display override (Skipped), season flag (Flagged).
 """
 
-from datetime import timezone
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 
 def _format_overview_dt(dt_val) -> str:
@@ -14,17 +17,33 @@ def _format_overview_dt(dt_val) -> str:
     return "---"
 
 
+def _aware_utc(dt_val: Optional[datetime]) -> Optional[datetime]:
+    if dt_val is None:
+        return None
+    if dt_val.tzinfo is None or dt_val.tzinfo.utcoffset(dt_val) is None:
+        return dt_val.replace(tzinfo=timezone.utc)
+    return dt_val
+
+
 def build_status_overview_row(
     station,
     relevant_logs: List[Any],
     *,
     is_flagged_for_scope: bool = False,
     flag_note: str | None = None,
+    awaiting_first_offload_after_swap: bool = False,
 ) -> Dict[str, Any]:
     """
-    station: ORM object with same attributes as StationMetadata / StationMetadataSeasonSnapshot
-    for fields used in the overview.
-    relevant_logs: pre-filtered OffloadLog rows for this station + season context
+    Build one status-table row for a station.
+
+    Args:
+        station: Live registry row (or season snapshot with the same fields).
+        relevant_logs: OffloadLog rows for the selected season context only.
+        awaiting_first_offload_after_swap: When True, the station has a hardware
+            swap on record and no offload has occurred after that swap (any
+            season). Shows purple "Hardware Swapped - Awaiting Offload" until
+            the first post-swap offload is logged; later seasons then use the
+            normal log-derived status.
     """
     status_text = "Unknown"
     status_color_key = "grey"
@@ -62,11 +81,7 @@ def build_status_overview_row(
                 or latest_log.log_timestamp_utc
             )
             if relevant_ts:
-                if (
-                    relevant_ts.tzinfo is None
-                    or relevant_ts.tzinfo.utcoffset(relevant_ts) is None
-                ):
-                    relevant_ts = relevant_ts.replace(tzinfo=timezone.utc)
+                relevant_ts = _aware_utc(relevant_ts)
                 last_offload_timestamp_str = relevant_ts.strftime(
                     "%Y-%m-%d %H:%M:%S UTC"
                 )
@@ -128,6 +143,10 @@ def build_status_overview_row(
     else:
         status_text = "Awaiting Offload"
         status_color_key = "grey"
+
+    if awaiting_first_offload_after_swap:
+        status_text = "Hardware Swapped - Awaiting Offload"
+        status_color_key = "purple"
 
     if is_flagged_for_scope:
         status_text = "Flagged - Needs Review"
