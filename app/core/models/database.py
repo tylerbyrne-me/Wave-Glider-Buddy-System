@@ -416,6 +416,15 @@ class SubmittedForm(SQLModel, table=True):
 
     submitted_by_username: str = SQLModelField(index=True, description="Username of the user who submitted the form.")
     submission_timestamp: datetime = SQLModelField(description="UTC timestamp when the form was submitted.")
+    edited_by_username: Optional[str] = SQLModelField(
+        default=None,
+        index=True,
+        description="Username of the user who last edited the form, if edited after submission.",
+    )
+    last_edited_timestamp: Optional[datetime] = SQLModelField(
+        default=None,
+        description="UTC timestamp when the form was last edited.",
+    )
 
 
 # --- Mission Overview Database Model ---

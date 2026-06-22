@@ -3,7 +3,7 @@
  * @description Main dashboard with sensor data visualization
  */
 
-import { checkAuth, logout } from '/static/js/auth.js';
+import { checkAuth, logout, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 import { initializeWgVm4OffloadSection } from '/static/js/wg_vm4.js';
@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (!await checkAuth()) {
         return; // Stop further execution if not authenticated and redirection is handled by checkAuth
     }
+    const currentUser = await getUserProfile();
     const missionId = document.body.dataset.missionId;
     // console.log("Dashboard.js: missionId from body.dataset:", missionId); // DEBUG
     const missionSelector = document.getElementById('missionSelector'); // Keep this
@@ -421,7 +422,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             return;
         }
         dashboardPicModalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
-        dashboardPicModalBody.innerHTML = renderPicHandoffDetails(form, changedItemIds || []);
+        dashboardPicModalBody.innerHTML = renderPicHandoffDetails(form, changedItemIds || [], currentUser);
         dashboardPicDetailsModal.show();
     };
 

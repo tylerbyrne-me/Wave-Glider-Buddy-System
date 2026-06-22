@@ -752,6 +752,72 @@ def _parse_sensor_sampling_from_sections(sections_data: Optional[List[dict]]) ->
     return collected if collected else None
 
 
+def _persist_mission_overview_side_effects(
+    session: SQLModelSession,
+    mission_id: str,
+    sections_data: Optional[List[dict]],
+) -> None:
+    """Persist vessel standoff and sensor sampling rates from form sections to mission overview."""
+    mission_overview = session.get(models.MissionOverview, mission_id)
+    if mission_overview is None and "-" in mission_id:
+        mission_overview = session.get(
+            models.MissionOverview, utils.deployment_mission_code_from_mission_id(mission_id)
+        )
+    if mission_overview is None:
+        return
+
+    updated = False
+    standoff_m = _parse_vessel_standoff_from_sections(sections_data)
+    if standoff_m is not None and standoff_m >= 0:
+        mission_overview.vessel_standoff_m = standoff_m
+        updated = True
+    sampling_rates = _parse_sensor_sampling_from_sections(sections_data)
+    if sampling_rates is not None:
+        mission_overview.sensor_sampling_rates = json.dumps(sampling_rates)
+        updated = True
+    if updated:
+        mission_overview.updated_at_utc = datetime.now(timezone.utc)
+        session.add(mission_overview)
+
+
+def _can_edit_submitted_form(db_form: models.SubmittedForm, current_user: models.User) -> bool:
+    return (
+        current_user.role == models.UserRoleEnum.admin
+        or db_form.submitted_by_username == current_user.username
+    )
+
+
+@router.put("/api/forms/id/{form_db_id}", response_model=models.SubmittedForm)
+async def update_submitted_form(
+    form_db_id: int,
+    form_data: dict = Body(...),
+    session: SQLModelSession = Depends(get_db_session),
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Update an existing submitted form in place. Original submitter or admin only."""
+    db_form = session.get(models.SubmittedForm, form_db_id)
+    if not db_form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if not _can_edit_submitted_form(db_form, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to edit this form")
+
+    sections_data = form_data.get("sections_data")
+    if sections_data is None:
+        raise HTTPException(status_code=400, detail="sections_data is required")
+
+    if form_data.get("form_title"):
+        db_form.form_title = form_data.get("form_title")
+    db_form.sections_data = sections_data
+    db_form.edited_by_username = current_user.username
+    db_form.last_edited_timestamp = datetime.now(timezone.utc)
+    session.add(db_form)
+
+    _persist_mission_overview_side_effects(session, db_form.mission_id, sections_data)
+    session.commit()
+    session.refresh(db_form)
+    return db_form
+
+
 @router.post("/api/forms/{mission_id}")
 async def submit_form(
     mission_id: str,
@@ -778,25 +844,7 @@ async def submit_form(
         )
         session.add(submitted_form)
 
-        # Persist vessel standoff (m) and sensor sampling rates to mission overview when present in form
-        mission_overview = session.get(models.MissionOverview, mission_id)
-        if mission_overview is None and "-" in mission_id:
-            mission_overview = session.get(
-                models.MissionOverview, utils.deployment_mission_code_from_mission_id(mission_id)
-            )
-        if mission_overview is not None:
-            updated = False
-            standoff_m = _parse_vessel_standoff_from_sections(sections_data)
-            if standoff_m is not None and standoff_m >= 0:
-                mission_overview.vessel_standoff_m = standoff_m
-                updated = True
-            sampling_rates = _parse_sensor_sampling_from_sections(sections_data)
-            if sampling_rates is not None:
-                mission_overview.sensor_sampling_rates = json.dumps(sampling_rates)
-                updated = True
-            if updated:
-                mission_overview.updated_at_utc = datetime.now(timezone.utc)
-                session.add(mission_overview)
+        _persist_mission_overview_side_effects(session, mission_id, sections_data)
 
         session.commit()
         session.refresh(submitted_form)

@@ -3,7 +3,7 @@
  * @description View and display submitted forms for missions
  */
 
-import { checkAuth, logout } from '/static/js/auth.js';
+import { checkAuth, logout, getUserProfile } from '/static/js/auth.js';
 import { apiRequest, showToast } from '/static/js/api.js';
 import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 
@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         // If checkAuth redirects, this script might not fully execute, which is fine.
         return;
     }
+    const currentUser = await getUserProfile();
 
     const formsTableBody = document.getElementById('formsTableBody');
     const formsSpinner = document.getElementById('formsSpinner');
@@ -89,9 +90,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                             modalLabel.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
                             try {
                                 const r = await apiRequest(`/api/forms/id/${form.id}/with-changes`, 'GET');
-                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(r.form, r.changed_item_ids || []);
+                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(r.form, r.changed_item_ids || [], currentUser);
                             } catch (e) {
-                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(form, []);
+                                formDetailsContentElement.innerHTML = renderPicHandoffDetails(form, [], currentUser);
                             }
                         } else {
                             modalLabel.textContent = `Details for: ${form.form_title} (${form.form_type})`;

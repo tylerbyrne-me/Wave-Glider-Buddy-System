@@ -3,7 +3,7 @@
  * @description Display user's PIC handoff submissions
  */
 
-import { checkAuth, logout } from "/static/js/auth.js";
+import { checkAuth, logout, getUserProfile } from "/static/js/auth.js";
 import { apiRequest, showToast } from "/static/js/api.js";
 import { renderPicHandoffDetails } from "/static/js/pic_handoff_details.js";
 
@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (!await checkAuth()) {
         return;
     }
+    const currentUser = await getUserProfile();
 
     const spinner = document.getElementById('myPicHandoffsSpinner');
     const tableContainer = document.getElementById('myPicHandoffsTableContainer');
@@ -94,7 +95,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             return;
         }
         modalTitle.textContent = `Details for: ${form.form_title} (Mission: ${form.mission_id})`;
-        modalBody.innerHTML = renderPicHandoffDetails(form, changedItemIds || []);
+        modalBody.innerHTML = renderPicHandoffDetails(form, changedItemIds || [], currentUser);
         formDetailsModal.show();
     }
 

@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     const missionId = document.body.dataset.missionId;
     const formType = document.body.dataset.formType;
     const username = document.body.dataset.username;
+    const editFormId = new URLSearchParams(window.location.search).get('edit');
+    let savedSubmission = null;
 
     const formTitleElement = document.getElementById('formTitle');
     const formDescriptionElement = document.getElementById('formDescription');
@@ -26,6 +28,75 @@ document.addEventListener('DOMContentLoaded', async function () {
         const parsed = new Date(isoString);
         if (Number.isNaN(parsed.valueOf())) return '';
         return parsed.toISOString().slice(0, 16).replace('T', ' ');
+    }
+
+    function buildSavedItemsById(sectionsData) {
+        const savedItemsById = {};
+        (sectionsData || []).forEach((section) => {
+            (section.items || []).forEach((item) => {
+                if (item.id) savedItemsById[item.id] = item;
+            });
+        });
+        return savedItemsById;
+    }
+
+    function applySavedValuesToForm(savedItemsById, sectionsData) {
+        (sectionsData || []).forEach((section) => {
+            const sectionId = section.id || (section.title || '').toLowerCase().replace(/\s+/g, '_');
+            const sectionCommentElem = document.querySelector(`textarea[name="${sectionId}_comment"]`);
+            if (sectionCommentElem && section.section_comment) {
+                sectionCommentElem.value = section.section_comment;
+            }
+        });
+
+        Object.values(savedItemsById).forEach((item) => {
+            const itemId = item.id;
+            if (!itemId) return;
+
+            const inputElem = missionReportForm.elements[itemId];
+            const commentElem = missionReportForm.elements[`${itemId}_comment`];
+            const verifiedElem = missionReportForm.elements[`${itemId}_verified`];
+
+            if (inputElem) {
+                if (inputElem.type === 'checkbox') {
+                    inputElem.checked = !!item.is_checked;
+                } else if (inputElem.tagName && inputElem.tagName.toLowerCase() === 'select') {
+                    inputElem.value = item.value != null ? String(item.value) : '';
+                } else {
+                    inputElem.value = item.value != null ? String(item.value) : '';
+                }
+            } else {
+                const displayElem = document.getElementById(itemId);
+                if (displayElem && (displayElem.classList.contains('autofilled-value') || displayElem.classList.contains('static-text'))) {
+                    if (item.value != null && String(item.value).trim() !== '') {
+                        displayElem.textContent = String(item.value);
+                    }
+                }
+            }
+
+            if (commentElem && item.comment) {
+                commentElem.value = item.comment;
+            }
+            if (verifiedElem && item.is_verified != null) {
+                verifiedElem.checked = !!item.is_verified;
+            }
+        });
+    }
+
+    function showEditModeBanner(savedForm) {
+        const submissionTimestampStr = String(savedForm.submission_timestamp || '').endsWith('Z')
+            ? String(savedForm.submission_timestamp || '')
+            : `${savedForm.submission_timestamp}Z`;
+        const submissionDate = new Date(submissionTimestampStr);
+        const formattedTime = Number.isNaN(submissionDate.getTime())
+            ? 'N/A'
+            : submissionDate.toLocaleString('en-GB', {
+                timeZone: 'UTC',
+                dateStyle: 'medium',
+                timeStyle: 'medium',
+                hour12: false,
+            }) + ' UTC';
+        submissionStatusDiv.innerHTML = `<div class="alert alert-warning mb-0">Editing submission from ${formattedTime} by ${savedForm.submitted_by_username || 'Unknown'}.</div>`;
     }
 
     missionReportForm.addEventListener('click', function (event) {
@@ -47,6 +118,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         missionReportForm.style.display = 'none';
         try {
             const schema = await apiRequest(`/api/forms/${missionId}/template/${formType}`, 'GET');
+            if (editFormId) {
+                savedSubmission = await apiRequest(`/api/forms/id/${editFormId}`, 'GET');
+                if (savedSubmission.mission_id !== missionId || savedSubmission.form_type !== formType) {
+                    throw new Error('The submission to edit does not match this mission or form type.');
+                }
+            }
 
             formTitleElement.textContent = schema.title || 'Mission Form';
             if (schema.description) {
@@ -181,6 +258,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             });
             missionReportForm.style.display = 'block';
 
+            const savedItemsById = savedSubmission
+                ? buildSavedItemsById(savedSubmission.sections_data)
+                : null;
+
             // --- Add event listener for dynamic navigation mode fields ---
             const navModeSelect = document.getElementById('navigation_mode_val');
             const targetWaypointInput = document.getElementById('target_waypoint_val');
@@ -274,13 +355,25 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
 
             if (navModeSelect) {
+                if (savedItemsById?.navigation_mode_val?.value) {
+                    navModeSelect.value = savedItemsById.navigation_mode_val.value;
+                }
                 navModeSelect.addEventListener('change', function() {
                     updateNavFields(this.value);
                 });
                 // Call initially to set fields based on default/loaded value
                 updateNavFields(navModeSelect.value);
             }
+            if (savedSubmission && savedItemsById) {
+                applySavedValuesToForm(savedItemsById, savedSubmission.sections_data);
+            }
             // --- End dynamic navigation mode fields ---
+
+            if (editFormId) {
+                const submitBtn = missionReportForm.querySelector('button[type="submit"]');
+                if (submitBtn) submitBtn.textContent = 'Save Changes';
+                showEditModeBanner(savedSubmission);
+            }
 
             // Refresh data button: re-fetch template and update only autopopulated fields (keeps pilot's inputs/comments/verified state)
             const refreshFormDataBtn = document.getElementById('refreshFormDataBtn');
@@ -407,7 +500,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     async function performSubmission(capturedSectionsData) {
-        submissionStatusDiv.innerHTML = '<div class="alert alert-info">Submitting form...</div>';
+        submissionStatusDiv.innerHTML = `<div class="alert alert-info">${editFormId ? 'Saving changes...' : 'Submitting form...'}</div>`;
 
         const sectionsData = capturedSectionsData != null ? capturedSectionsData : buildSectionsDataFromForm();
         const submissionPayload = {
@@ -418,13 +511,19 @@ document.addEventListener('DOMContentLoaded', async function () {
         };
 
         try {
-            const result = await apiRequest(`/api/forms/${missionId}`, 'POST', submissionPayload);
-            const submissionTimestampStr = result.submission_timestamp.endsWith('Z') ? result.submission_timestamp : result.submission_timestamp + 'Z';
+            const result = editFormId
+                ? await apiRequest(`/api/forms/id/${editFormId}`, 'PUT', submissionPayload)
+                : await apiRequest(`/api/forms/${missionId}`, 'POST', submissionPayload);
+            const timestampField = editFormId ? result.last_edited_timestamp : result.submission_timestamp;
+            const actorField = editFormId ? result.edited_by_username : result.submitted_by_username;
+            const submissionTimestampStr = timestampField.endsWith('Z') ? timestampField : timestampField + 'Z';
             const submissionTime = new Date(submissionTimestampStr);
             const formattedTime = submissionTime.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'medium', hour12: false }) + ' UTC';
-            showToast('Form submitted successfully!', 'success');
-            submissionStatusDiv.innerHTML = `<div class="alert alert-success">Form submitted successfully at ${formattedTime} by ${result.submitted_by_username}!</div>`;
-            missionReportForm.reset();
+            showToast(editFormId ? 'Form updated successfully!' : 'Form submitted successfully!', 'success');
+            submissionStatusDiv.innerHTML = `<div class="alert alert-success">${editFormId ? 'Form updated' : 'Form submitted'} successfully at ${formattedTime} by ${actorField}!</div>`;
+            if (!editFormId) {
+                missionReportForm.reset();
+            }
             const platform = (window.APP_PLATFORM || '').toLowerCase();
             const dashboardUrl = platform === 'slocum' ? '/slocum/home' : '/wave-glider/home';
             setTimeout(() => {
