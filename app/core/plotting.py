@@ -1204,85 +1204,6 @@ def _prepare_solar_report_frame(
     return resampled.reset_index()
 
 
-def _add_battery_projection_trendline(
-    ax_battery,
-    power_frame: pd.DataFrame,
-    *,
-    battery_max_wh: float,
-    trend_hours: float = 24.0,
-    soc_floor_pct: float = 15.0,
-) -> None:
-    """Overlay a dashed linear projection from the most recent battery trend."""
-    if power_frame.empty or "BatteryWattHours" not in power_frame.columns:
-        return
-
-    battery_series = power_frame.dropna(subset=["BatteryWattHours", "Timestamp"])
-    if len(battery_series) < 2:
-        return
-
-    trend_cutoff = battery_series["Timestamp"].max() - timedelta(hours=trend_hours)
-    trend_slice = battery_series[battery_series["Timestamp"] >= trend_cutoff]
-    if len(trend_slice) < 2:
-        trend_slice = battery_series.tail(min(len(battery_series), 48))
-
-    hours_since_start = (
-        trend_slice["Timestamp"] - trend_slice["Timestamp"].iloc[0]
-    ).dt.total_seconds().to_numpy(dtype=float) / 3600.0
-    battery_values = trend_slice["BatteryWattHours"].to_numpy(dtype=float)
-    slope, intercept = np.polyfit(hours_since_start, battery_values, 1)
-
-    last_time = trend_slice["Timestamp"].iloc[-1]
-    last_hours = hours_since_start[-1]
-    current_wh = float(battery_values[-1])
-    floor_wh = battery_max_wh * (soc_floor_pct / 100.0)
-    report_end = battery_series["Timestamp"].max()
-
-    if slope < -0.01:
-        target_hours = (current_wh - floor_wh) / abs(slope)
-        annotation = f"Est. depletion: ~{(last_time + timedelta(hours=target_hours)).strftime('%b %d %H:%M UTC')}"
-    elif slope > 0.01:
-        target_hours = (battery_max_wh - current_wh) / slope
-        annotation = f"Charging — full est. ~{(last_time + timedelta(hours=target_hours)).strftime('%b %d %H:%M UTC')}"
-    else:
-        target_hours = 6.0
-        annotation = "Battery trend stable"
-
-    projection_end_time = min(
-        report_end + timedelta(hours=12),
-        last_time + timedelta(hours=max(target_hours, 6.0)),
-    )
-    projection_hours = np.linspace(
-        last_hours,
-        last_hours + (projection_end_time - last_time).total_seconds() / 3600.0,
-        num=30,
-    )
-    projection_times = [
-        last_time + timedelta(hours=float(h - last_hours)) for h in projection_hours
-    ]
-    projection_values = slope * projection_hours + intercept
-
-    ax_battery.plot(
-        projection_times,
-        projection_values,
-        linestyle="--",
-        color="#6B7280",
-        linewidth=1.5,
-        label="24h trend projection",
-        zorder=4,
-    )
-    ax_battery.text(
-        0.99,
-        0.03,
-        annotation,
-        transform=ax_battery.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        color="#374151",
-        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#D1D5DB", alpha=0.92),
-    )
-
-
 def plot_power_for_report(
     fig,
     power_df: pd.DataFrame,
@@ -1290,8 +1211,6 @@ def plot_power_for_report(
     *,
     battery_max_wh: float = 2940.0,
     resample_minutes: int = 30,
-    trend_hours: float = 24.0,
-    soc_floor_pct: float = 15.0,
 ) -> None:
     """Plot a three-panel power subsystem summary for weekly PDF reports."""
     power_frame = _prepare_power_report_frame(power_df, resample_minutes=resample_minutes)
@@ -1320,25 +1239,15 @@ def plot_power_for_report(
     timestamps = power_frame["Timestamp"]
     battery_wh = power_frame["BatteryWattHours"]
     ax_battery.plot(timestamps, battery_wh, label="Battery level", color="tab:blue", linewidth=1.4)
-    ax_battery.set_ylabel("Battery (Wh)", color="tab:blue")
-    ax_battery.tick_params(axis="y", labelcolor="tab:blue")
+    ax_battery.set_ylabel("Battery (Wh)")
     ax_battery.grid(True, which="both", linestyle="--", alpha=0.3)
 
     if battery_max_wh > 0:
-        soc_pct = (battery_wh / battery_max_wh) * 100.0
-        ax_soc = ax_battery.twinx()
-        ax_soc.plot(timestamps, soc_pct, label="SoC", color="#1D4ED8", alpha=0.35, linewidth=1.0)
-        ax_soc.set_ylabel("SoC (%)", color="#1D4ED8")
-        ax_soc.tick_params(axis="y", labelcolor="#1D4ED8")
-        ax_soc.set_ylim(0, 105)
+        ax_battery.set_ylim(0, battery_max_wh)
+        ax_pct = ax_battery.twinx()
+        ax_pct.set_ylabel("Battery (%)")
+        ax_pct.set_ylim(0, 100)
 
-    _add_battery_projection_trendline(
-        ax_battery,
-        power_frame,
-        battery_max_wh=battery_max_wh,
-        trend_hours=trend_hours,
-        soc_floor_pct=soc_floor_pct,
-    )
     ax_battery.legend(loc="upper left", fontsize=8)
 
     if "NetPowerWatts" in power_frame.columns:
