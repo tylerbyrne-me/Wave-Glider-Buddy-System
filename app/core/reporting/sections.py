@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 import pandas as pd
 from reportlab.lib import colors as rl_colors
@@ -227,6 +227,23 @@ def _mission_goal_meta_line(goal: models.MissionGoal) -> str:
     return f"Created {tstr}"
 
 
+def _power_trend(
+    current: float,
+    prior_power_summary: Optional[dict],
+    key: str,
+) -> Optional[Literal["up", "down"]]:
+    if not prior_power_summary:
+        return None
+    previous = prior_power_summary.get(key)
+    if previous is None:
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return None
+
+
 def build_summary(
     *,
     mission_telemetry_summary: dict,
@@ -239,6 +256,7 @@ def build_summary(
     mission_goals: Optional[Sequence[models.MissionGoal]],
     period_label: str,
     show_period_banner: bool = True,
+    prior_power_summary: Optional[dict] = None,
 ) -> List[Any]:
     styles = build_paragraph_styles()
     out: List[Any] = []
@@ -247,12 +265,24 @@ def build_summary(
         out.append(Spacer(1, 8))
 
     out.append(Paragraph("Navigation and Power", styles["Heading2"]))
+    power_in = float(report_period_power_summary.get("avg_total_input_W", 0.0))
+    power_out = float(report_period_power_summary.get("avg_total_output_W", 0.0))
     kpis: List[KPI] = [
         KPI("Distance (period)", f"{report_period_telemetry_summary.get('total_distance_km', 0.0):.2f}", "km"),
         KPI("Avg SOG (period)", f"{report_period_telemetry_summary.get('avg_speed_knots', 0.0):.2f}", "kt"),
         KPI("Distance (mission)", f"{mission_telemetry_summary.get('total_distance_km', 0.0):.2f}", "km"),
-        KPI("Power in (avg)", f"{report_period_power_summary.get('avg_total_input_W', 0.0):.2f}", "W"),
-        KPI("Power out (avg)", f"{report_period_power_summary.get('avg_total_output_W', 0.0):.2f}", "W"),
+        KPI(
+            "Power in (avg)",
+            f"{power_in:.2f}",
+            "W",
+            trend=_power_trend(power_in, prior_power_summary, "avg_total_input_W"),
+        ),
+        KPI(
+            "Power out (avg)",
+            f"{power_out:.2f}",
+            "W",
+            trend=_power_trend(power_out, prior_power_summary, "avg_total_output_W"),
+        ),
         KPI("Errors (count)", str(report_period_error_summary.get("total_errors", 0)), ""),
     ]
     solar = report_period_power_summary.get("avg_solar_panel_W") or {}
@@ -433,6 +463,7 @@ def build_week_summary_header(
     report_period_wave_summary: dict,
     report_period_error_summary: dict,
     period_label: str,
+    prior_power_summary: Optional[dict] = None,
 ) -> List[Any]:
     """ISO week Heading1 (TOC bookmark) plus weekly-style summary blocks for that week."""
     styles = build_paragraph_styles()
@@ -452,6 +483,7 @@ def build_week_summary_header(
             mission_goals=None,
             period_label=period_label,
             show_period_banner=False,
+            prior_power_summary=prior_power_summary,
         )
     )
     return out

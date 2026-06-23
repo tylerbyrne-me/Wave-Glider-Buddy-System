@@ -8,7 +8,7 @@ header text relative to ``MARGIN_TOP`` with a small offset or the rule will cros
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
 import matplotlib.font_manager as fm
 from reportlab.lib import colors
@@ -196,6 +196,26 @@ def build_paragraph_styles() -> dict[str, ParagraphStyle]:
         textColor=COLOR_BODY,
         alignment=TA_LEFT,
     )
+    styles["KPIValue"] = ParagraphStyle(
+        name="KPIValue",
+        parent=styles["Body"],
+        fontSize=8.5,
+        leading=10,
+        textColor=COLOR_BODY,
+        alignment=TA_CENTER,
+    )
+    styles["KPIValueDense"] = ParagraphStyle(
+        name="KPIValueDense",
+        parent=styles["KPIValue"],
+        fontSize=7.5,
+        leading=9,
+    )
+    styles["KPICaptionDense"] = ParagraphStyle(
+        name="KPICaptionDense",
+        parent=styles["Caption"],
+        fontSize=7.5,
+        leading=9,
+    )
     return styles
 
 
@@ -237,26 +257,52 @@ class DataPeriodBanner(Flowable):
 
 
 class KPI:
-    __slots__ = ("label", "value", "unit")
+    __slots__ = ("label", "value", "unit", "trend")
 
-    def __init__(self, label: str, value: str, unit: str = ""):
+    def __init__(
+        self,
+        label: str,
+        value: str,
+        unit: str = "",
+        trend: Optional[Literal["up", "down"]] = None,
+    ):
         self.label = label
         self.value = value
         self.unit = unit
+        self.trend = trend
+
+
+def _format_kpi_value_html(
+    value: str,
+    unit: str = "",
+    trend: Optional[Literal["up", "down"]] = None,
+) -> str:
+    esc_val = (value or "").replace("&", "&amp;").replace("<", "&lt;")
+    parts = [esc_val]
+    if unit:
+        esc_unit = unit.replace("&", "&amp;").replace("<", "&lt;")
+        parts.append(f' <font size="7">{esc_unit}</font>')
+    if trend == "up":
+        parts.append(f' <font color="#15803D" size="7">▲</font>')
+    elif trend == "down":
+        parts.append(f' <font color="#B91C1C" size="7">▼</font>')
+    return f"<nobr>{''.join(parts)}</nobr>"
 
 
 def kpi_row_table(kpis: Sequence[KPI], styles: dict[str, ParagraphStyle]) -> Table:
     if not kpis:
         return Table([[""]])
-    cells: List[List[Any]] = []
+    dense = len(kpis) >= 8
+    label_style = styles["KPICaptionDense"] if dense else styles["Caption"]
+    value_style = styles["KPIValueDense"] if dense else styles["KPIValue"]
     row_labels: List[Paragraph] = []
     row_vals: List[Paragraph] = []
     for k in kpis:
-        row_labels.append(Paragraph(f"<b>{k.label}</b>", styles["Caption"]))
-        unit_s = f" {k.unit}" if k.unit else ""
-        row_vals.append(Paragraph(f"{k.value}{unit_s}", styles["Body"]))
-    cells.append(row_labels)
-    cells.append(row_vals)
+        esc_label = (k.label or "").replace("&", "&amp;").replace("<", "&lt;")
+        row_labels.append(Paragraph(f"<b>{esc_label}</b>", label_style))
+        row_vals.append(
+            Paragraph(_format_kpi_value_html(k.value, k.unit, k.trend), value_style)
+        )
     inner_w = A4_PORTRAIT[0] - 2 * MARGIN_SIDE
     col_w = inner_w / len(kpis)
     t = Table([row_labels, row_vals], colWidths=[col_w] * len(kpis))

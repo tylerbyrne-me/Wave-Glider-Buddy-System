@@ -42,6 +42,54 @@ from ..data.summaries import get_ais_summary_stats
 logger = logging.getLogger(__name__)
 
 
+def _previous_report_date_window(start: date, end: date) -> tuple[date, date]:
+    """UTC inclusive window immediately before ``start`` … ``end``."""
+    days = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days - 1)
+    return prev_start, prev_end
+
+
+def _power_trend(current: float, previous: Optional[float]) -> Optional[str]:
+    if previous is None:
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return None
+
+
+def _prior_power_summary_for_window(
+    *,
+    power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    telemetry_df: pd.DataFrame,
+    ctd_df: pd.DataFrame,
+    weather_df: pd.DataFrame,
+    wave_df: pd.DataFrame,
+    fluorometer_df: pd.DataFrame,
+    ais_df: pd.DataFrame,
+    error_df: pd.DataFrame,
+    start_date: date,
+    end_date: date,
+) -> dict:
+    _, p_prev, s_prev, _, _, _, _, _, _ = _filter_report_dataframes(
+        telemetry_df=telemetry_df,
+        power_df=power_df,
+        solar_df=solar_df,
+        ctd_df=ctd_df,
+        weather_df=weather_df,
+        wave_df=wave_df,
+        fluorometer_df=fluorometer_df,
+        ais_df=ais_df,
+        error_df=error_df,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return _calculate_power_summary(p_prev, s_prev)
+
+
 def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     summary = {"total_distance_km": 0.0, "avg_speed_knots": 0.0}
     if df.empty or len(df) < 2:
@@ -1002,6 +1050,7 @@ def write_mission_pdf(
             story.append(PageBreak())
 
         windows = compute_iso_week_windows(mission_start_dt, mission_end_dt)
+        prev_week_power_summary: Optional[dict] = None
         for window in windows:
             (
                 t_f,
@@ -1047,6 +1096,7 @@ def write_mission_pdf(
                 report_period_wave_summary=_calculate_wave_summary(wa_f),
                 report_period_error_summary=_calculate_error_summary(e_f),
                 period_label=window.label,
+                prior_power_summary=prev_week_power_summary,
             )
             _build_period_block(
                 story,
@@ -1078,6 +1128,7 @@ def write_mission_pdf(
                 fluorometer_channel_map=fluorometer_channel_map,
                 offload_rows=week_offload_rows,
             )
+            prev_week_power_summary = _calculate_power_summary(p_f, s_f)
             story.append(PageBreak())
 
         _build_back_matter(
@@ -1115,6 +1166,22 @@ def write_mission_pdf(
         )
 
         report_period_telemetry_summary = _calculate_telemetry_summary(telemetry_df_filtered)
+        prior_power_summary: Optional[dict] = None
+        if start_date and end_date:
+            prev_start, prev_end = _previous_report_date_window(start_date, end_date)
+            prior_power_summary = _prior_power_summary_for_window(
+                power_df=power_df,
+                solar_df=solar_df,
+                telemetry_df=telemetry_df,
+                ctd_df=ctd_df,
+                weather_df=weather_df,
+                wave_df=wave_df,
+                fluorometer_df=fluorometer_df,
+                ais_df=ais_df,
+                error_df=error_df,
+                start_date=prev_start,
+                end_date=prev_end,
+            )
         story.append(Paragraph("Mission summary statistics", styles["Heading1"]))
         story.extend(
             sections.build_summary(
@@ -1129,6 +1196,7 @@ def write_mission_pdf(
                 report_period_error_summary=_calculate_error_summary(error_df_filtered),
                 mission_goals=mission_goals,
                 period_label=date_range_str,
+                prior_power_summary=prior_power_summary,
             )
         )
         story.append(PageBreak())
