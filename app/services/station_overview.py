@@ -10,6 +10,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.offload_comments import get_offload_comments
+
 HARDWARE_SWAPPED_AWAITING_OFFLOAD_STATUS = "Hardware Swapped - Awaiting Offload"
 DISPLAY_STATUS_OVERRIDE_OPTIONS: Tuple[Tuple[str, str], ...] = (
     ("SKIPPED", "Skipped"),
@@ -236,7 +238,7 @@ def build_status_overview_row(
     latest_offload_end_time_utc_str = "---"
     latest_departure_date_str = "---"
     latest_was_offloaded_str = "---"
-    latest_offload_notes_file_size_str = "---"
+    latest_offload_comments_str = "---"
     latest_vrl_verified_on_rudics = None
     latest_offload_log_id = None
     latest_remote_health_model_id = None
@@ -288,9 +290,8 @@ def build_status_overview_row(
                 if latest_log.was_offloaded is True
                 else ("No" if latest_log.was_offloaded is False else "---")
             )
-            latest_offload_notes_file_size_str = (
-                latest_log.offload_notes_file_size or "---"
-            )
+            merged_comments = get_offload_comments(latest_log)
+            latest_offload_comments_str = merged_comments or "---"
             latest_vrl_verified_on_rudics = getattr(
                 latest_log, "vrl_verified_on_rudics", None
             )
@@ -341,7 +342,7 @@ def build_status_overview_row(
         "latest_offload_end_time_utc": latest_offload_end_time_utc_str,
         "latest_departure_date": latest_departure_date_str,
         "latest_was_offloaded": latest_was_offloaded_str,
-        "latest_offload_notes_file_size": latest_offload_notes_file_size_str,
+        "latest_offload_comments": latest_offload_comments_str,
         "latest_vrl_verified_on_rudics": latest_vrl_verified_on_rudics,
         "latest_offload_log_id": latest_offload_log_id,
         "remote_health_model_id": latest_remote_health_model_id,

@@ -6,6 +6,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.core.offload_comments import enrich_offload_log_read
+
 from .station_overview import resolve_station_status_text_and_color
 
 
@@ -171,7 +173,7 @@ def build_station_timeline(
             {
                 "event_type": "offload_log",
                 "sort_ts": ts.isoformat(),
-                "payload": log.model_dump(),
+                "payload": enrich_offload_log_read(log),
             }
         )
     for h in hardware:

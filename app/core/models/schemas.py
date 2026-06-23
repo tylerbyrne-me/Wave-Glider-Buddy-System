@@ -290,7 +290,7 @@ class StationMetadataRead(StationMetadataBase):
 
 class StationMetadataReadWithLogs(StationMetadataRead):
     """Station metadata with offload logs."""
-    offload_logs: List[OffloadLog] = []
+    offload_logs: List["OffloadLogRead"] = []
 
 
 class StationMetadataCreateResponse(StationMetadataRead):
@@ -314,6 +314,10 @@ class OffloadLogCreate(SQLModel):
     vrl_file_name: Optional[str] = None
     vrl_verified_on_rudics: Optional[bool] = None
     offload_notes_file_size: Optional[str] = None
+    offload_comments: Optional[str] = Field(
+        default=None,
+        description="Canonical offload comments; stored in user_notes.",
+    )
     remote_health_model_id: Optional[str] = None
     remote_health_serial_number: Optional[str] = None
     remote_health_modem_address: Optional[int] = None
@@ -340,6 +344,10 @@ class OffloadLogUpdate(SQLModel):
     """Partial update for offload logs; parser-only fields are not accepted."""
 
     user_notes: Optional[str] = None
+    offload_comments: Optional[str] = Field(
+        default=None,
+        description="Canonical offload comments; stored in user_notes.",
+    )
     was_offloaded: Optional[bool] = None
     arrival_date: Optional[datetime] = None
     departure_date: Optional[datetime] = None
@@ -417,6 +425,10 @@ class OffloadLogRead(SQLModel):
     remote_health_report_date: Optional[date] = None
     parser_notes: Optional[str] = None
     user_notes: Optional[str] = None
+    offload_comments: Optional[str] = Field(
+        default=None,
+        description="Merged view of user_notes and legacy offload_notes_file_size.",
+    )
     created_by_source: str
     updated_by_source: Optional[str] = None
     updated_at_utc: Optional[datetime] = None

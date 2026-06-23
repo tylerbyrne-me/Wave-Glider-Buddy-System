@@ -24,6 +24,21 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
+const PARSER_OFFLOAD_NOTES_PREFIX = 'Auto-generated from WG-VM4 data';
+
+function getOffloadCommentsFromLog(log) {
+    if (!log) return '';
+    if (log.offload_comments) return log.offload_comments;
+    const user = (log.user_notes || '').trim();
+    const legacy = (log.offload_notes_file_size || '').trim();
+    const parts = [];
+    if (user) parts.push(user);
+    if (legacy && !legacy.startsWith(PARSER_OFFLOAD_NOTES_PREFIX)) {
+        if (legacy !== user && !user.includes(legacy)) parts.push(legacy);
+    }
+    return parts.join('\n\n');
+}
+
 function parseApiUtcDate(value) {
     if (!value) return null;
     if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -526,7 +541,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             "latest_arrival_date", "latest_distance_command_sent_m", 
             "latest_time_first_command_sent_utc", "latest_offload_start_time_utc",
             "latest_offload_end_time_utc", "latest_departure_date",
-            "latest_was_offloaded", "latest_offload_notes_file_size",
+            "latest_was_offloaded", "latest_offload_comments",
             // VM4 Remote Health fields (from latest offload)
             "remote_health_model_id", "remote_health_serial_number", "remote_health_modem_address",
             "remote_health_temperature_c", "remote_health_tilt_rad", "remote_health_humidity",
@@ -539,7 +554,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             "Arrival Date (UTC)", "Distance Cmd Sent (m)",
             "Time First Cmd Sent (UTC)", "Offload Start (UTC)",
             "Offload End (UTC)", "Departure Date (UTC)",
-            "Offloaded Successfully", "Offload Notes/File Size",
+            "Offloaded Successfully", "Offload Comments",
             // VM4 Remote Health headers
             "Remote Health Model ID", "Remote Health Serial Number", "Remote Health Modem Address",
             "Remote Health Temperature (C)", "Remote Health Tilt (Rad)", "Remote Health Humidity",
@@ -603,7 +618,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 const when = escapeHtml(ev.sort_ts || '');
                 const vrl = escapeHtml(p.vrl_file_name || '—');
                 const pn = escapeHtml(p.parser_notes || '');
-                const un = escapeHtml(p.user_notes || '');
+                const comments = escapeHtml(getOffloadCommentsFromLog(p));
                 const rh = [
                     p.remote_health_temperature_c != null ? `Temp ${p.remote_health_temperature_c}°C` : null,
                     p.remote_health_humidity != null ? `RH ${p.remote_health_humidity}%` : null,
@@ -620,12 +635,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                             <div class="small mt-1"><strong>VRL:</strong> ${vrl}</div>
                             ${rh ? `<div class="small mt-1 text-info">Remote health: ${escapeHtml(rh)}</div>` : ''}
                             ${pn ? `<div class="small mt-1"><strong>Parser notes:</strong> ${pn}</div>` : ''}
-                            ${un ? `<div class="small mt-1"><strong>User notes:</strong> ${un}</div>` : ''}
+                            ${comments ? `<div class="small mt-1"><strong>Offload comments:</strong> ${comments}</div>` : ''}
                             ${adminUser ? `
                             <details class="mt-2 small">
                                 <summary class="text-warning">Edit log (admin)</summary>
-                                <label class="form-label mt-1">User notes</label>
-                                <textarea class="form-control form-control-sm hist-user-notes" data-log-id="${p.id}" rows="2">${p.user_notes || ''}</textarea>
+                                <label class="form-label mt-1">Offload Comments</label>
+                                <textarea class="form-control form-control-sm hist-offload-comments" data-log-id="${p.id}" rows="2">${getOffloadCommentsFromLog(p)}</textarea>
                                 <div class="form-check mt-1">
                                     <input class="form-check-input hist-was-offloaded" type="checkbox" data-log-id="${p.id}" id="histwo-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
                                     <label class="form-check-label" for="histwo-${p.id}">Offloaded successfully</label>
@@ -728,10 +743,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             const logId = btn.getAttribute('data-log-id');
             const stationId = btn.getAttribute('data-station-id');
             if (!logId || !stationId) return;
-            const ta = historyModalEl.querySelector(`.hist-user-notes[data-log-id="${logId}"]`);
+            const ta = historyModalEl.querySelector(`.hist-offload-comments[data-log-id="${logId}"]`);
             const cb = historyModalEl.querySelector(`.hist-was-offloaded[data-log-id="${logId}"]`);
             const payload = {
-                user_notes: ta ? ta.value.trim() || null : null,
+                offload_comments: ta ? ta.value.trim() || null : null,
                 was_offloaded: cb ? cb.checked : null,
             };
             Object.keys(payload).forEach((k) => { if (payload[k] === null || payload[k] === undefined) delete payload[k]; });
@@ -752,6 +767,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             const bad = p.was_offloaded === false;
             const badge = ok ? 'text-success' : bad ? 'text-danger' : 'text-secondary';
             const sym = ok ? 'Yes' : bad ? 'No' : '?';
+            const commentsText = getOffloadCommentsFromLog(p);
             return `
 <div class="recent-log-edit border border-secondary rounded p-2 mb-2" data-recent-log-id="${p.id}">
   <div class="d-flex justify-content-between small"><span class="${badge}">#${p.id} · Offloaded: ${sym}</span><span class="text-muted">${escapeHtml(p.log_timestamp_utc || '')}</span></div>
@@ -769,10 +785,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   <label class="form-label small mb-0 mt-1">Station Offload Mission ID</label>
   <input type="text" class="form-control form-control-sm recent-station-mission-id" value="${escapeHtml(stationMissionId || '')}" placeholder="e.g., m209 (optional)">
   <div class="form-text">Station-level value (updates last_offload_by_glider for this station).</div>
-  <label class="form-label small mb-0 mt-1">Offload notes / file size</label>
-  <textarea class="form-control form-control-sm recent-offload-notes" rows="2">${escapeHtml(p.offload_notes_file_size || '')}</textarea>
-  <label class="form-label small mb-0 mt-1">User notes</label>
-  <textarea class="form-control form-control-sm recent-user-notes" rows="2">${escapeHtml(p.user_notes || '')}</textarea>
+  <label class="form-label small mb-0 mt-1">Offload Comments</label>
+  <textarea class="form-control form-control-sm recent-offload-comments" rows="2">${escapeHtml(commentsText)}</textarea>
   <div class="form-check mt-1">
     <input class="form-check-input recent-was-offloaded" type="checkbox" id="rw-${p.id}" ${p.was_offloaded === true ? 'checked' : ''}>
     <label class="form-check-label small" for="rw-${p.id}">Offloaded successfully</label>
@@ -865,7 +879,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             document.getElementById('formDepartureDate').value = '';
             populateOffloadMissionDropdown(stationData.last_offload_by_glider || '');
             document.getElementById('formVrlFileName').value = '';
-            document.getElementById('formOffloadNotesFileSize').value = '';
+            document.getElementById('formOffloadComments').value = '';
             document.getElementById('formWasOffloaded').checked = false;
 
             const swapBtn = document.getElementById('swapHardwareBtn');
@@ -916,9 +930,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
                 return;
             }
-            const ta = wrap.querySelector('.recent-user-notes');
+            const commentsField = wrap.querySelector('.recent-offload-comments');
             const cb = wrap.querySelector('.recent-was-offloaded');
-            const offloadNotes = wrap.querySelector('.recent-offload-notes');
             const vrlFileName = wrap.querySelector('.recent-vrl-file-name');
             const missionInput = wrap.querySelector('.recent-station-mission-id');
             const distanceInput = wrap.querySelector('.recent-distance');
@@ -931,7 +944,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             };
             const distanceRaw = distanceInput ? parseFloat(distanceInput.value) : null;
             const payload = {
-                user_notes: ta ? ta.value.trim() || null : null,
+                offload_comments: commentsField ? commentsField.value.trim() || null : null,
                 was_offloaded: cb ? cb.checked : null,
                 arrival_date: getRecentIso('.recent-arrival'),
                 time_first_command_sent_utc: getRecentIso('.recent-first-cmd'),
@@ -940,7 +953,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 departure_date: getRecentIso('.recent-departure'),
                 distance_command_sent_m: Number.isNaN(distanceRaw) ? null : distanceRaw,
                 vrl_file_name: vrlFileName ? vrlFileName.value.trim() || null : null,
-                offload_notes_file_size: offloadNotes ? offloadNotes.value.trim() || null : null,
             };
             Object.keys(payload).forEach((k) => { if (payload[k] === null) delete payload[k]; });
             try {
@@ -1209,7 +1221,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 departure_date: getIsoFromDatetimeLocal('formDepartureDate'),
                 was_offloaded: document.getElementById('formWasOffloaded').checked,
                 vrl_file_name: document.getElementById('formVrlFileName').value.trim() || null,
-                offload_notes_file_size: document.getElementById('formOffloadNotesFileSize').value.trim() || null,
+                offload_comments: document.getElementById('formOffloadComments').value.trim() || null,
             };
             const manualMissionId = (document.getElementById('formOffloadMissionId').value || '').trim();
              // Filter out null values if backend expects only provided fields
@@ -1236,7 +1248,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 document.getElementById('formDepartureDate').value = '';
                 populateOffloadMissionDropdown();
                 document.getElementById('formVrlFileName').value = '';
-                document.getElementById('formOffloadNotesFileSize').value = '';
+                document.getElementById('formOffloadComments').value = '';
                 document.getElementById('formWasOffloaded').checked = false;
                 // Keep modal open for potentially more logs or edits
             } catch (error) {

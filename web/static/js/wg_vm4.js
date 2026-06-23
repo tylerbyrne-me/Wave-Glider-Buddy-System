@@ -240,9 +240,8 @@ export function initializeWgVm4OffloadSection() {
                     title: "Offload Results & Notes",
                     items: [
                         {id: "offloaded_status_log", label: "Offloaded", item_type: "dropdown", options: ["Yes", "No", "Partial"], required: true},
-                        {id: "comments_log", label: "Comments", item_type: "text_area", placeholder: "Offload details..."},
+                        {id: "comments_log", label: "Offload Comments", item_type: "text_area", placeholder: "Offload details, file size, connection notes..."},
                         {id: "vrl_file_name_log", label: "VRL File Name", item_type: "text_input", placeholder: "e.g., VR4-UWM_XXXXXX.vrl"},
-                        {id: "vrl_file_size_log", label: "VRL File Size (bytes)", item_type: "text_input", placeholder: "e.g., 5161"},
                         {id: "flag_station_for_season_log", label: "Flag station for season", item_type: "dropdown", options: ["No", "Yes"], required: false},
                         {id: "flag_note_log", label: "Flag note", item_type: "text_area", placeholder: "Reason this station needs attention"},
                         {id: "otn_metadata_notes_log", label: "OTN Metadata Notes", item_type: "text_area", placeholder: "Notes for OTN..."},
@@ -398,8 +397,7 @@ export function initializeWgVm4OffloadSection() {
             departure_date: getIsoFromUtcDatetimeLocal(formData.get('departure_date_log')),
             was_offloaded: normalizedWasOffloaded,
             vrl_file_name: toNullableTrimmed(formData.get('vrl_file_name_log')),
-            offload_notes_file_size: toNullableTrimmed(formData.get('vrl_file_size_log')),
-            user_notes: notes,
+            offload_comments: notes,
             ...(missionIdForSheet ? { mission_id: missionIdForSheet } : {}),
         };
         Object.keys(payload).forEach((key) => {

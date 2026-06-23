@@ -43,8 +43,17 @@ from ..core.stations.station_registry_policy import (
     offload_log_matches_season_year,
 )
 from ..core.infra.feature_toggles import is_feature_enabled
+from ..core.offload_comments import (
+    enrich_offload_log_read,
+    get_offload_comments,
+    normalize_offload_log_write_data,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_offload_log_read(log: models.OffloadLog) -> models.OffloadLogRead:
+    return models.OffloadLogRead.model_validate(enrich_offload_log_read(log))
 
 
 def _is_admin_or_pic_designated_pilot(user: UserModel) -> bool:
@@ -296,7 +305,11 @@ async def get_station_metadata_by_id_on_router(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Station not found"
         )
-    return station
+    station_payload = station.model_dump()
+    station_payload["offload_logs"] = [
+        _serialize_offload_log_read(log) for log in station.offload_logs
+    ]
+    return models.StationMetadataReadWithLogs.model_validate(station_payload)
 
 
 # logger.debug("station_metadata_router.py - GET /station_metadata/{station_id} definition processed.") # Changed to logger
@@ -974,7 +987,7 @@ async def create_offload_log_for_station(
     active_season = StationSeasonService.get_active_season(session)
     field_season_year = active_season.year if active_season else None
 
-    offload_log_data = offload_log_in.model_dump()
+    offload_log_data = normalize_offload_log_write_data(offload_log_in.model_dump())
     sheet_mission_id = offload_log_data.pop("mission_id", None)
     offload_log_data["logged_by_username"] = current_user.username
     offload_log_data["station_id"] = station_id
@@ -1017,7 +1030,7 @@ async def create_offload_log_for_station(
         f"ROUTER: Offload logged for station '{station_id}' by user "
         f"'{current_user.username}'. Log ID: {db_offload_log.id}"
     )
-    return db_offload_log
+    return _serialize_offload_log_read(db_offload_log)
 
 
 @router.put(
@@ -1062,6 +1075,12 @@ async def update_offload_log_for_station(
             detail="No update data provided",
         )
 
+    if any(
+        key in update_data
+        for key in ("offload_comments", "user_notes", "offload_notes_file_size")
+    ):
+        update_data = normalize_offload_log_write_data(update_data)
+
     for key, value in update_data.items():
         setattr(db_log, key, value)
 
@@ -1074,7 +1093,7 @@ async def update_offload_log_for_station(
     logger.info(
         f"ROUTER: Offload log {log_id} updated for station '{station_id}'."
     )
-    return db_log
+    return _serialize_offload_log_read(db_log)
 
 
 @router.delete(
@@ -1378,7 +1397,7 @@ async def get_station_history(
         "timeline": timeline,
         "season_snapshots": [s.model_dump() for s in snapshots],
         "hardware_history": [h.model_dump() for h in hardware],
-        "offload_logs": [l.model_dump() for l in all_logs],
+        "offload_logs": [enrich_offload_log_read(l) for l in all_logs],
         "flag_events": [e.model_dump() for e in all_flag_events],
     }
 
@@ -1476,7 +1495,7 @@ async def get_array_history(
         "stations": [s.model_dump() for s in stations],
         "station_summaries": summaries,
         "stations_by_status": group_stations_by_status(summaries),
-        "offload_logs": [l.model_dump() for l in logs],
+        "offload_logs": [enrich_offload_log_read(l) for l in logs],
         "hardware_history": [h.model_dump() for h in hardware],
         "logs_by_season": logs_by_season_counts(all_logs_unfiltered)
         if season_year is None
@@ -1626,7 +1645,7 @@ async def get_station_analytics_overview(
     unresolved = sum(
         1
         for l in logs
-        if (getattr(l, "parser_notes", None) and not getattr(l, "user_notes", None))
+        if (getattr(l, "parser_notes", None) and not get_offload_comments(l))
     )
     conflict_logs_pending = sum(
         1
@@ -2027,7 +2046,7 @@ async def resolve_station_conflict(
     logger.info(
         f"Conflict resolved on log {log_id} by {current_user.username} action={action}"
     )
-    return log
+    return _serialize_offload_log_read(log)
 
 
 # ============================================================================
@@ -2350,7 +2369,7 @@ async def get_offload_logs_for_season(
     logs = StationSeasonService.get_offload_logs_for_season(
         session, year, station_type
     )
-    return logs
+    return [_serialize_offload_log_read(log) for log in logs]
 
 
 @router.get(
@@ -2439,7 +2458,7 @@ async def download_season_data(
             "Departure Date (UTC)": log.departure_date.strftime("%Y-%m-%d %H:%M:%S UTC") if log.departure_date else "---",
             "Was Offloaded": "Yes" if log.was_offloaded is True else ("No" if log.was_offloaded is False else "---"),
             "VRL File Name": log.vrl_file_name if log.vrl_file_name else "---",
-            "Offload Notes/File Size": log.offload_notes_file_size if log.offload_notes_file_size else "---",
+            "Offload Comments": get_offload_comments(log) or "---",
             # VM4 Remote Health (captured at connection time)
             "Remote Health Model ID": log.remote_health_model_id if getattr(log, "remote_health_model_id", None) is not None else "---",
             "Remote Health Serial Number": log.remote_health_serial_number if getattr(log, "remote_health_serial_number", None) is not None else "---",
