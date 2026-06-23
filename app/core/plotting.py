@@ -21,7 +21,7 @@ from matplotlib.patches import FancyArrowPatch, Rectangle
 import numpy as np  # type: ignore
 import logging
 
-from . import models
+from . import models, utils
 from .data.processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
 from .data.processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
@@ -1113,41 +1113,315 @@ def plot_telemetry_page_with_notes(
     _add_report_regional_inset(fig, map_ax, padded_extent, regional_extent, strip_fraction)
 
 
-def plot_power_for_report(ax1, df: pd.DataFrame):
-    """Plots the detailed power summary on the given axes for a PDF report."""
-    # The 'gliderTimeStamp' column is expected from the power data source.
-    
-    # These column names are from the Amps Power Summary Report
-    cols_to_adjust = ['totalBatteryPower', 'solarPowerGenerated', 'outputPortPower', 'batteryChargingPower']
-    df_plot = df.copy()
-    for col in cols_to_adjust:
-        if col in df_plot.columns:
-            # Convert from mWh to Wh
-            df_plot[col] = df_plot[col].div(1000).round(2)
+def _prepare_power_report_frame(
+    power_df: pd.DataFrame,
+    *,
+    resample_minutes: int = 30,
+) -> pd.DataFrame:
+    """Normalize raw AMPS power CSV rows and resample for report charts."""
+    if power_df.empty or "gliderTimeStamp" not in power_df.columns:
+        return pd.DataFrame()
 
-    x_pwr = df_plot['gliderTimeStamp']
-    
-    color1 = 'tab:blue'
-    ax1.set_xlabel('TimeStamp (UTC)')
-    ax1.set_ylabel('Total Battery Power (Wh)', color=color1)
-    ax1.plot(x_pwr, df_plot['totalBatteryPower'], label='Total Battery Power', color=color1)
-    ax1.tick_params(axis='y', labelcolor=color1)
-    ax1.grid(True, which='both', linestyle='--', alpha=0.3)
+    frame = power_df.copy()
+    frame["Timestamp"] = utils.parse_timestamp_column(
+        frame["gliderTimeStamp"], errors="coerce", utc=True
+    )
+    frame = frame.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+    if frame.empty:
+        return frame
 
-    ax2 = ax1.twinx()
-    color2 = 'tab:orange'
-    ax2.set_ylabel('Power Input/Outputs (Wh)', color=color2)
-    ax2.plot(x_pwr, df_plot['solarPowerGenerated'], label='Solar Power Generated', color='orange')
-    ax2.plot(x_pwr, df_plot['outputPortPower'], label='Output Port Power', color='red')
-    ax2.plot(x_pwr, df_plot['batteryChargingPower'], label='Battery Charging Power', color='green')
-    ax2.tick_params(axis='y', labelcolor=color2)
+    column_map = {
+        "totalBatteryPower": "BatteryWattHours",
+        "solarPowerGenerated": "SolarInputWatts",
+        "outputPortPower": "PowerDrawWatts",
+        "batteryChargingPower": "battery_charging_power_w",
+    }
+    for raw_col, target_col in column_map.items():
+        if raw_col in frame.columns:
+            frame[target_col] = pd.to_numeric(frame[raw_col], errors="coerce") / 1000.0
 
-    # Combine legends from both axes
-    lines, labels = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax2.legend(lines + lines2, labels + labels2, loc='upper left')
-    
-    ax1.set_title("Power Subsystem Summary")
+    if resample_minutes <= 0:
+        return frame
+
+    numeric_cols = [
+        col
+        for col in ("BatteryWattHours", "SolarInputWatts", "PowerDrawWatts", "battery_charging_power_w")
+        if col in frame.columns
+    ]
+    if not numeric_cols:
+        return frame
+
+    resampled = (
+        frame.set_index("Timestamp")[numeric_cols]
+        .resample(f"{resample_minutes}min")
+        .mean()
+        .dropna(how="all")
+    )
+    if "SolarInputWatts" in resampled.columns and "PowerDrawWatts" in resampled.columns:
+        resampled["NetPowerWatts"] = resampled["SolarInputWatts"] - resampled["PowerDrawWatts"]
+    return resampled.reset_index()
+
+
+def _prepare_solar_report_frame(
+    solar_df: pd.DataFrame,
+    *,
+    resample_minutes: int = 30,
+) -> pd.DataFrame:
+    """Normalize raw AMPS solar CSV rows and resample for report charts."""
+    if solar_df.empty or "gliderTimeStamp" not in solar_df.columns:
+        return pd.DataFrame()
+
+    frame = solar_df.copy()
+    frame["Timestamp"] = utils.parse_timestamp_column(
+        frame["gliderTimeStamp"], errors="coerce", utc=True
+    )
+    frame = frame.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+    if frame.empty:
+        return frame
+
+    panel_map = {
+        "panelPower1": "Panel1Power",
+        "panelPower3": "Panel2Power",
+        "panelPower4": "Panel4Power",
+    }
+    for raw_col, target_col in panel_map.items():
+        if raw_col in frame.columns:
+            frame[target_col] = pd.to_numeric(frame[raw_col], errors="coerce") / 1000.0
+
+    panel_cols = [col for col in panel_map.values() if col in frame.columns]
+    if not panel_cols:
+        return pd.DataFrame()
+
+    if resample_minutes <= 0:
+        return frame[["Timestamp", *panel_cols]]
+
+    resampled = (
+        frame.set_index("Timestamp")[panel_cols]
+        .resample(f"{resample_minutes}min")
+        .mean()
+        .dropna(how="all")
+    )
+    return resampled.reset_index()
+
+
+def _add_battery_projection_trendline(
+    ax_battery,
+    power_frame: pd.DataFrame,
+    *,
+    battery_max_wh: float,
+    trend_hours: float = 24.0,
+    soc_floor_pct: float = 15.0,
+) -> None:
+    """Overlay a dashed linear projection from the most recent battery trend."""
+    if power_frame.empty or "BatteryWattHours" not in power_frame.columns:
+        return
+
+    battery_series = power_frame.dropna(subset=["BatteryWattHours", "Timestamp"])
+    if len(battery_series) < 2:
+        return
+
+    trend_cutoff = battery_series["Timestamp"].max() - timedelta(hours=trend_hours)
+    trend_slice = battery_series[battery_series["Timestamp"] >= trend_cutoff]
+    if len(trend_slice) < 2:
+        trend_slice = battery_series.tail(min(len(battery_series), 48))
+
+    hours_since_start = (
+        trend_slice["Timestamp"] - trend_slice["Timestamp"].iloc[0]
+    ).dt.total_seconds().to_numpy(dtype=float) / 3600.0
+    battery_values = trend_slice["BatteryWattHours"].to_numpy(dtype=float)
+    slope, intercept = np.polyfit(hours_since_start, battery_values, 1)
+
+    last_time = trend_slice["Timestamp"].iloc[-1]
+    last_hours = hours_since_start[-1]
+    current_wh = float(battery_values[-1])
+    floor_wh = battery_max_wh * (soc_floor_pct / 100.0)
+    report_end = battery_series["Timestamp"].max()
+
+    if slope < -0.01:
+        target_hours = (current_wh - floor_wh) / abs(slope)
+        annotation = f"Est. depletion: ~{(last_time + timedelta(hours=target_hours)).strftime('%b %d %H:%M UTC')}"
+    elif slope > 0.01:
+        target_hours = (battery_max_wh - current_wh) / slope
+        annotation = f"Charging — full est. ~{(last_time + timedelta(hours=target_hours)).strftime('%b %d %H:%M UTC')}"
+    else:
+        target_hours = 6.0
+        annotation = "Battery trend stable"
+
+    projection_end_time = min(
+        report_end + timedelta(hours=12),
+        last_time + timedelta(hours=max(target_hours, 6.0)),
+    )
+    projection_hours = np.linspace(
+        last_hours,
+        last_hours + (projection_end_time - last_time).total_seconds() / 3600.0,
+        num=30,
+    )
+    projection_times = [
+        last_time + timedelta(hours=float(h - last_hours)) for h in projection_hours
+    ]
+    projection_values = slope * projection_hours + intercept
+
+    ax_battery.plot(
+        projection_times,
+        projection_values,
+        linestyle="--",
+        color="#6B7280",
+        linewidth=1.5,
+        label="24h trend projection",
+        zorder=4,
+    )
+    ax_battery.text(
+        0.99,
+        0.03,
+        annotation,
+        transform=ax_battery.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color="#374151",
+        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#D1D5DB", alpha=0.92),
+    )
+
+
+def plot_power_for_report(
+    fig,
+    power_df: pd.DataFrame,
+    solar_df: Optional[pd.DataFrame] = None,
+    *,
+    battery_max_wh: float = 2940.0,
+    resample_minutes: int = 30,
+    trend_hours: float = 24.0,
+    soc_floor_pct: float = 15.0,
+) -> None:
+    """Plot a three-panel power subsystem summary for weekly PDF reports."""
+    power_frame = _prepare_power_report_frame(power_df, resample_minutes=resample_minutes)
+    solar_frame = _prepare_solar_report_frame(
+        solar_df if solar_df is not None else pd.DataFrame(),
+        resample_minutes=resample_minutes,
+    )
+
+    if power_frame.empty:
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_axis_off()
+        ax.text(
+            0.5,
+            0.5,
+            "No power data in the selected range.",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
+        return
+
+    ax_battery, ax_net, ax_solar = fig.subplots(3, 1, sharex=True)
+    fig.suptitle("Power Subsystem Summary", **REPORT_FIG_SUPTITLE_KWARGS)
+
+    timestamps = power_frame["Timestamp"]
+    battery_wh = power_frame["BatteryWattHours"]
+    ax_battery.plot(timestamps, battery_wh, label="Battery level", color="tab:blue", linewidth=1.4)
+    ax_battery.set_ylabel("Battery (Wh)", color="tab:blue")
+    ax_battery.tick_params(axis="y", labelcolor="tab:blue")
+    ax_battery.grid(True, which="both", linestyle="--", alpha=0.3)
+
+    if battery_max_wh > 0:
+        soc_pct = (battery_wh / battery_max_wh) * 100.0
+        ax_soc = ax_battery.twinx()
+        ax_soc.plot(timestamps, soc_pct, label="SoC", color="#1D4ED8", alpha=0.35, linewidth=1.0)
+        ax_soc.set_ylabel("SoC (%)", color="#1D4ED8")
+        ax_soc.tick_params(axis="y", labelcolor="#1D4ED8")
+        ax_soc.set_ylim(0, 105)
+
+    _add_battery_projection_trendline(
+        ax_battery,
+        power_frame,
+        battery_max_wh=battery_max_wh,
+        trend_hours=trend_hours,
+        soc_floor_pct=soc_floor_pct,
+    )
+    ax_battery.legend(loc="upper left", fontsize=8)
+
+    if "NetPowerWatts" in power_frame.columns:
+        net_power = power_frame["NetPowerWatts"]
+        ax_net.plot(timestamps, net_power, label="Net power", color="#047857", linewidth=1.0, alpha=0.8)
+        ax_net.fill_between(
+            timestamps,
+            net_power,
+            0,
+            where=net_power >= 0,
+            color="#10B981",
+            alpha=0.25,
+            interpolate=True,
+        )
+        ax_net.fill_between(
+            timestamps,
+            net_power,
+            0,
+            where=net_power < 0,
+            color="#EF4444",
+            alpha=0.25,
+            interpolate=True,
+        )
+        rolling_mean = net_power.rolling(window=12, min_periods=1).mean()
+        ax_net.plot(
+            timestamps,
+            rolling_mean,
+            label="6h rolling mean",
+            color="#111827",
+            linewidth=1.4,
+            linestyle="--",
+        )
+    ax_net.axhline(0, color="#9CA3AF", linewidth=0.8)
+    ax_net.set_ylabel("Net power (W)")
+    ax_net.grid(True, which="both", linestyle="--", alpha=0.3)
+    ax_net.legend(loc="upper left", fontsize=8)
+
+    panel_specs = [
+        ("Panel1Power", "Panel 1", "tab:orange"),
+        ("Panel2Power", "Panel 2", "tab:green"),
+        ("Panel4Power", "Panel 3", "tab:purple"),
+    ]
+    plotted_panel = False
+    if not solar_frame.empty:
+        for column_name, label, color in panel_specs:
+            if column_name in solar_frame.columns:
+                ax_solar.plot(
+                    solar_frame["Timestamp"],
+                    solar_frame[column_name],
+                    label=label,
+                    color=color,
+                    linewidth=1.0,
+                )
+                plotted_panel = True
+
+    if "SolarInputWatts" in power_frame.columns:
+        ax_solar.plot(
+            timestamps,
+            power_frame["SolarInputWatts"],
+            label="Total solar input",
+            color="#B45309",
+            linewidth=1.4,
+            linestyle="--",
+        )
+        plotted_panel = True
+
+    if not plotted_panel:
+        ax_solar.text(
+            0.5,
+            0.5,
+            "No per-panel solar data in the selected range.",
+            ha="center",
+            va="center",
+            transform=ax_solar.transAxes,
+            family=REPORT_PDF_FONT_PRIMARY,
+        )
+    ax_solar.set_ylabel("Solar input (W)")
+    ax_solar.set_xlabel("Timestamp (UTC)")
+    ax_solar.grid(True, which="both", linestyle="--", alpha=0.3)
+    ax_solar.legend(loc="upper left", fontsize=8, ncol=2)
+
+    ax_solar.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    fig.autofmt_xdate(rotation=0, ha="center")
 
 
 REPORT_FIG_SUPTITLE_KWARGS = {"fontsize": 16, "fontfamily": REPORT_PDF_FONT_PRIMARY}

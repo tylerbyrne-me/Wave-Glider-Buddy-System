@@ -103,6 +103,13 @@ class StationMetadata(SQLModel, table=True):
             "FAILED_OFFLOAD, HARDWARE_SWAPPED_AWAITING_OFFLOAD."
         ),
     )
+    display_status_override_set_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description=(
+            "UTC time the display override was last set. Newer season offload logs "
+            "supersede the override until season close clears it."
+        ),
+    )
     field_season_year: Optional[int] = SQLModelField(
         default=None,
         index=True,

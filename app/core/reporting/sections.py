@@ -267,6 +267,8 @@ def build_summary(
     out.append(Paragraph("Navigation and Power", styles["Heading2"]))
     power_in = float(report_period_power_summary.get("avg_total_input_W", 0.0))
     power_out = float(report_period_power_summary.get("avg_total_output_W", 0.0))
+    avg_daily_solar_wh = float(report_period_power_summary.get("avg_daily_solar_wh", 0.0))
+    avg_daily_draw_wh = float(report_period_power_summary.get("avg_daily_draw_wh", 0.0))
     kpis: List[KPI] = [
         KPI("Distance (period)", f"{report_period_telemetry_summary.get('total_distance_km', 0.0):.2f}", "km"),
         KPI("Avg SOG (period)", f"{report_period_telemetry_summary.get('avg_speed_knots', 0.0):.2f}", "kt"),
@@ -283,7 +285,8 @@ def build_summary(
             "W",
             trend=_power_trend(power_out, prior_power_summary, "avg_total_output_W"),
         ),
-        KPI("Errors (count)", str(report_period_error_summary.get("total_errors", 0)), ""),
+        KPI("Avg daily solar", f"{avg_daily_solar_wh:.1f}", "Wh/day"),
+        KPI("Avg daily draw", f"{avg_daily_draw_wh:.1f}", "Wh/day"),
     ]
     solar = report_period_power_summary.get("avg_solar_panel_W") or {}
     if solar:
@@ -584,7 +587,13 @@ def build_mission_notes_section(note_annotations: List[Dict[str, Any]]) -> List[
     return out
 
 
-def build_power_section(power_df: pd.DataFrame, period_label: str) -> List[Any]:
+def build_power_section(
+    power_df: pd.DataFrame,
+    period_label: str,
+    *,
+    solar_df: Optional[pd.DataFrame] = None,
+    battery_max_wh: float = 2940.0,
+) -> List[Any]:
     if power_df.empty:
         return []
     styles = build_paragraph_styles()
@@ -594,6 +603,8 @@ def build_power_section(power_df: pd.DataFrame, period_label: str) -> List[Any]:
         Spacer(1, 6),
         charts.chart_power_image(
             power_df,
+            solar_df,
+            battery_max_wh=battery_max_wh,
             max_width_pt=LANDSCAPE_CONTENT_WIDTH_PT,
             max_height_pt=_landscape_chart_max_height_pt(),
         ),

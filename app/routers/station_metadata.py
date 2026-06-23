@@ -20,8 +20,10 @@ from ..core.models import User as UserModel # UserModel alias is used
 from ..core.infra.db import SQLModelSession, get_db_session, sqlite_engine
 from ..services.station_overview import (
     build_status_overview_row,
+    clear_display_status_override,
     count_stations_by_status_text,
     resolve_station_status_text_and_color,
+    sync_display_status_override_timestamp,
 )
 from ..services.station_season_service import StationSeasonService
 from ..services.station_history_service import (
@@ -468,6 +470,7 @@ async def upload_station_metadata_csv(
                     )
                 old_serial = existing_station.serial_number
                 old_modem = existing_station.modem_address
+                old_override = existing_station.display_status_override
                 update_data = station_data.model_dump(exclude_unset=True)
                 if "otn_metadata" in update_data:
                     update_data["notes"] = update_data.pop("otn_metadata")
@@ -484,6 +487,11 @@ async def upload_station_metadata_csv(
                         del update_data["notes"]
                 for key, value in update_data.items():
                     setattr(existing_station, key, value)
+                if "display_status_override" in update_data:
+                    sync_display_status_override_timestamp(
+                        existing_station,
+                        previous_override=old_override,
+                    )
                 if old_serial != existing_station.serial_number or old_modem != existing_station.modem_address:
                     open_stmt = (
                         select(models.StationHardwareHistory)
@@ -605,9 +613,16 @@ async def update_station_metadata_fields(
 
     old_serial = db_station_metadata.serial_number
     old_modem = db_station_metadata.modem_address
+    previous_override = db_station_metadata.display_status_override
 
     for key, value in update_data.items():
         setattr(db_station_metadata, key, value)
+
+    if "display_status_override" in update_data:
+        sync_display_status_override_timestamp(
+            db_station_metadata,
+            previous_override=previous_override,
+        )
 
     session.add(db_station_metadata)
     if (
@@ -990,6 +1005,8 @@ async def create_offload_log_for_station(
 
     if db_offload_log.was_offloaded is not None:
         db_station_metadata.was_last_offload_successful = db_offload_log.was_offloaded
+
+    clear_display_status_override(db_station_metadata)
 
     session.add(db_station_metadata)  # Add again to save changes to station metadata
 

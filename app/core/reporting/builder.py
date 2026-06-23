@@ -37,7 +37,7 @@ from .constants import LOGO_PATH, REPORTS_ROOT
 from .styling import WeeklyReportDocTemplate, build_paragraph_styles
 from . import sections
 from .week_windows import compute_iso_week_windows, resolve_mission_time_bounds
-from ..data.summaries import get_ais_summary_stats
+from ..data.summaries import get_ais_summary_stats, theoretical_max_wh
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ def _prior_power_summary_for_window(
     error_df: pd.DataFrame,
     start_date: date,
     end_date: date,
+    battery_max_wh: Optional[float] = None,
 ) -> dict:
     _, p_prev, s_prev, _, _, _, _, _, _ = _filter_report_dataframes(
         telemetry_df=telemetry_df,
@@ -87,7 +88,7 @@ def _prior_power_summary_for_window(
         start_date=start_date,
         end_date=end_date,
     )
-    return _calculate_power_summary(p_prev, s_prev)
+    return _calculate_power_summary(p_prev, s_prev, battery_max_wh=battery_max_wh)
 
 
 def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
@@ -122,8 +123,127 @@ def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     return summary
 
 
-def _calculate_power_summary(power_df: pd.DataFrame, solar_df: pd.DataFrame) -> dict:
+_SOLAR_PANEL_RAW_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("panelPower1", "Panel 1"),
+    ("panelPower3", "Panel 2"),
+    ("panelPower4", "Panel 3"),
+)
+
+
+def _empty_power_analytics() -> dict:
+    return {
+        "net_energy_wh": 0.0,
+        "avg_daily_solar_wh": 0.0,
+        "avg_daily_draw_wh": 0.0,
+        "estimated_hours_to_depletion": None,
+        "estimated_hours_to_full": None,
+        "slope_wh_per_hour": None,
+        "daily_budgets": [],
+        "peak_solar_day": None,
+        "estimated_lifetime_label": "N/A",
+    }
+
+
+def _calculate_power_analytics(
+    power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    battery_max_wh: float,
+    *,
+    soc_floor_pct: float = 15.0,
+    trend_hours: float = 24.0,
+) -> dict:
+    """Extended power analytics for report KPIs and chart trendlines."""
+    analytics = _empty_power_analytics()
+    if power_df.empty or "gliderTimeStamp" not in power_df.columns:
+        return analytics
+
+    power_working = power_df.copy()
+    power_working["gliderTimeStamp"] = utils.parse_timestamp_column(
+        power_working["gliderTimeStamp"], errors="coerce", utc=True
+    )
+    power_working = power_working.dropna(subset=["gliderTimeStamp"]).sort_values("gliderTimeStamp")
+    if len(power_working) < 2:
+        return analytics
+
+    solar_wh_series = (
+        pd.to_numeric(power_working.get("solarPowerGenerated"), errors="coerce").fillna(0) / 1000.0
+    )
+    draw_wh_series = (
+        pd.to_numeric(power_working.get("outputPortPower"), errors="coerce").fillna(0) / 1000.0
+    )
+    battery_wh_series = (
+        pd.to_numeric(power_working.get("totalBatteryPower"), errors="coerce")
+    ) / 1000.0
+
+    total_solar_wh = float(solar_wh_series.sum())
+    total_draw_wh = float(draw_wh_series.sum())
+    analytics["net_energy_wh"] = total_solar_wh - total_draw_wh
+
+    day_index = power_working["gliderTimeStamp"].dt.floor("D")
+    daily_solar = solar_wh_series.groupby(day_index).sum()
+    daily_draw = draw_wh_series.groupby(day_index).sum()
+    daily_budgets = []
+    for day, solar_wh in daily_solar.items():
+        daily_budgets.append(
+            {
+                "date": day.date().isoformat(),
+                "solar_wh": float(solar_wh),
+                "draw_wh": float(daily_draw.get(day, 0.0)),
+            }
+        )
+    analytics["daily_budgets"] = daily_budgets
+
+    num_days = max(len(daily_solar), 1)
+    analytics["avg_daily_solar_wh"] = total_solar_wh / num_days
+    analytics["avg_daily_draw_wh"] = total_draw_wh / num_days
+
+    if not daily_solar.empty:
+        peak_day = daily_solar.idxmax()
+        analytics["peak_solar_day"] = peak_day.date().isoformat()
+
+    trend_cutoff = power_working["gliderTimeStamp"].max() - timedelta(hours=trend_hours)
+    trend_df = power_working[power_working["gliderTimeStamp"] >= trend_cutoff].copy()
+    if len(trend_df) >= 2 and battery_wh_series.notna().any():
+        trend_battery = (
+            pd.to_numeric(trend_df.get("totalBatteryPower"), errors="coerce") / 1000.0
+        ).dropna()
+        trend_times = trend_df.loc[trend_battery.index, "gliderTimeStamp"]
+        if len(trend_battery) >= 2:
+            hours_since_start = (
+                trend_times - trend_times.iloc[0]
+            ).dt.total_seconds().to_numpy(dtype=float) / 3600.0
+            slope, intercept = np.polyfit(hours_since_start, trend_battery.to_numpy(dtype=float), 1)
+            analytics["slope_wh_per_hour"] = float(slope)
+            current_wh = float(battery_wh_series.dropna().iloc[-1])
+            floor_wh = battery_max_wh * (soc_floor_pct / 100.0)
+            if slope < -0.01:
+                hours_to_floor = (current_wh - floor_wh) / abs(slope)
+                if hours_to_floor > 0:
+                    analytics["estimated_hours_to_depletion"] = float(hours_to_floor)
+                    analytics["estimated_lifetime_label"] = (
+                        f"{hours_to_floor:.0f} h to {soc_floor_pct:.0f}% SoC"
+                    )
+            elif slope > 0.01:
+                hours_to_full = (battery_max_wh - current_wh) / slope
+                if hours_to_full > 0:
+                    analytics["estimated_hours_to_full"] = float(hours_to_full)
+                    analytics["estimated_lifetime_label"] = (
+                        f"Charging — full in ~{hours_to_full:.0f} h"
+                    )
+            else:
+                analytics["estimated_lifetime_label"] = "Stable"
+
+    return analytics
+
+
+def _calculate_power_summary(
+    power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    *,
+    battery_max_wh: Optional[float] = None,
+) -> dict:
     summary = {"avg_total_input_W": 0.0, "avg_total_output_W": 0.0, "avg_solar_panel_W": {}}
+    summary.update(_empty_power_analytics())
     if not power_df.empty and "gliderTimeStamp" in power_df.columns and len(power_df) > 1:
         power_df_working = power_df.copy()
         power_df_working["gliderTimeStamp"] = utils.parse_timestamp_column(
@@ -154,11 +274,14 @@ def _calculate_power_summary(power_df: pd.DataFrame, solar_df: pd.DataFrame) -> 
                 solar_df_working["gliderTimeStamp"].max() - solar_df_working["gliderTimeStamp"].min()
             ).total_seconds() / 3600
         if duration_hours_solar > 0:
-            for i in range(6):
-                col_name = f"inputPower_{i}"
+            for col_name, panel_label in _SOLAR_PANEL_RAW_COLUMNS:
                 if col_name in solar_df_working.columns:
                     total_panel_wh = solar_df_working[col_name].sum() / 1000
-                    summary["avg_solar_panel_W"][f"Panel {i}"] = total_panel_wh / duration_hours_solar
+                    summary["avg_solar_panel_W"][panel_label] = total_panel_wh / duration_hours_solar
+    if battery_max_wh is not None:
+        summary.update(
+            _calculate_power_analytics(power_df, solar_df, battery_max_wh)
+        )
     return summary
 
 
@@ -679,6 +802,8 @@ def _append_landscape_sections(
     *,
     plots_to_include: List[str],
     power_df: pd.DataFrame,
+    solar_df: pd.DataFrame,
+    battery_max_wh: float,
     ctd_df: pd.DataFrame,
     weather_df: pd.DataFrame,
     wave_df: pd.DataFrame,
@@ -707,7 +832,14 @@ def _append_landscape_sections(
         story.extend(section_flow)
 
     if "power" in plots_to_include and not power_df.empty:
-        _append_landscape_section(sections.build_power_section(power_df, period_label))
+        _append_landscape_section(
+            sections.build_power_section(
+                power_df,
+                period_label,
+                solar_df=solar_df,
+                battery_max_wh=battery_max_wh,
+            )
+        )
     if "ctd" in plots_to_include and not ctd_df.empty:
         _append_landscape_section(sections.build_ctd_section(ctd_df, period_label))
     if "weather" in plots_to_include and not weather_df.empty:
@@ -764,6 +896,7 @@ def _build_period_block(
     has_wg_vm4_card_enabled: bool,
     fluorometer_channel_map: Optional[dict],
     offload_rows: List[models.OffloadLog],
+    battery_max_wh: float,
 ) -> None:
     from reportlab.platypus import PageBreak, Paragraph
 
@@ -801,6 +934,8 @@ def _build_period_block(
         story,
         plots_to_include=plots_to_include,
         power_df=power_df_filtered,
+        solar_df=solar_df_filtered,
+        battery_max_wh=battery_max_wh,
         ctd_df=ctd_df_filtered,
         weather_df=weather_df_filtered,
         wave_df=wave_df_filtered,
@@ -939,9 +1074,15 @@ def write_mission_pdf(
         if sensor_tracker_deployment and has_c3_card_enabled
         else None
     )
+    battery_apu = (
+        getattr(mission_overview, "battery_apu_count", None) if mission_overview else None
+    )
+    battery_max_wh = theoretical_max_wh(battery_apu)
 
     mission_telemetry_summary = _calculate_telemetry_summary(telemetry_df)
-    mission_power_summary = _calculate_power_summary(power_df, solar_df)
+    mission_power_summary = _calculate_power_summary(
+        power_df, solar_df, battery_max_wh=battery_max_wh
+    )
     mission_ctd_summary = _calculate_ctd_summary(
         preprocess_ctd_df(ctd_df) if not ctd_df.empty else ctd_df
     )
@@ -1090,7 +1231,9 @@ def write_mission_pdf(
                 week_label=window.label,
                 mission_telemetry_summary=mission_telemetry_summary,
                 report_period_telemetry_summary=_calculate_telemetry_summary(t_f),
-                report_period_power_summary=_calculate_power_summary(p_f, s_f),
+                report_period_power_summary=_calculate_power_summary(
+                    p_f, s_f, battery_max_wh=battery_max_wh
+                ),
                 report_period_ctd_summary=_calculate_ctd_summary(c_f),
                 report_period_weather_summary=_calculate_weather_summary(w_f),
                 report_period_wave_summary=_calculate_wave_summary(wa_f),
@@ -1127,8 +1270,11 @@ def write_mission_pdf(
                 has_wg_vm4_card_enabled=has_wg_vm4_card_enabled,
                 fluorometer_channel_map=fluorometer_channel_map,
                 offload_rows=week_offload_rows,
+                battery_max_wh=battery_max_wh,
             )
-            prev_week_power_summary = _calculate_power_summary(p_f, s_f)
+            prev_week_power_summary = _calculate_power_summary(
+                p_f, s_f, battery_max_wh=battery_max_wh
+            )
             story.append(PageBreak())
 
         _build_back_matter(
@@ -1181,6 +1327,7 @@ def write_mission_pdf(
                 error_df=error_df,
                 start_date=prev_start,
                 end_date=prev_end,
+                battery_max_wh=battery_max_wh,
             )
         story.append(Paragraph("Mission summary statistics", styles["Heading1"]))
         story.extend(
@@ -1188,7 +1335,7 @@ def write_mission_pdf(
                 mission_telemetry_summary=mission_telemetry_summary,
                 report_period_telemetry_summary=report_period_telemetry_summary,
                 report_period_power_summary=_calculate_power_summary(
-                    power_df_filtered, solar_df_filtered
+                    power_df_filtered, solar_df_filtered, battery_max_wh=battery_max_wh
                 ),
                 report_period_ctd_summary=_calculate_ctd_summary(ctd_df_filtered),
                 report_period_weather_summary=_calculate_weather_summary(weather_df_filtered),
@@ -1230,6 +1377,7 @@ def write_mission_pdf(
             has_wg_vm4_card_enabled=has_wg_vm4_card_enabled,
             fluorometer_channel_map=fluorometer_channel_map,
             offload_rows=offload_rows,
+            battery_max_wh=battery_max_wh,
         )
 
     doc.multiBuild(story)

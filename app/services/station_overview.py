@@ -2,14 +2,15 @@
 Build station offload status overview rows from live registry + season-filtered logs.
 
 Status priority (lowest to highest): log-derived status, hardware-swap pending,
-display status override, season flag (Flagged).
+active display status override (until superseded by a newer log or season close),
+season flag (Flagged).
 """
 
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-# Canonical override keys stored in display_status_override (CSV/API).
+HARDWARE_SWAPPED_AWAITING_OFFLOAD_STATUS = "Hardware Swapped - Awaiting Offload"
 DISPLAY_STATUS_OVERRIDE_OPTIONS: Tuple[Tuple[str, str], ...] = (
     ("SKIPPED", "Skipped"),
     ("OFFLOADED", "Offloaded"),
@@ -25,7 +26,7 @@ _DISPLAY_STATUS_OVERRIDE_BY_KEY: Dict[str, Tuple[str, str]] = {
     "OFFLOADED": ("Offloaded", "green"),
     "FAILED_OFFLOAD": ("Failed Offload", "red"),
     "HARDWARE_SWAPPED_AWAITING_OFFLOAD": (
-        "Hardware Swapped - Awaiting Offload",
+        HARDWARE_SWAPPED_AWAITING_OFFLOAD_STATUS,
         "purple",
     ),
 }
@@ -53,6 +54,63 @@ def status_from_display_override(
     if key is None:
         return None
     return _DISPLAY_STATUS_OVERRIDE_BY_KEY.get(key)
+
+
+def _log_effective_ts(log: Any) -> datetime:
+    raw = (
+        log.offload_end_time_utc
+        or log.offload_start_time_utc
+        or log.log_timestamp_utc
+    )
+    aware = _aware_utc(raw)
+    if aware is not None:
+        return aware
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def is_display_status_override_active(
+    station: Any,
+    relevant_logs: List[Any],
+) -> bool:
+    """
+    True when a manual override should still drive the display status.
+
+    Superseded by any season-context offload log recorded after the override
+    was set (display_status_override_set_at_utc).
+    """
+    if status_from_display_override(
+        getattr(station, "display_status_override", None)
+    ) is None:
+        return False
+    set_at = _aware_utc(getattr(station, "display_status_override_set_at_utc", None))
+    if set_at is None:
+        return True
+    for log in relevant_logs:
+        if _log_effective_ts(log) > set_at:
+            return False
+    return True
+
+
+def sync_display_status_override_timestamp(
+    station: Any,
+    *,
+    previous_override: Optional[str],
+) -> None:
+    """Update set_at when display_status_override changes on save."""
+    previous_key = normalize_display_status_override(previous_override)
+    current_key = normalize_display_status_override(
+        getattr(station, "display_status_override", None)
+    )
+    if current_key is None:
+        station.display_status_override_set_at_utc = None
+        return
+    if current_key != previous_key:
+        station.display_status_override_set_at_utc = datetime.now(timezone.utc)
+
+
+def clear_display_status_override(station: Any) -> None:
+    station.display_status_override = None
+    station.display_status_override_set_at_utc = None
 
 
 def resolve_station_status_text_and_color(
@@ -89,14 +147,15 @@ def resolve_station_status_text_and_color(
             status_color_key = "grey"
 
     if awaiting_first_offload_after_swap:
-        status_text = "Hardware Swapped - Awaiting Offload"
+        status_text = HARDWARE_SWAPPED_AWAITING_OFFLOAD_STATUS
         status_color_key = "purple"
 
-    override_status = status_from_display_override(
-        getattr(station, "display_status_override", None)
-    )
-    if override_status is not None:
-        status_text, status_color_key = override_status
+    if is_display_status_override_active(station, relevant_logs):
+        override_status = status_from_display_override(
+            getattr(station, "display_status_override", None)
+        )
+        if override_status is not None:
+            status_text, status_color_key = override_status
 
     if is_flagged_for_scope:
         status_text = "Flagged - Needs Review"
@@ -256,6 +315,10 @@ def build_status_overview_row(
         is_flagged_for_scope=is_flagged_for_scope,
         awaiting_first_offload_after_swap=awaiting_first_offload_after_swap,
     )
+
+    # Pre-swap VRL must not appear once a new offload is required (swap or override).
+    if status_text == HARDWARE_SWAPPED_AWAITING_OFFLOAD_STATUS:
+        latest_vrl_file_name = "---"
 
     return {
         "station_id": station.station_id,

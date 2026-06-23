@@ -460,6 +460,9 @@ class StationSeasonService:
                 snapshot_created_at_utc=archive_time,
             )
             session.add(snapshot_row)
+            station.display_status_override = None
+            station.display_status_override_set_at_utc = None
+            session.add(station)
 
         offload_statement = select(OffloadLog).where(
             (OffloadLog.field_season_year.is_(None))

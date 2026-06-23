@@ -74,15 +74,22 @@ def chart_telemetry_image(
 
 def chart_power_image(
     power_df: pd.DataFrame,
+    solar_df: Optional[pd.DataFrame] = None,
     *,
+    battery_max_wh: float = 2940.0,
     max_width_pt: float,
     max_height_pt: float | None = None,
     dpi: int = DEFAULT_DPI,
 ) -> Image:
     with report_pdf_rc_context():
-        fig, ax = plt.subplots(figsize=(11.69, 8.27))
-        plot_power_for_report(ax, power_df)
-        fig.tight_layout(pad=1.2)
+        fig = plt.figure(figsize=(11.69, 8.27))
+        plot_power_for_report(
+            fig,
+            power_df,
+            solar_df,
+            battery_max_wh=battery_max_wh,
+        )
+        fig.tight_layout(rect=[0, 0.02, 1, 0.96])
     return _fig_to_image(fig, dpi=dpi, max_width_pt=max_width_pt, max_height_pt=max_height_pt)
 
 
