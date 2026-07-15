@@ -1,7 +1,7 @@
 import logging
 
 import pandas as pd
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from typing import List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,6 +165,35 @@ async def generate_mission_report(
         logger.info(f"Successfully generated one-off report for mission '{mission_id}'. URL: {report_url}. Not saved to overview.")
 
     return mission_overview
+
+
+@router.get("/bathy-cache/status")
+async def get_bathy_cache_status_endpoint(
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """Admin: ETOPO bathymetry disk cache size and last cleanup stats."""
+    from ..core.geo.bathymetry import get_bathy_cache_status
+
+    return get_bathy_cache_status()
+
+
+@router.post("/bathy-cache/purge")
+async def purge_bathy_cache_endpoint(
+    force_all: bool = Query(False, description="Remove all cached grids, not only stale ones."),
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """Admin: purge stale (or all) bathymetry .npz cache files and enforce size quota."""
+    from ..core.geo.bathymetry import purge_bathy_cache
+
+    summary = purge_bathy_cache(force_all=force_all, enforce_quota=True)
+    logger.info(
+        "Admin '%s' purged bathymetry cache (force_all=%s, removed=%s, freed_bytes=%s)",
+        current_admin.username,
+        force_all,
+        summary.get("removed_files"),
+        summary.get("freed_bytes"),
+    )
+    return summary
 
 
 @router.post(

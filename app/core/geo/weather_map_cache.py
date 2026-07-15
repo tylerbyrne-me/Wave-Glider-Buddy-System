@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -37,6 +38,8 @@ _stats = {
     "upstream_fetches": 0,
     "last_prefetch_at": None,
     "last_prefetch_summary": None,
+    "last_cleanup_at": None,
+    "last_cleanup_summary": None,
 }
 
 
@@ -415,88 +418,64 @@ async def _get_or_fetch_cached(
     *,
     head_only: bool = False,
 ) -> tuple[int, bytes, dict[str, str], bool]:
-    """Return status, body, headers, from_cache."""
+    """Return status, body, headers, from_cache.
+
+    Only full-file responses are written to disk. Range requests are served by
+    slicing a cached (or freshly fetched) full body so Range fragments never
+    proliferate under weather_cache/responses/.
+    """
     if not upstream_url.startswith(OPEN_METEO_BASE):
         raise ValueError("Upstream URL is not allowlisted")
 
     full_key = _make_cache_key(upstream_url, None)
-    range_key = _make_cache_key(upstream_url, range_header) if range_header else full_key
-
     full_cached = _read_cache_entry(full_key)
-    if full_cached and not range_header:
-        _stats["cache_hits"] += 1
-        meta, body = full_cached
-        if head_only:
-            headers = {
-                "Content-Type": meta.get("content_type", "application/octet-stream"),
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(len(body)),
-                "Cache-Control": "public, max-age=3600",
-            }
-            if meta.get("etag"):
-                headers["ETag"] = meta["etag"]
-            return 200, b"", headers, True
-        status, chunk, headers = _slice_cached_body(body, None, meta)
-        return status, chunk, headers, True
 
-    if full_cached and range_header:
-        meta, body = full_cached
+    if full_cached:
         _stats["cache_hits"] += 1
+        meta, body = full_cached
         if head_only:
-            parsed = _parse_range_header(range_header, len(body))
             headers = {
                 "Content-Type": meta.get("content_type", "application/octet-stream"),
                 "Accept-Ranges": "bytes",
                 "Cache-Control": "public, max-age=3600",
             }
-            if parsed is not None:
-                start, end = parsed
-                headers["Content-Range"] = f"bytes {start}-{end}/{len(body)}"
-                headers["Content-Length"] = str(end - start + 1)
-            else:
-                headers["Content-Length"] = str(len(body))
             if meta.get("etag"):
                 headers["ETag"] = meta["etag"]
-            return 206 if parsed is not None else 200, b"", headers, True
+            if range_header:
+                parsed = _parse_range_header(range_header, len(body))
+                if parsed is not None:
+                    start, end = parsed
+                    headers["Content-Range"] = f"bytes {start}-{end}/{len(body)}"
+                    headers["Content-Length"] = str(end - start + 1)
+                    return 206, b"", headers, True
+            headers["Content-Length"] = str(len(body))
+            return 200, b"", headers, True
         status, chunk, headers = _slice_cached_body(body, range_header, meta)
         return status, chunk, headers, True
 
-    if range_header:
-        ranged_cached = _read_cache_entry(range_key)
-        if ranged_cached:
-            _stats["cache_hits"] += 1
-            meta, body = ranged_cached
-            headers = {
-                "Content-Type": meta.get("content_type", "application/octet-stream"),
-                "Accept-Ranges": "bytes",
-            }
-            if meta.get("etag"):
-                headers["ETag"] = meta["etag"]
-            if meta.get("content_range"):
-                headers["Content-Range"] = meta["content_range"]
-            headers["Cache-Control"] = "public, max-age=3600"
-            return meta.get("status_code", 206), body, headers, True
-
     _stats["cache_misses"] += 1
     _stats["upstream_fetches"] += 1
+    # Always fetch the full object (no Range) so we can cache once and slice.
     status, body, headers = await _fetch_upstream(
-        upstream_url, range_header, head_only=head_only
+        upstream_url, None, head_only=head_only
     )
 
-    if not head_only:
+    if head_only:
+        out_headers = dict(headers)
+        out_headers["Cache-Control"] = "public, max-age=3600"
+        return status, b"", out_headers, False
+
+    if status == 200 and body:
         meta = {
             "upstream_url": upstream_url,
             "content_type": headers.get("Content-Type", "application/octet-stream"),
             "etag": headers.get("ETag"),
-            "status_code": status,
-            "content_range": headers.get("Content-Range"),
+            "status_code": 200,
             "cached_at": datetime.now(timezone.utc).isoformat(),
         }
-
-        if range_header:
-            _write_cache_entry(range_key, meta, body)
-        elif status == 200:
-            _write_cache_entry(full_key, meta, body)
+        _write_cache_entry(full_key, meta, body)
+        status_out, chunk, slice_headers = _slice_cached_body(body, range_header, meta)
+        return status_out, chunk, slice_headers, False
 
     out_headers = dict(headers)
     out_headers["Cache-Control"] = "public, max-age=3600"
@@ -547,26 +526,168 @@ async def prefetch_om_url(upstream_url: str) -> int:
     return len(body)
 
 
-def purge_stale_runs(max_age_days: int = 7) -> int:
-    """Remove cached response entries older than max_age_days. Returns files removed."""
-    cutoff = time.time() - max_age_days * 24 * 60 * 60
+def _unlink_cache_pair(meta_path: Path) -> tuple[int, int]:
+    """Remove meta + paired .body. Returns (files_removed, bytes_freed)."""
     removed = 0
-    responses_root = _response_cache_dir()
-    if not responses_root.is_dir():
-        return 0
-
-    for meta_path in responses_root.rglob("*.meta.json"):
+    freed = 0
+    body_path = meta_path.with_name(meta_path.name.replace(".meta.json", ".body"))
+    for path in (body_path, meta_path):
+        if not path.is_file():
+            continue
         try:
-            if meta_path.stat().st_mtime >= cutoff:
-                continue
-            body_path = meta_path.with_name(meta_path.name.replace(".meta.json", ".body"))
-            meta_path.unlink(missing_ok=True)
-            if body_path.is_file():
-                body_path.unlink()
+            size = path.stat().st_size if path.suffix == ".body" else 0
+            path.unlink()
             removed += 1
+            freed += size
         except OSError:
             continue
-    return removed
+    return removed, freed
+
+
+def _remove_empty_cache_dirs(responses_root: Path) -> int:
+    removed_dirs = 0
+    if not responses_root.is_dir():
+        return 0
+    for dirpath, dirnames, filenames in os.walk(responses_root, topdown=False):
+        if dirnames or filenames:
+            continue
+        path = Path(dirpath)
+        if path == responses_root:
+            continue
+        try:
+            path.rmdir()
+            removed_dirs += 1
+        except OSError:
+            continue
+    return removed_dirs
+
+
+def _iter_body_entries() -> list[tuple[Path, Path, float, int]]:
+    """Return (meta_path, body_path, mtime, byte_size) for each .body with optional meta."""
+    responses_root = _response_cache_dir()
+    entries: list[tuple[Path, Path, float, int]] = []
+    if not responses_root.is_dir():
+        return entries
+    for body_path in responses_root.rglob("*.body"):
+        try:
+            st = body_path.stat()
+            meta_path = body_path.with_name(body_path.name.replace(".body", ".meta.json"))
+            entries.append((meta_path, body_path, st.st_mtime, st.st_size))
+        except OSError:
+            continue
+    return entries
+
+
+def purge_stale_runs(max_age_days: int = 7) -> int:
+    """Remove cached response entries older than max_age_days. Returns meta pairs removed."""
+    summary = purge_weather_cache(force_all=False, max_age_days=max_age_days, enforce_quota=False)
+    return int(summary.get("stale_pairs_removed") or 0)
+
+
+def enforce_weather_cache_quota() -> dict[str, int]:
+    """Evict oldest-by-mtime full entries until under weather_map_cache_max_bytes."""
+    max_bytes = int(getattr(settings, "weather_map_cache_max_bytes", 0) or 0)
+    if max_bytes <= 0:
+        return {"evicted_files": 0, "freed_bytes": 0}
+
+    entries = _iter_body_entries()
+    total = sum(size for _, _, _, size in entries)
+    if total <= max_bytes:
+        return {"evicted_files": 0, "freed_bytes": 0}
+
+    entries.sort(key=lambda item: item[2])  # oldest mtime first
+    removed_files = 0
+    freed = 0
+    for meta_path, body_path, _mtime, size in entries:
+        if total <= max_bytes:
+            break
+        pair_removed, pair_freed = _unlink_cache_pair(meta_path)
+        if pair_removed == 0 and body_path.is_file():
+            try:
+                body_path.unlink()
+                pair_removed = 1
+                pair_freed = size
+            except OSError:
+                continue
+        removed_files += pair_removed
+        freed += pair_freed
+        total -= size
+
+    _remove_empty_cache_dirs(_response_cache_dir())
+    return {"evicted_files": removed_files, "freed_bytes": freed}
+
+
+def purge_weather_cache(
+    *,
+    force_all: bool = False,
+    max_age_days: Optional[int] = None,
+    enforce_quota: bool = True,
+) -> dict[str, Any]:
+    """
+    Remove stale/orphan weather map cache files and optionally enforce size quota.
+
+    Runs regardless of weather_map_layers so stranded cache from a disabled
+    feature can still be reclaimed.
+    """
+    if max_age_days is None:
+        max_age_days = int(getattr(settings, "weather_map_prefetch_horizon_days", 7))
+    cutoff = time.time() - max(0, max_age_days) * 24 * 60 * 60
+    responses_root = _response_cache_dir()
+    removed_files = 0
+    freed_bytes = 0
+    stale_pairs_removed = 0
+    orphan_bodies_removed = 0
+
+    if responses_root.is_dir():
+        for meta_path in list(responses_root.rglob("*.meta.json")):
+            try:
+                if not force_all and meta_path.stat().st_mtime >= cutoff:
+                    continue
+            except OSError:
+                continue
+            pair_removed, pair_freed = _unlink_cache_pair(meta_path)
+            removed_files += pair_removed
+            freed_bytes += pair_freed
+            if pair_removed:
+                stale_pairs_removed += 1
+
+        # Orphan .body files with no meta (e.g. interrupted writes / legacy fragments)
+        for body_path in list(responses_root.rglob("*.body")):
+            meta_path = body_path.with_name(body_path.name.replace(".body", ".meta.json"))
+            if meta_path.is_file():
+                continue
+            try:
+                size = body_path.stat().st_size
+                body_path.unlink()
+                removed_files += 1
+                freed_bytes += size
+                orphan_bodies_removed += 1
+            except OSError:
+                continue
+
+        empty_dirs = _remove_empty_cache_dirs(responses_root)
+    else:
+        empty_dirs = 0
+
+    quota = {"evicted_files": 0, "freed_bytes": 0}
+    if enforce_quota:
+        quota = enforce_weather_cache_quota()
+        removed_files += quota["evicted_files"]
+        freed_bytes += quota["freed_bytes"]
+
+    summary = {
+        "removed_files": removed_files,
+        "freed_bytes": freed_bytes,
+        "stale_pairs_removed": stale_pairs_removed,
+        "orphan_bodies_removed": orphan_bodies_removed,
+        "empty_dirs_removed": empty_dirs,
+        "quota_evicted_files": quota["evicted_files"],
+        "quota_freed_bytes": quota["freed_bytes"],
+        "force_all": force_all,
+        "max_age_days": max_age_days,
+        "status": get_cache_status(),
+    }
+    return summary
 
 
 def get_cache_status() -> dict[str, Any]:
@@ -582,18 +703,42 @@ def get_cache_status() -> dict[str, Any]:
                 pass
 
     manifest = get_cached_manifest()
+    max_bytes = int(getattr(settings, "weather_map_cache_max_bytes", 0) or 0)
     return {
         "cache_dir": str(_cache_dir()),
         "response_files": file_count,
         "total_bytes": total_bytes,
+        "max_bytes": max_bytes,
         "cache_hits": _stats["cache_hits"],
         "cache_misses": _stats["cache_misses"],
         "upstream_fetches": _stats["upstream_fetches"],
         "last_prefetch_at": _stats["last_prefetch_at"],
         "last_prefetch_summary": _stats["last_prefetch_summary"],
+        "last_cleanup_at": _stats.get("last_cleanup_at"),
+        "last_cleanup_summary": _stats.get("last_cleanup_summary"),
         "manifest_reference_time": manifest.get("reference_time") if manifest else None,
         "union_bbox": manifest.get("union_bbox") if manifest else None,
     }
+
+
+async def run_weather_map_cleanup() -> dict[str, Any]:
+    """Always-on disk cleanup: TTL purge + quota (independent of feature toggle)."""
+    summary = purge_weather_cache(force_all=False, enforce_quota=True)
+    _stats["last_cleanup_at"] = datetime.now(timezone.utc).isoformat()
+    _stats["last_cleanup_summary"] = {
+        k: summary[k]
+        for k in (
+            "removed_files",
+            "freed_bytes",
+            "stale_pairs_removed",
+            "orphan_bodies_removed",
+            "quota_evicted_files",
+            "quota_freed_bytes",
+        )
+        if k in summary
+    }
+    logger.info("Weather map cache cleanup complete: %s", _stats["last_cleanup_summary"])
+    return summary
 
 
 async def prefetch_union_bbox_cache() -> dict[str, Any]:
@@ -623,13 +768,17 @@ async def prefetch_union_bbox_cache() -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Weather prefetch failed for %s: %s", time_step, exc)
 
-    removed = purge_stale_runs(settings.weather_map_prefetch_horizon_days)
+    cleanup = purge_weather_cache(force_all=False, enforce_quota=True)
     summary = {
         "union_bbox": buddy_manifest["union_bbox"],
         "reference_time": upstream_manifest.get("reference_time"),
         "timesteps_prefetched": fetched,
         "bytes_stored": bytes_stored,
-        "stale_entries_removed": removed,
+        "stale_entries_removed": cleanup.get("stale_pairs_removed", 0),
+        "cleanup": {
+            "removed_files": cleanup.get("removed_files"),
+            "freed_bytes": cleanup.get("freed_bytes"),
+        },
     }
     _stats["last_prefetch_at"] = datetime.now(timezone.utc).isoformat()
     _stats["last_prefetch_summary"] = summary

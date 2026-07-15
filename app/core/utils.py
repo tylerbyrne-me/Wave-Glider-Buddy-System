@@ -1,7 +1,7 @@
 import logging
 import re
 import warnings
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
@@ -111,6 +111,52 @@ def deployment_mission_code_from_mission_id(mission_id: str) -> str:
     if "-" in trimmed:
         return trimmed.split("-")[-1]
     return trimmed
+
+
+_SLOCUM_DATASET_ID_PATTERN = re.compile(
+    r"^(?P<glider>[A-Za-z0-9]+)_(?P<start>\d{8})_(?P<num>\d+)(?:_(?P<mode>realtime|delayed))?$"
+)
+
+
+def parse_slocum_dataset_id(dataset_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse a Slocum ERDDAP dataset id (e.g. ``polly_20260519_222_delayed``).
+
+    Returns glider_name, start_date (date), deployment_number (int), and optional mode
+    (``realtime`` | ``delayed``), or None when the id does not match.
+    """
+    if not dataset_id or not str(dataset_id).strip():
+        return None
+    match = _SLOCUM_DATASET_ID_PATTERN.match(str(dataset_id).strip())
+    if not match:
+        return None
+    try:
+        start_date = datetime.strptime(match.group("start"), "%Y%m%d").date()
+    except ValueError:
+        return None
+    return {
+        "glider_name": match.group("glider"),
+        "start_date": start_date,
+        "deployment_number": int(match.group("num")),
+        "mode": match.group("mode"),
+    }
+
+
+def slocum_mission_key(dataset_id: str) -> str:
+    """
+    Suffix-agnostic mission identity shared by realtime and delayed datasets.
+
+    ``sable_20260621_224_realtime`` and ``sable_20260621_224_delayed`` both map to
+    ``sable_20260621_224``. Unparseable ids return the trimmed input unchanged.
+    """
+    if not dataset_id or not str(dataset_id).strip():
+        return ""
+    trimmed = str(dataset_id).strip()
+    parsed = parse_slocum_dataset_id(trimmed)
+    if not parsed:
+        return trimmed
+    start_date = parsed["start_date"]
+    return f"{parsed['glider_name']}_{start_date.strftime('%Y%m%d')}_{parsed['deployment_number']}"
 
 
 def mission_ids_for_offload_parser_trace_matching(

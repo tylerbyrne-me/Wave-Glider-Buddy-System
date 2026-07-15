@@ -84,7 +84,8 @@ import io  # For CSV and ICS generation
 from .core import auth  # Import the auth module itself for its functions
 # Specific user-related functions will be called via auth.func_name(session, ...)
 from .core.auth import (get_current_active_user, get_current_admin_user,
-                         get_optional_current_user)
+                        get_optional_current_user, require_platform_access,
+                        redirect_if_platform_denied)
 from .config import settings
 from .core import models  # type: ignore
 from .core import utils, template_context, reporting  # type: ignore
@@ -117,7 +118,9 @@ from .routers import shared_tips as shared_tips_router
 from .routers import chatbot as chatbot_router
 from .routers import exploration_slocum as exploration_slocum_router
 from .routers import slocum as slocum_router
-from .routers import slocum_mission_files as slocum_mission_files_router
+from .routers import slocum_deployments as slocum_deployments_router
+from .routers import slocum_reporting as slocum_reporting_router
+from .routers import slocum_checklists as slocum_checklists_router
 
 # Admin imports
 from .core.auth.admin_sqladmin import setup_sqladmin
@@ -248,7 +251,9 @@ app.include_router(shared_tips_router.router)
 app.include_router(chatbot_router.router)
 app.include_router(exploration_slocum_router.router)
 app.include_router(slocum_router.router)
-app.include_router(slocum_mission_files_router.router)
+app.include_router(slocum_deployments_router.router)
+app.include_router(slocum_reporting_router.router)
+app.include_router(slocum_checklists_router.router)
 
 # SQLAdmin will be initialized in startup_event with the app instance
 # No need to mount separately - it's integrated into the app during setup
@@ -257,7 +262,7 @@ logger = logging.getLogger(__name__)
 logger.info("--- FastAPI application module loaded. This should appear on every server start/reload. ---")
 
 # --- Import template context helper ---
-from .core.template_context import get_template_context
+from .core.template_context import get_template_context, resolve_admin_platform_context
 
 # ---
 
@@ -1415,6 +1420,36 @@ async def run_weekly_reports_job():
     logger.info("AUTOMATED: Weekly report generation job finished for %s missions.", len(active_missions))
 
 
+async def run_slocum_warm_cache_job():
+    """Scheduled job to warm Slocum ERDDAP caches for active datasets."""
+    if not feature_toggles.is_feature_enabled("slocum_platform"):
+        return
+    from .core.slocum_cache_service import warm_active_slocum_datasets
+
+    try:
+        warmed = await warm_active_slocum_datasets()
+        logger.info("AUTOMATED: Slocum warm cache finished for %s datasets.", warmed)
+    except Exception as exc:
+        logger.error("AUTOMATED: Slocum warm cache failed: %s", exc, exc_info=True)
+
+
+async def run_slocum_weekly_reports_job():
+    """Scheduled job to generate weekly Slocum PDF reports for active datasets."""
+    if not feature_toggles.is_feature_enabled("slocum_platform"):
+        return
+    from .core.reporting.slocum_reports import create_and_save_slocum_weekly_report
+
+    dataset_ids = [d.strip() for d in settings.active_slocum_datasets if d and d.strip()]
+    if not dataset_ids:
+        logger.info("AUTOMATED: No active Slocum datasets configured. Skipping weekly reports.")
+        return
+    logger.info("AUTOMATED: Slocum weekly report queue: %s", dataset_ids)
+    with SQLModelSession(sqlite_engine) as session:
+        for dataset_id in dataset_ids:
+            await create_and_save_slocum_weekly_report(dataset_id, session)
+    logger.info("AUTOMATED: Slocum weekly report job finished for %s datasets.", len(dataset_ids))
+
+
 async def run_weather_map_prefetch_job():
     """Scheduled job to prefetch Open-Meteo weather map cache for the home-page wind overlay."""
     logger.info("AUTOMATED: Prefetching Open-Meteo weather map cache...")
@@ -1424,6 +1459,69 @@ async def run_weather_map_prefetch_job():
         logger.info("AUTOMATED: Weather map prefetch finished: %s", summary)
     except Exception as exc:
         logger.error("AUTOMATED: Weather map prefetch failed: %s", exc, exc_info=True)
+
+
+async def run_weather_map_cleanup_job():
+    """Leader job: purge stale/orphan weather map cache entries and enforce size quota.
+
+    Runs even when weather_map_layers is disabled so stranded disk cache is reclaimed.
+    """
+    logger.info("AUTOMATED: Cleaning Open-Meteo weather map cache...")
+    try:
+        from .core.geo.weather_map_cache import run_weather_map_cleanup
+
+        summary = await run_weather_map_cleanup()
+        logger.info(
+            "AUTOMATED: Weather map cleanup finished (removed=%s, freed_bytes=%s)",
+            summary.get("removed_files"),
+            summary.get("freed_bytes"),
+        )
+    except Exception as exc:
+        logger.error("AUTOMATED: Weather map cleanup failed: %s", exc, exc_info=True)
+
+
+async def run_bathy_cache_cleanup_job():
+    """Leader job: purge stale ETOPO bathymetry .npz cache entries and enforce size quota.
+
+    Runs even when report_bathymetry_contours is disabled so stranded disk cache is reclaimed.
+    """
+    logger.info("AUTOMATED: Cleaning bathymetry disk cache...")
+    try:
+        from .core.geo.bathymetry import run_bathy_cache_cleanup
+
+        summary = run_bathy_cache_cleanup()
+        logger.info(
+            "AUTOMATED: Bathymetry cache cleanup finished (removed=%s, freed_bytes=%s)",
+            summary.get("removed_files"),
+            summary.get("freed_bytes"),
+        )
+    except Exception as exc:
+        logger.error("AUTOMATED: Bathymetry cache cleanup failed: %s", exc, exc_info=True)
+
+
+async def run_slocum_overage_cleanup_job():
+    """Leader job: purge expired Slocum overage entries, enforce quota, remove orphan mirrors."""
+    if not feature_toggles.is_feature_enabled("slocum_platform"):
+        return
+    try:
+        from .core.slocum_overage_cache import purge_overage_entries
+        from .core.slocum_mirror_service import purge_orphan_mirrors
+
+        summary = purge_overage_entries(force_all=False)
+        logger.info(
+            "AUTOMATED: Slocum overage cleanup finished (removed=%s, freed_bytes=%s)",
+            summary.get("removed_files"),
+            summary.get("freed_bytes"),
+        )
+        orphan_summary = purge_orphan_mirrors()
+        if orphan_summary.get("removed_dirs"):
+            logger.info(
+                "AUTOMATED: Slocum orphan mirror cleanup finished (dirs=%s, freed_bytes=%s)",
+                orphan_summary.get("removed_dirs"),
+                orphan_summary.get("freed_bytes"),
+            )
+    except Exception as exc:
+        logger.error("AUTOMATED: Slocum overage cleanup failed: %s", exc, exc_info=True)
 
 
 # --- FastAPI Lifecycle Events for Scheduler ---
@@ -1480,6 +1578,21 @@ async def startup_event():
         except Exception as e:
             logger.error(f"STARTUP: Error initializing cache: {e}", exc_info=True)
 
+        if feature_toggles.is_feature_enabled("slocum_platform"):
+            logger.info("STARTUP: Warming Slocum mirror cache for active datasets...")
+            try:
+                from .core.slocum_cache_service import warm_active_slocum_datasets
+                from .core.slocum_mirror_service import sync_active_slocum_mirrors
+                slocum_warmed = await warm_active_slocum_datasets()
+                historical_synced = await sync_active_slocum_mirrors()
+                logger.info(
+                    "STARTUP: Slocum mirror warm complete (active=%s, all=%s)",
+                    slocum_warmed,
+                    historical_synced,
+                )
+            except Exception as e:
+                logger.error("STARTUP: Error warming Slocum cache: %s", e, exc_info=True)
+
         # Add background refresh using configured interval (default: 10 minutes from .env)
         scheduler.add_job(
             refresh_active_mission_cache,
@@ -1501,6 +1614,21 @@ async def startup_event():
             id='weekly_report_job'
         )
         scheduler.add_job(
+            run_slocum_warm_cache_job,
+            "interval",
+            minutes=settings.background_cache_refresh_interval_minutes,
+            id="slocum_warm_cache_job",
+        )
+        scheduler.add_job(
+            run_slocum_weekly_reports_job,
+            "cron",
+            day_of_week="thu",
+            hour=12,
+            minute=30,
+            timezone="UTC",
+            id="slocum_weekly_report_job",
+        )
+        scheduler.add_job(
             run_weather_map_prefetch_job,
             "cron",
             hour=settings.weather_map_prefetch_cron_hour,
@@ -1512,6 +1640,54 @@ async def startup_event():
             "Weather map prefetch scheduled daily at %02d:00 UTC",
             settings.weather_map_prefetch_cron_hour,
         )
+        cleanup_hour = int(getattr(settings, "weather_map_cleanup_cron_hour", settings.weather_map_prefetch_cron_hour))
+        scheduler.add_job(
+            run_weather_map_cleanup_job,
+            "cron",
+            hour=cleanup_hour,
+            minute=15,
+            timezone="UTC",
+            id="weather_map_cleanup_job",
+        )
+        logger.info(
+            "Weather map cache cleanup scheduled daily at %02d:15 UTC",
+            cleanup_hour,
+        )
+        scheduler.add_job(
+            run_bathy_cache_cleanup_job,
+            "cron",
+            hour=cleanup_hour,
+            minute=20,
+            timezone="UTC",
+            id="bathy_cache_cleanup_job",
+        )
+        logger.info(
+            "Bathymetry cache cleanup scheduled daily at %02d:20 UTC",
+            cleanup_hour,
+        )
+        overage_cleanup_hours = max(1, int(getattr(settings, "slocum_overage_cleanup_interval_hours", 6)))
+        scheduler.add_job(
+            run_slocum_overage_cleanup_job,
+            "interval",
+            hours=overage_cleanup_hours,
+            id="slocum_overage_cleanup_job",
+        )
+        logger.info(
+            "Slocum overage cleanup scheduled every %s hours",
+            overage_cleanup_hours,
+        )
+        try:
+            await run_weather_map_cleanup_job()
+        except Exception as exc:
+            logger.warning("STARTUP: Initial weather map cache cleanup failed: %s", exc)
+        try:
+            await run_bathy_cache_cleanup_job()
+        except Exception as exc:
+            logger.warning("STARTUP: Initial bathymetry cache cleanup failed: %s", exc)
+        try:
+            await run_slocum_overage_cleanup_job()
+        except Exception as exc:
+            logger.warning("STARTUP: Initial Slocum overage cleanup failed: %s", exc)
 
         global _scheduler_started_by_this_worker
         scheduler.start()
@@ -1999,6 +2175,9 @@ async def root(request: Request, current_user: models.User = Depends(get_current
 @app.get("/wave-glider", include_in_schema=False)
 async def wave_glider_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
     """Wave Glider mission dashboard."""
+    denied = redirect_if_platform_denied(current_user, "wave_glider")
+    if denied:
+        return denied
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/wave-glider/home")
@@ -2008,6 +2187,9 @@ async def wave_glider_dashboard(request: Request, current_user: models.User = De
 @app.get("/wave-glider/historical", include_in_schema=False)
 async def wave_glider_historical_dashboard(request: Request, current_user: models.User = Depends(get_current_active_user), session: SQLModelSession = Depends(get_db_session)):
     """Wave Glider historical mission dashboard (canonical URL)."""
+    denied = redirect_if_platform_denied(current_user, "wave_glider")
+    if denied:
+        return denied
     mission = request.query_params.get("mission")
     if not mission:
         return RedirectResponse(url="/wave-glider/home")
@@ -2201,6 +2383,9 @@ async def get_ess_planning_page(
     current_user: models.User = Depends(get_current_active_user),
 ):
     """ESS Waypoint Planner pop-out: initial position and measured wave direction for first paint."""
+    denied = redirect_if_platform_denied(current_user, "wave_glider")
+    if denied:
+        return denied
     source_preference = request.query_params.get("source") or None
     custom_local_path = utils.get_effective_local_path(
         source_preference, request.query_params.get("local_path") or None
@@ -2348,6 +2533,7 @@ async def get_report_data_for_plotting(
     mission_id: str,
     params: models.ReportDataParams = Depends(),  # Inject Pydantic model for query params
     current_user: models.User = Depends(get_current_active_user),  # Protect API
+    _wg_access: models.User = Depends(require_platform_access("wave_glider")),
 ):
     try:
         # Unpack the DataFrame, source path, and file modification time
@@ -3337,7 +3523,7 @@ async def get_view_station_status_page(
 @app.get("/admin/user_management.html", response_class=HTMLResponse)
 async def get_admin_user_management_page(
     request: Request,
-    # Changed to optional_current_user. JS will verify admin role via API.
+    platform: Optional[str] = Query(None, description="Banner platform context: wave_glider or slocum"),
     current_user: Optional[models.User] = Depends(get_optional_current_user),
 ):
     # This log will show if a user (even non-admin) attempts to load the page.
@@ -3356,9 +3542,7 @@ async def get_admin_user_management_page(
         request=request,
         current_user=current_user, # Removed show_mission_selector
     )
-    context["platform"] = "wave_glider"
-    context["platform_home_url"] = "/wave-glider/home"
-    context["show_banner_nav"] = True
+    context.update(resolve_admin_platform_context(platform))
     return templates.TemplateResponse(
         "admin/user_management.html",
         context

@@ -43,6 +43,16 @@ def get_platform_context_from_request(request: Any) -> Dict[str, Any]:
     return {"platform": None, "platform_home_url": "/wave-glider/home"}
 
 
+def resolve_admin_platform_context(platform: Optional[str] = None) -> Dict[str, Any]:
+    """Banner context for shared admin pages (?platform=wave_glider|slocum)."""
+    normalized = platform if platform in ("wave_glider", "slocum") else "wave_glider"
+    return {
+        "platform": normalized,
+        "platform_home_url": "/slocum/home" if normalized == "slocum" else "/wave-glider/home",
+        "show_banner_nav": True,
+    }
+
+
 def get_global_template_context() -> Dict[str, Any]:
     """
     Get global context variables that should be available in all templates.

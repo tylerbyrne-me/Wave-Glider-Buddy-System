@@ -3,7 +3,7 @@ Pydantic request/response model schemas for the Wave Glider Buddy System.
 """
 
 from datetime import datetime, date
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlmodel import SQLModel
@@ -167,6 +167,8 @@ class User(UserBase):
     disabled: Optional[bool] = Field(None, description="Whether the user account is disabled.")
     is_mos: bool = Field(False, description="Whether the user is eligible for MOS roster selection.")
     is_pic: bool = Field(False, description="Whether the user is eligible for PIC roster selection.")
+    can_access_wave_glider: bool = Field(True, description="Whether the user may access Wave Glider.")
+    can_access_slocum: bool = Field(True, description="Whether the user may access Slocum Glider.")
 
 
 class UserUpdateForAdmin(BaseModel):
@@ -177,6 +179,8 @@ class UserUpdateForAdmin(BaseModel):
     disabled: Optional[bool] = Field(None, description="New disabled status for the user account.")
     is_mos: Optional[bool] = Field(None, description="Set whether this user is included in the MOS roster.")
     is_pic: Optional[bool] = Field(None, description="Set whether this user is included in the PIC roster.")
+    can_access_wave_glider: Optional[bool] = Field(None, description="Allow Wave Glider platform access.")
+    can_access_slocum: Optional[bool] = Field(None, description="Allow Slocum Glider platform access.")
 
 
 class PasswordUpdate(BaseModel):
@@ -712,6 +716,7 @@ class AnnouncementCreate(SQLModel):
     """Model for creating an announcement."""
     content: str
     announcement_type: Optional[str] = "general"
+    platform: Optional[str] = "all"
 
 
 class AnnouncementRead(SQLModel):
@@ -722,6 +727,7 @@ class AnnouncementRead(SQLModel):
     created_at_utc: datetime
     is_active: bool
     announcement_type: Optional[str] = "general"
+    platform: Optional[str] = "all"
 
 
 class AnnouncementReadForUser(AnnouncementRead):
@@ -1038,7 +1044,7 @@ class ChatbotFeedbackRequest(BaseModel):
 
 
 # ============================================================================
-# Slocum Mission File Tool Models
+# Slocum Deployment Models
 # ============================================================================
 
 class SlocumDeploymentCreate(BaseModel):
@@ -1072,105 +1078,110 @@ class SlocumDeploymentRead(BaseModel):
     updated_at_utc: datetime
     notes: Optional[str] = None
     is_active: bool
+    mission_key: Optional[str] = None
     erddap_dataset_id: Optional[str] = None
+    document_url: Optional[str] = None
+    enabled_sensor_cards: Optional[str] = None
+    checklist_reference_values: Optional[str] = None
 
     class Config:
         from_attributes = True
 
 
-class SlocumMissionFileRead(BaseModel):
-    """Model for reading a Slocum mission file."""
+class SlocumSensorCardsUpdate(BaseModel):
+    """Body for updating Slocum deployment enabled sensor cards."""
+    enabled_sensor_cards: List[str]
+
+
+class SlocumChecklistReferencesUpdate(BaseModel):
+    """Body for updating Slocum daily checklist reference values."""
+    checklist_reference_values: Dict[str, Union[str, int, float, bool, None]]
+
+
+class SlocumDeploymentGoalCreate(BaseModel):
+    description: str
+
+
+class SlocumDeploymentGoalUpdate(BaseModel):
+    description: Optional[str] = None
+    is_completed: Optional[bool] = None
+
+
+class SlocumDeploymentGoalToggle(BaseModel):
+    is_completed: bool
+
+
+class SlocumDeploymentGoalRead(BaseModel):
     id: int
     deployment_id: int
-    file_name: str
-    file_type: str
-    ma_subtype: Optional[str] = None
-    version: int
-    parsed_parameters: Optional[Dict[str, Any]] = None
-    uploaded_by_username: str
-    uploaded_at_utc: datetime
-    updated_at_utc: datetime
-    is_active: bool
-
-    class Config:
-        from_attributes = True
-
-
-class SlocumMissionFileVersionRead(BaseModel):
-    """Model for reading a mission file version."""
-    id: int
-    mission_file_id: int
-    version: int
-    changed_by_username: str
-    change_summary: Optional[str] = None
-    changed_parameters: Optional[Dict[str, Any]] = None
+    description: str
+    is_completed: bool
+    completed_by_username: Optional[str] = None
+    completed_at_utc: Optional[datetime] = None
     created_at_utc: datetime
 
     class Config:
         from_attributes = True
 
 
-class SlocumDeploymentSnapshotRead(BaseModel):
-    """Model for reading a deployment snapshot."""
+class SlocumDeploymentNoteCreate(BaseModel):
+    content: str
+    include_in_report: bool = True
+
+
+class SlocumDeploymentNoteUpdate(BaseModel):
+    content: Optional[str] = None
+    include_in_report: Optional[bool] = None
+
+
+class SlocumDeploymentNoteRead(BaseModel):
     id: int
     deployment_id: int
-    snapshot_number: int
-    label: Optional[str] = None
-    file_states: Optional[Dict[str, Any]] = None
-    parameter_summary: Optional[Dict[str, Any]] = None
+    content: str
+    include_in_report: bool
     created_by_username: str
     created_at_utc: datetime
-    notes: Optional[str] = None
+    updated_at_utc: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
-class SlocumMissionChangeLogRead(BaseModel):
-    """Model for reading a change log entry."""
+class SlocumDeploymentMediaRead(BaseModel):
     id: int
     deployment_id: int
-    mission_file_id: Optional[int] = None
-    snapshot_id: Optional[int] = None
-    change_type: str
-    description: str
-    changed_by_username: str
-    request_method: str
-    original_request: Optional[str] = None
-    created_at_utc: datetime
+    media_type: str
+    file_path: str
+    file_name: str
+    file_size: int
+    mime_type: str
+    caption: Optional[str] = None
+    operation_type: Optional[str] = None
+    uploaded_by_username: str
+    uploaded_at_utc: datetime
+    thumbnail_path: Optional[str] = None
+    approval_status: str
+    display_order: int
+    is_featured: bool
 
     class Config:
         from_attributes = True
 
 
-class ParameterChangeRequest(BaseModel):
-    """Single parameter change for preview/apply."""
-    param: str = Field(..., description="Parameter name")
-    new_value: str = Field(..., description="New value")
-    file_name: str = Field(..., description="Source file name")
+class SlocumParsedDataset(BaseModel):
+    """Parsed identity from a Slocum ERDDAP dataset id."""
+    glider_name: str
+    start_date: date
+    deployment_number: int
+    mode: Optional[str] = None
 
 
-class DeploymentChangesPreviewRequest(BaseModel):
-    """Request body for previewing deployment-level changes."""
-    changes: List[ParameterChangeRequest]
-
-
-class DeploymentChangesApplyRequest(BaseModel):
-    """Request body for applying deployment-level changes."""
-    changes: List[ParameterChangeRequest]
-    label: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class NaturalLanguageChangeRequest(BaseModel):
-    """Request body for NL change request (parsing only)."""
-    request: str = Field(..., description="Natural language change request")
-
-
-class SlocumMasterdataStatus(BaseModel):
-    """Response for masterdata status endpoint."""
-    has_masterdata: bool
-    document_id: Optional[int] = None
-    chunk_count: Optional[int] = None
-    parameter_count: Optional[int] = None
-    last_vectorized_utc: Optional[datetime] = None
+class SlocumDeploymentInfoResponse(BaseModel):
+    """Briefing bundle for a Slocum deployment / linked ERDDAP dataset."""
+    deployment: Optional[SlocumDeploymentRead] = None
+    goals: List[SlocumDeploymentGoalRead] = []
+    notes: List[SlocumDeploymentNoteRead] = []
+    media: List[SlocumDeploymentMediaRead] = []
+    parsed_dataset: Optional[SlocumParsedDataset] = None
+    sensor_tracker_deployment: Optional[SensorTrackerDeployment] = None
+    sensor_tracker_instruments: List[MissionInstrument] = []

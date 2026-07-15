@@ -23,9 +23,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     const editAnnouncementIdInput = document.getElementById('editAnnouncementId');
     const editAnnouncementContentInput = document.getElementById('editAnnouncementContent');
     const editAnnouncementTypeInput = document.getElementById('editAnnouncementType');
+    const editAnnouncementPlatformInput = document.getElementById('editAnnouncementPlatform');
     const saveChangesBtn = document.getElementById('saveAnnouncementChangesBtn');
     const editStatusDiv = document.getElementById('editStatus');
     const announcementTypeInput = document.getElementById('announcementType');
+    const announcementPlatformInput = document.getElementById('announcementPlatform');
 
     const markdownConverter = new showdown.Converter();
 
@@ -58,12 +60,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         const statusBadge = ann.is_active 
             ? '<span class="badge bg-success">Active</span>' 
             : '<span class="badge bg-secondary">Archived</span>';
+        const platformLabel = {
+            all: 'All',
+            wave_glider: 'Wave Glider',
+            slocum: 'Slocum',
+        }[ann.platform || 'all'] || ann.platform || 'All';
+        const platformBadge = `<span class="badge bg-dark ms-1">${platformLabel}</span>`;
 
         return `
             <div class="list-group-item list-group-item-action flex-column align-items-start">
                 <div class="d-flex w-100 justify-content-between">
                     <div class="mb-1">${contentHtml}</div>
-                    <div>${statusBadge}</div>
+                    <div>${statusBadge}${platformBadge}</div>
                 </div>
                 <p class="mb-1 small text-muted">
                     Posted by ${ann.created_by_username} on ${formatUtcDate(ann.created_at_utc)}
@@ -177,17 +185,20 @@ document.addEventListener('DOMContentLoaded', async function() {
         createStatusDiv.innerHTML = '';
         const content = contentInput.value.trim();
         const announcementType = announcementTypeInput.value || 'general';
+        const announcementPlatform = announcementPlatformInput ? announcementPlatformInput.value || 'all' : 'all';
         if (!content) return;
 
         try {
             await apiRequest('/api/admin/announcements', 'POST', { 
                 content: content,
-                announcement_type: announcementType
+                announcement_type: announcementType,
+                platform: announcementPlatform,
             });
             showToast('Announcement posted successfully', 'success');
             createStatusDiv.innerHTML = '<div class="alert alert-success">Announcement posted successfully.</div>';
             contentInput.value = '';
             announcementTypeInput.value = 'general';
+            if (announcementPlatformInput) announcementPlatformInput.value = 'all';
             loadAnnouncements(); // Refresh the list
         } catch (error) {
             showToast(`Error posting announcement: ${error.message}`, 'danger');
@@ -199,6 +210,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const annId = editAnnouncementIdInput.value;
         const newContent = editAnnouncementContentInput.value.trim();
         const newType = editAnnouncementTypeInput.value || 'general';
+        const newPlatform = editAnnouncementPlatformInput ? editAnnouncementPlatformInput.value || 'all' : 'all';
         editStatusDiv.innerHTML = '';
 
         if (!newContent) {
@@ -209,7 +221,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         try {
             await apiRequest(`/api/admin/announcements/${annId}`, 'PUT', { 
                 content: newContent,
-                announcement_type: newType
+                announcement_type: newType,
+                platform: newPlatform,
             });
             showToast('Announcement updated successfully', 'success');
             editAnnouncementModal.hide();
@@ -242,6 +255,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 editAnnouncementIdInput.value = annId;
                 editAnnouncementContentInput.value = announcement.content;
                 editAnnouncementTypeInput.value = announcement.announcement_type || 'general';
+                if (editAnnouncementPlatformInput) {
+                    editAnnouncementPlatformInput.value = announcement.platform || 'all';
+                }
                 editAnnouncementModal.show();
             }
         }

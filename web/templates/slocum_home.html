@@ -11,19 +11,18 @@
             <h1>Welcome, {{ current_user.full_name or current_user.username }}!</h1>
             <p class="text-muted">Slocum Glider – datasets and map</p>
 
-            {% if is_slocum_mission_files_enabled %}
-            <div class="mb-4 p-3 bg-light rounded d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <div>
-                <h6 class="mb-1">Mission file management</h6>
-                <p class="mb-0 small text-muted">Upload and edit .ma / .mi files, apply parameter changes, and download snapshots.</p>
-              </div>
-              <a href="/slocum/vehicle-params" class="btn btn-primary btn-sm">Modify Vehicle Parameters</a>
-            </div>
-            {% endif %}
-
             <!-- Announcements Panel (shared) -->
             <div id="announcementsPanel" class="mb-4">
                 <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading announcements...</span></div></div>
+            </div>
+
+            <div id="slocumBriefingPanel" class="mb-4 card d-none">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-clipboard-list"></i> Deployment briefing</h5>
+                </div>
+                <div class="card-body">
+                    <div id="slocumBriefingContent" class="small text-muted">Select an active dataset to load goals and notes.</div>
+                </div>
             </div>
 
             <!-- Slocum Map Section -->
@@ -98,4 +97,33 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
 <script src="/static/js/home.js" type="module"></script>
 <script src="/static/js/map_generator.js" type="module"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const panel = document.getElementById('slocumBriefingPanel');
+  const content = document.getElementById('slocumBriefingContent');
+  if (!panel || !content) return;
+  const datasets = [];
+  try {
+    const resp = await fetch('/api/slocum/available_datasets', { credentials: 'same-origin' });
+    if (resp.ok) {
+      const ids = await resp.json();
+      datasets.push(...(ids || []));
+    }
+  } catch (_) {}
+  if (!datasets.length) return;
+  const datasetId = datasets[0];
+  try {
+    const resp = await fetch(`/api/slocum/datasets/${encodeURIComponent(datasetId)}/info`, { credentials: 'same-origin' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    panel.classList.remove('d-none');
+    const goals = (data.goals || []).map(g => `<li>${g.is_completed ? '&#10003;' : '&#9744;'} ${g.description}</li>`).join('');
+    const notes = (data.notes || []).map(n => `<li>${n.content}</li>`).join('');
+    const dep = data.deployment ? `<p class="mb-2"><strong>${data.deployment.name}</strong> (${data.deployment.glider_name})</p>` : '';
+    content.innerHTML = `${dep}<div class="row"><div class="col-md-6"><h6>Goals</h6><ul>${goals || '<li class="text-muted">No goals</li>'}</ul></div><div class="col-md-6"><h6>Notes</h6><ul>${notes || '<li class="text-muted">No notes</li>'}</ul></div></div>`;
+  } catch (err) {
+    console.warn('Slocum briefing load failed', err);
+  }
+});
+</script>
 {% endblock %}

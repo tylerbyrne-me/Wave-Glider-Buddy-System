@@ -101,10 +101,9 @@ def get_static_form_schema(form_type: str) -> models.MissionFormSchema:
                 ),
             ]
         )
-    # Add other form types here
-    # Example:
-    # elif form_type == "another_form_type":
-    #     return models.MissionFormSchema(...)
+    elif form_type == "slocum_daily_checklist":
+        from .slocum_checklist_definitions import get_slocum_daily_checklist_schema
+        return get_slocum_daily_checklist_schema()
 
     logger.error(f"Static form schema definition not found for form_type: {form_type}")
     raise HTTPException(status_code=404, detail=f"Form type '{form_type}' definition not found.")

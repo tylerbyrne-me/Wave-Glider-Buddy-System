@@ -26,7 +26,6 @@ def _get_cached_feature_context() -> Dict[str, Any]:
         "is_vm4_offload_parser_enabled": features.get("vm4_offload_parser", False),
         "is_local_data_loading_enabled": features.get("local_data_loading", False),
         "is_slocum_platform_enabled": features.get("slocum_platform", False),
-        "is_slocum_mission_files_enabled": features.get("slocum_mission_files", False),
         "is_wave_glider_knowledge_base_enabled": features.get("wave_glider_knowledge_base", True),
         "is_slocum_knowledge_base_enabled": features.get("slocum_knowledge_base", True),
         "is_mission_dashboard_enabled": features.get("mission_dashboard", True),

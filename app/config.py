@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
-    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "slocum_mission_files": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false}'
+    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -86,11 +86,34 @@ class Settings(BaseSettings):
     historical_slocum_datasets: list[str] = []
     # Round time window to this many minutes for hours_back mode so cache key is stable (fewer ERDDAP refetches).
     slocum_cache_window_minutes: int = 15
+    # Persistent parquet mirror for Slocum ERDDAP data (shared across gunicorn workers).
+    slocum_mirror_dir: Path = Path("data_store/slocum_cache")
+    # Hours of data retained in the mirror for active (realtime) datasets.
+    slocum_mirror_retention_hours: int = 72
+    # Default warm/sync window aligned with dashboard UI (DEFAULT_HOURS = 24).
+    slocum_warm_hours: int = 24
+    # Overlap when merging incremental ERDDAP pulls into the mirror.
+    slocum_sync_overlap_hours: int = 2
+    # Server-side decimation for long/historical ERDDAP *dashboard* fetches (minutes).
+    # CTD mirrors never use this — dive/climb science profiles must stay full-resolution. 0 = raw rows.
+    slocum_erddap_decimation_minutes: int = 15
+    # Regex filter for allDatasets metadata queries (Ocean Track Slocum IDs).
+    slocum_erddap_dataset_id_filter: str = r".*(_realtime|_delayed)$"
+    # Temporary on-demand overage cache for windows outside the rolling mirror.
+    slocum_overage_cache_dir: Path = Path("data_store/slocum_overage_cache")
+    slocum_overage_ttl_hours: int = 24
+    slocum_overage_cleanup_interval_hours: int = 6
+    slocum_overage_interactive_max_days: int = 31
+    slocum_overage_max_bytes: int = 10 * 1024 * 1024 * 1024  # 10 GB
 
     # --- ETOPO 2022 Bathymetry (ERDDAP griddap for PDF report map contours) ---
     etopo_erddap_server: str = "https://oceanwatch.pifsc.noaa.gov/erddap"
     etopo_dataset_id: str = "ETOPO_2022_v1_15s"
     etopo_request_timeout: int = 30  # seconds; fetch failures skip contours silently
+    bathy_cache_dir: Path = Path("data_store/bathy_cache")
+    # Longer than weather: grids are stable topography reused across report generation.
+    bathy_cache_max_age_days: int = 90
+    bathy_cache_max_bytes: int = 512 * 1024 * 1024  # 512 MB
 
     # --- Open-Meteo weather map layer cache (home-page wind overlay) ---
     weather_map_cache_dir: Path = Path("data_store/weather_cache")
@@ -100,6 +123,9 @@ class Settings(BaseSettings):
     weather_map_prefetch_horizon_days: int = 7
     weather_map_prefetch_step_hours: int = 3
     weather_map_prefetch_cron_hour: int = 7  # UTC
+    # Daily disk cleanup runs even when weather_map_layers is disabled (stranded cache).
+    weather_map_cleanup_cron_hour: int = 7  # UTC
+    weather_map_cache_max_bytes: int = 5 * 1024 * 1024 * 1024  # 5 GB
 
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file

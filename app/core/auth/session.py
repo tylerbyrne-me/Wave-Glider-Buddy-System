@@ -1,7 +1,8 @@
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import \
     Session as SQLModelSession  # type: ignore # Import Session and alias it
@@ -18,6 +19,7 @@ from .security import (  # TokenData imported from here, added get_password_hash
 # ALGORITHM and SECRET_KEY are used by decode_access_token internally,
 # assuming it fetches them from settings.
 from ..infra.db import get_db_session  # Import the new get_db_session
+from ..infra.feature_toggles import is_feature_enabled
 
 # Color palette for user shifts
 USER_COLORS = [
@@ -266,6 +268,53 @@ async def get_current_pilot_user(
         )
     # Further pilot-specific checks could go here if needed
     return current_user
+
+
+def user_has_platform_access(user: User, platform: str) -> bool:
+    """Return True if the user may access the given platform (admins always allowed)."""
+    if user.role == UserRoleEnum.admin:
+        return True
+    if platform == "slocum":
+        if not is_feature_enabled("slocum_platform"):
+            return False
+        return bool(getattr(user, "can_access_slocum", True))
+    if platform == "wave_glider":
+        return bool(getattr(user, "can_access_wave_glider", True))
+    return True
+
+
+def get_allowed_platforms_for_user(user: User) -> List[str]:
+    """Platforms the user may access (global toggle + per-user flag)."""
+    allowed: List[str] = []
+    if user_has_platform_access(user, "wave_glider"):
+        allowed.append("wave_glider")
+    if user_has_platform_access(user, "slocum"):
+        allowed.append("slocum")
+    return allowed
+
+
+def redirect_if_platform_denied(user: User, platform: str) -> Optional[RedirectResponse]:
+    """Redirect to /platform when the user lacks access; None when allowed."""
+    if user_has_platform_access(user, platform):
+        return None
+    return RedirectResponse(url="/platform")
+
+
+def require_platform_access(platform: Literal["wave_glider", "slocum"]):
+    """FastAPI dependency factory enforcing per-user platform access."""
+
+    async def _check(current_user: User = Depends(get_current_active_user)) -> User:
+        if not user_has_platform_access(current_user, platform):
+            logger.warning(
+                f"User '{current_user.username}' denied access to platform '{platform}'."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access to {platform.replace('_', ' ')} is not permitted.",
+            )
+        return current_user
+
+    return _check
 
 
 # New dependency to optionally get the current user without raising 401

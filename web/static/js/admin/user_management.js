@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     const editDisabledCheckbox = document.getElementById('editDisabled');
     const editIsMosCheckbox = document.getElementById('editIsMos');
     const editIsPicCheckbox = document.getElementById('editIsPic');
+    const editCanAccessWaveGliderCheckbox = document.getElementById('editCanAccessWaveGlider');
+    const editCanAccessSlocumCheckbox = document.getElementById('editCanAccessSlocum');
     const saveUserChangesBtn = document.getElementById('saveUserChangesBtn');
     const editUserErrorDiv = document.getElementById('editUserError');
 
@@ -77,6 +79,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                     row.insertCell().textContent = user.role.charAt(0).toUpperCase() + user.role.slice(1);
                     row.insertCell().innerHTML = user.is_mos ? '<span class="badge bg-info sm-badge">MOS</span>' : '<span class="text-muted">—</span>';
                     row.insertCell().innerHTML = user.is_pic ? '<span class="badge bg-info sm-badge">PIC</span>' : '<span class="text-muted">—</span>';
+                    row.insertCell().innerHTML = user.can_access_wave_glider !== false ? '<span class="badge bg-primary sm-badge">WG</span>' : '<span class="text-muted">—</span>';
+                    row.insertCell().innerHTML = user.can_access_slocum !== false ? '<span class="badge bg-secondary sm-badge">SG</span>' : '<span class="text-muted">—</span>';
                     
                     // Color cell with visual indicator
                     const colorCell = row.insertCell();
@@ -113,7 +117,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 userManagementTableContainer.style.display = 'block';
             }
         } catch (error) {
-            usersTableBody.innerHTML = `<tr><td colspan="9" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
+            usersTableBody.innerHTML = `<tr><td colspan="11" class="text-center text-danger">Error loading users: ${error.message}</td></tr>`;
             userManagementTableContainer.style.display = 'block';
             noUsersMessage.style.display = 'none';
         } finally {
@@ -132,6 +136,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         editDisabledCheckbox.checked = user.disabled;
         if (editIsMosCheckbox) editIsMosCheckbox.checked = !!user.is_mos;
         if (editIsPicCheckbox) editIsPicCheckbox.checked = !!user.is_pic;
+        if (editCanAccessWaveGliderCheckbox) editCanAccessWaveGliderCheckbox.checked = user.can_access_wave_glider !== false;
+        if (editCanAccessSlocumCheckbox) editCanAccessSlocumCheckbox.checked = user.can_access_slocum !== false;
 
         // Disable role change and disable checkbox for the current admin if they are editing themselves
         // to prevent self-lockout from the last admin account.
@@ -169,6 +175,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             disabled: editDisabledCheckbox.checked,
             is_mos: editIsMosCheckbox ? editIsMosCheckbox.checked : false,
             is_pic: editIsPicCheckbox ? editIsPicCheckbox.checked : false,
+            can_access_wave_glider: editCanAccessWaveGliderCheckbox ? editCanAccessWaveGliderCheckbox.checked : true,
+            can_access_slocum: editCanAccessSlocumCheckbox ? editCanAccessSlocumCheckbox.checked : true,
         };
 
         try {

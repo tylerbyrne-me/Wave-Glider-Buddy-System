@@ -1,4 +1,5 @@
 import logging  # Add logging
+import math
 import re
 from typing import Dict, List, Optional
  
@@ -642,6 +643,8 @@ def preprocess_slocum_track_df(df: pd.DataFrame) -> pd.DataFrame:
 
 # Possible ERDDAP column names for dashboard variables (with or without units)
 _SLOCUM_DASHBOARD_RENAME = {
+    "latitude": "Latitude",
+    "longitude": "Longitude",
     "m_depth": "MDepth",
     "m_depth (m)": "MDepth",
     "m_altitude": "MAltitude",
@@ -678,12 +681,204 @@ _SLOCUM_DASHBOARD_RENAME = {
     "m_coulomb_amphr_total (A.hr)": "MCoulombAmphrTotal",
     "m_coulomb_amphr_total (A*hr)": "MCoulombAmphrTotal",
     "m_coulomb_amphr_total (ah)": "MCoulombAmphrTotal",
+    "latitude (degrees_north)": "Latitude",
+    "longitude (degrees_east)": "Longitude",
 }
+
+_SLOCUM_CHECKLIST_RENAME = {
+    **_SLOCUM_DASHBOARD_RENAME,
+    "m_coulomb_current": "MCoulombCurrent",
+    "m_coulomb_current (A)": "MCoulombCurrent",
+    "m_coulomb_current (amps)": "MCoulombCurrent",
+    "m_vacuum": "MVacuum",
+    "m_vacuum (inHg)": "MVacuum",
+    "m_leakdetect_voltage": "MLeakdetectVoltage",
+    "m_leakdetect_voltage (volts)": "MLeakdetectVoltage",
+    "m_leakdetect_voltage (V)": "MLeakdetectVoltage",
+    "m_leakdetect_voltage_forward": "MLeakdetectVoltageForward",
+    "m_leakdetect_voltage_forward (volts)": "MLeakdetectVoltageForward",
+    "m_leakdetect_voltage_forward (V)": "MLeakdetectVoltageForward",
+    "m_leakdetect_voltage_science": "MLeakdetectVoltageScience",
+    "m_leakdetect_voltage_science (volts)": "MLeakdetectVoltageScience",
+    "m_leakdetect_voltage_science (V)": "MLeakdetectVoltageScience",
+    "c_de_oil_vol": "CDeOilVol",
+    "c_de_oil_vol (cc)": "CDeOilVol",
+    "m_de_oil_vol": "MDeOilVol",
+    "m_de_oil_vol (cc)": "MDeOilVol",
+    "c_ballast_pumped": "CBallastPumped",
+    "c_ballast_pumped (cc)": "CBallastPumped",
+    "m_ballast_pumped": "MBallastPumped",
+    "m_ballast_pumped (cc)": "MBallastPumped",
+    "c_battpos": "CBattpos",
+    "c_battpos (in)": "CBattpos",
+    "m_battpos": "MBattpos",
+    "m_battpos (in)": "MBattpos",
+    "m_depth_rate_avg_final": "MDepthRateAvgFinal",
+    "m_depth_rate_avg_final (m/s)": "MDepthRateAvgFinal",
+    "m_depth_rate_avg_final (m s-1)": "MDepthRateAvgFinal",
+    "m_bms_pitch_current": "MBmsPitchCurrent",
+    "m_bms_pitch_current (A)": "MBmsPitchCurrent",
+    "m_bms_pitch_current (amps)": "MBmsPitchCurrent",
+    "m_bms_aft_current": "MBmsAftCurrent",
+    "m_bms_aft_current (A)": "MBmsAftCurrent",
+    "m_bms_aft_current (amps)": "MBmsAftCurrent",
+    "m_bms_ebay_current": "MBmsEbayCurrent",
+    "m_bms_ebay_current (A)": "MBmsEbayCurrent",
+    "m_bms_ebay_current (amps)": "MBmsEbayCurrent",
+    "m_speed": "MSpeed",
+    "m_speed (m/s)": "MSpeed",
+    "m_speed (m s-1)": "MSpeed",
+    "m_final_water_vx": "MFinalWaterVx",
+    "m_final_water_vx (m/s)": "MFinalWaterVx",
+    "m_final_water_vx (m s-1)": "MFinalWaterVx",
+    "m_final_water_vy": "MFinalWaterVy",
+    "m_final_water_vy (m/s)": "MFinalWaterVy",
+    "m_final_water_vy (m s-1)": "MFinalWaterVy",
+    "m_gps_lat": "MGpsLat",
+    "m_gps_lat (deg)": "MGpsLat",
+    "m_gps_lat (degree_north)": "MGpsLat",
+    "m_gps_lon": "MGpsLon",
+    "m_gps_lon (deg)": "MGpsLon",
+    "m_gps_lon (degree_east)": "MGpsLon",
+    "c_wpt_lat": "CWptLat",
+    "c_wpt_lat (deg)": "CWptLat",
+    "c_wpt_lat (degree_north)": "CWptLat",
+    "c_wpt_lon": "CWptLon",
+    "c_wpt_lon (deg)": "CWptLon",
+    "c_wpt_lon (degree_east)": "CWptLon",
+    "density": "Density",
+    "density (kg/m^3)": "Density",
+    "density (kg/m3)": "Density",
+    "density (kg.m-3)": "Density",
+    # ERDDAP also emits radians for attitude; preprocess converts to degrees.
+    "c_pitch (rad)": "CPitch",
+    "c_pitch (radians)": "CPitch",
+    "m_pitch (rad)": "MPitch",
+    "m_pitch (radians)": "MPitch",
+    "m_roll (rad)": "MRoll",
+    "m_roll (radians)": "MRoll",
+}
+
+# Stem (before unit suffix) -> standard column. Used when ERDDAP unit text varies.
+_SLOCUM_CHECKLIST_STEMS: dict[str, str] = {
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "m_depth": "MDepth",
+    "m_altitude": "MAltitude",
+    "m_water_depth": "MWaterDepth",
+    "c_pitch": "CPitch",
+    "m_pitch": "MPitch",
+    "m_roll": "MRoll",
+    "c_heading": "CHeading",
+    "m_heading": "MHeading",
+    "c_fin": "CFin",
+    "m_fin": "MFin",
+    "m_battery": "MBattery",
+    "m_coulomb_amphr_total": "MCoulombAmphrTotal",
+    "m_coulomb_current": "MCoulombCurrent",
+    "m_vacuum": "MVacuum",
+    "m_leakdetect_voltage": "MLeakdetectVoltage",
+    "m_leakdetect_voltage_forward": "MLeakdetectVoltageForward",
+    "m_leakdetect_voltage_science": "MLeakdetectVoltageScience",
+    "c_de_oil_vol": "CDeOilVol",
+    "m_de_oil_vol": "MDeOilVol",
+    "c_ballast_pumped": "CBallastPumped",
+    "m_ballast_pumped": "MBallastPumped",
+    "c_battpos": "CBattpos",
+    "m_battpos": "MBattpos",
+    "m_depth_rate_avg_final": "MDepthRateAvgFinal",
+    "m_bms_pitch_current": "MBmsPitchCurrent",
+    "m_bms_aft_current": "MBmsAftCurrent",
+    "m_bms_ebay_current": "MBmsEbayCurrent",
+    "m_speed": "MSpeed",
+    "m_final_water_vx": "MFinalWaterVx",
+    "m_final_water_vy": "MFinalWaterVy",
+    "m_gps_lat": "MGpsLat",
+    "m_gps_lon": "MGpsLon",
+    "c_wpt_lat": "CWptLat",
+    "c_wpt_lon": "CWptLon",
+    "density": "Density",
+}
+
+_SLOCUM_CHECKLIST_STD_COLS = [
+    "Latitude", "Longitude",
+    "MDepth", "MAltitude", "MWaterDepth",
+    "CPitch", "MPitch", "MRoll",
+    "CHeading", "MHeading", "CFin", "MFin",
+    "MBattery", "MCoulombAmphrTotal", "MCoulombCurrent",
+    "MVacuum",
+    "MLeakdetectVoltage", "MLeakdetectVoltageForward", "MLeakdetectVoltageScience",
+    "CDeOilVol", "MDeOilVol",
+    "CBallastPumped", "MBallastPumped",
+    "CBattpos", "MBattpos",
+    "MDepthRateAvgFinal",
+    "MBmsPitchCurrent", "MBmsAftCurrent", "MBmsEbayCurrent",
+    "MSpeed", "MFinalWaterVx", "MFinalWaterVy",
+    "MGpsLat", "MGpsLon",
+    "CWptLat", "CWptLon",
+    "Density",
+]
+
+# Attitude columns stored as radians on OceanTrack ERDDAP; convert to degrees for pilots.
+_SLOCUM_ATTITUDE_RAD_TO_DEG = ("CPitch", "MPitch", "MRoll", "CHeading", "MHeading")
+
+# Slocum / ERDDAP sentinel fill magnitudes (~2.147e9 and huge _FillValue).
+_SLOCUM_SENTINEL_ABS = 1.0e8
+
+
+def _column_stem(name: str) -> str:
+    """Strip ERDDAP unit suffix: 'm_depth_rate_avg_final (m s-1)' -> 'm_depth_rate_avg_final'."""
+    text = str(name).strip()
+    if " (" in text:
+        text = text.split(" (", 1)[0]
+    return text.strip().lower()
+
+
+def _build_checklist_rename_map(columns: list) -> dict[str, str]:
+    """Exact rename first, then stem match so unit text variants still map."""
+    rename_map: dict[str, str] = {}
+    assigned: set[str] = set()
+
+    for raw_name, mapped in _SLOCUM_CHECKLIST_RENAME.items():
+        if mapped in assigned:
+            continue
+        if raw_name in columns:
+            rename_map[raw_name] = mapped
+            assigned.add(mapped)
+
+    lower_to_actual = {str(c).lower(): c for c in columns}
+    for raw_name, mapped in _SLOCUM_CHECKLIST_RENAME.items():
+        if mapped in assigned:
+            continue
+        actual = lower_to_actual.get(raw_name.lower())
+        if actual is not None and actual not in rename_map:
+            rename_map[actual] = mapped
+            assigned.add(mapped)
+
+    for col in columns:
+        if col in rename_map:
+            continue
+        stem = _column_stem(col)
+        mapped = _SLOCUM_CHECKLIST_STEMS.get(stem)
+        if mapped and mapped not in assigned:
+            rename_map[col] = mapped
+            assigned.add(mapped)
+
+    return rename_map
+
+
+def _nan_slocum_sentinels(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    return numeric.mask(numeric.abs() >= _SLOCUM_SENTINEL_ABS)
 
 # ERDDAP column names for CTD (with or without units) -> standard names
 _SLOCUM_CTD_RENAME = {
+    "depth": "Depth",
+    "depth (m)": "Depth",
     "conductivity": "Conductivity",
     "conductivity (S/m)": "Conductivity",
+    "conductivity (S.m-1)": "Conductivity",
+    "conductivity (S m-1)": "Conductivity",
     "temperature": "Temperature",
     "temperature (degrees_C)": "Temperature",
     "temperature (degree_C)": "Temperature",
@@ -697,15 +892,17 @@ _SLOCUM_CTD_RENAME = {
     "density": "Density",
     "density (kg/m^3)": "Density",
     "density (kg/m3)": "Density",
+    "density (kg.m-3)": "Density",
+    "density (kg m-3)": "Density",
 }
 
 
 def preprocess_slocum_ctd_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocess Slocum CTD ERDDAP DataFrame for chart API.
-    Standardizes time and conductivity, temperature, pressure, salinity, density columns.
+    Standardizes time, depth, conductivity, temperature, pressure, salinity, density columns.
     """
-    std_cols = ["Conductivity", "Temperature", "Pressure", "Salinity", "Density"]
+    std_cols = ["Depth", "Conductivity", "Temperature", "Pressure", "Salinity", "Density"]
     df_processed = _initial_dataframe_setup(df, "Timestamp")
     if df_processed.empty:
         for col in std_cols:
@@ -717,12 +914,23 @@ def preprocess_slocum_ctd_df(df: pd.DataFrame) -> pd.DataFrame:
             if s == std_name and raw_name in df_processed.columns:
                 rename_map[raw_name] = std_name
                 break
+    # Case-insensitive / fuzzy match for unit variants ERDDAP may emit
+    if len(rename_map) < len(std_cols):
+        lower_to_actual = {str(c).lower(): c for c in df_processed.columns}
+        for raw_name, std_name in _SLOCUM_CTD_RENAME.items():
+            if std_name in rename_map.values():
+                continue
+            actual = lower_to_actual.get(raw_name.lower())
+            if actual is not None and actual not in rename_map:
+                rename_map[actual] = std_name
     df_processed = df_processed.rename(columns=rename_map)
     for std_name in std_cols:
         if std_name not in df_processed.columns:
             df_processed[std_name] = np.nan
         df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
-    return df_processed
+    # Keep a stable column order for parquet/chart consumers
+    keep = ["Timestamp"] + [c for c in std_cols if c in df_processed.columns]
+    return df_processed.loc[:, keep]
 
 
 def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -740,6 +948,7 @@ def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
         Processed DataFrame with Timestamp and standardized numeric columns.
     """
     std_cols = [
+        "Latitude", "Longitude",
         "MDepth", "MAltitude", "MRawAltitude", "MWaterDepth",
         "CPitch", "MPitch", "MRoll",
         "CHeading", "MHeading", "CFin", "MFin",
@@ -766,6 +975,40 @@ def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
         df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
 
     return df_processed
+
+
+def preprocess_slocum_checklist_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess Slocum ERDDAP DataFrame for daily pilot checklist autofill.
+
+    Stem-based rename tolerates ERDDAP unit suffixes (e.g. ``m s-1``, ``amps``).
+    Sentinel fill values become NaN. Pitch/roll/heading convert from radians to degrees.
+    """
+    std_cols = list(_SLOCUM_CHECKLIST_STD_COLS)
+    df_processed = _initial_dataframe_setup(df, "Timestamp")
+    if df_processed.empty:
+        for col in std_cols:
+            df_processed[col] = pd.Series(dtype=float)
+        return df_processed
+
+    rename_map = _build_checklist_rename_map(list(df_processed.columns))
+    df_processed = df_processed.rename(columns=rename_map)
+
+    for std_name in std_cols:
+        if std_name not in df_processed.columns:
+            df_processed[std_name] = np.nan
+        df_processed[std_name] = _nan_slocum_sentinels(df_processed[std_name])
+
+    # OceanTrack attitude vars are radians; pilots / checklist refs use degrees.
+    for col in _SLOCUM_ATTITUDE_RAD_TO_DEG:
+        if col not in df_processed.columns:
+            continue
+        series = df_processed[col]
+        if series.notna().any() and float(series.abs().max()) <= (math.pi + 0.05):
+            df_processed[col] = series * (180.0 / math.pi)
+
+    keep = ["Timestamp"] + [c for c in std_cols if c in df_processed.columns]
+    return df_processed.loc[:, keep]
 
 
 def preprocess_wg_vm4_df(df: pd.DataFrame) -> pd.DataFrame:

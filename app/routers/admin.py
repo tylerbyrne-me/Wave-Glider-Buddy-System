@@ -4,12 +4,12 @@ from typing import List
 
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse
 from ..core.auth import get_current_admin_user
 from ..core import models
 from ..core.templates import templates
-from ..core.template_context import get_template_context
+from ..core.template_context import get_template_context, resolve_admin_platform_context
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,12 @@ async def get_scheduler_jobs():
 
 
 @router.get("/scheduler_status.html", response_class=HTMLResponse, include_in_schema=False)
-async def get_scheduler_status_page(request: Request, current_user: models.User = Depends(get_current_admin_user)):
+async def get_scheduler_status_page(
+    request: Request,
+    platform: str | None = Query(None, description="Banner platform context: wave_glider or slocum"),
+    current_user: models.User = Depends(get_current_admin_user),
+):
     """Serves the HTML page for viewing scheduler status (admin only)."""
     context = get_template_context(request=request, current_user=current_user)
-    context["platform"] = "wave_glider"
-    context["platform_home_url"] = "/wave-glider/home"
-    context["show_banner_nav"] = True
+    context.update(resolve_admin_platform_context(platform))
     return templates.TemplateResponse("admin/scheduler_status.html", context)

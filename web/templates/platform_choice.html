@@ -7,6 +7,8 @@
     <h1 class="text-center mb-4">Choose Platform</h1>
     <p class="text-center text-muted mb-5">Welcome, {{ current_user.full_name or current_user.username }}. Select a platform to continue.</p>
     <div class="row justify-content-center g-4">
+        {% set allowed = allowed_platforms | default(['wave_glider', 'slocum']) %}
+        {% if 'wave_glider' in allowed %}
         <div class="col-12 col-md-5">
             <a href="/wave-glider/home" class="text-decoration-none">
                 <div class="card h-100 shadow-sm border-primary">
@@ -18,7 +20,8 @@
                 </div>
             </a>
         </div>
-        {% if feature_enabled('slocum_platform') %}
+        {% endif %}
+        {% if 'slocum' in allowed and feature_enabled('slocum_platform') %}
         <div class="col-12 col-md-5">
             <a href="/slocum/home" class="text-decoration-none">
                 <div class="card h-100 shadow-sm border-secondary">
@@ -29,6 +32,11 @@
                     </div>
                 </div>
             </a>
+        </div>
+        {% endif %}
+        {% if allowed | length == 0 %}
+        <div class="col-12">
+            <div class="alert alert-warning text-center">You do not have access to any platform. Contact an administrator.</div>
         </div>
         {% endif %}
     </div>

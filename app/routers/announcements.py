@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import HTMLResponse
 from typing import List, Optional
 from sqlmodel import select
@@ -19,7 +19,7 @@ from ..core.models import (
 )
 from ..core import auth
 from ..core.templates import templates
-from ..core.template_context import get_template_context
+from ..core.template_context import get_template_context, resolve_admin_platform_context
 
 router = APIRouter(tags=["Announcements"])
 logger = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 @router.get("/admin/announcements.html", response_class=HTMLResponse)
 async def get_admin_announcements_page(
     request: Request,
+    platform: Optional[str] = Query(None, description="Banner platform context: wave_glider or slocum"),
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     username_for_log = (
@@ -37,9 +38,7 @@ async def get_admin_announcements_page(
         f"User '{username_for_log}' accessing /admin/announcements.html. JS will verify admin role."
     )
     context = get_template_context(request=request, current_user=current_user)
-    context["platform"] = "wave_glider"
-    context["platform_home_url"] = "/wave-glider/home"
-    context["show_banner_nav"] = True
+    context.update(resolve_admin_platform_context(platform))
     return templates.TemplateResponse("admin/announcements.html", context)
 
 # --- API Endpoints ---
@@ -55,7 +54,8 @@ async def create_announcement(
     db_announcement = Announcement(
         content=announcement_in.content,
         created_by_username=current_admin.username,
-        announcement_type=announcement_in.announcement_type or "general"
+        announcement_type=announcement_in.announcement_type or "general",
+        platform=announcement_in.platform or "all",
     )
     session.add(db_announcement)
     session.commit()
@@ -64,6 +64,7 @@ async def create_announcement(
 
 @router.get("/api/announcements/active", response_model=List[AnnouncementReadForUser])
 async def get_active_announcements(
+    platform: Optional[str] = Query(None, description="Filter by platform: wave_glider or slocum"),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session)
 ):
@@ -82,6 +83,11 @@ async def get_active_announcements(
             user_role_value = str(current_user.role).lower().replace("userroleenum.", "")
         username_value = current_user.username.lower()
         for ann in active_announcements:
+            ann_platform = (ann.platform or "all").lower()
+            if platform:
+                normalized = platform.lower().replace("-", "_")
+                if ann_platform not in ("all", normalized):
+                    continue
             target_roles = [r.strip().lower() for r in (ann.target_roles or "").split(",") if r.strip()]
             target_usernames = [u.strip().lower() for u in (ann.target_usernames or "").split(",") if u.strip()]
             if target_roles or target_usernames:
@@ -184,6 +190,8 @@ async def edit_announcement(
     db_announcement.content = announcement_update.content
     if announcement_update.announcement_type:
         db_announcement.announcement_type = announcement_update.announcement_type
+    if announcement_update.platform:
+        db_announcement.platform = announcement_update.platform
     session.add(db_announcement)
     session.commit()
     session.refresh(db_announcement)

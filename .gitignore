@@ -10,8 +10,8 @@
 .idea/
 
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
 
 *.egg-info/
 

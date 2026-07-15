@@ -6,16 +6,19 @@ data_store/bathy_cache/ as .npz files. Longitudes are converted to 0-360 for
 the ERDDAP query and back to -180..180 for Cartopy plotting.
 
 Disable contours with feature toggle report_bathymetry_contours=false.
+Disk cleanup (TTL + size quota) mirrors weather_map_cache.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -27,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 ETOPO_DEG_STEP = 0.004166667
 BATHY_BBOX_PAD_DEG = 0.02
-BATHY_CACHE_DIR = Path("data_store/bathy_cache")
 OCEAN_DEPTH_LEVELS_M = (
     -10,
     -20,
@@ -46,6 +48,11 @@ OCEAN_DEPTH_LEVELS_M = (
     -5000,
 )
 
+_cleanup_stats: dict[str, Any] = {
+    "last_cleanup_at": None,
+    "last_cleanup_summary": None,
+}
+
 
 @dataclass(frozen=True)
 class BathyGrid:
@@ -54,6 +61,14 @@ class BathyGrid:
     longitude: np.ndarray
     latitude: np.ndarray
     z: np.ndarray
+
+
+def get_bathy_cache_dir() -> Path:
+    return Path(getattr(settings, "bathy_cache_dir", Path("data_store/bathy_cache")))
+
+
+# Backwards-compatible alias for callers/tests that imported the constant.
+BATHY_CACHE_DIR = Path("data_store/bathy_cache")
 
 
 def lon_to_360(lon: float) -> float:
@@ -144,7 +159,7 @@ def _cache_key(extent: List[float], stride: int) -> tuple[float, float, float, f
 def _cache_path(cache_key: tuple[float, float, float, float, int]) -> Path:
     west, east, south, north, stride = cache_key
     filename = f"bathy_{west}_{east}_{south}_{north}_{stride}.npz"
-    return BATHY_CACHE_DIR / filename
+    return get_bathy_cache_dir() / filename
 
 
 def _load_cached_grid(cache_key: tuple[float, float, float, float, int]) -> Optional[BathyGrid]:
@@ -166,7 +181,7 @@ def _load_cached_grid(cache_key: tuple[float, float, float, float, int]) -> Opti
 def _save_cached_grid(cache_key: tuple[float, float, float, float, int], grid: BathyGrid) -> None:
     path = _cache_path(cache_key)
     try:
-        BATHY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        get_bathy_cache_dir().mkdir(parents=True, exist_ok=True)
         np.savez(path, longitude=grid.longitude, latitude=grid.latitude, z=grid.z)
     except Exception as exc:
         logger.warning("Failed to write bathymetry cache %s: %s", path, exc)
@@ -231,3 +246,127 @@ def fetch_etopo_bathymetry(extent: List[float]) -> Optional[BathyGrid]:
     stride = choose_stride(extent)
     cache_key = _cache_key(extent, stride)
     return _fetch_cached(cache_key)
+
+
+def _iter_npz_entries() -> list[tuple[Path, float, int]]:
+    """Return (path, mtime, byte_size) for each .npz under the bathy cache dir."""
+    root = get_bathy_cache_dir()
+    entries: list[tuple[Path, float, int]] = []
+    if not root.is_dir():
+        return entries
+    for path in root.glob("*.npz"):
+        try:
+            st = path.stat()
+            entries.append((path, st.st_mtime, st.st_size))
+        except OSError:
+            continue
+    return entries
+
+
+def get_bathy_cache_status() -> dict[str, Any]:
+    entries = _iter_npz_entries()
+    total_bytes = sum(size for _, _, size in entries)
+    max_bytes = int(getattr(settings, "bathy_cache_max_bytes", 0) or 0)
+    return {
+        "cache_dir": str(get_bathy_cache_dir()),
+        "response_files": len(entries),
+        "total_bytes": total_bytes,
+        "max_bytes": max_bytes,
+        "max_age_days": int(getattr(settings, "bathy_cache_max_age_days", 90)),
+        "last_cleanup_at": _cleanup_stats["last_cleanup_at"],
+        "last_cleanup_summary": _cleanup_stats["last_cleanup_summary"],
+    }
+
+
+def enforce_bathy_cache_quota() -> dict[str, int]:
+    """Evict oldest-by-mtime .npz files until under bathy_cache_max_bytes."""
+    max_bytes = int(getattr(settings, "bathy_cache_max_bytes", 0) or 0)
+    if max_bytes <= 0:
+        return {"evicted_files": 0, "freed_bytes": 0}
+
+    entries = _iter_npz_entries()
+    total = sum(size for _, _, size in entries)
+    if total <= max_bytes:
+        return {"evicted_files": 0, "freed_bytes": 0}
+
+    entries.sort(key=lambda item: item[1])  # oldest mtime first
+    removed_files = 0
+    freed = 0
+    for path, _mtime, size in entries:
+        if total <= max_bytes:
+            break
+        try:
+            path.unlink()
+            removed_files += 1
+            freed += size
+            total -= size
+        except OSError as err:
+            logger.warning("Failed to evict bathy cache file %s: %s", path, err)
+
+    if removed_files:
+        _fetch_cached.cache_clear()
+    return {"evicted_files": removed_files, "freed_bytes": freed}
+
+
+def purge_bathy_cache(
+    *,
+    force_all: bool = False,
+    max_age_days: Optional[int] = None,
+    enforce_quota: bool = True,
+) -> dict[str, Any]:
+    """Remove stale (or all) bathymetry .npz cache files and optionally enforce size quota."""
+    if max_age_days is None:
+        max_age_days = int(getattr(settings, "bathy_cache_max_age_days", 90))
+    cutoff = time.time() - max(0, max_age_days) * 24 * 60 * 60
+
+    removed_files = 0
+    freed_bytes = 0
+    for path, mtime, size in _iter_npz_entries():
+        if not force_all and mtime >= cutoff:
+            continue
+        try:
+            path.unlink()
+            removed_files += 1
+            freed_bytes += size
+        except OSError as err:
+            logger.warning("Failed to remove bathy cache file %s: %s", path, err)
+
+    if removed_files:
+        _fetch_cached.cache_clear()
+
+    quota = {"evicted_files": 0, "freed_bytes": 0}
+    if enforce_quota:
+        quota = enforce_bathy_cache_quota()
+        removed_files += quota["evicted_files"]
+        freed_bytes += quota["freed_bytes"]
+
+    return {
+        "removed_files": removed_files,
+        "freed_bytes": freed_bytes,
+        "stale_files_removed": removed_files - quota["evicted_files"],
+        "quota_evicted_files": quota["evicted_files"],
+        "quota_freed_bytes": quota["freed_bytes"],
+        "force_all": force_all,
+        "max_age_days": max_age_days,
+        "status": get_bathy_cache_status(),
+    }
+
+
+def run_bathy_cache_cleanup() -> dict[str, Any]:
+    """Always-on disk cleanup: TTL purge + quota (independent of feature toggle)."""
+    summary = purge_bathy_cache(force_all=False, enforce_quota=True)
+    _cleanup_stats["last_cleanup_at"] = datetime.now(timezone.utc).isoformat()
+    _cleanup_stats["last_cleanup_summary"] = {
+        k: summary[k]
+        for k in (
+            "removed_files",
+            "freed_bytes",
+            "stale_files_removed",
+            "quota_evicted_files",
+            "quota_freed_bytes",
+        )
+        if k in summary
+    }
+    summary["status"] = get_bathy_cache_status()
+    logger.info("Bathymetry cache cleanup complete: %s", _cleanup_stats["last_cleanup_summary"])
+    return summary

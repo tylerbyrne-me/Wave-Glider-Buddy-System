@@ -52,6 +52,16 @@ class UserInDB(SQLModel, table=True):
         sa_column=Column(Text),
         description="Personal Sensor Tracker API token for admin sync actions.",
     )
+    can_access_wave_glider: bool = SQLModelField(
+        default=True,
+        index=True,
+        description="Whether the user may access the Wave Glider platform (when globally enabled).",
+    )
+    can_access_slocum: bool = SQLModelField(
+        default=True,
+        index=True,
+        description="Whether the user may access the Slocum Glider platform (when globally enabled).",
+    )
 
 
 # --- Station Metadata Database Model ---
@@ -784,6 +794,11 @@ class Announcement(SQLModel, table=True):
     announcement_type: Optional[str] = SQLModelField(default="general", index=True, description="Type: general, question, system, etc.")
     target_roles: Optional[str] = SQLModelField(default=None, description="Comma-separated roles (optional)")
     target_usernames: Optional[str] = SQLModelField(default=None, description="Comma-separated usernames (optional)")
+    platform: str = SQLModelField(
+        default="all",
+        index=True,
+        description="Target platform: all, wave_glider, or slocum",
+    )
     acknowledgements: List["AnnouncementAcknowledgement"] = Relationship(back_populates="announcement")
 
 
@@ -983,9 +998,9 @@ class ChatbotInteraction(SQLModel, table=True):
     created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc), index=True)
 
 
-# --- Slocum Mission File Tool Database Models ---
+# --- Slocum Deployment Database Models ---
 class SlocumDeployment(SQLModel, table=True):
-    """Slocum glider deployment - independent tracking (not tied to ERDDAP)."""
+    """Slocum glider deployment - briefing/metadata identity linked to ERDDAP datasets."""
     __tablename__ = "slocum_deployments"
 
     id: Optional[int] = SQLModelField(default=None, primary_key=True)
@@ -1001,88 +1016,95 @@ class SlocumDeployment(SQLModel, table=True):
     )
     notes: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
     is_active: bool = SQLModelField(default=True, index=True)
-    erddap_dataset_id: Optional[str] = SQLModelField(default=None, index=True, description="ERDDAP dataset ID for active realtime, e.g. cabot_20240901_198_realtime")
+    mission_key: Optional[str] = SQLModelField(
+        default=None,
+        index=True,
+        description=(
+            "Suffix-agnostic mission identity shared by realtime and delayed datasets "
+            "(e.g. sable_20260621_224). Used for briefing metadata, checklists, and reports."
+        ),
+    )
+    erddap_dataset_id: Optional[str] = SQLModelField(
+        default=None,
+        index=True,
+        description=(
+            "Most recently seen ERDDAP dataset ID for this mission "
+            "(e.g. cabot_20240901_198_realtime or ..._delayed)."
+        ),
+    )
+    document_url: Optional[str] = SQLModelField(default=None, description="URL to formal mission plan document (PDF/DOC/DOCX)")
+    enabled_sensor_cards: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="JSON string of enabled sensor cards for this Slocum deployment (e.g. [\"ctd\",\"dissolved_oxygen\"]).",
+    )
+    checklist_reference_values: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description=(
+            "JSON object of daily checklist reference values "
+            "(battery_pack, glider_depth_class, endurance_amphr_total, min_voltage, max_voltage, "
+            "vacuum_at_depth, vacuum_at_surface, max_vacuum, amphr_per_day_budget, "
+            "expected_mission_file, expected_script, argos_id, u_alt_min_depth, ...)."
+        ),
+    )
 
-    mission_files: List["SlocumMissionFile"] = Relationship(back_populates="deployment")
-    snapshots: List["SlocumDeploymentSnapshot"] = Relationship(back_populates="deployment")
-    change_logs: List["SlocumMissionChangeLog"] = Relationship(back_populates="deployment")
+    goals: List["SlocumDeploymentGoal"] = Relationship(back_populates="deployment")
+    deployment_notes: List["SlocumDeploymentNote"] = Relationship(back_populates="deployment")
+    media: List["SlocumDeploymentMedia"] = Relationship(back_populates="deployment")
 
 
-class SlocumMissionFile(SQLModel, table=True):
-    """Individual mission file within a Slocum deployment (.ma or .mi)."""
-    __tablename__ = "slocum_mission_files"
+# Slocum deployment metadata (goals/notes/media) — keyed on SlocumDeployment.id
+class SlocumDeploymentGoal(SQLModel, table=True):
+    """Mission goal for a Slocum deployment briefing."""
+    __tablename__ = "slocum_deployment_goals"
 
     id: Optional[int] = SQLModelField(default=None, primary_key=True)
     deployment_id: int = SQLModelField(foreign_key="slocum_deployments.id", index=True)
-    file_name: str = SQLModelField(index=True, description="Original filename, e.g. 0358_0031.mi")
-    file_type: str = SQLModelField(index=True, description="ma or mi")
-    ma_subtype: Optional[str] = SQLModelField(default=None, index=True, description="For .ma: sample, surfacing, yo, goto")
-    original_content: str = SQLModelField(sa_column=Column(Text), description="Raw original file content (immutable)")
-    current_content: str = SQLModelField(sa_column=Column(Text), description="Latest version of file content")
-    version: int = SQLModelField(default=1, description="Current version number")
-    parsed_parameters: Optional[Dict] = SQLModelField(default=None, sa_column=Column(JSON), description="Structured parse result")
+    description: str = SQLModelField(sa_column=Column(Text))
+    is_completed: bool = SQLModelField(default=False, index=True)
+    completed_by_username: Optional[str] = SQLModelField(default=None)
+    completed_at_utc: Optional[datetime] = SQLModelField(default=None)
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+
+    deployment: "SlocumDeployment" = Relationship(back_populates="goals")
+
+
+class SlocumDeploymentNote(SQLModel, table=True):
+    """Mission note for a Slocum deployment briefing."""
+    __tablename__ = "slocum_deployment_notes"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    deployment_id: int = SQLModelField(foreign_key="slocum_deployments.id", index=True)
+    content: str = SQLModelField(sa_column=Column(Text))
+    include_in_report: bool = SQLModelField(default=True, index=True)
+    created_by_username: str
+    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at_utc: Optional[datetime] = SQLModelField(default=None)
+
+    deployment: "SlocumDeployment" = Relationship(back_populates="deployment_notes")
+
+
+class SlocumDeploymentMedia(SQLModel, table=True):
+    """Media attachment for a Slocum deployment briefing."""
+    __tablename__ = "slocum_deployment_media"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    deployment_id: int = SQLModelField(foreign_key="slocum_deployments.id", index=True)
+    media_type: str = SQLModelField(description="photo or video")
+    file_path: str = SQLModelField(description="Relative path under web/static")
+    file_name: str
+    file_size: int
+    mime_type: str
+    caption: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
+    operation_type: Optional[str] = SQLModelField(default=None)
     uploaded_by_username: str = SQLModelField(index=True)
     uploaded_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at_utc: datetime = SQLModelField(
-        default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)}
-    )
-    is_active: bool = SQLModelField(default=True, index=True)
+    thumbnail_path: Optional[str] = SQLModelField(default=None)
+    approval_status: str = SQLModelField(default="approved")
+    approved_by_username: Optional[str] = SQLModelField(default=None)
+    approved_at_utc: Optional[datetime] = SQLModelField(default=None)
+    display_order: int = SQLModelField(default=0)
+    is_featured: bool = SQLModelField(default=False)
 
-    deployment: "SlocumDeployment" = Relationship(back_populates="mission_files")
-    file_versions: List["SlocumMissionFileVersion"] = Relationship(back_populates="mission_file")
-    change_logs: List["SlocumMissionChangeLog"] = Relationship(back_populates="mission_file")
-
-
-class SlocumMissionFileVersion(SQLModel, table=True):
-    """Version history for each mission file change."""
-    __tablename__ = "slocum_mission_file_versions"
-
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    mission_file_id: int = SQLModelField(foreign_key="slocum_mission_files.id", index=True)
-    version: int = SQLModelField(description="Version number at this snapshot")
-    content: str = SQLModelField(sa_column=Column(Text), description="Full file content at this version")
-    changed_by_username: str = SQLModelField(index=True)
-    change_summary: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
-    changed_parameters: Optional[Dict] = SQLModelField(default=None, sa_column=Column(JSON))
-    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-
-    mission_file: "SlocumMissionFile" = Relationship(back_populates="file_versions")
-
-
-class SlocumDeploymentSnapshot(SQLModel, table=True):
-    """Immutable point-in-time capture of complete deployment state (all files)."""
-    __tablename__ = "slocum_deployment_snapshots"
-
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    deployment_id: int = SQLModelField(foreign_key="slocum_deployments.id", index=True)
-    snapshot_number: int = SQLModelField(description="Sequential per deployment (1=initial, 2=first edit, ...)")
-    label: Optional[str] = SQLModelField(default=None, description="User or auto-generated label")
-    file_states: Optional[Dict] = SQLModelField(default=None, sa_column=Column(JSON))
-    parameter_summary: Optional[Dict] = SQLModelField(default=None, sa_column=Column(JSON))
-    created_by_username: str = SQLModelField(index=True)
-    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc))
-    notes: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
-
-    deployment: "SlocumDeployment" = Relationship(back_populates="snapshots")
-    change_logs: List["SlocumMissionChangeLog"] = Relationship(back_populates="snapshot")
-
-
-class SlocumMissionChangeLog(SQLModel, table=True):
-    """Running log of all changes across a deployment for audit trail."""
-    __tablename__ = "slocum_mission_change_logs"
-
-    id: Optional[int] = SQLModelField(default=None, primary_key=True)
-    deployment_id: int = SQLModelField(foreign_key="slocum_deployments.id", index=True)
-    mission_file_id: Optional[int] = SQLModelField(default=None, foreign_key="slocum_mission_files.id", index=True)
-    snapshot_id: Optional[int] = SQLModelField(default=None, foreign_key="slocum_deployment_snapshots.id", index=True)
-    change_type: str = SQLModelField(index=True, description="upload, edit, revert, create")
-    description: str = SQLModelField(sa_column=Column(Text))
-    changed_by_username: str = SQLModelField(index=True)
-    request_method: str = SQLModelField(index=True, description="form, natural_language, upload, template")
-    original_request: Optional[str] = SQLModelField(default=None, sa_column=Column(Text))
-    created_at_utc: datetime = SQLModelField(default_factory=lambda: datetime.now(timezone.utc), index=True)
-
-    deployment: "SlocumDeployment" = Relationship(back_populates="change_logs")
-    mission_file: Optional["SlocumMissionFile"] = Relationship(back_populates="change_logs")
-    snapshot: Optional["SlocumDeploymentSnapshot"] = Relationship(back_populates="change_logs")
+    deployment: "SlocumDeployment" = Relationship(back_populates="media")

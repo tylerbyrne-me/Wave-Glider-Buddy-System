@@ -33,7 +33,8 @@ from ..data.processors import (
     preprocess_weather_df,
     telemetry_speed_over_ground_series,
 )
-from .constants import LOGO_PATH, REPORTS_ROOT
+from .constants import REPORTS_ROOT
+from .common import build_platform_cover_flowables, get_report_logo_path
 from .styling import WeeklyReportDocTemplate, build_paragraph_styles
 from . import sections
 from .week_windows import compute_iso_week_windows, resolve_mission_time_bounds
@@ -1108,14 +1109,14 @@ def write_mission_pdf(
 
     story: List[Any] = []
     story.extend(
-        sections.build_cover(
-            title_for_pdf=title_for_pdf,
+        build_platform_cover_flowables(
+            title=title_for_pdf,
             platform_name=str(platform_name),
             mission_id=mission_id,
             mission_title=str(mission_title),
             date_range_str=date_range_str,
             generated_utc=generated_utc,
-            logo_path=LOGO_PATH,
+            logo_path=get_report_logo_path(),
         )
     )
     story.append(NextPageTemplate("portrait"))

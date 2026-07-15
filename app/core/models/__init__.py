@@ -58,10 +58,9 @@ from .database import (
     FAQEntry,
     ChatbotInteraction,
     SlocumDeployment,
-    SlocumMissionFile,
-    SlocumMissionFileVersion,
-    SlocumDeploymentSnapshot,
-    SlocumMissionChangeLog,
+    SlocumDeploymentGoal,
+    SlocumDeploymentNote,
+    SlocumDeploymentMedia,
 )
 
 # Import Pydantic schemas
@@ -219,10 +218,9 @@ __all__ = [
     "FAQEntry",
     "ChatbotInteraction",
     "SlocumDeployment",
-    "SlocumMissionFile",
-    "SlocumMissionFileVersion",
-    "SlocumDeploymentSnapshot",
-    "SlocumMissionChangeLog",
+    "SlocumDeploymentGoal",
+    "SlocumDeploymentNote",
+    "SlocumDeploymentMedia",
     
     # Pydantic schemas (add all schema names here)
     "ReportDataParams",

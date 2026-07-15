@@ -89,9 +89,18 @@
           <li class="nav-item me-lg-3">
             <a class="nav-link" href="/slocum/home">Slocum Home</a>
           </li>
-          {% if features.slocum_mission_files %}
-          <li class="nav-item me-lg-3">
-            <a class="nav-link" href="/slocum/vehicle-params"><i class="fas fa-cog"></i> Vehicle Parameters</a>
+          {% if features.admin_management %}
+          <li class="nav-item dropdown me-lg-3" id="adminManagementDropdown" style="display: none;">
+            <a class="nav-link dropdown-toggle" href="#" id="adminManagementDropdownLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Admin Management
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="adminManagementDropdownLink">
+              <li><a class="dropdown-item" href="/admin/announcements.html?platform=slocum">Manage Announcements</a></li>
+              <li><a class="dropdown-item" href="/slocum/admin/mission_overviews.html">Manage Mission Overviews</a></li>
+              <li><a class="dropdown-item" href="/admin/user_management.html?platform=slocum">User Management</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="/api/admin/scheduler_status.html?platform=slocum">Scheduler Status</a></li>
+            </ul>
           </li>
           {% endif %}
           {% if features.slocum_knowledge_base %}
@@ -169,11 +178,11 @@
               Admin Management
             </a>
             <ul class="dropdown-menu" aria-labelledby="adminManagementDropdownLink">
-              <li><a class="dropdown-item" href="/admin/announcements.html">Manage Announcements</a></li>
-              <li><a class="dropdown-item" href="/admin/mission_overviews.html">Manage Mission Overviews</a></li>
-              <li><a class="dropdown-item" href="/admin/user_management.html">User Management</a></li>
+              <li><a class="dropdown-item" href="/admin/announcements.html?platform=wave_glider">Manage Announcements</a></li>
+              <li><a class="dropdown-item" href="/admin/mission_overviews.html?platform=wave_glider">Manage Mission Overviews</a></li>
+              <li><a class="dropdown-item" href="/admin/user_management.html?platform=wave_glider">User Management</a></li>
               <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item" href="/api/admin/scheduler_status.html">Scheduler Status</a></li>
+              <li><a class="dropdown-item" href="/api/admin/scheduler_status.html?platform=wave_glider">Scheduler Status</a></li>
             </ul>
           </li>
           {% endif %}

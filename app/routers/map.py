@@ -16,13 +16,19 @@ import re
 import pandas as pd
 import httpx
 
-from ..core.auth import get_current_active_user
+from ..core.auth import get_current_active_user, get_current_admin_user, require_platform_access
 from ..core import models
 from ..core.geo.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
 from ..core.geo import weather_map_cache
-from ..core.data.processors import preprocess_telemetry_df, preprocess_slocum_track_df
+from ..core.data.processors import preprocess_telemetry_df
 from ..core.data.data_service import get_data_service
-from ..core.slocum_erddap_client import fetch_slocum_track, ERDDAP_TIMEOUT
+from ..core.slocum_cache_service import (
+    get_cached_or_fetch_dashboard_df,
+    parse_slocum_time_window,
+    slice_processed_df,
+)
+from ..core.slocum_mirror_service import dashboard_df_to_track_df
+from ..core.slocum_overage_cache import OverageRangeError
 from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.infra.error_handlers import handle_processing_error, handle_data_not_found, ErrorContext
 
@@ -30,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Map"])
 
-# Slightly above client timeout for asyncio.wait_for on Slocum ERDDAP fetch
-SLOCUM_ERDDAP_REQUEST_TIMEOUT = ERDDAP_TIMEOUT + 5
+# Slocum map reads from parquet mirror (no live ERDDAP on request path)
+SLOCUM_MAP_REQUEST_TIMEOUT = 35
 UTC_ISO_INPUT_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$")
 
 
@@ -144,26 +150,52 @@ async def _prepare_track_data(
 
 async def _prepare_slocum_track_data(
     dataset_id: str,
-    time_start: str,
-    time_end: str,
+    time_start: Optional[str],
+    time_end: Optional[str],
     current_user: models.User,
     max_points: int = 1000,
+    *,
+    hours_back: int = 72,
+    is_historical: bool = False,
 ) -> dict:
     """
-    Load Slocum ERDDAP data, preprocess, and prepare track points for map display.
+    Load Slocum track from the parquet mirror (dashboard bundle lat/lon), preprocess,
+    and prepare track points for map display.
 
     Returns same shape as _prepare_track_data: track_points, point_count, bounds, source, error.
     """
-    source_label = f"ERDDAP: {dataset_id}"
+    source_label = f"Mirror: {dataset_id}"
     try:
-        df = await asyncio.wait_for(
-            asyncio.to_thread(
-                fetch_slocum_track, dataset_id, time_start, time_end
-            ),
-            timeout=SLOCUM_ERDDAP_REQUEST_TIMEOUT,
-        )
-        if df is None or df.empty:
-            logger.warning(f"No Slocum data for dataset {dataset_id}")
+        use_date_range = bool(time_start and time_end)
+        if use_date_range:
+            time_start_str, time_end_str = time_start, time_end
+        else:
+            time_start_str, time_end_str, _ = parse_slocum_time_window(
+                dataset_id, hours_back, is_historical, None, None
+            )
+
+        try:
+            dashboard_df = await asyncio.wait_for(
+                get_cached_or_fetch_dashboard_df(
+                    dataset_id,
+                    time_start_str,
+                    time_end_str,
+                    hours_back=hours_back,
+                    is_historical=is_historical,
+                    context="interactive",
+                ),
+                timeout=SLOCUM_MAP_REQUEST_TIMEOUT,
+            )
+        except OverageRangeError as err:
+            return {
+                "track_points": [],
+                "point_count": 0,
+                "bounds": None,
+                "source": source_label,
+                "error": str(err),
+            }
+        if dashboard_df is None or dashboard_df.empty:
+            logger.warning(f"No Slocum mirror/overage data for dataset {dataset_id}")
             return {
                 "track_points": [],
                 "point_count": 0,
@@ -171,7 +203,15 @@ async def _prepare_slocum_track_data(
                 "source": source_label,
                 "error": "No data available",
             }
-        processed_df = preprocess_slocum_track_df(df)
+
+        sliced = slice_processed_df(
+            dashboard_df,
+            hours_back=hours_back,
+            use_date_range=use_date_range,
+            time_start_str=time_start_str,
+            time_end_str=time_end_str,
+        )
+        processed_df = dashboard_df_to_track_df(sliced if not sliced.empty else dashboard_df)
         if processed_df.empty:
             logger.warning(f"No valid Slocum track points after preprocessing for {dataset_id}")
             return {
@@ -191,13 +231,13 @@ async def _prepare_slocum_track_data(
             "error": None,
         }
     except asyncio.TimeoutError:
-        logger.warning(f"Slocum ERDDAP fetch timed out for dataset {dataset_id}")
+        logger.warning(f"Slocum mirror read timed out for dataset {dataset_id}")
         return {
             "track_points": [],
             "point_count": 0,
             "bounds": None,
             "source": source_label,
-            "error": "ERDDAP server did not respond in time. Try again later.",
+            "error": "Slocum data did not load in time. Try again later.",
         }
     except Exception as e:
         logger.error(f"Error preparing Slocum track for {dataset_id}: {e}", exc_info=True)
@@ -301,10 +341,11 @@ async def get_mission_track(
 @router.get("/api/map/slocum/telemetry/{dataset_id}")
 async def get_slocum_mission_track(
     dataset_id: str,
-    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history from now (used if time_start/time_end not set)"),
+    hours_back: Optional[int] = Query(24, ge=1, le=8760, description="Hours of history from now (used if time_start/time_end not set)"),
     time_start: Optional[str] = Query(None, description="Start time ISO 8601 (e.g. 2025-08-01T00:00:00Z)"),
     time_end: Optional[str] = Query(None, description="End time ISO 8601 (e.g. 2025-08-31T23:59:59Z)"),
     current_user: models.User = Depends(get_current_active_user),
+    _slocum_access: models.User = Depends(require_platform_access("slocum")),
 ):
     """
     Get Slocum ERDDAP track points for map visualization.
@@ -330,7 +371,9 @@ async def get_slocum_mission_track(
         t_start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         track_data = await _prepare_slocum_track_data(
-            dataset_id, t_start, t_end, current_user, max_points=1000
+            dataset_id, t_start if time_start and time_end else None,
+            t_end if time_start and time_end else None,
+            current_user, max_points=1000, hours_back=hours_back or 24,
         )
         response_data = {
             "mission_id": dataset_id,
@@ -350,6 +393,60 @@ async def get_slocum_mission_track(
     except Exception as e:
         raise handle_processing_error(
             operation="retrieving Slocum track data",
+            error=e,
+            resource=dataset_id,
+            user_id=str(current_user.id) if current_user else None,
+        )
+
+
+@router.get("/api/map/slocum/kml/{dataset_id}")
+async def get_slocum_mission_kml(
+    dataset_id: str,
+    hours_back: Optional[int] = Query(72, ge=1, le=8760, description="Hours of history from now"),
+    time_start: Optional[str] = Query(None, description="Start time ISO 8601"),
+    time_end: Optional[str] = Query(None, description="End time ISO 8601"),
+    current_user: models.User = Depends(get_current_active_user),
+    _slocum_access: models.User = Depends(require_platform_access("slocum")),
+):
+    """Generate a KML file for a Slocum ERDDAP dataset track."""
+    if not is_feature_enabled("slocum_platform"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Slocum platform is disabled (feature_toggles.slocum_platform).",
+        )
+    now = datetime.now(timezone.utc)
+    if time_start and time_end:
+        t_start, t_end = time_start, time_end
+    else:
+        end_dt = now
+        start_dt = now - timedelta(hours=hours_back or 72)
+        t_end = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        t_start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        track_data = await _prepare_slocum_track_data(
+            dataset_id, t_start if time_start and time_end else None,
+            t_end if time_start and time_end else None,
+            current_user, max_points=5000, hours_back=hours_back or 24,
+        )
+        if track_data.get("error") or not track_data["track_points"]:
+            raise handle_data_not_found(
+                data_type="Slocum telemetry",
+                mission_id=dataset_id,
+                context=ErrorContext(operation="generating Slocum KML", resource=dataset_id),
+            )
+        kml_content = generate_kml_from_track_points(track_data["track_points"], dataset_id)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"slocum_{dataset_id}_track_{timestamp}.kml"
+        return Response(
+            content=kml_content,
+            media_type="application/vnd.google-earth.kml+xml",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise handle_processing_error(
+            operation="generating Slocum KML file",
             error=e,
             resource=dataset_id,
             user_id=str(current_user.id) if current_user else None,
@@ -654,8 +751,34 @@ async def proxy_weather_map_om(
 async def get_weather_map_cache_status(
     current_user: models.User = Depends(get_current_active_user),
 ):
-    """Return weather map disk cache statistics for debugging."""
-    _require_weather_map_layers()
+    """Return weather map disk cache statistics for debugging.
+
+    Available to any active user when weather_map_layers is on; admins can
+    inspect status even when the feature is disabled (stranded cache).
+    """
+    if not is_feature_enabled("weather_map_layers"):
+        if current_user.role != models.UserRoleEnum.admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Weather map layers are disabled (feature_toggles.weather_map_layers).",
+            )
     return JSONResponse(content=weather_map_cache.get_cache_status())
+
+
+@router.post("/api/map/weather/cache/purge")
+async def purge_weather_map_cache(
+    force_all: bool = Query(False, description="Remove all cached responses, not only stale ones."),
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """Admin: purge stale/orphan weather map cache entries (or wipe the response cache)."""
+    summary = weather_map_cache.purge_weather_cache(force_all=force_all, enforce_quota=True)
+    logger.info(
+        "Admin '%s' purged weather map cache (force_all=%s, removed=%s, freed_bytes=%s)",
+        current_admin.username,
+        force_all,
+        summary.get("removed_files"),
+        summary.get("freed_bytes"),
+    )
+    return summary
 
 

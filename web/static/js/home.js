@@ -103,7 +103,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const panel = document.getElementById('announcementsPanel');
         if (!panel) return;
         try {
-            const announcements = await apiRequest('/api/announcements/active', 'GET');
+            const platform = window.APP_PLATFORM || '';
+            const query = platform ? `?platform=${encodeURIComponent(platform)}` : '';
+            const announcements = await apiRequest(`/api/announcements/active${query}`, 'GET');
             const converter = (typeof showdown !== 'undefined') ? new showdown.Converter() : null;
             
             // Filter out already acknowledged announcements

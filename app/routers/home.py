@@ -1,19 +1,51 @@
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional, Dict, List
+import json
 from ..core import models, utils
-from ..core.auth import get_current_active_user, get_optional_current_user
+from ..core.auth import (
+    get_current_active_user,
+    get_optional_current_user,
+    redirect_if_platform_denied,
+    get_allowed_platforms_for_user,
+)
 from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.templates import templates
 from app.config import settings
 from ..core.template_context import get_template_context
 from ..core.infra.feature_toggles import is_feature_enabled
+from ..core.slocum_deployment_service import get_or_create_deployment_for_dataset
 from sqlmodel import select
 from sqlalchemy import or_
 import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Home"])
+
+SLOCUM_DEFAULT_SENSOR_CARDS = ["ctd"]
+
+
+def _resolve_slocum_enabled_sensor_cards(
+    session: SQLModelSession,
+    dataset_id: str,
+    *,
+    username: str = "system",
+) -> List[str]:
+    """Resolve sensor cards for a dataset; auto-creates deployment metadata if needed."""
+    deployment = get_or_create_deployment_for_dataset(
+        session,
+        dataset_id,
+        created_by_username=username,
+    )
+    if not deployment or not deployment.enabled_sensor_cards:
+        return list(SLOCUM_DEFAULT_SENSOR_CARDS)
+    try:
+        parsed = json.loads(deployment.enabled_sensor_cards)
+        if isinstance(parsed, list) and parsed:
+            return [str(item) for item in parsed]
+    except (TypeError, json.JSONDecodeError):
+        logger.warning("Invalid enabled_sensor_cards for dataset %s", dataset_id)
+    return list(SLOCUM_DEFAULT_SENSOR_CARDS)
 
 
 @router.get("/platform", response_class=HTMLResponse)
@@ -24,8 +56,14 @@ async def get_platform_choice(
     """Platform choice (splash) after login: Wave Glider or Slocum Glider."""
     if not current_user:
         return RedirectResponse(url="/login.html")
+    allowed_platforms = get_allowed_platforms_for_user(current_user)
+    if len(allowed_platforms) == 1:
+        if allowed_platforms[0] == "slocum":
+            return RedirectResponse(url="/slocum/home")
+        return RedirectResponse(url="/wave-glider/home")
     template_context = get_template_context(request=request, current_user=current_user)
     template_context["show_banner_nav"] = False  # No nav tabs on splash to avoid cross-platform confusion
+    template_context["allowed_platforms"] = allowed_platforms
     return templates.TemplateResponse("platform_choice.html", template_context)
 
 
@@ -181,6 +219,9 @@ async def get_wave_glider_home(
     """Wave Glider home: mission list and briefings."""
     if not current_user:
         return RedirectResponse(url="/login.html")
+    denied = redirect_if_platform_denied(current_user, "wave_glider")
+    if denied:
+        return denied
     return await _get_wave_glider_home_response(request, current_user, session)
 
 
@@ -189,12 +230,16 @@ async def get_slocum_dashboard(
     request: Request,
     dataset: Optional[str] = None,
     current_user: Optional[models.User] = Depends(get_optional_current_user),
+    session: SQLModelSession = Depends(get_db_session),
 ):
     """Slocum Glider mission dashboard (active dataset). Same layout as WG dashboard."""
     if not current_user:
         return RedirectResponse(url="/login.html")
     if not is_feature_enabled("slocum_platform"):
         return RedirectResponse(url="/platform")
+    denied = redirect_if_platform_denied(current_user, "slocum")
+    if denied:
+        return denied
     if not dataset:
         return RedirectResponse(url="/slocum/home")
     template_context = get_template_context(
@@ -208,6 +253,9 @@ async def get_slocum_dashboard(
     template_context["dataset"] = dataset
     template_context["is_historical_dataset"] = False
     template_context["is_current_mission_realtime"] = True  # Active dataset: show auto-refresh in banner
+    template_context["slocum_enabled_sensor_cards"] = _resolve_slocum_enabled_sensor_cards(
+        session, dataset, username=current_user.username
+    )
     return templates.TemplateResponse("slocum_dashboard.html", template_context)
 
 
@@ -216,12 +264,16 @@ async def get_slocum_historical_dashboard(
     request: Request,
     dataset: Optional[str] = None,
     current_user: Optional[models.User] = Depends(get_optional_current_user),
+    session: SQLModelSession = Depends(get_db_session),
 ):
     """Slocum Glider mission dashboard (historical dataset). Same template as /slocum with is_historical_dataset=True."""
     if not current_user:
         return RedirectResponse(url="/login.html")
     if not is_feature_enabled("slocum_platform"):
         return RedirectResponse(url="/platform")
+    denied = redirect_if_platform_denied(current_user, "slocum")
+    if denied:
+        return denied
     if not dataset:
         return RedirectResponse(url="/slocum/home")
     template_context = get_template_context(
@@ -235,32 +287,10 @@ async def get_slocum_historical_dashboard(
     template_context["dataset"] = dataset
     template_context["is_historical_dataset"] = True
     template_context["is_current_mission_realtime"] = False  # Historical: no auto-refresh in banner
-    return templates.TemplateResponse("slocum_dashboard.html", template_context)
-
-
-@router.get("/slocum/vehicle-params", response_class=HTMLResponse)
-async def get_slocum_vehicle_params(
-    request: Request,
-    deployment_id: Optional[int] = None,
-    current_user: Optional[models.User] = Depends(get_optional_current_user),
-):
-    """Slocum Vehicle Parameters tool: edit mission files, view snapshots, apply changes."""
-    if not current_user:
-        return RedirectResponse(url="/login.html")
-    if not is_feature_enabled("slocum_platform"):
-        return RedirectResponse(url="/platform")
-    if not is_feature_enabled("slocum_mission_files"):
-        return RedirectResponse(url="/slocum/home")
-    template_context = get_template_context(
-        request=request,
-        current_user=current_user,
-        active_missions=[],
+    template_context["slocum_enabled_sensor_cards"] = _resolve_slocum_enabled_sensor_cards(
+        session, dataset, username=current_user.username
     )
-    template_context["show_banner_nav"] = True
-    template_context["platform"] = "slocum"
-    template_context["platform_home_url"] = "/slocum/home"
-    template_context["deployment_id"] = deployment_id
-    return templates.TemplateResponse("slocum_vehicle_params.html", template_context)
+    return templates.TemplateResponse("slocum_dashboard.html", template_context)
 
 
 @router.get("/slocum/home", response_class=HTMLResponse)
@@ -273,6 +303,9 @@ async def get_slocum_home(
         return RedirectResponse(url="/login.html")
     if not is_feature_enabled("slocum_platform"):
         return RedirectResponse(url="/platform")
+    denied = redirect_if_platform_denied(current_user, "slocum")
+    if denied:
+        return denied
     template_context = get_template_context(
         request=request,
         current_user=current_user,
@@ -282,3 +315,23 @@ async def get_slocum_home(
     template_context["platform"] = "slocum"
     template_context["platform_home_url"] = "/slocum/home"
     return templates.TemplateResponse("slocum_home.html", template_context)
+
+
+@router.get("/slocum/admin/mission_overviews.html", response_class=HTMLResponse)
+async def get_slocum_admin_mission_overviews_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_optional_current_user),
+):
+    """Admin Slocum mission overviews (dataset briefing, Sensor Tracker, reports)."""
+    if not current_user:
+        return RedirectResponse(url="/login.html")
+    if not is_feature_enabled("slocum_platform"):
+        return RedirectResponse(url="/platform")
+    denied = redirect_if_platform_denied(current_user, "slocum")
+    if denied:
+        return denied
+    template_context = get_template_context(request=request, current_user=current_user)
+    template_context["show_banner_nav"] = True
+    template_context["platform"] = "slocum"
+    template_context["platform_home_url"] = "/slocum/home"
+    return templates.TemplateResponse("admin/slocum_mission_overviews.html", template_context)

@@ -17,7 +17,7 @@ import shutil
 import logging
 from ..core.templates import templates
 from app.config import settings
-from ..core.template_context import get_template_context
+from ..core.template_context import get_template_context, resolve_admin_platform_context
 import httpx
 
 
@@ -415,6 +415,7 @@ def _refresh_note_deployment_comment_outbox(
 @router.get("/admin/mission_overviews.html", response_class=HTMLResponse)
 async def get_admin_mission_overviews_page(
     request: Request,
+    platform: Optional[str] = Query(None, description="Banner platform context: wave_glider or slocum"),
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
     username_for_log = (
@@ -424,9 +425,7 @@ async def get_admin_mission_overviews_page(
         f"User '{username_for_log}' accessing /admin/mission_overviews.html. JS will verify admin role."
     )
     context = get_template_context(request=request, current_user=current_user)
-    context["platform"] = "wave_glider"
-    context["platform_home_url"] = "/wave-glider/home"
-    context["show_banner_nav"] = True
+    context.update(resolve_admin_platform_context(platform))
     return templates.TemplateResponse(
         "admin/mission_overviews.html",
         context,

@@ -1,8 +1,8 @@
 """
 Exploration API for Slocum ERDDAP data (testing only).
 
-Authenticated endpoints to fetch Slocum data from Ocean Track ERDDAP
-without building the Slocum dashboard yet. Use for Postman/curl/front-end testing.
+Authenticated endpoints to fetch Slocum data from Ocean Track ERDDAP for
+Postman/curl/front-end testing alongside the Slocum dashboard.
 """
 import asyncio
 import logging
@@ -10,14 +10,18 @@ import logging
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from ..core.auth import get_current_active_user
+from ..core.auth import get_current_active_user, require_platform_access
 from ..core import models
 from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.slocum_erddap_client import fetch_slocum_data
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/exploration/slocum", tags=["Exploration – Slocum"])
+router = APIRouter(
+    prefix="/api/exploration/slocum",
+    tags=["Exploration – Slocum"],
+    dependencies=[Depends(require_platform_access("slocum"))],
+)
 
 MAX_ROWS = 10_000
 

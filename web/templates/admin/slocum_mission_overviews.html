@@ -1,0 +1,488 @@
+{% extends "base.html" %}
+
+{% block title %}Admin: Manage Slocum Mission Overviews{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Manage Slocum Mission Overviews</h1>
+        <a href="/slocum/home" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <!-- Container 1: Mission Selector -->
+    <div class="card mb-4">
+        <div class="card-header">
+            Mission Selector
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="missionSelect" class="form-label">Dataset:</label>
+                    <div class="input-group">
+                        <select class="form-select" id="missionSelect">
+                            <option selected disabled>Loading datasets...</option>
+                        </select>
+                        <span class="input-group-text" id="missionSpinner" style="display: none;">
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        </span>
+                    </div>
+                    <div class="form-text" id="parsedIdentity"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="overviewFormContainer" style="display: none;">
+        <h4 class="mb-3" id="editingMissionTitle"></h4>
+
+        <!-- Container 2: Sensor Tracker -->
+        <div class="card mb-4">
+            <div class="card-header">
+                Sensor Tracker
+            </div>
+            <div class="card-body">
+                <!-- Sensor Tracker Metadata Section -->
+                <div class="mb-4">
+                    <label class="form-label">Sensor Tracker Metadata</label>
+                    <div class="alert alert-info mb-2" style="font-size: 0.9em;">
+                        <i class="fas fa-info-circle"></i> Metadata can be synced without generating a report. Deployment mission code: <code id="stMissionCode">--</code>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="syncSensorTrackerBtn">
+                            <i class="fas fa-sync"></i> Sync Metadata Now
+                        </button>
+                        <div class="form-check ms-2">
+                            <input class="form-check-input" type="checkbox" id="forceMetadataSync">
+                            <label class="form-check-label small" for="forceMetadataSync">Force refresh</label>
+                        </div>
+                        <span id="sensorTrackerSyncStatus" class="text-muted small"></span>
+                    </div>
+                    <div class="text-muted small" id="sensorTrackerLastSync">Last synced: --</div>
+                    <div id="sensorTrackerMetadataContainer" style="display: none;">
+                        <div class="card border-info">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <dl class="row mb-0">
+                                            <dt class="col-sm-5">Title:</dt>
+                                            <dd class="col-sm-7" id="stTitle">-</dd>
+
+                                            <dt class="col-sm-5">Start:</dt>
+                                            <dd class="col-sm-7" id="stStart">-</dd>
+
+                                            <dt class="col-sm-5">End:</dt>
+                                            <dd class="col-sm-7" id="stEnd">-</dd>
+
+                                            <dt class="col-sm-5">Platform:</dt>
+                                            <dd class="col-sm-7" id="stPlatform">-</dd>
+
+                                            <dt class="col-sm-5">Data Repository:</dt>
+                                            <dd class="col-sm-7" id="stDataRepo">-</dd>
+                                        </dl>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <dl class="row mb-0">
+                                            <dt class="col-sm-12 mb-2">Deployment Description:</dt>
+                                            <dd class="col-sm-12">
+                                                <p class="text-muted small mb-0" id="stDescription" style="white-space: pre-wrap;">-</p>
+                                            </dd>
+                                        </dl>
+                                    </div>
+                                </div>
+
+                                <!-- Instruments Section -->
+                                <div class="row mt-3" id="stInstrumentsContainer" style="display: none;">
+                                    <div class="col-md-4" id="stFlightInstrumentsContainer" style="display: none;">
+                                        <h6 class="mb-2">Flight Computer Instruments</h6>
+                                        <p class="small text-muted mb-2" id="stFlightComputerSerial" style="display: none;"></p>
+                                        <ul class="list-unstyled small mb-0" id="stFlightInstruments"></ul>
+                                    </div>
+                                    <div class="col-md-4" id="stScienceInstrumentsContainer" style="display: none;">
+                                        <h6 class="mb-2">Science Computer Instruments</h6>
+                                        <p class="small text-muted mb-2" id="stScienceComputerSerial" style="display: none;"></p>
+                                        <ul class="list-unstyled small mb-0" id="stScienceInstruments"></ul>
+                                    </div>
+                                    <div class="col-md-4" id="stPlatformInstrumentsContainer" style="display: none;">
+                                        <h6 class="mb-2">Platform Direct Instruments</h6>
+                                        <ul class="list-unstyled small mb-0" id="stPlatformInstruments"></ul>
+                                    </div>
+                                </div>
+
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-info-circle"></i> This metadata is synced from Sensor Tracker when generating reports.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="sensorTrackerMetadataPlaceholder" class="text-muted small" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No Sensor Tracker metadata available for this dataset. Use Sync Metadata Now to fetch it.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Container 3: Editing Overview -->
+        <div class="card mb-4">
+            <div class="card-header">
+                Editing Overview
+            </div>
+            <div class="card-body">
+                <!-- Sensor Cards -->
+                <div class="mb-4" id="sensorCardsSection">
+                    <label class="form-label">Sensor Cards</label>
+                    <p class="text-muted small mb-2">
+                        Choose which sensor sections appear on the Slocum mission dashboard for this deployment.
+                    </p>
+                    <div class="d-flex flex-wrap gap-3 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input slocum-sensor-card-checkbox" type="checkbox" value="ctd" id="sensorCardCtd" disabled>
+                            <label class="form-check-label" for="sensorCardCtd">CTD</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input slocum-sensor-card-checkbox" type="checkbox" value="dissolved_oxygen" id="sensorCardDo" disabled>
+                            <label class="form-check-label" for="sensorCardDo">Dissolved Oxygen</label>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="saveSensorCardsBtn" disabled>
+                        <i class="fas fa-save"></i> Save Sensor Cards
+                    </button>
+                    <div id="sensorCardsStatus" class="mt-2"></div>
+                </div>
+
+                <!-- Checklist Reference Values -->
+                <div class="mb-4" id="checklistReferencesSection">
+                    <label class="form-label">Daily Checklist Reference Values</label>
+                    <p class="text-muted small mb-2">
+                        Choose battery pack and shallow/deep glider presets to fill endurance, voltage, and vacuum
+                        references, then adjust other IDs as needed for the daily pilot checklist.
+                    </p>
+                    <div class="row g-2 mb-3" style="max-width: 48rem;">
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refBatteryPack">Battery pack</label>
+                            <select class="form-select form-select-sm checklist-ref-input checklist-preset-select" id="refBatteryPack" data-ref-key="battery_pack" disabled>
+                                <option value="">Select pack…</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refGliderDepthClass">Glider type (vacuum)</label>
+                            <select class="form-select form-select-sm checklist-ref-input checklist-preset-select" id="refGliderDepthClass" data-ref-key="glider_depth_class" disabled>
+                                <option value="">Select shallow/deep…</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2" style="max-width: 48rem;">
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refEnduranceAmphr">Endurance (Ah total)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refEnduranceAmphr" data-ref-key="endurance_amphr_total" disabled>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-0" for="refMinVoltage">Min voltage (V)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refMinVoltage" data-ref-key="min_voltage" disabled>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-0" for="refMaxVoltage">Max voltage (V)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refMaxVoltage" data-ref-key="max_voltage" disabled>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-0" for="refVacuumAtDepth">Vacuum at depth (mmHg)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refVacuumAtDepth" data-ref-key="vacuum_at_depth" disabled>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-0" for="refVacuumAtSurface">Vacuum at surface (mmHg)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refVacuumAtSurface" data-ref-key="vacuum_at_surface" disabled>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-0" for="refMaxVacuum">Max vacuum (mmHg)</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refMaxVacuum" data-ref-key="max_vacuum" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refAmphrBudget">Amphr / day budget</label>
+                            <input type="number" step="any" class="form-control form-control-sm checklist-ref-input" id="refAmphrBudget" data-ref-key="amphr_per_day_budget" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refMissionFile">Expected mission file</label>
+                            <input type="text" class="form-control form-control-sm checklist-ref-input" id="refMissionFile" data-ref-key="expected_mission_file" placeholder="e.g. mission.mi" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refScript">Expected script</label>
+                            <input type="text" class="form-control form-control-sm checklist-ref-input" id="refScript" data-ref-key="expected_script" placeholder="e.g. TC_safe_g3s.xml" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refArgosId">Argos ID</label>
+                            <input type="text" class="form-control form-control-sm checklist-ref-input" id="refArgosId" data-ref-key="argos_id" disabled>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small mb-0" for="refAltMinDepth">u_alt_min_depth</label>
+                            <input type="text" class="form-control form-control-sm checklist-ref-input" id="refAltMinDepth" data-ref-key="u_alt_min_depth" disabled>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="saveChecklistRefsBtn" disabled>
+                        <i class="fas fa-save"></i> Save Checklist References
+                    </button>
+                    <div id="checklistRefsStatus" class="mt-2"></div>
+                </div>
+
+                <!-- Formal Plan Document -->
+                <div class="mb-4" id="formalPlanSection">
+                    <label class="form-label">Formal Plan Document</label>
+                    <div id="currentPlanContainer" class="mb-2" style="display: none;">
+                        <p class="mb-1">
+                            <strong>Current Plan:</strong>
+                            <a href="#" id="currentPlanLink" target="_blank" rel="noopener noreferrer"></a>
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-2" id="removePlanBtn" disabled>Remove</button>
+                        </p>
+                    </div>
+                    <div id="uploadPlanContainer">
+                        <label for="documentUpload" class="form-label small">Upload Plan (PDF, DOC, DOCX):</label>
+                        <div class="input-group" style="max-width: 36rem;">
+                            <input type="file" class="form-control" id="documentUpload" accept=".pdf,.doc,.docx" disabled>
+                            <button type="button" class="btn btn-outline-primary" id="uploadPlanBtn" disabled>
+                                <i class="fas fa-upload"></i> Upload
+                            </button>
+                        </div>
+                        <div class="form-text">Uploading a new file replaces the current plan. Requires a linked deployment record.</div>
+                    </div>
+                    <div id="planUploadStatus" class="mt-2"></div>
+                </div>
+
+                <!-- Mission Comments and Goals -->
+                <div class="mb-4">
+                    <div class="row">
+                        <div class="col-lg-7">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4 class="mb-0">Mission Comments</h4>
+                            </div>
+                            <div class="mission-notes-container">
+                                <ul class="list-group mission-notes-list" id="adminMissionNotesList">
+                                    <li class="list-group-item text-muted no-mission-notes-placeholder">Select a dataset to view comments.</li>
+                                </ul>
+                                <div class="card mt-3">
+                                    <div class="card-body p-2">
+                                        <textarea class="form-control new-mission-note-content" id="newMissionNoteContent" rows="2" placeholder="Add a new mission comment..."></textarea>
+                                        <button class="btn btn-sm btn-primary mt-2" id="addMissionNoteBtn">Add Comment</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-5">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4 class="mb-0">Mission Goals</h4>
+                                <button class="btn btn-sm btn-primary" id="addGoalBtn" title="Add New Goal"><i class="fas fa-plus"></i> Add Goal</button>
+                            </div>
+                            <ul class="list-group mission-goals-list" id="adminMissionGoalsList">
+                                <li class="list-group-item text-muted no-mission-goals-placeholder">Select a dataset to view goals.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Container 4: Reports -->
+        <div class="card mb-4">
+            <div class="card-header">
+                Reports
+            </div>
+            <div class="card-body">
+                <!-- Report Download Links Section -->
+                <div class="mb-3">
+                    <label class="form-label">Report Download Links</label>
+                    <div class="alert alert-info mb-2" style="font-size: 0.9em;">
+                        <i class="fas fa-info-circle"></i> Weekly reports are generated for ongoing missions.
+                    </div>
+                    <div id="weeklyReportContainer" class="mb-2" style="display: none;">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-6">
+                                <label for="weeklyReportSelect" class="form-label small mb-1">Weekly Report History</label>
+                                <select class="form-select form-select-sm" id="weeklyReportSelect">
+                                    <option value="">Loading weekly reports...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <p class="mb-1">
+                                    <strong>Selected Weekly Report:</strong>
+                                    <a href="#" id="weeklyReportLink" target="_blank" class="text-decoration-none">
+                                        <i class="fas fa-file-pdf text-danger"></i> <span id="weeklyReportFilename"></span>
+                                    </a>
+                                    <span class="badge bg-info ms-2" id="weeklyReportBadge" style="display: none;">Most Recent</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="noReportsContainer" class="text-muted small" style="display: none;">
+                        <i class="fas fa-info-circle"></i> No reports have been generated yet. Use the report generation tools below to create reports.
+                    </div>
+                </div>
+
+                <div class="border-top pt-3">
+                    <h6 class="mb-3">Report Generation</h6>
+                    <div id="reportGenerationContainer">
+                        <p class="text-muted">Generate reports for the selected dataset. Reports will include Sensor Tracker metadata.</p>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="reportTypeSelect" class="form-label">Report Type:</label>
+                                <select class="form-select" id="reportTypeSelect">
+                                    <option value="weekly">Weekly Report</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-success" id="generateReportBtn">
+                                <i class="fas fa-file-pdf"></i> Generate Report
+                            </button>
+                            <span id="reportGenerationSpinner" class="ms-2" style="display: none;">
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-2">Generating report...</span>
+                            </span>
+                        </div>
+
+                        <div id="reportStatus" class="mt-3"></div>
+
+                        <div id="reportResult" class="mt-3" style="display: none;">
+                            <div class="alert alert-success">
+                                <strong>Report generated successfully!</strong>
+                                <div class="mt-2">
+                                    <a href="#" id="reportDownloadLink" target="_blank" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-download"></i> Download Report
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Container 5: Cached Dataset Inspector -->
+        <div class="card mb-4">
+            <div class="card-header">
+                Cached Dataset Inspector
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3" style="font-size: 0.9em;">
+                    <i class="fas fa-info-circle"></i>
+                    Inspect the local ERDDAP parquet mirror (dashboard + CTD) and the CTD profile-ready point count.
+                    Sparse CTD science rows usually mean the mirror was built with server-side time decimation — use
+                    <strong>Rebuild CTD Mirror</strong> to re-fetch undecimated dive/climb profiles.
+                </div>
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-md-2">
+                        <label for="cacheInspectorHoursBack" class="form-label small">Hours Back</label>
+                        <input id="cacheInspectorHoursBack" type="number" min="1" max="8760" step="1" value="72" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-10 d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="runCacheInspectorBtn">
+                            <i class="fas fa-magnifying-glass"></i> Inspect Dataset Cache
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" id="rebuildCtdMirrorBtn">
+                            <i class="fas fa-sync"></i> Rebuild CTD Mirror
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="purgeOverageCacheBtn">
+                            <i class="fas fa-trash"></i> Purge Overage Cache
+                        </button>
+                    </div>
+                </div>
+
+                <div id="cacheInspectorStatus" class="text-muted small mb-2">Select a dataset to inspect cached ERDDAP mirrors.</div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold small mb-2">Mirror Metadata</div>
+                            <pre id="cacheMirrorMetaSummary" class="small mb-0" style="white-space: pre-wrap;">No mirror metadata loaded yet.</pre>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold small mb-2">Profile Summary</div>
+                            <pre id="cacheProfileSummary" class="small mb-0" style="white-space: pre-wrap;">No profile summary loaded yet.</pre>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold small mb-2">Overage Cache (24h)</div>
+                            <pre id="cacheOverageSummary" class="small mb-0" style="white-space: pre-wrap;">No overage cache summary loaded yet.</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive mb-3">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">Bundle</th>
+                                <th scope="col">Mirror Rows</th>
+                                <th scope="col">Rows in Window</th>
+                                <th scope="col">Science / Key Non-null</th>
+                                <th scope="col">File Modified</th>
+                                <th scope="col">Data Time Range</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cacheInspectorTableBody">
+                            <tr>
+                                <td colspan="7" class="text-muted small">No dataset inspection run yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="table-responsive">
+                    <div class="fw-semibold small mb-2">Temporary Overage Entries</div>
+                    <table class="table table-sm table-striped align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">Bundle</th>
+                                <th scope="col">Rows</th>
+                                <th scope="col">Bytes</th>
+                                <th scope="col">Normalized Range</th>
+                                <th scope="col">Created</th>
+                                <th scope="col">Expires</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="overageInspectorTableBody">
+                            <tr>
+                                <td colspan="7" class="text-muted small">No overage entries for this dataset.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Goal Modal -->
+<div class="modal fade" id="goalModal" tabindex="-1" aria-labelledby="goalModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="goalModalLabel">Add Mission Goal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="goalForm">
+          <input type="hidden" id="goalIdInput">
+          <div class="mb-3">
+            <label for="goalDescriptionInput" class="form-label">Goal Description</label>
+            <textarea class="form-control" id="goalDescriptionInput" rows="3" required></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="saveGoalBtn">Save Goal</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block body_extra_js %}
+<script type="module" src="/static/js/admin/slocum_mission_overviews.js"></script>
+{% endblock %}

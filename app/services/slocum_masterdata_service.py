@@ -1,16 +1,13 @@
 """
 Slocum Masterdata Service.
 
-Parses masterdata markdown, provides structured lookup for the parser/editor,
-and vectorizes content into ChromaDB for LLM context and semantic search.
+Parses masterdata markdown and vectorizes content into ChromaDB for knowledge-base
+search (used when Masterdata documents are uploaded via the Slocum KB).
 """
 
 import re
 import logging
-from pathlib import Path
 from typing import Any, Optional
-
-from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +57,7 @@ def _chunk_markdown(content: str) -> list[tuple[str, str]]:
 def _parse_structured_lookup(content: str) -> dict[str, Any]:
     """
     Parse masterdata markdown into a simple structured lookup.
-    Returns dict suitable for validate_parameters / get_required_parameters.
+    Returns dict suitable for counting parameters during vectorization.
     """
     lookup: dict[str, Any] = {}
     lines = content.split("\n")
@@ -117,36 +114,3 @@ def load_and_vectorize_masterdata(
         "parameter_count": _current_parameter_count,
         "last_vectorized_utc": _last_vectorized_utc,
     }
-
-
-def get_structured_masterdata(content: Optional[str] = None) -> dict[str, Any]:
-    """
-    Return structured parameter lookup. If content is provided, parse it;
-    otherwise return empty (caller should pass content from KB document when needed).
-    """
-    if content:
-        return _parse_structured_lookup(content)
-    return {}
-
-
-def get_masterdata_status() -> dict[str, Any]:
-    """Return current masterdata status for the status endpoint."""
-    global _current_masterdata_doc_id, _current_chunk_count, _current_parameter_count, _last_vectorized_utc
-    return {
-        "has_masterdata": _current_chunk_count > 0,
-        "document_id": _current_masterdata_doc_id,
-        "chunk_count": _current_chunk_count,
-        "parameter_count": _current_parameter_count,
-        "last_vectorized_utc": _last_vectorized_utc,
-    }
-
-
-def search_masterdata(query: str, limit: int = 8) -> list[tuple[dict, float, str]]:
-    """Search masterdata via vector search. Returns (metadata, similarity, content)."""
-    try:
-        from .vector_search_service import vector_search_service as vss
-        if vss and getattr(vss, "search_slocum_masterdata", None):
-            return vss.search_slocum_masterdata(query, limit=limit)
-    except Exception as e:
-        logger.warning(f"Slocum masterdata search failed: {e}")
-    return []
