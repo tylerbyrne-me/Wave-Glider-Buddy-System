@@ -13,11 +13,6 @@
 {% block content %}
   <div id="slocumDashboardError" class="alert alert-danger" style="display: none;" role="alert"></div>
 
-  <div class="d-flex align-items-center mb-2 mt-3">
-    <a href="/slocum/home" class="btn btn-outline-secondary btn-sm me-2"><i class="fas fa-arrow-left me-1"></i> Slocum Home</a>
-    <h4 class="mb-0">Slocum Dataset: <span class="text-muted">{{ dataset }}</span></h4>
-  </div>
-
   <div class="row mt-3 slocum-dashboard" id="dashboard-main-content">
     <!-- Left Navigation Panel (Summary Cards) -->
     <div class="col-md-3" id="left-nav-panel">
@@ -35,17 +30,23 @@
         </div>
       </div>
       {% if "ctd" in (slocum_enabled_sensor_cards or ["ctd"]) %}
-      <div class="summary-card" data-category="ctd">
+      <div class="summary-card" data-category="ctd" data-mini-trend='{{ ctd_info.mini_trend | tojson | safe if ctd_info and "mini_trend" in ctd_info and ctd_info.mini_trend is not none else "[]" }}'>
         <div class="summary-card-main-content">
+          <div class="mini-chart-container">
+            <canvas id="miniCtdChart"></canvas>
+          </div>
           <div class="summary-card-text-content">
             <h5>CTD</h5>
             <div class="mini-summary">
-              Temperature, conductivity, and density profiles
+              {% if ctd_info and ctd_values %}
+                Temp: {{ "%.1f"|format(ctd_values.get('Temperature')) if ctd_values.get('Temperature') is not none else 'N/A' }} °C<br>
+                Sal: {{ "%.1f"|format(ctd_values.get('Salinity')) if ctd_values.get('Salinity') is not none else 'N/A' }} PSU
+              {% else %} N/A {% endif %}
             </div>
           </div>
         </div>
         <div class="summary-card-footer text-muted small">
-          {{ dataset }}
+          {{ ctd_info.time_ago_str if ctd_info else 'N/A' }}
         </div>
       </div>
       {% endif %}
@@ -68,60 +69,6 @@
 
     <!-- Right Main Display Area -->
     <div class="col-md-9" id="main-display-area">
-      <!-- Dashboard header: title and chart controls (controls hidden on Overview) -->
-      <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <div class="d-flex align-items-center">
-            <h2 class="mb-0">{{ dataset }} - <span id="slocum-section-title">Overview</span></h2>
-            {% if is_historical_dataset %}
-            <span class="badge bg-secondary ms-2">Historical Dataset</span>
-            {% else %}
-            <span class="badge bg-success ms-2">Active Dataset</span>
-            {% endif %}
-          </div>
-          <div id="slocumChartControls" class="d-flex flex-wrap align-items-center gap-2" style="display: none !important;">
-            <div class="input-group input-group-sm" style="width: 200px;">
-              <label class="input-group-text" for="start-date-slocum" title="Start date and time for data visualization.">From</label>
-              <input type="datetime-local" class="form-control date-range-input" id="start-date-slocum" data-report-type="slocum">
-            </div>
-            <div class="input-group input-group-sm" style="width: 200px;">
-              <label class="input-group-text" for="end-date-slocum" title="End date and time for data visualization.">To</label>
-              <input type="datetime-local" class="form-control date-range-input" id="end-date-slocum" data-report-type="slocum">
-            </div>
-            <button class="btn btn-outline-secondary btn-sm" id="clear-date-slocum" title="Clear date range and return to hours mode" style="display: none;">
-              <i class="fas fa-times"></i> Clear
-            </button>
-            <div class="input-group input-group-sm" style="width: 150px;">
-              <label class="input-group-text" for="slocumHoursBack" title="Set the time window for the chart data in hours.">Hours</label>
-              <input type="number" class="form-control hours-back-input" id="slocumHoursBack" value="24" min="1" max="8760" data-report-type="slocum">
-            </div>
-            <div class="input-group input-group-sm" style="width: 150px;">
-              <label class="input-group-text" for="slocumGranularity" title="Set the data resampling interval.">Resample</label>
-              <select id="slocumGranularity" class="form-select" data-report-type="overview">
-                <option value="0">All (no resample)</option>
-                <option value="5">5 min</option>
-                <option value="15" selected>15 min</option>
-                <option value="30">30 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </div>
-            <div class="dropdown">
-              <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-download me-1"></i> Download
-              </button>
-              <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" href="#" id="slocum-download-csv">Data as CSV</a></li>
-                <li><a class="dropdown-item" href="#" id="slocum-save-charts-png" data-high-res="false">Charts as PNG</a></li>
-                <li><a class="dropdown-item" href="#" id="slocum-save-charts-png-hires" data-high-res="true">Charts as PNG (High-Res)</a></li>
-              </ul>
-            </div>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="slocumRefreshCharts">Refresh charts</button>
-            <span id="slocumDataSourceBadge" class="badge text-bg-secondary ms-1" title="Where the displayed data was loaded from.">Source: —</span>
-            <span id="slocumLastDataTimestamp" class="text-muted small ms-1" title="Timestamp of the most recent data point in the displayed range.">Last data: —</span>
-          </div>
-        </div>
-      </div>
-
       <div class="category-detail-view card mb-4" id="detail-overview" style="display: block;">
         <div class="card-header d-flex justify-content-between align-items-center">
           <div>
@@ -320,29 +267,80 @@
 
       {% if "ctd" in (slocum_enabled_sensor_cards or ["ctd"]) %}
       <div class="category-detail-view card mb-4" id="detail-ctd" style="display: none;">
-        <div class="card-body">
-          <h5 class="mt-3">Sea Water Temperature (°C)</h5>
-          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
-            <div class="chart-spinner spinner-border text-light" id="slocumCtdTempSpinner" role="status">
-              <span class="visually-hidden">Loading...</span>
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h2 class="mb-0">{{ dataset }} - CTD</h2>
+            <div id="slocumChartControls" class="d-flex flex-wrap align-items-center gap-2">
+              <div class="input-group input-group-sm" style="width: 200px;">
+                <label class="input-group-text" for="start-date-slocum" title="Start date and time for data visualization.">From</label>
+                <input type="datetime-local" class="form-control date-range-input" id="start-date-slocum" data-report-type="slocum">
+              </div>
+              <div class="input-group input-group-sm" style="width: 200px;">
+                <label class="input-group-text" for="end-date-slocum" title="End date and time for data visualization.">To</label>
+                <input type="datetime-local" class="form-control date-range-input" id="end-date-slocum" data-report-type="slocum">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm" id="clear-date-slocum" title="Clear date range and return to hours mode" style="display: none;">
+                <i class="fas fa-times"></i> Clear
+              </button>
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="slocumHoursBack" title="Set the time window for the chart data in hours.">Hours</label>
+                <input type="number" class="form-control hours-back-input" id="slocumHoursBack" value="24" min="1" max="8760" data-report-type="slocum">
+              </div>
+              <div class="input-group input-group-sm" style="width: 150px;">
+                <label class="input-group-text" for="slocumGranularity" title="Set the data resampling interval.">Resample</label>
+                <select id="slocumGranularity" class="form-select" data-report-type="overview">
+                  <option value="0">All (no resample)</option>
+                  <option value="5">5 min</option>
+                  <option value="15" selected>15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </div>
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-download me-1"></i> Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="#" id="slocum-download-csv">Data as CSV</a></li>
+                  <li><a class="dropdown-item" href="#" id="slocum-save-charts-png" data-high-res="false">Charts as PNG</a></li>
+                  <li><a class="dropdown-item" href="#" id="slocum-save-charts-png-hires" data-high-res="true">Charts as PNG (High-Res)</a></li>
+                </ul>
+              </div>
+              <button type="button" class="btn btn-outline-primary btn-sm" id="slocumRefreshCharts">Refresh charts</button>
+              <span id="slocumDataSourceBadge" class="badge text-bg-secondary ms-1" title="Where the displayed data was loaded from.">Source: —</span>
             </div>
-            <canvas id="slocumCtdTempChart"></canvas>
           </div>
-          <hr class="my-4">
-          <h5 class="mt-3">Conductivity (S m-1)</h5>
-          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
-            <div class="chart-spinner spinner-border text-light" id="slocumCtdConductivitySpinner" role="status">
-              <span class="visually-hidden">Loading...</span>
+          <div class="card-body">
+            <h5 class="mt-3">Sea Water Temperature (°C)</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+              <div class="chart-spinner spinner-border text-light" id="slocumCtdTempSpinner" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="slocumCtdTempChart"></canvas>
             </div>
-            <canvas id="slocumCtdConductivityChart"></canvas>
+            <hr class="my-4">
+            <h5 class="mt-3">Conductivity (S m-1)</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+              <div class="chart-spinner spinner-border text-light" id="slocumCtdConductivitySpinner" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="slocumCtdConductivityChart"></canvas>
+            </div>
+            <hr class="my-4">
+            <h5 class="mt-3">Sea Water Density (kg m-3)</h5>
+            <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+              <div class="chart-spinner spinner-border text-light" id="slocumCtdDensitySpinner" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <canvas id="slocumCtdDensityChart"></canvas>
+            </div>
           </div>
-          <hr class="my-4">
-          <h5 class="mt-3">Sea Water Density (kg m-3)</h5>
-          <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
-            <div class="chart-spinner spinner-border text-light" id="slocumCtdDensitySpinner" role="status">
-              <span class="visually-hidden">Loading...</span>
-            </div>
-            <canvas id="slocumCtdDensityChart"></canvas>
+          <div class="card-footer text-muted small" id="slocumCtdLastDataFooter">
+            {% if ctd_info and ctd_info.latest_timestamp_str and ctd_info.latest_timestamp_str != "N/A" %}
+              Last data: {{ ctd_info.latest_timestamp_str }} ({{ ctd_info.time_ago_str }})
+            {% else %}
+              Last data: N/A
+            {% endif %}
           </div>
         </div>
       </div>
@@ -350,10 +348,15 @@
 
       {% if "dissolved_oxygen" in (slocum_enabled_sensor_cards or []) %}
       <div class="category-detail-view card mb-4" id="detail-dissolved_oxygen" style="display: none;">
-        <div class="card-body text-center text-muted py-5">
-          <i class="fas fa-flask fa-2x mb-3"></i>
-          <h5 class="mb-2">Dissolved Oxygen</h5>
-          <p class="mb-0">Dissolved oxygen visualization coming soon.</p>
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h2 class="mb-0">{{ dataset }} - Dissolved Oxygen</h2>
+          </div>
+          <div class="card-body text-center text-muted py-5">
+            <i class="fas fa-flask fa-2x mb-3"></i>
+            <h5 class="mb-2">Dissolved Oxygen</h5>
+            <p class="mb-0">Dissolved oxygen visualization coming soon.</p>
+          </div>
         </div>
       </div>
       {% endif %}

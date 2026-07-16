@@ -51,6 +51,8 @@ from ..core.slocum_overage_cache import (
     purge_overage_entries,
 )
 from ..core.data import processors
+from ..core.data.slocum_summaries import build_slocum_sensor_summaries
+from ..core.infra.db import get_db_session, SQLModelSession
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +401,31 @@ async def get_slocum_cache_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Slocum platform is disabled.")
     status_payload = get_mirror_cache_status(dataset_id)
     return status_payload
+
+
+@router.get("/sensor-summaries/{dataset_id}")
+async def get_slocum_sensor_summaries(
+    dataset_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """
+    Left-nav sensor card summaries (values + mini_trend) for enabled Slocum cards.
+    Used for soft refresh when mirror cache advances without a full page reload.
+    """
+    if not is_feature_enabled("slocum_platform"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Slocum platform is disabled.")
+
+    # Import here to avoid circular import at module load (home imports slocum_summaries only).
+    from .home import _resolve_slocum_enabled_sensor_cards
+
+    enabled_cards = _resolve_slocum_enabled_sensor_cards(
+        session,
+        dataset_id,
+        username=current_user.username if current_user else "system",
+    )
+    summaries = build_slocum_sensor_summaries(dataset_id, enabled_cards)
+    return summaries.get("sensors") or {}
 
 
 @router.get("/cache-inspect/{dataset_id}")

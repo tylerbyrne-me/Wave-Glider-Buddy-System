@@ -5,6 +5,7 @@
  */
 import { apiRequest, showToast, escapeHTML, fetchWithAuth } from '/static/js/api.js';
 import { datetimeLocalToUtcIso, formatUtcDateTime } from '/static/js/datetime_utils.js';
+import { initializeMiniCharts } from '/static/js/mini_charts.js';
 
 const DEFAULT_HOURS = 24;
 const DEFAULT_GRANULARITY = 15;
@@ -393,8 +394,11 @@ function watchThemeForProfileCharts() {
         const themeChanged = mutations.some(
             (m) => m.type === 'attributes' && (m.attributeName === 'data-bs-theme' || m.attributeName === 'data-theme')
         );
-        if (!themeChanged || !ctdProfilesLoaded) return;
-        setTimeout(() => applyThemeToCtdCharts(), 50);
+        if (!themeChanged) return;
+        setTimeout(() => {
+            initializeMiniCharts();
+            if (ctdProfilesLoaded) applyThemeToCtdCharts();
+        }, 50);
     });
     observer.observe(document.documentElement, {
         attributes: true,
@@ -415,6 +419,32 @@ function buildProfileDataUrl() {
     }
     if (isHistoricalDataset()) params.set('is_historical', 'true');
     return `/api/slocum/profile-data/${encodeURIComponent(datasetId)}?${params.toString()}`;
+}
+
+function formatRelativeTimeAgo(isoTimestamp) {
+    if (!isoTimestamp) return 'N/A';
+    const then = new Date(isoTimestamp);
+    if (Number.isNaN(then.getTime())) return 'N/A';
+    const seconds = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+    if (seconds < 60) return seconds <= 1 ? '1 second ago' : `${seconds} seconds ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    const days = Math.floor(hours / 24);
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
+function setSlocumCtdLastDataFooter(lastTs) {
+    const footer = document.getElementById('slocumCtdLastDataFooter');
+    if (!footer) return;
+    if (!lastTs) {
+        footer.textContent = 'Last data: N/A';
+        return;
+    }
+    const absolute = formatUtcDateTime(lastTs);
+    const relative = formatRelativeTimeAgo(lastTs);
+    footer.textContent = `Last data: ${absolute} (${relative})`;
 }
 
 function setSlocumDataSourceBadge(cacheMetadata) {
@@ -452,17 +482,14 @@ async function refreshCtdProfileCharts() {
         updateChartColorVariables();
         CTD_PROFILE_CHARTS.forEach((cfg) => renderOneProfileChart(cfg, payload));
         setSlocumDataSourceBadge(payload?.cache_metadata || {});
-        const lastEl = document.getElementById('slocumLastDataTimestamp');
-        const lastTs = payload?.cache_metadata?.last_data_timestamp;
-        if (lastEl && lastTs) {
-            lastEl.textContent = `Last data: ${formatUtcDateTime(lastTs)}`;
-        }
+        setSlocumCtdLastDataFooter(payload?.cache_metadata?.last_data_timestamp);
     } catch (err) {
         console.error('Failed to load CTD profile data:', err);
         showToast(`CTD profile load failed: ${err.message || err}`, 'danger');
         destroyCtdCharts();
         CTD_PROFILE_CHARTS.forEach((cfg) => drawNoDataOnCanvas(cfg.canvasId, 'Failed to load profile data'));
         setSlocumDataSourceBadge({});
+        setSlocumCtdLastDataFooter(null);
     } finally {
         CTD_PROFILE_CHARTS.forEach((cfg) => hideProfileSpinner(cfg.spinnerId));
     }
@@ -513,18 +540,6 @@ function saveSlocumChartsAsPng(highResolution = false) {
     if (count === 0) showToast('No profile charts available to save.', 'info');
 }
 
-function setChartControlsVisible(isVisible) {
-    const controls = document.getElementById('slocumChartControls');
-    if (!controls) return;
-    if (isVisible) {
-        controls.style.removeProperty('display');
-        controls.classList.add('d-flex');
-    } else {
-        controls.classList.remove('d-flex');
-        controls.style.setProperty('display', 'none', 'important');
-    }
-}
-
 function refreshLoadedChartTabs() {
     if (ctdProfilesLoaded) refreshCtdProfileCharts();
 }
@@ -572,17 +587,7 @@ function handleLeftPanelClicks() {
             if (activeDetailView) {
                 activeDetailView.style.display = 'block';
             }
-            const sectionTitleEl = document.getElementById('slocum-section-title');
-            if (sectionTitleEl) {
-                const titles = {
-                    overview: 'Overview',
-                    ctd: 'CTD',
-                    dissolved_oxygen: 'Dissolved Oxygen',
-                };
-                sectionTitleEl.textContent = titles[category] || 'Overview';
-            }
             const isOverview = category === 'overview';
-            setChartControlsVisible(!isOverview);
             // CTD profiles must keep full resolution; time-mean resample would destroy structure.
             setGranularityControlEnabled(!isOverview && category !== 'ctd');
             activeChartCategory = isOverview ? null : category;
@@ -618,9 +623,53 @@ async function pollSlocumCacheStatus() {
         }
         if (cacheUpdated) {
             refreshAllLoadedChartsQuiet();
+            refreshSlocumSummaryCards();
         }
     } catch (err) {
         console.debug('Slocum cache status poll failed:', err);
+    }
+}
+
+function formatCardSummaryValue(value, digits = 1) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+    return Number(value).toFixed(digits);
+}
+
+function updateSlocumCardFromSummary(category, summary) {
+    const card = document.querySelector(`#left-nav-panel .summary-card[data-category="${category}"]`);
+    if (!card || !summary) return;
+
+    const values = summary.values || {};
+    const miniSummary = card.querySelector('.mini-summary');
+    const footer = card.querySelector('.summary-card-footer');
+
+    if (category === 'ctd' && miniSummary) {
+        const temp = formatCardSummaryValue(values.Temperature);
+        const sal = formatCardSummaryValue(values.Salinity);
+        miniSummary.innerHTML = `Temp: ${temp} °C<br>Sal: ${sal} PSU`;
+    }
+    if (footer) {
+        footer.textContent = summary.time_ago_str || 'N/A';
+    }
+    const miniTrend = Array.isArray(summary.mini_trend) ? summary.mini_trend : [];
+    card.dataset.miniTrend = JSON.stringify(miniTrend);
+}
+
+async function refreshSlocumSummaryCards() {
+    const datasetId = getDatasetId();
+    if (!datasetId) return;
+    try {
+        const sensors = await apiRequest(
+            `/api/slocum/sensor-summaries/${encodeURIComponent(datasetId)}`,
+            'GET',
+        );
+        if (!sensors || typeof sensors !== 'object') return;
+        Object.entries(sensors).forEach(([category, summary]) => {
+            updateSlocumCardFromSummary(category, summary);
+        });
+        initializeMiniCharts();
+    } catch (err) {
+        console.debug('Slocum summary card refresh failed:', err);
     }
 }
 
@@ -1401,7 +1450,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    setChartControlsVisible(false);
     setGranularityControlEnabled(true);
     updateChartColorVariables();
     loadSlocumOverview();
@@ -1454,5 +1502,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     initAutoRefresh();
+    initializeMiniCharts();
     handleLeftPanelClicks();
 });

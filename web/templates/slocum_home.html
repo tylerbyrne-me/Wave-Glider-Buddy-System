@@ -3,35 +3,64 @@
 {% block title %}Slocum Glider Home - Wave Glider Buddy System{% endblock %}
 
 {% block content %}
-<div class="container mt-4"
+<div class="container mt-4 page-slocum-home"
      data-user-role="{{ current_user.role if current_user else '' }}"
      data-user-id="{{ current_user.id if current_user else '' }}">
     <div class="row justify-content-center">
-        <div class="col-lg-10 col-xl-8 mx-auto">
-            <h1>Welcome, {{ current_user.full_name or current_user.username }}!</h1>
-            <p class="text-muted">Slocum Glider – datasets and map</p>
+        <div class="col-12">
+            <div class="home-intro mb-3">
+                <h1 class="home-welcome-heading">Welcome, {{ current_user.full_name or current_user.username }}!</h1>
+                <p class="text-muted mb-0">Slocum Glider – datasets and map</p>
+            </div>
 
             <!-- Announcements Panel (shared) -->
             <div id="announcementsPanel" class="mb-4">
                 <div class="d-flex justify-content-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading announcements...</span></div></div>
             </div>
 
-            <div id="slocumBriefingPanel" class="mb-4 card d-none">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-clipboard-list"></i> Deployment briefing</h5>
-                </div>
-                <div class="card-body">
-                    <div id="slocumBriefingContent" class="small text-muted">Select an active dataset to load goals and notes.</div>
-                </div>
-            </div>
-
             <!-- Slocum Map Section -->
-            <div class="card mt-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><i class="fas fa-map-marked-alt"></i> Slocum Track Map</h5>
+            <div class="card home-map-hero mt-3">
+                <div class="card-header home-map-hero-header d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0 home-map-hero-title"><i class="fas fa-map-marked-alt me-2"></i>Slocum Track Map</h2>
                 </div>
-                <div class="card-body" data-active-missions="[]" data-default-hours="72">
-                    <!-- Slocum dataset picker (always expanded on Slocum home) -->
+                <div class="card-body home-map-hero-body"
+                     data-active-missions="[]"
+                     data-default-hours="72"
+                     data-platform="slocum">
+                    <div class="row g-2 mb-3 home-map-toolbar align-items-end">
+                        <div class="col-12 col-md-6 mb-2">
+                            <label for="mapDatasetSelect" class="form-label small">Select Dataset</label>
+                            <select id="mapDatasetSelect" class="form-select form-select-sm">
+                                <option value="all" selected>All Active Datasets</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4 mb-2">
+                            <label for="mapTimeRangeMode" class="form-label small">Time Range</label>
+                            <select id="mapTimeRangeMode" class="form-select form-select-sm mb-2">
+                                <option value="preset" selected>Preset range</option>
+                                <option value="full">Full deployment range</option>
+                                <option value="custom">Custom datetime range</option>
+                            </select>
+                            <select id="mapHoursBack" class="form-select form-select-sm">
+                                <option value="24">Last 24 hours</option>
+                                <option value="72" selected>Last 72 hours</option>
+                                <option value="168">Last week</option>
+                                <option value="720">Last month</option>
+                            </select>
+                            <div id="mapCustomDateRange" class="mt-2" style="display: none;">
+                                <input id="mapStartDate" type="text" class="form-control form-control-sm mb-1" aria-label="Map range start datetime UTC" title="UTC only. Use ISO 8601 with Z suffix, e.g. 2026-05-01T00:00:00Z." placeholder="UTC start (e.g. 2026-05-01T00:00:00Z)">
+                                <input id="mapEndDate" type="text" class="form-control form-control-sm" aria-label="Map range end datetime UTC" title="UTC only. Use ISO 8601 with Z suffix, e.g. 2026-05-01T12:00:00Z." placeholder="UTC end (e.g. 2026-05-01T12:00:00Z)">
+                                <small class="text-muted d-block mt-1" title="All telemetry timestamps are handled in UTC.">All times are reported and expected in UTC ISO 8601 format (with `Z`).</small>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-2 mb-2 d-flex align-items-end">
+                            <button id="generateMapBtn" class="btn btn-primary btn-sm w-100">Generate Map</button>
+                        </div>
+                    </div>
+
+                    <div id="mapTrackInfo" class="mb-3"></div>
+
+                    <!-- Slocum dataset picker (secondary; checkbox + browse) -->
                     <div id="slocumDatasetsSection" class="mb-3">
                         <div class="d-flex align-items-center mb-2">
                             <span class="fw-medium"><i class="fas fa-water"></i> Slocum Gliders</span>
@@ -48,15 +77,6 @@
                                 </div>
                                 <div class="row g-2 align-items-end">
                                     <div class="col-auto">
-                                        <label for="slocumHoursBack" class="form-label small mb-0">Hours</label>
-                                        <select id="slocumHoursBack" class="form-select form-select-sm" style="width: auto;">
-                                            <option value="24">24</option>
-                                            <option value="72" selected>72</option>
-                                            <option value="168">168</option>
-                                            <option value="720">720</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-auto">
                                         <button type="button" class="btn btn-outline-danger btn-sm" id="slocumClearTracksBtn">Clear Slocum tracks</button>
                                     </div>
                                 </div>
@@ -64,6 +84,7 @@
                         </div>
                         <div id="slocumTrackInfo" class="mt-2"></div>
                     </div>
+
                     <!-- Browse Slocum Datasets Modal -->
                     <div class="modal fade" id="slocumBrowseModal" tabindex="-1" aria-labelledby="slocumBrowseModalLabel" aria-hidden="true">
                         <div class="modal-dialog modal-lg">
@@ -84,8 +105,57 @@
                             </div>
                         </div>
                     </div>
-                    <div id="mapTrackInfo" class="mb-3"></div>
-                    <div id="missionMapContainer" style="height: 400px; border: 1px solid #ddd; border-radius: 4px;"></div>
+
+                    {% if feature_enabled('weather_map_layers') %}
+                    <!-- Wind weather overlay (Open-Meteo raster) -->
+                    <div id="windWeatherSection" class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label small mb-0">Weather Overlays</label>
+                            <a href="https://open-meteo.com/" target="_blank" rel="noopener" class="text-decoration-none small">
+                                <i class="fas fa-external-link-alt"></i> Open-Meteo
+                            </a>
+                        </div>
+                        <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Wind overlay toggle">
+                            <input type="checkbox" class="btn-check" id="windLayerToggle" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="windLayerToggle">
+                                <i class="fas fa-wind"></i> Wind speed (10 m)
+                            </label>
+                        </div>
+                        <small class="text-muted d-block mb-2">Total wind speed from U/V components; direction not shown in this test.</small>
+                        <div class="row g-2 align-items-center mb-2">
+                            <div class="col-md-8">
+                                <label for="windTimeSlider" class="form-label small mb-1">
+                                    Forecast time: <span id="windTimeLabel" class="fw-semibold">Current</span>
+                                </label>
+                                <input type="range" class="form-range" id="windTimeSlider" min="0" max="0" value="0" disabled>
+                                <small class="text-muted">Current conditions through +7 days (3-hourly steps, UTC)</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="windOpacity" class="form-label small mb-1">
+                                    Opacity: <span id="windOpacityValue">70%</span>
+                                </label>
+                                <input type="range" class="form-range" id="windOpacity" min="0" max="100" value="70" disabled>
+                            </div>
+                        </div>
+                        <div id="windLegend" class="d-flex flex-wrap align-items-center gap-2 small text-muted opacity-50">
+                            <span id="windLegendTitle">Legend:</span>
+                            <span id="windLegendBar" class="d-inline-block rounded border" style="width:160px;height:12px;background:linear-gradient(to right,#ccc,#999);"></span>
+                            <span id="windLegendMin" class="fw-semibold">—</span>
+                            <span>low</span>
+                            <span id="windLegendMax" class="fw-semibold">—</span>
+                            <span>high</span>
+                            <span class="ms-2">Wind: Open-Meteo / DWD ICON</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div id="missionMapContainer" class="home-map-container"></div>
+
+                    <div class="mt-3 text-center">
+                        <button id="downloadKMLBtn" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-download"></i> Download KML
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -95,35 +165,9 @@
 
 {% block body_extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+{% if feature_enabled('weather_map_layers') %}
+<script src="https://unpkg.com/@openmeteo/weather-map-layer@0.0.19/dist/index.js"></script>
+{% endif %}
 <script src="/static/js/home.js" type="module"></script>
 <script src="/static/js/map_generator.js" type="module"></script>
-<script>
-document.addEventListener('DOMContentLoaded', async () => {
-  const panel = document.getElementById('slocumBriefingPanel');
-  const content = document.getElementById('slocumBriefingContent');
-  if (!panel || !content) return;
-  const datasets = [];
-  try {
-    const resp = await fetch('/api/slocum/available_datasets', { credentials: 'same-origin' });
-    if (resp.ok) {
-      const ids = await resp.json();
-      datasets.push(...(ids || []));
-    }
-  } catch (_) {}
-  if (!datasets.length) return;
-  const datasetId = datasets[0];
-  try {
-    const resp = await fetch(`/api/slocum/datasets/${encodeURIComponent(datasetId)}/info`, { credentials: 'same-origin' });
-    if (!resp.ok) return;
-    const data = await resp.json();
-    panel.classList.remove('d-none');
-    const goals = (data.goals || []).map(g => `<li>${g.is_completed ? '&#10003;' : '&#9744;'} ${g.description}</li>`).join('');
-    const notes = (data.notes || []).map(n => `<li>${n.content}</li>`).join('');
-    const dep = data.deployment ? `<p class="mb-2"><strong>${data.deployment.name}</strong> (${data.deployment.glider_name})</p>` : '';
-    content.innerHTML = `${dep}<div class="row"><div class="col-md-6"><h6>Goals</h6><ul>${goals || '<li class="text-muted">No goals</li>'}</ul></div><div class="col-md-6"><h6>Notes</h6><ul>${notes || '<li class="text-muted">No notes</li>'}</ul></div></div>`;
-  } catch (err) {
-    console.warn('Slocum briefing load failed', err);
-  }
-});
-</script>
 {% endblock %}

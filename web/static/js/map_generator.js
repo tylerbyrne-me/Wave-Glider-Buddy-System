@@ -60,6 +60,27 @@ function get_map_time_range_params() {
     return { hours_back: String(hoursBack) };
 }
 
+/** Convert shared map time-range params to Slocum API query params. */
+function to_slocum_time_query(timeRangeParams = {}) {
+    if (timeRangeParams.full_range === 'true') {
+        // Slocum API has no full_range; use max hours_back (1 year).
+        return { hours_back: '8760' };
+    }
+    if (timeRangeParams.start_date && timeRangeParams.end_date) {
+        return { time_start: timeRangeParams.start_date, time_end: timeRangeParams.end_date };
+    }
+    return { hours_back: String(timeRangeParams.hours_back || 72) };
+}
+
+function resolve_slocum_time_range_params() {
+    if (document.getElementById('mapTimeRangeMode')) {
+        return get_map_time_range_params();
+    }
+    const hoursBackSelect = document.getElementById('slocumHoursBack');
+    const hoursBack = hoursBackSelect ? parseInt(hoursBackSelect.value, 10) || 72 : 72;
+    return { hours_back: String(hoursBack) };
+}
+
 function to_query_string(params) {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -299,16 +320,21 @@ async function loadSlocumDatasets() {
 /**
  * Load and display a single Slocum glider track
  * @param {string} datasetId - ERDDAP dataset ID
- * @param {number} hoursBack - Number of hours of history
+ * @param {object|number} timeRangeOrHours - Shared time-range params, or legacy hours_back number
  * @param {number} colorIndex - Index into SLOCUM_COLORS for multi-track styling
  */
-async function loadSlocumTrack(datasetId, hoursBack = 72, colorIndex = 0) {
+async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0) {
     if (!missionMap) {
         showToast('Map not initialized', 'danger');
         return;
     }
     try {
-        const data = await apiRequest(`/api/map/slocum/telemetry/${encodeURIComponent(datasetId)}?hours_back=${hoursBack}`, 'GET');
+        const timeRangeParams = typeof timeRangeOrHours === 'number'
+            ? { hours_back: String(timeRangeOrHours) }
+            : (timeRangeOrHours || { hours_back: '72' });
+        const queryParams = to_slocum_time_query(timeRangeParams);
+        const queryString = to_query_string(queryParams);
+        const data = await apiRequest(`/api/map/slocum/telemetry/${encodeURIComponent(datasetId)}?${queryString}`, 'GET');
         if (!data.track_points || data.track_points.length === 0) {
             showToast(`No track data for Slocum dataset ${datasetId}`, 'warning');
             return;
@@ -338,6 +364,37 @@ async function loadSlocumTrack(datasetId, hoursBack = 72, colorIndex = 0) {
         notifyWindOverlayTracksChanged();
     } catch (error) {
         showToast(`Error loading Slocum track ${datasetId}: ${error.message}`, 'danger');
+    }
+}
+
+/**
+ * Load multiple Slocum datasets (clears existing Slocum tracks first).
+ */
+async function loadMultipleSlocumTracks(datasetIds, timeRangeParams = { hours_back: '72' }) {
+    if (!missionMap || !datasetIds || datasetIds.length === 0) return;
+    clearSlocumTracks();
+    for (let i = 0; i < datasetIds.length; i++) {
+        await loadSlocumTrack(datasetIds[i], timeRangeParams, i);
+    }
+}
+
+/**
+ * Download KML for a Slocum dataset track.
+ */
+async function downloadSlocumKML(datasetId, timeRangeParams = { hours_back: '72' }) {
+    try {
+        const queryParams = to_slocum_time_query(timeRangeParams);
+        const queryString = to_query_string(queryParams);
+        const url = `/api/map/slocum/kml/${encodeURIComponent(datasetId)}?${queryString}`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `slocum_${datasetId}_track.kml`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (error) {
+        showToast(`Error downloading KML for ${datasetId}: ${error.message}`, 'danger');
+        displayErrorMessage(`Error downloading KML: ${error.message}`);
     }
 }
 
@@ -378,16 +435,35 @@ function initSlocumUI() {
     const section = document.getElementById('slocumDatasetsSection');
     if (!section || !missionMap) return;
     const activeList = document.getElementById('slocumActiveList');
-    const hoursBackSelect = document.getElementById('slocumHoursBack');
     const clearBtn = document.getElementById('slocumClearTracksBtn');
     const browseBtn = document.getElementById('slocumBrowseBtn');
     const searchBtn = document.getElementById('slocumSearchBtn');
     const searchInput = document.getElementById('slocumSearchInput');
     const searchResults = document.getElementById('slocumSearchResults');
     const browseModal = document.getElementById('slocumBrowseModal');
+    const datasetSelect = document.getElementById('mapDatasetSelect');
+    const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
+    const isSlocumHome = mapCard?.getAttribute('data-platform') === 'slocum';
 
-    function getHoursBack() {
-        return hoursBackSelect ? parseInt(hoursBackSelect.value, 10) || 72 : 72;
+    function getTimeRangeForSlocumLoad() {
+        return resolve_slocum_time_range_params();
+    }
+
+    function populateDatasetSelect(active) {
+        if (!datasetSelect) return;
+        const previous = datasetSelect.value || 'all';
+        datasetSelect.innerHTML = '<option value="all">All Active Datasets</option>';
+        (active || []).forEach((ds) => {
+            const id = ds.datasetID || ds.datasetId || 'unknown';
+            const title = ds.title || id;
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = title;
+            datasetSelect.appendChild(opt);
+        });
+        if ([...datasetSelect.options].some((o) => o.value === previous)) {
+            datasetSelect.value = previous;
+        }
     }
 
     function setLoading(loading) {
@@ -406,7 +482,7 @@ function initSlocumUI() {
             return;
         }
         let html = '<div class="d-flex flex-wrap gap-2 align-items-center">';
-        active.forEach((ds, i) => {
+        active.forEach((ds) => {
             const id = ds.datasetID || ds.datasetId || 'unknown';
             const title = ds.title || id;
             const dashboardUrl = `/slocum?dataset=${encodeURIComponent(id)}`;
@@ -418,8 +494,14 @@ function initSlocumUI() {
             cb.addEventListener('change', async function() {
                 const datasetId = this.getAttribute('data-dataset-id');
                 if (this.checked) {
-                    const colorIndex = slocumTracks.length;
-                    await loadSlocumTrack(datasetId, getHoursBack(), colorIndex);
+                    try {
+                        const timeRangeParams = getTimeRangeForSlocumLoad();
+                        const colorIndex = slocumTracks.length;
+                        await loadSlocumTrack(datasetId, timeRangeParams, colorIndex);
+                    } catch (error) {
+                        this.checked = false;
+                        showToast(error.message || 'Invalid time range', 'danger');
+                    }
                 } else {
                     removeSlocumTrack(datasetId);
                 }
@@ -429,11 +511,26 @@ function initSlocumUI() {
 
     setLoading(true);
     loadSlocumDatasets()
-        .then(data => {
+        .then(async (data) => {
             setLoading(false);
             renderActiveList(data.active);
+            populateDatasetSelect(data.active);
+            if (isSlocumHome && data.active && data.active.length > 0) {
+                const ids = data.active.map((ds) => ds.datasetID || ds.datasetId).filter(Boolean);
+                try {
+                    const timeRangeParams = getTimeRangeForSlocumLoad();
+                    await loadMultipleSlocumTracks(ids, timeRangeParams);
+                    if (activeList) {
+                        activeList.querySelectorAll('.slocum-dataset-cb').forEach((cb) => {
+                            if (ids.includes(cb.getAttribute('data-dataset-id'))) cb.checked = true;
+                        });
+                    }
+                } catch (error) {
+                    showToast(error.message || 'Failed to auto-load Slocum tracks', 'warning');
+                }
+            }
         })
-        .catch(err => {
+        .catch(() => {
             setLoading(false);
             if (activeList) activeList.innerHTML = '<span class="text-danger">Failed to load datasets. Try again later.</span>';
             showToast('Failed to load Slocum datasets', 'danger');
@@ -471,7 +568,7 @@ function initSlocumUI() {
                     return;
                 }
                 let html = '<ul class="list-group list-group-flush">';
-                list.forEach((ds, i) => {
+                list.forEach((ds) => {
                     const id = ds.datasetID || ds.datasetId || 'unknown';
                     const title = ds.title || id;
                     const dashboardUrl = `/slocum?dataset=${encodeURIComponent(id)}`;
@@ -488,8 +585,14 @@ function initSlocumUI() {
                 searchResults.querySelectorAll('.add-slocum-dataset-btn').forEach(btn => {
                     btn.addEventListener('click', async function() {
                         const datasetId = this.getAttribute('data-dataset-id');
-                        const colorIndex = slocumTracks.length;
-                        await loadSlocumTrack(datasetId, getHoursBack(), colorIndex);
+                        try {
+                            const timeRangeParams = getTimeRangeForSlocumLoad();
+                            const colorIndex = slocumTracks.length;
+                            await loadSlocumTrack(datasetId, timeRangeParams, colorIndex);
+                        } catch (error) {
+                            showToast(error.message || 'Invalid time range', 'danger');
+                            return;
+                        }
                         const modal = browseModal && typeof bootstrap !== 'undefined' && bootstrap.Modal ? bootstrap.Modal.getInstance(browseModal) : null;
                         if (modal) modal.hide();
                     });
@@ -740,20 +843,55 @@ document.addEventListener('DOMContentLoaded', function() {
         const generateBtn = document.getElementById('generateMapBtn');
         const downloadBtn = document.getElementById('downloadKMLBtn');
         const missionSelect = document.getElementById('mapMissionSelect');
-        const hoursBackInput = document.getElementById('mapHoursBack');
+        const datasetSelect = document.getElementById('mapDatasetSelect');
         
         if (generateBtn) {
             generateBtn.addEventListener('click', function() {
-                const selectedMission = missionSelect ? missionSelect.value : null;
-                
-                if (!selectedMission || selectedMission === '') {
-                    displayErrorMessage('Please select a mission');
-                    return;
-                }
                 try {
                     const timeRangeParams = get_map_time_range_params();
+
+                    // Slocum home: dataset selector drives the map
+                    if (datasetSelect && !missionSelect) {
+                        const selectedDataset = datasetSelect.value;
+                        if (!selectedDataset || selectedDataset === '') {
+                            displayErrorMessage('Please select a dataset');
+                            return;
+                        }
+                        if (selectedDataset === 'all') {
+                            const ids = [...datasetSelect.options]
+                                .map((o) => o.value)
+                                .filter((v) => v && v !== 'all');
+                            if (ids.length === 0) {
+                                displayErrorMessage('No active datasets available');
+                                return;
+                            }
+                            loadMultipleSlocumTracks(ids, timeRangeParams);
+                            const activeList = document.getElementById('slocumActiveList');
+                            if (activeList) {
+                                activeList.querySelectorAll('.slocum-dataset-cb').forEach((cb) => {
+                                    cb.checked = ids.includes(cb.getAttribute('data-dataset-id'));
+                                });
+                            }
+                        } else {
+                            clearSlocumTracks();
+                            loadSlocumTrack(selectedDataset, timeRangeParams, 0).then(() => {
+                                const activeList = document.getElementById('slocumActiveList');
+                                if (activeList) {
+                                    activeList.querySelectorAll('.slocum-dataset-cb').forEach((cb) => {
+                                        cb.checked = cb.getAttribute('data-dataset-id') === selectedDataset;
+                                    });
+                                }
+                            });
+                        }
+                        return;
+                    }
+
+                    const selectedMission = missionSelect ? missionSelect.value : null;
+                    if (!selectedMission || selectedMission === '') {
+                        displayErrorMessage('Please select a mission');
+                        return;
+                    }
                     if (selectedMission === 'all') {
-                        // Load all active missions
                         const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
                         const activeMissionsData = mapCard?.getAttribute('data-active-missions');
                         
@@ -779,17 +917,28 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (downloadBtn) {
             downloadBtn.addEventListener('click', function() {
-                const selectedMission = missionSelect ? missionSelect.value : null;
-                if (!selectedMission || selectedMission === '') {
-                    displayErrorMessage('Please select a mission');
-                    return;
-                }
-                if (selectedMission === 'all') {
-                    displayErrorMessage('Multi-mission KML export is not available as a static download. Use "Live KML" to export all active missions.');
-                    return;
-                }
                 try {
                     const timeRangeParams = get_map_time_range_params();
+
+                    if (datasetSelect && !missionSelect) {
+                        const selectedDataset = datasetSelect.value;
+                        if (!selectedDataset || selectedDataset === '' || selectedDataset === 'all') {
+                            displayErrorMessage('Select a single dataset to download KML (not All Active Datasets).');
+                            return;
+                        }
+                        downloadSlocumKML(selectedDataset, timeRangeParams);
+                        return;
+                    }
+
+                    const selectedMission = missionSelect ? missionSelect.value : null;
+                    if (!selectedMission || selectedMission === '') {
+                        displayErrorMessage('Please select a mission');
+                        return;
+                    }
+                    if (selectedMission === 'all') {
+                        displayErrorMessage('Multi-mission KML export is not available as a static download. Use "Live KML" to export all active missions.');
+                        return;
+                    }
                     downloadMissionKML(selectedMission, timeRangeParams);
                 } catch (error) {
                     displayErrorMessage(error.message);
@@ -829,11 +978,13 @@ export {
     clearSlocumTracks,
     loadSlocumDatasets,
     loadSlocumTrack,
+    loadMultipleSlocumTracks,
     removeSlocumTrack,
     updateSlocumTrackInfo,
     initSlocumUI,
     generateLiveKML,
-    downloadMissionKML
+    downloadMissionKML,
+    downloadSlocumKML
 };
 
 

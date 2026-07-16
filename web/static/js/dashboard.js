@@ -8,6 +8,7 @@ import { apiRequest, fetchWithAuth, showToast } from '/static/js/api.js';
 import { renderPicHandoffDetails } from '/static/js/pic_handoff_details.js';
 import { initializeWgVm4OffloadSection } from '/static/js/wg_vm4.js';
 import { formatUtcDateTime, datetimeLocalToUtcIso, findNearestTimeIndexUtc } from '/static/js/datetime_utils.js';
+import { initializeMiniCharts } from '/static/js/mini_charts.js';
 
 document.addEventListener('DOMContentLoaded', async function() {
     // --- Authentication Check ---
@@ -968,7 +969,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Initial call to set colors on page load
     updateChartColorVariables();
-    const miniChartInstances = {};
 
     // Helper function to show spinner with animation restart
     function showChartSpinner(spinner) {
@@ -3187,166 +3187,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // --- NEW: Mini Chart Rendering ---
-    function renderMiniChart(canvasId, trendData, chartColor = miniChartLineColor) {
-        // console.log(`Attempting to render mini chart for canvas ID: ${canvasId} with data length: ${trendData ? trendData.length : 'null'}`);
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) {
-            return; // Canvas not found - silent fail (DOM issue)
-        }
-        const ctx = canvas.getContext('2d');
-
-        if (miniChartInstances[canvasId]) {
-            miniChartInstances[canvasId].destroy();
-        }
-
-        if (!trendData || trendData.length === 0) { // Check moved to caller, but safe to keep
-            // console.log(`No data points to render for mini chart ${canvasId}.`);
-            return;
-        }
-
-        const dataPoints = trendData.map(item => ({
-            x: new Date(item.Timestamp), // Ensure Timestamp is parsed as Date
-            y: item.value
-        }));
-
-        // Log first few parsed dates to check validity
-        // if (dataPoints.length > 0) {
-            // console.log(`  First 3 parsed timestamps for ${canvasId}:`, dataPoints.slice(0, 3).map(p => p.x));
-        // }
-
-        // Calculate min and max for y-axis to "stretch" the view
-        let yMin = Infinity;
-        let yMax = -Infinity;
-        dataPoints.forEach(point => {
-            if (point.y < yMin) yMin = point.y;
-            if (point.y > yMax) yMax = point.y;
-        });
-
-        let yAxisMin, yAxisMax;
-        const range = yMax - yMin;
-
-        if (range === 0) { // Handle flat line data
-            yAxisMin = yMin - 1; // Add some arbitrary padding
-            yAxisMax = yMax + 1;
-        } else {
-            const padding = range * 0.10; // 10% padding
-            yAxisMin = yMin - padding;
-            yAxisMax = yMax + padding;
-        }
-
-        // console.log(`Rendering Chart.js instance for ${canvasId}`);
-        miniChartInstances[canvasId] = new Chart(ctx, {
-            type: 'line',
-            data: {
-                datasets: [{
-                    data: dataPoints,
-                    borderColor: chartColor, // Use the passed chartColor
-                    borderWidth: 1.5, // Keep it slightly thicker
-                    pointRadius: 0, // No points on mini charts
-                    tension: 0.1,   // straight line for mini trend
-                    fill: false
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false, // No animation for mini charts
-                scales: {
-                    x: {
-                        type: 'time', 
-                        display: false, // Final: Hide x-axis
-                        // ticks: { color: 'lime', font: { size: 7 }, autoSkip: true, maxRotation: 0, minRotation: 0 }, // TEMPORARY: For x-axis debugging
-                        grid: { display: false } // Optionally hide x-axis grid lines for mini chart
-                    }, 
-                    y: { 
-                        display: false, // Keep y-axis hidden for final appearance
-                        min: yAxisMin, // Set calculated min
-                        max: yAxisMax, // Set calculated max
-                        // grace: '10%' // Not needed if min/max are manually set with padding
-                    }
-                },
-                plugins: {
-                    legend: { 
-                        display: false // Keep legend hidden
-                    }, 
-                    tooltip: { enabled: false } // Keep tooltips disabled
-                },
-                layout: {
-                    padding: { // Minimal padding
-                        left: 1,
-                        right: 1,
-                        top: 3,
-                        bottom: 1
-                    }
-                }
-            }
-        });
-        // console.log(`Mini chart ${canvasId} should be rendered.`);
-    }
-
-    // --- NEW: Initialize Mini Charts ---
-    function initializeMiniCharts() {
-        // console.log("Initializing mini charts...");
-        const summaryCards = document.querySelectorAll('#left-nav-panel .summary-card');
-        summaryCards.forEach(card => {
-            const category = card.dataset.category; // e.g., "power", "ctd", "navigation"
-            const miniChartCanvasId = `mini${category === 'waves' ? 'Wave' : category.charAt(0).toUpperCase() + category.slice(1)}Chart`;
-            const canvasElement = document.getElementById(miniChartCanvasId);
-            // console.log(`Processing mini chart for category: ${category}, canvas ID: ${miniChartCanvasId}`);
-
-            if (canvasElement) { // Only try to render if a canvas exists
-                const trendDataJson = card.dataset.miniTrend;
-                // console.log(`  Raw mini-trend JSON for ${category}:`, trendDataJson);
-                if (trendDataJson) {
-                    // Ensure the string is not empty before trying to parse
-                    if (trendDataJson.trim() === "") {
-                        // console.log(`  Skipping empty mini-trend JSON for ${category}.`);
-                        return; // Skip to the next card
-                    }
-                    try {
-                        const trendData = JSON.parse(trendDataJson);
-                        if (trendData && trendData.length > 0) {
-                            let specificColor = miniChartLineColor; // Default color
-                            // Assign specific colors based on category, matching large charts
-                            switch (category) {
-                                case 'power': // NetPowerWatts mini-trend. Using SolarInputWatts color as a proxy.
-                                    specificColor = CHART_COLORS.POWER_SOLAR;
-                                    break;
-                                case 'ctd': // WaterTemperature mini-trend
-                                    specificColor = CHART_COLORS.CTD_TEMP;
-                                    break;
-                                case 'weather': // WindSpeed mini-trend
-                                    specificColor = CHART_COLORS.WEATHER_WIND_SPEED;
-                                    break;
-                                case 'waves': // SignificantWaveHeight mini-trend
-                                    specificColor = CHART_COLORS.WAVES_SIG_HEIGHT;
-                                    break;
-                                case 'vr2c': // DetectionCount mini-trend
-                                    specificColor = CHART_COLORS.VR2C_DETECTION;
-                                    break;
-                                case 'fluorometer': // C1_Avg mini-trend
-                                    specificColor = CHART_COLORS.FLUORO_C_AVG_PRIMARY;
-                                    break;
-                                case 'navigation': // GliderSpeed mini-trend
-                                    specificColor = CHART_COLORS.NAV_SPEED;
-                                    break;
-                                case 'wg_vm4': // Channel0DetectionCount mini-trend
-                                    specificColor = CHART_COLORS.WG_VM4_CH0_DETECTION;
-                                    break;
-                                // Add other cases as needed
-                            }
-                            renderMiniChart(miniChartCanvasId, trendData, specificColor);
-                        } else {
-                            // console.log(`  No data points to render for mini chart ${category} (data is empty or null).`);
-                        }
-                    } catch (e) {
-                        // Silent fail for parsing errors (data issue)
-                    }
-                }
-            }
-        });
-    }
+    // Mini charts: shared module (/static/js/mini_charts.js)
 
     // Track which sensor categories have been loaded so we can refresh all when Resample/hours/date changes
     const loadedCategories = new Set();

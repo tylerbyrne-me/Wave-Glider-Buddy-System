@@ -15,6 +15,7 @@ from app.config import settings
 from ..core.template_context import get_template_context
 from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.slocum_deployment_service import get_or_create_deployment_for_dataset
+from ..core.data.slocum_summaries import build_slocum_sensor_summaries
 from sqlmodel import select
 from sqlalchemy import or_
 import logging
@@ -46,6 +47,27 @@ def _resolve_slocum_enabled_sensor_cards(
     except (TypeError, json.JSONDecodeError):
         logger.warning("Invalid enabled_sensor_cards for dataset %s", dataset_id)
     return list(SLOCUM_DEFAULT_SENSOR_CARDS)
+
+
+def _merge_slocum_summary_context(
+    template_context: Dict,
+    dataset_id: str,
+    enabled_cards: List[str],
+) -> None:
+    """Attach CTD (and future sensor) summary card context for SSR."""
+    summaries = build_slocum_sensor_summaries(dataset_id, enabled_cards)
+    for key, value in summaries.items():
+        if key == "sensors":
+            continue
+        template_context[key] = value
+    # Ensure template keys exist even when CTD is disabled
+    template_context.setdefault("ctd_info", {
+        "values": {},
+        "latest_timestamp_str": "N/A",
+        "time_ago_str": "N/A",
+        "mini_trend": [],
+    })
+    template_context.setdefault("ctd_values", {})
 
 
 @router.get("/platform", response_class=HTMLResponse)
@@ -253,9 +275,11 @@ async def get_slocum_dashboard(
     template_context["dataset"] = dataset
     template_context["is_historical_dataset"] = False
     template_context["is_current_mission_realtime"] = True  # Active dataset: show auto-refresh in banner
-    template_context["slocum_enabled_sensor_cards"] = _resolve_slocum_enabled_sensor_cards(
+    enabled_cards = _resolve_slocum_enabled_sensor_cards(
         session, dataset, username=current_user.username
     )
+    template_context["slocum_enabled_sensor_cards"] = enabled_cards
+    _merge_slocum_summary_context(template_context, dataset, enabled_cards)
     return templates.TemplateResponse("slocum_dashboard.html", template_context)
 
 
@@ -287,9 +311,11 @@ async def get_slocum_historical_dashboard(
     template_context["dataset"] = dataset
     template_context["is_historical_dataset"] = True
     template_context["is_current_mission_realtime"] = False  # Historical: no auto-refresh in banner
-    template_context["slocum_enabled_sensor_cards"] = _resolve_slocum_enabled_sensor_cards(
+    enabled_cards = _resolve_slocum_enabled_sensor_cards(
         session, dataset, username=current_user.username
     )
+    template_context["slocum_enabled_sensor_cards"] = enabled_cards
+    _merge_slocum_summary_context(template_context, dataset, enabled_cards)
     return templates.TemplateResponse("slocum_dashboard.html", template_context)
 
 

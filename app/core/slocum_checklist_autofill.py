@@ -46,25 +46,25 @@ CHECKLIST_REFERENCE_KEYS: tuple[str, ...] = (
 BATTERY_PACK_PRESETS: dict[str, dict[str, Any]] = {
     "lithium_primary": {
         "label": "Lithium Primary",
-        "endurance_amphr_total": 550,
+        "endurance_amphr_total": 490,
         "min_voltage": 12.0,
         "max_voltage": 15.25,
     },
     "lithium_primary_extended": {
         "label": "Lithium Primary Extended",
-        "endurance_amphr_total": 800,
+        "endurance_amphr_total": 710,
         "min_voltage": 12.0,
         "max_voltage": 15.25,
     },
     "lithium_ion": {
         "label": "Lithium Ion",
-        "endurance_amphr_total": 215,
+        "endurance_amphr_total": 190,
         "min_voltage": 12.5,
         "max_voltage": 16.5,
     },
     "lithium_ion_extended": {
         "label": "Lithium Ion Extended",
-        "endurance_amphr_total": 300,
+        "endurance_amphr_total": 270,
         "min_voltage": 12.5,
         "max_voltage": 16.5,
     },
