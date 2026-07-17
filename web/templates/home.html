@@ -171,23 +171,29 @@
                                             </div>
                                             
                                             <!-- Instruments Section -->
-                                            {% set platform_instruments = [] %}
+                                            {% set flight_instruments = [] %}
                                             {% set science_instruments = [] %}
+                                            {% set platform_instruments = [] %}
                                             {% for inst in mission_info.sensor_tracker_instruments if inst %}
                                                 {% if inst.is_platform_direct %}
                                                     {% set _ = platform_instruments.append(inst) %}
+                                                {% elif inst.data_logger_type == "flight" %}
+                                                    {% set _ = flight_instruments.append(inst) %}
                                                 {% elif inst.data_logger_type == "science" %}
                                                     {% set _ = science_instruments.append(inst) %}
                                                 {% endif %}
                                             {% endfor %}
                                             
-                                            {% if platform_instruments or science_instruments %}
+                                            {% if flight_instruments or platform_instruments or science_instruments %}
                                             <div class="row mt-3">
-                                                {% if platform_instruments %}
-                                                <div class="col-md-6">
-                                                    <h6 class="mb-2">Platform Direct Instruments</h6>
+                                                {% if flight_instruments %}
+                                                <div class="col-md-4">
+                                                    <h6 class="mb-2">Flight Computer Instruments</h6>
+                                                    {% if flight_instruments[0].data_logger_serial %}
+                                                    <p class="small text-muted mb-2">Serial: {{ flight_instruments[0].data_logger_serial }}</p>
+                                                    {% endif %}
                                                     <ul class="list-unstyled small">
-                                                        {% for inst in platform_instruments %}
+                                                        {% for inst in flight_instruments %}
                                                         <li class="mb-1">
                                                             <strong>{{ inst.instrument_name or inst.instrument_identifier }}</strong>
                                                             {% if inst.instrument_serial %}
@@ -198,15 +204,31 @@
                                                     </ul>
                                                 </div>
                                                 {% endif %}
-                                                
+
                                                 {% if science_instruments %}
-                                                <div class="col-md-6">
+                                                <div class="col-md-4">
                                                     <h6 class="mb-2">Science Computer Instruments</h6>
                                                     {% if science_instruments[0].data_logger_serial %}
                                                     <p class="small text-muted mb-2">Serial: {{ science_instruments[0].data_logger_serial }}</p>
                                                     {% endif %}
                                                     <ul class="list-unstyled small">
                                                         {% for inst in science_instruments %}
+                                                        <li class="mb-1">
+                                                            <strong>{{ inst.instrument_name or inst.instrument_identifier }}</strong>
+                                                            {% if inst.instrument_serial %}
+                                                            <span class="text-muted">({{ inst.instrument_serial }})</span>
+                                                            {% endif %}
+                                                        </li>
+                                                        {% endfor %}
+                                                    </ul>
+                                                </div>
+                                                {% endif %}
+
+                                                {% if platform_instruments %}
+                                                <div class="col-md-4">
+                                                    <h6 class="mb-2">Platform Direct Instruments</h6>
+                                                    <ul class="list-unstyled small">
+                                                        {% for inst in platform_instruments %}
                                                         <li class="mb-1">
                                                             <strong>{{ inst.instrument_name or inst.instrument_identifier }}</strong>
                                                             {% if inst.instrument_serial %}

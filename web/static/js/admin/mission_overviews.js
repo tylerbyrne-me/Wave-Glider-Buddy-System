@@ -449,24 +449,37 @@ document.addEventListener('DOMContentLoaded', async function() {
                     document.getElementById('stDescription').textContent = '-';
                 }
 
-                const platformInstruments = instruments.filter(inst => inst.is_platform_direct);
+                const flightInstruments = instruments.filter(inst => inst.data_logger_type === 'flight');
                 const scienceInstruments = instruments.filter(inst => inst.data_logger_type === 'science');
+                const platformInstruments = instruments.filter(inst => inst.is_platform_direct);
 
-                const platformContainer = document.getElementById('stPlatformInstrumentsContainer');
-                const platformList = document.getElementById('stPlatformInstruments');
-                if (platformInstruments.length > 0) {
-                    platformList.innerHTML = '';
-                    platformInstruments.forEach(inst => {
+                const flightContainer = document.getElementById('stFlightInstrumentsContainer');
+                const flightList = document.getElementById('stFlightInstruments');
+                const flightSerialEl = document.getElementById('stFlightComputerSerial');
+                if (flightInstruments.length > 0) {
+                    const flightComputerSerial = flightInstruments[0].data_logger_serial;
+                    if (flightSerialEl) {
+                        if (flightComputerSerial) {
+                            flightSerialEl.textContent = `Serial: ${escapeHtml(flightComputerSerial)}`;
+                            flightSerialEl.style.display = 'block';
+                        } else {
+                            flightSerialEl.textContent = '';
+                            flightSerialEl.style.display = 'none';
+                        }
+                    }
+                    flightList.innerHTML = '';
+                    flightInstruments.forEach(inst => {
                         const li = document.createElement('li');
                         li.className = 'mb-1';
                         const name = inst.instrument_name || inst.instrument_identifier;
                         const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
                         li.innerHTML = `<strong>${escapeHtml(name)}</strong>${escapeHtml(serial)}`;
-                        platformList.appendChild(li);
+                        flightList.appendChild(li);
                     });
-                    platformContainer.style.display = 'block';
+                    flightContainer.style.display = 'block';
                 } else {
-                    platformContainer.style.display = 'none';
+                    if (flightSerialEl) flightSerialEl.style.display = 'none';
+                    if (flightContainer) flightContainer.style.display = 'none';
                 }
 
                 const scienceContainer = document.getElementById('stScienceInstrumentsContainer');
@@ -498,9 +511,26 @@ document.addEventListener('DOMContentLoaded', async function() {
                     scienceContainer.style.display = 'none';
                 }
 
+                const platformContainer = document.getElementById('stPlatformInstrumentsContainer');
+                const platformList = document.getElementById('stPlatformInstruments');
+                if (platformInstruments.length > 0) {
+                    platformList.innerHTML = '';
+                    platformInstruments.forEach(inst => {
+                        const li = document.createElement('li');
+                        li.className = 'mb-1';
+                        const name = inst.instrument_name || inst.instrument_identifier;
+                        const serial = inst.instrument_serial ? ` (${inst.instrument_serial})` : '';
+                        li.innerHTML = `<strong>${escapeHtml(name)}</strong>${escapeHtml(serial)}`;
+                        platformList.appendChild(li);
+                    });
+                    platformContainer.style.display = 'block';
+                } else {
+                    platformContainer.style.display = 'none';
+                }
+
                 const instrumentsContainer = document.getElementById('stInstrumentsContainer');
-                if (platformInstruments.length > 0 || scienceInstruments.length > 0) {
-                    instrumentsContainer.style.display = 'block';
+                if (flightInstruments.length > 0 || platformInstruments.length > 0 || scienceInstruments.length > 0) {
+                    instrumentsContainer.style.display = 'flex';
                 } else {
                     instrumentsContainer.style.display = 'none';
                 }
