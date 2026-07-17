@@ -1,4 +1,6 @@
+import errno
 import logging
+import os
 import re
 import sys
 import time
@@ -26,16 +28,122 @@ except ImportError:  # pragma: no cover - Unix
     msvcrt = None  # type: ignore
 
 
-def _is_file_lock_error(err: BaseException) -> bool:
-    """True for Windows sharing/permission failures (and rare Unix EACCES) during replace."""
-    if isinstance(err, PermissionError):
+def unique_sibling_tmp_path(dest: Path) -> Path:
+    """Temp path in the same directory as ``dest`` (required for atomic ``os.replace``)."""
+    dest = Path(dest)
+    return dest.with_name(f"{dest.name}.{os.getpid()}.{time.time_ns()}.tmp")
+
+
+def sibling_lock_path(dest: Path) -> Path:
+    """Sidecar lock path for a cache object (``name.lock`` next to ``name``)."""
+    dest = Path(dest)
+    return dest.with_name(f"{dest.name}.lock")
+
+
+def iter_orphan_tmp_candidates(dest: Path) -> list[Path]:
+    """Legacy ``name.tmp`` and unique ``name.*.tmp`` siblings for ``dest``."""
+    dest = Path(dest)
+    parent = dest.parent
+    if not parent.is_dir():
+        return []
+    found: list[Path] = []
+    legacy = parent / f"{dest.name}.tmp"
+    if legacy.is_file() and legacy.stat().st_size > 0:
+        found.append(legacy)
+    found.extend(
+        p for p in parent.glob(f"{dest.name}.*.tmp") if p.is_file() and p.stat().st_size > 0
+    )
+    return found
+
+
+def promote_orphan_tmp_file(dest: Path) -> bool:
+    """
+    If ``dest`` is missing but a non-empty sibling ``.tmp`` exists, promote the newest.
+
+    Recovers mirrors left with only ``*.parquet.tmp`` after a failed rename (seen on
+    glider-dev when shared temp names raced or rename failed).
+    """
+    dest = Path(dest)
+    if dest.is_file():
+        return False
+    candidates = iter_orphan_tmp_candidates(dest)
+    if not candidates:
+        return False
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+    lock_path = sibling_lock_path(dest)
+    try:
+        with cross_process_file_lock(lock_path):
+            if dest.is_file():
+                return False
+            if not newest.is_file():
+                return False
+            os.replace(newest, dest)
+        for path in candidates:
+            if path != newest and path.is_file():
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        logger.info("Promoted orphan cache tmp %s -> %s", newest.name, dest.name)
         return True
+    except OSError as err:
+        logger.warning("Failed to promote orphan tmp %s -> %s: %s", newest, dest, err)
+        return False
+
+
+def write_parquet_file_atomic(df: pd.DataFrame, dest: Path) -> None:
+    """
+    Write a DataFrame to ``dest`` via a unique temp file + ``os.replace``.
+
+    The temp file is fully closed (and fsync'd) before rename so network/local FS
+    that dislike renaming open files (and Windows readers) behave reliably.
+    """
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    promote_orphan_tmp_file(dest)
+    tmp_path = unique_sibling_tmp_path(dest)
+    lock_path = sibling_lock_path(dest)
+    try:
+        with open(tmp_path, "wb") as fh:
+            df.to_parquet(fh, index=False)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        with cross_process_file_lock(lock_path):
+            replace_path_with_retries(tmp_path, dest)
+    except Exception:
+        try:
+            if tmp_path.is_file():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _is_retryable_replace_error(err: BaseException, *, is_windows: bool) -> bool:
+    """
+    Whether a failed replace should be retried.
+
+    - Windows: PermissionError / sharing violation while a reader holds the file.
+    - Linux: open readers do NOT block rename; only rare EBUSY/ETXTBSY are retryable.
+      Treating EACCES as a lock causes multi-second stalls on real permission problems.
+    """
     if not isinstance(err, OSError):
         return False
-    errno = getattr(err, "errno", None)
+    en = getattr(err, "errno", None)
     winerror = getattr(err, "winerror", None)
-    # 13 = EACCES, 32 = Windows ERROR_SHARING_VIOLATION / EBUSY-ish
-    return errno in (13, 32) or winerror in (5, 32)
+    if is_windows:
+        if isinstance(err, PermissionError):
+            return True
+        # WinError 5 (access), 32 (sharing violation)
+        return en in (errno.EACCES, 32) or winerror in (5, 32)
+    # POSIX: EBUSY / ETXTBSY only (not EACCES — that is ownership/mode)
+    retryable = {errno.EBUSY}
+    if hasattr(errno, "ETXTBSY"):
+        retryable.add(errno.ETXTBSY)
+    return en in retryable
 
 
 @contextmanager
@@ -98,37 +206,45 @@ def replace_path_with_retries(
     src: Path,
     dest: Path,
     *,
-    attempts: int = 12,
+    attempts: Optional[int] = None,
     initial_delay_seconds: float = 0.05,
 ) -> None:
     """
-    Replace ``dest`` with ``src`` (``os.replace`` / ``Path.replace`` semantics).
+    Replace ``dest`` with ``src`` via ``os.replace`` (atomic on the same filesystem).
 
     Cross-platform behavior:
-    - **Linux**: rename is atomic and succeeds even if another process still has
-      ``dest`` open (readers keep the old inode). Usually completes on first try.
-    - **Windows**: replace fails with PermissionError/sharing violation while a
-      reader holds ``dest`` (common with parquet). Retry with backoff; only as a
-      last resort on Windows, unlink then rename (brief missing-file window).
+    - **Linux**: one-shot rename; open readers keep the old inode. Does not retry
+      EACCES (permission/ownership). Brief retry only for EBUSY/ETXTBSY.
+    - **Windows**: retry PermissionError/sharing violations; unlink+rename fallback.
     """
     src = Path(src)
     dest = Path(dest)
+    is_windows = sys.platform.startswith("win")
+    if attempts is None:
+        attempts = 12 if is_windows else 3
     delay = initial_delay_seconds
     last_err: Optional[BaseException] = None
-    is_windows = sys.platform.startswith("win")
 
     for attempt in range(1, attempts + 1):
         try:
-            src.replace(dest)
+            os.replace(src, dest)
             return
         except OSError as err:
-            if not _is_file_lock_error(err):
-                raise
             last_err = err
+            if not _is_retryable_replace_error(err, is_windows=is_windows):
+                hint = ""
+                if getattr(err, "errno", None) == errno.EACCES:
+                    hint = (
+                        f" Permission denied writing {dest} — check owner/mode "
+                        f"(e.g. chown -R <appuser> {dest.parent})."
+                    )
+                raise PermissionError(
+                    f"Could not replace {dest} with {src}: {err}.{hint}"
+                ) from err
             if attempt >= attempts:
                 break
             logger.debug(
-                "File replace locked (%s -> %s), retry %s/%s: %s",
+                "File replace retryable failure (%s -> %s), retry %s/%s: %s",
                 src,
                 dest,
                 attempt,
@@ -138,20 +254,18 @@ def replace_path_with_retries(
             time.sleep(delay)
             delay = min(delay * 1.7, 1.0)
 
-    # Unlink+rename is Windows-only: on Linux, keep failing rather than opening a
-    # gap where dest is temporarily missing for concurrent readers.
     if is_windows:
         try:
             if dest.is_file():
                 dest.unlink()
-            src.replace(dest)
+            os.replace(src, dest)
             return
         except OSError as err:
             last_err = err
 
     raise PermissionError(
         f"Could not replace {dest} with {src} after {attempts} attempts "
-        f"(file may be locked by another reader)."
+        f"(last error: {last_err})."
     ) from last_err
 
 

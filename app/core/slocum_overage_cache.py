@@ -32,7 +32,12 @@ from ..core.slocum_mirror_service import (
     ensure_mirror_synced,
     load_mirror_df,
 )
-from ..core.utils import cross_process_file_lock, replace_path_with_retries
+from ..core.utils import (
+    cross_process_file_lock,
+    replace_path_with_retries,
+    unique_sibling_tmp_path,
+    write_parquet_file_atomic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,14 +222,20 @@ def _atomic_write_entry(
     meta: dict[str, Any],
 ) -> None:
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_parquet = parquet_path.with_suffix(".parquet.tmp")
-    tmp_meta = meta_path.with_suffix(".json.tmp")
-    df.to_parquet(tmp_parquet, index=False)
-    byte_size = tmp_parquet.stat().st_size
+    write_parquet_file_atomic(df, parquet_path)
+    byte_size = parquet_path.stat().st_size if parquet_path.is_file() else 0
     meta = {**meta, "byte_size": byte_size, "row_count": int(len(df))}
-    tmp_meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    replace_path_with_retries(tmp_parquet, parquet_path)
-    replace_path_with_retries(tmp_meta, meta_path)
+    tmp_meta = unique_sibling_tmp_path(meta_path)
+    try:
+        tmp_meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        replace_path_with_retries(tmp_meta, meta_path)
+    except Exception:
+        try:
+            if tmp_meta.is_file():
+                tmp_meta.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def mirror_covers_window(dataset_id: str, bundle: str, start_utc: datetime, end_utc: datetime) -> bool:

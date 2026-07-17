@@ -25,7 +25,7 @@ from ..core.slocum_bundle_registry import (
     preprocess_bundle_df,
 )
 from ..core.slocum_erddap_client import fetch_dataset_time_extent, fetch_slocum_data
-from ..core.utils import cross_process_file_lock, replace_path_with_retries
+from ..core.utils import promote_orphan_tmp_file, write_parquet_file_atomic
 from .geo.coordinates import mask_null_island_coordinates
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,8 @@ def invalidate_memory_cache(dataset_id: Optional[str] = None) -> None:
 
 def _load_parquet_from_disk(dataset_id: str, bundle: BundleName) -> pd.DataFrame:
     path = _parquet_path(dataset_id, bundle)
+    # Recover dirs left with only *.parquet.tmp after a failed rename.
+    promote_orphan_tmp_file(path)
     if not path.is_file():
         return pd.DataFrame()
     try:
@@ -118,6 +120,8 @@ def load_mirror_df(dataset_id: str, bundle: BundleName) -> pd.DataFrame:
     if cached is not None and cached[1] == mtime:
         return cached[0].copy()
     df = _load_parquet_from_disk(dataset_id, bundle)
+    # Re-stat after possible orphan promotion.
+    mtime = path.stat().st_mtime if path.is_file() else 0.0
     _MEMORY_CACHE[cache_key] = (df.copy(), mtime)
     return df
 
@@ -125,14 +129,7 @@ def load_mirror_df(dataset_id: str, bundle: BundleName) -> pd.DataFrame:
 def _save_parquet(dataset_id: str, bundle: BundleName, df: pd.DataFrame) -> None:
     if df.empty:
         return
-    path = _parquet_path(dataset_id, bundle)
-    tmp_path = path.with_suffix(".parquet.tmp")
-    lock_path = path.with_suffix(".parquet.lock")
-    # Serialize writers across workers (fcntl on Linux, msvcrt on Windows).
-    # Readers still race on Windows; replace_path_with_retries covers that.
-    with cross_process_file_lock(lock_path):
-        df.to_parquet(tmp_path, index=False)
-        replace_path_with_retries(tmp_path, path)
+    write_parquet_file_atomic(df, _parquet_path(dataset_id, bundle))
     invalidate_memory_cache(dataset_id)
 
 
@@ -317,17 +314,17 @@ async def sync_dataset_mirror(
         if not is_historical:
             merged = _trim_retention(merged, getattr(settings, "slocum_mirror_retention_hours", 72))
         try:
-            _save_parquet(dataset_id, bundle, merged)
-        except PermissionError as err:
-            # Windows: concurrent readers can hold the destination open briefly.
+            await asyncio.to_thread(_save_parquet, dataset_id, bundle, merged)
+        except (PermissionError, OSError) as err:
+            # Do not fail the whole sync/request: serve existing mirror bytes.
             logger.warning(
-                "SLOCUM MIRROR: could not write %s/%s (file locked): %s",
+                "SLOCUM MIRROR: could not write %s/%s: %s",
                 dataset_id,
                 bundle,
                 err,
             )
             sync_summary["bundles"][bundle] = {
-                "error": f"write_locked: {err}",
+                "error": f"write_failed: {err}",
                 "fetched_rows": len(fetched),
                 "decimation_minutes": effective_decimation,
             }
