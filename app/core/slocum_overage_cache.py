@@ -15,8 +15,6 @@ import hashlib
 import json
 import logging
 import os
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,21 +32,12 @@ from ..core.slocum_mirror_service import (
     ensure_mirror_synced,
     load_mirror_df,
 )
+from ..core.utils import cross_process_file_lock, replace_path_with_retries
 
 logger = logging.getLogger(__name__)
 
 RequestContext = Literal["interactive", "report"]
 DataSource = Literal["mirror", "overage_cache", "erddap_overage"]
-
-try:
-    import fcntl  # type: ignore
-except ImportError:  # pragma: no cover - Windows
-    fcntl = None  # type: ignore
-
-try:
-    import msvcrt  # type: ignore
-except ImportError:  # pragma: no cover - Unix
-    msvcrt = None  # type: ignore
 
 _IN_FLIGHT: dict[str, asyncio.Task] = {}
 _IN_FLIGHT_LOCK: asyncio.Lock | None = None
@@ -172,52 +161,6 @@ def _entry_paths(dataset_id: str, bundle: str, cache_key: str) -> tuple[Path, Pa
     return base.with_suffix(".parquet"), base.with_suffix(".json"), base.with_suffix(".lock")
 
 
-@contextmanager
-def _file_lock(lock_path: Path, *, timeout_seconds: float = 180.0) -> Iterator[None]:
-    """Cross-process exclusive lock using fcntl (Unix) or msvcrt (Windows)."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(lock_path, "a+b")
-    start = time.monotonic()
-    locked = False
-    try:
-        while True:
-            try:
-                if fcntl is not None:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    locked = True
-                    break
-                if msvcrt is not None:
-                    fh.seek(0)
-                    if fh.read(1) == b"":
-                        fh.write(b"0")
-                        fh.flush()
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                    locked = True
-                    break
-                # No platform lock available — best effort proceed.
-                locked = True
-                break
-            except OSError:
-                if (time.monotonic() - start) >= timeout_seconds:
-                    raise TimeoutError(f"Timed out waiting for overage lock {lock_path}")
-                time.sleep(0.1)
-        yield
-    finally:
-        try:
-            if locked:
-                if fcntl is not None:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                elif msvcrt is not None:
-                    fh.seek(0)
-                    try:
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                    except OSError:
-                        pass
-        finally:
-            fh.close()
-
-
 def _ttl_hours() -> int:
     return max(1, int(getattr(settings, "slocum_overage_ttl_hours", 24)))
 
@@ -280,8 +223,8 @@ def _atomic_write_entry(
     byte_size = tmp_parquet.stat().st_size
     meta = {**meta, "byte_size": byte_size, "row_count": int(len(df))}
     tmp_meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    tmp_parquet.replace(parquet_path)
-    tmp_meta.replace(meta_path)
+    replace_path_with_retries(tmp_parquet, parquet_path)
+    replace_path_with_retries(tmp_meta, meta_path)
 
 
 def mirror_covers_window(dataset_id: str, bundle: str, start_utc: datetime, end_utc: datetime) -> bool:
@@ -614,7 +557,7 @@ async def _populate_overage_entry(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     # Acquire cross-process lock, then re-check disk before hitting ERDDAP.
     def _precheck() -> Optional[tuple[pd.DataFrame, dict[str, Any]]]:
-        with _file_lock(lock_path):
+        with cross_process_file_lock(lock_path):
             cached = _load_cached_entry(parquet_path, meta_path)
             if cached is not None:
                 _STATS["hits"] += 1
@@ -657,7 +600,7 @@ async def _populate_overage_entry(
     }
 
     def _locked_write() -> tuple[pd.DataFrame, dict[str, Any]]:
-        with _file_lock(lock_path):
+        with cross_process_file_lock(lock_path):
             cached = _load_cached_entry(parquet_path, meta_path)
             if cached is not None:
                 df, existing_meta = cached

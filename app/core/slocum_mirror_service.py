@@ -25,6 +25,7 @@ from ..core.slocum_bundle_registry import (
     preprocess_bundle_df,
 )
 from ..core.slocum_erddap_client import fetch_dataset_time_extent, fetch_slocum_data
+from ..core.utils import cross_process_file_lock, replace_path_with_retries
 from .geo.coordinates import mask_null_island_coordinates
 
 logger = logging.getLogger(__name__)
@@ -126,8 +127,12 @@ def _save_parquet(dataset_id: str, bundle: BundleName, df: pd.DataFrame) -> None
         return
     path = _parquet_path(dataset_id, bundle)
     tmp_path = path.with_suffix(".parquet.tmp")
-    df.to_parquet(tmp_path, index=False)
-    tmp_path.replace(path)
+    lock_path = path.with_suffix(".parquet.lock")
+    # Serialize writers across workers (fcntl on Linux, msvcrt on Windows).
+    # Readers still race on Windows; replace_path_with_retries covers that.
+    with cross_process_file_lock(lock_path):
+        df.to_parquet(tmp_path, index=False)
+        replace_path_with_retries(tmp_path, path)
     invalidate_memory_cache(dataset_id)
 
 
@@ -311,7 +316,22 @@ async def sync_dataset_mirror(
         merged = _merge_mirror_frames(existing, fetched)
         if not is_historical:
             merged = _trim_retention(merged, getattr(settings, "slocum_mirror_retention_hours", 72))
-        _save_parquet(dataset_id, bundle, merged)
+        try:
+            _save_parquet(dataset_id, bundle, merged)
+        except PermissionError as err:
+            # Windows: concurrent readers can hold the destination open briefly.
+            logger.warning(
+                "SLOCUM MIRROR: could not write %s/%s (file locked): %s",
+                dataset_id,
+                bundle,
+                err,
+            )
+            sync_summary["bundles"][bundle] = {
+                "error": f"write_locked: {err}",
+                "fetched_rows": len(fetched),
+                "decimation_minutes": effective_decimation,
+            }
+            continue
         last_ts = _last_timestamp(merged)
         sync_summary["bundles"][bundle] = {
             "rows": len(merged),

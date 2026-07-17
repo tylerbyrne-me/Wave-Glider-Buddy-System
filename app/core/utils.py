@@ -1,8 +1,12 @@
 import logging
 import re
+import sys
+import time
 import warnings
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone, date
-from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import pandas as pd
 
@@ -10,6 +14,145 @@ logger = logging.getLogger(__name__)
 
 # Minimum valid date for timestamps (filters out epoch dates from parsing failures)
 MIN_VALID_TIMESTAMP = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+try:
+    import fcntl  # type: ignore
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore
+
+try:
+    import msvcrt  # type: ignore
+except ImportError:  # pragma: no cover - Unix
+    msvcrt = None  # type: ignore
+
+
+def _is_file_lock_error(err: BaseException) -> bool:
+    """True for Windows sharing/permission failures (and rare Unix EACCES) during replace."""
+    if isinstance(err, PermissionError):
+        return True
+    if not isinstance(err, OSError):
+        return False
+    errno = getattr(err, "errno", None)
+    winerror = getattr(err, "winerror", None)
+    # 13 = EACCES, 32 = Windows ERROR_SHARING_VIOLATION / EBUSY-ish
+    return errno in (13, 32) or winerror in (5, 32)
+
+
+@contextmanager
+def cross_process_file_lock(
+    lock_path: Path,
+    *,
+    timeout_seconds: float = 180.0,
+) -> Iterator[None]:
+    """
+    Exclusive cross-process lock for shared-disk cache writers.
+
+    - Linux/macOS: ``fcntl.flock`` (works across gunicorn workers)
+    - Windows: ``msvcrt.locking`` (best-effort; still pair with replace retries)
+    """
+    lock_path = Path(lock_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "a+b")
+    start = time.monotonic()
+    locked = False
+    try:
+        while True:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                    break
+                if msvcrt is not None:
+                    fh.seek(0)
+                    if fh.read(1) == b"":
+                        fh.write(b"0")
+                        fh.flush()
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    locked = True
+                    break
+                # No platform lock available — proceed without blocking.
+                locked = True
+                break
+            except OSError:
+                if (time.monotonic() - start) >= timeout_seconds:
+                    raise TimeoutError(f"Timed out waiting for file lock {lock_path}")
+                time.sleep(0.1)
+        yield
+    finally:
+        try:
+            if locked:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                elif msvcrt is not None:
+                    fh.seek(0)
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+        finally:
+            fh.close()
+
+
+def replace_path_with_retries(
+    src: Path,
+    dest: Path,
+    *,
+    attempts: int = 12,
+    initial_delay_seconds: float = 0.05,
+) -> None:
+    """
+    Replace ``dest`` with ``src`` (``os.replace`` / ``Path.replace`` semantics).
+
+    Cross-platform behavior:
+    - **Linux**: rename is atomic and succeeds even if another process still has
+      ``dest`` open (readers keep the old inode). Usually completes on first try.
+    - **Windows**: replace fails with PermissionError/sharing violation while a
+      reader holds ``dest`` (common with parquet). Retry with backoff; only as a
+      last resort on Windows, unlink then rename (brief missing-file window).
+    """
+    src = Path(src)
+    dest = Path(dest)
+    delay = initial_delay_seconds
+    last_err: Optional[BaseException] = None
+    is_windows = sys.platform.startswith("win")
+
+    for attempt in range(1, attempts + 1):
+        try:
+            src.replace(dest)
+            return
+        except OSError as err:
+            if not _is_file_lock_error(err):
+                raise
+            last_err = err
+            if attempt >= attempts:
+                break
+            logger.debug(
+                "File replace locked (%s -> %s), retry %s/%s: %s",
+                src,
+                dest,
+                attempt,
+                attempts,
+                err,
+            )
+            time.sleep(delay)
+            delay = min(delay * 1.7, 1.0)
+
+    # Unlink+rename is Windows-only: on Linux, keep failing rather than opening a
+    # gap where dest is temporarily missing for concurrent readers.
+    if is_windows:
+        try:
+            if dest.is_file():
+                dest.unlink()
+            src.replace(dest)
+            return
+        except OSError as err:
+            last_err = err
+
+    raise PermissionError(
+        f"Could not replace {dest} with {src} after {attempts} attempts "
+        f"(file may be locked by another reader)."
+    ) from last_err
 
 
 def get_effective_local_path(
