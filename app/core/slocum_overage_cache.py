@@ -35,6 +35,7 @@ from ..core.slocum_mirror_service import (
 from ..core.utils import (
     cross_process_file_lock,
     replace_path_with_retries,
+    resolve_data_path,
     unique_sibling_tmp_path,
     write_parquet_file_atomic,
 )
@@ -82,7 +83,9 @@ def _get_in_flight_lock() -> asyncio.Lock:
 
 
 def get_overage_root() -> Path:
-    root = Path(getattr(settings, "slocum_overage_cache_dir", Path("data_store/slocum_overage_cache")))
+    root = resolve_data_path(
+        getattr(settings, "slocum_overage_cache_dir", Path("data_store/slocum_overage_cache"))
+    )
     root.mkdir(parents=True, exist_ok=True)
     return root
 

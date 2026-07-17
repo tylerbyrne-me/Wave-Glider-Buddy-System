@@ -25,7 +25,7 @@ from ..core.slocum_bundle_registry import (
     preprocess_bundle_df,
 )
 from ..core.slocum_erddap_client import fetch_dataset_time_extent, fetch_slocum_data
-from ..core.utils import promote_orphan_tmp_file, write_parquet_file_atomic
+from ..core.utils import promote_orphan_tmp_file, resolve_data_path, write_parquet_file_atomic
 from .geo.coordinates import mask_null_island_coordinates
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def _get_sync_lock(dataset_id: str) -> asyncio.Lock:
 
 
 def get_mirror_root() -> Path:
-    root = getattr(settings, "slocum_mirror_dir", Path("data_store/slocum_cache"))
+    root = resolve_data_path(getattr(settings, "slocum_mirror_dir", Path("data_store/slocum_cache")))
     root.mkdir(parents=True, exist_ok=True)
     return root
 

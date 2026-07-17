@@ -2,6 +2,7 @@ import errno
 import logging
 import os
 import re
+import shutil
 import sys
 import time
 import warnings
@@ -26,6 +27,24 @@ try:
     import msvcrt  # type: ignore
 except ImportError:  # pragma: no cover - Unix
     msvcrt = None  # type: ignore
+
+
+def project_root() -> Path:
+    """Repo root (directory that contains ``app/``)."""
+    return Path(__file__).resolve().parents[2]
+
+
+def resolve_data_path(path_value: Path | str) -> Path:
+    """
+    Resolve a configured data_store path to an absolute location.
+
+    Relative paths are anchored at the project root so gunicorn workers share the
+    same files regardless of process cwd.
+    """
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = project_root() / path
+    return path.resolve()
 
 
 def unique_sibling_tmp_path(dest: Path) -> Path:
@@ -56,12 +75,22 @@ def iter_orphan_tmp_candidates(dest: Path) -> list[Path]:
     return found
 
 
+def _copy_replace(src: Path, dest: Path) -> None:
+    """Non-atomic fallback when rename/replace is refused by the filesystem."""
+    src = Path(src)
+    dest = Path(dest)
+    shutil.copyfile(src, dest)
+    try:
+        src.unlink()
+    except OSError:
+        pass
+
+
 def promote_orphan_tmp_file(dest: Path) -> bool:
     """
     If ``dest`` is missing but a non-empty sibling ``.tmp`` exists, promote the newest.
 
-    Recovers mirrors left with only ``*.parquet.tmp`` after a failed rename (seen on
-    glider-dev when shared temp names raced or rename failed).
+    Uses ``os.replace`` first, then copy+unlink if rename is rejected (NFS/SELinux).
     """
     dest = Path(dest)
     if dest.is_file():
@@ -77,7 +106,16 @@ def promote_orphan_tmp_file(dest: Path) -> bool:
                 return False
             if not newest.is_file():
                 return False
-            os.replace(newest, dest)
+            try:
+                os.replace(newest, dest)
+            except OSError as err:
+                logger.warning(
+                    "Promote rename failed (%s errno=%s); using copy fallback for %s",
+                    err,
+                    getattr(err, "errno", None),
+                    dest.name,
+                )
+                _copy_replace(newest, dest)
         for path in candidates:
             if path != newest and path.is_file():
                 try:
@@ -87,16 +125,22 @@ def promote_orphan_tmp_file(dest: Path) -> bool:
         logger.info("Promoted orphan cache tmp %s -> %s", newest.name, dest.name)
         return True
     except OSError as err:
-        logger.warning("Failed to promote orphan tmp %s -> %s: %s", newest, dest, err)
+        logger.warning(
+            "Failed to promote orphan tmp %s -> %s: %s (errno=%s)",
+            newest,
+            dest,
+            err,
+            getattr(err, "errno", None),
+        )
         return False
 
 
 def write_parquet_file_atomic(df: pd.DataFrame, dest: Path) -> None:
     """
-    Write a DataFrame to ``dest`` via a unique temp file + ``os.replace``.
+    Persist a DataFrame to ``dest``.
 
-    The temp file is fully closed (and fsync'd) before rename so network/local FS
-    that dislike renaming open files (and Windows readers) behave reliably.
+    Prefer unique-temp + ``os.replace``. If rename is rejected, copy or write the
+    destination directly under a cross-process lock (still correct, less atomic).
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -112,7 +156,27 @@ def write_parquet_file_atomic(df: pd.DataFrame, dest: Path) -> None:
             except OSError:
                 pass
         with cross_process_file_lock(lock_path):
-            replace_path_with_retries(tmp_path, dest)
+            try:
+                replace_path_with_retries(tmp_path, dest)
+            except OSError as err:
+                logger.warning(
+                    "Atomic replace failed for %s (%s errno=%s); writing destination directly",
+                    dest,
+                    err,
+                    getattr(err, "errno", None),
+                )
+                with open(dest, "wb") as fh:
+                    df.to_parquet(fh, index=False)
+                    fh.flush()
+                    try:
+                        os.fsync(fh.fileno())
+                    except OSError:
+                        pass
+                try:
+                    if tmp_path.is_file():
+                        tmp_path.unlink()
+                except OSError:
+                    pass
     except Exception:
         try:
             if tmp_path.is_file():
@@ -213,9 +277,11 @@ def replace_path_with_retries(
     Replace ``dest`` with ``src`` via ``os.replace`` (atomic on the same filesystem).
 
     Cross-platform behavior:
-    - **Linux**: one-shot rename; open readers keep the old inode. Does not retry
-      EACCES (permission/ownership). Brief retry only for EBUSY/ETXTBSY.
-    - **Windows**: retry PermissionError/sharing violations; unlink+rename fallback.
+    - **Linux**: one-shot rename; open readers keep the old inode. Brief retry for
+      EBUSY/ETXTBSY. On rename refusal (EACCES/EXDEV/NFS quirks), fall back to
+      copy+unlink so caches still land.
+    - **Windows**: retry PermissionError/sharing violations; unlink+rename then
+      copy fallback.
     """
     src = Path(src)
     dest = Path(dest)
@@ -232,15 +298,7 @@ def replace_path_with_retries(
         except OSError as err:
             last_err = err
             if not _is_retryable_replace_error(err, is_windows=is_windows):
-                hint = ""
-                if getattr(err, "errno", None) == errno.EACCES:
-                    hint = (
-                        f" Permission denied writing {dest} — check owner/mode "
-                        f"(e.g. chown -R <appuser> {dest.parent})."
-                    )
-                raise PermissionError(
-                    f"Could not replace {dest} with {src}: {err}.{hint}"
-                ) from err
+                break
             if attempt >= attempts:
                 break
             logger.debug(
@@ -262,6 +320,20 @@ def replace_path_with_retries(
             return
         except OSError as err:
             last_err = err
+
+    # Rename refused (NFS/SELinux/EXDEV/etc.): copy bytes then remove src.
+    try:
+        logger.warning(
+            "os.replace failed for %s -> %s (%s errno=%s); using copy fallback",
+            src,
+            dest,
+            last_err,
+            getattr(last_err, "errno", None) if last_err else None,
+        )
+        _copy_replace(src, dest)
+        return
+    except OSError as copy_err:
+        last_err = copy_err
 
     raise PermissionError(
         f"Could not replace {dest} with {src} after {attempts} attempts "
