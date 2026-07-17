@@ -18,6 +18,7 @@ from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyl
 from .. import models, utils
 from ..plotting import assign_note_letters
 from ..data.summaries import get_ais_summary, get_ais_summary_stats
+from ..geo.coordinates import drop_null_island_rows
 from . import charts
 from .styling import (
     A4_PORTRAIT,
@@ -516,6 +517,7 @@ def build_telemetry_section(
     styles = build_paragraph_styles()
     parts: List[Any] = [Paragraph(section_title.replace("&", "&amp;"), styles["Heading2"]), Spacer(1, 4)]
     df = telemetry_df.dropna(subset=["latitude", "longitude"]).copy()
+    df = drop_null_island_rows(df, lat_col="latitude", lon_col="longitude")
     df["lastLocationFix"] = utils.parse_timestamp_column(
         df["lastLocationFix"], errors="coerce", utc=True
     )

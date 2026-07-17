@@ -8,6 +8,7 @@ import pandas as pd
 
 from .. import utils  # Import the utils module
 from ..constants import get_ess_state
+from ..geo.coordinates import drop_null_island_rows, latest_valid_lat_lon
 from .processors import preprocess_telemetry_df  # type: ignore
 from .processors import preprocess_wg_vm4_df  # type: ignore
 from .processors import (preprocess_ais_df, preprocess_ctd_df,  # type: ignore
@@ -46,6 +47,7 @@ def _track_length_nautical_miles(df: pd.DataFrame) -> Optional[float]:
         return None
 
     seg = df[list(required)].dropna(subset=list(required)).sort_values("Timestamp")
+    seg = drop_null_island_rows(seg, lat_col="Latitude", lon_col="Longitude")
     if len(seg) < 2:
         return 0.0
 
@@ -942,9 +944,15 @@ def get_navigation_status(
         total_distance_mission_nm = _telemetry_track_distance_nm(df_telemetry_processed)
         distance_traveled_24h_nm = _telemetry_track_distance_nm(df_last_24h)
 
+        # Prefer last GPS fix that is not a (0,0) unlock sentinel.
+        lat, lon, _ = latest_valid_lat_lon(df_telemetry_processed)
+        if lat is None:
+            lat = last_row.get("Latitude")
+            lon = last_row.get("Longitude")
+
         result_shell["values"] = {
-            "Latitude": last_row.get("Latitude"),
-            "Longitude": last_row.get("Longitude"),
+            "Latitude": lat,
+            "Longitude": lon,
             "GliderHeading": last_row.get("GliderHeading"),
             "SpeedOverGround": last_row.get("SpeedOverGround"),
             "AvgSpeedOverGround24h": avg_sog_24h,

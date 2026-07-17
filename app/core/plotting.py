@@ -26,6 +26,7 @@ from .data.processors import (preprocess_ctd_df, preprocess_power_df,
                          preprocess_wave_df, preprocess_weather_df)
 from .data.processors import preprocess_telemetry_df, telemetry_speed_over_ground_series
 from .geo.bathymetry import fetch_etopo_bathymetry, nice_contour_levels
+from .geo.coordinates import drop_null_island_rows
 from .infra.feature_toggles import is_report_bathymetry_contours_enabled
 
 logger = logging.getLogger(__name__)
@@ -1042,6 +1043,7 @@ def plot_telemetry_page_with_notes(
 
     df = df.sort_values(by='lastLocationFix')
     df_clean = df.dropna(subset=['latitude', 'longitude'])
+    df_clean = drop_null_island_rows(df_clean, lat_col="latitude", lon_col="longitude")
     if df_clean.empty:
         ax = fig.add_subplot(1, 1, 1)
         ax.set_axis_off()

@@ -29,6 +29,8 @@ from .processor_utils import (
     initial_dataframe_setup,
     apply_common_processing,
 )
+from ..geo.coordinates import mask_null_island_coordinates
+
 
 # Create aliases for backward compatibility
 _initial_dataframe_setup = initial_dataframe_setup
@@ -597,6 +599,9 @@ def preprocess_telemetry_df(df: pd.DataFrame) -> pd.DataFrame:
             df_processed["HeadingFloatDegrees"]
         )
 
+    # GPS unlock often logs exact (0,0); mask so maps/tracks ignore it.
+    df_processed = mask_null_island_coordinates(df_processed)
+
     return df_processed
 
 
@@ -636,7 +641,8 @@ def preprocess_slocum_track_df(df: pd.DataFrame) -> pd.DataFrame:
     )
     if df_processed.empty:
         return df_processed
-    # Drop rows with missing lat/lon so map has valid points
+    # Ignore GPS-unlock (0,0), then drop rows with missing lat/lon
+    df_processed = mask_null_island_coordinates(df_processed)
     df_processed = df_processed.dropna(subset=["Latitude", "Longitude"])
     return df_processed
 
@@ -973,6 +979,9 @@ def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
         if std_name not in df_processed.columns:
             df_processed[std_name] = np.nan
         df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
+
+    # Mask GPS-unlock (0,0) without dropping rows (other sensors may still be valid).
+    df_processed = mask_null_island_coordinates(df_processed)
 
     return df_processed
 

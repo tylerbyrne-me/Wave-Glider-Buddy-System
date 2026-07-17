@@ -90,6 +90,7 @@ from .config import settings
 from .core import models  # type: ignore
 from .core import utils, template_context, reporting  # type: ignore
 from .core.geo import forecast
+from .core.geo.coordinates import latest_valid_lat_lon
 from .core.data import loaders, processors, summaries
 from .core.infra import feature_toggles
 from .core.stations import ess_waypoints
@@ -2429,11 +2430,8 @@ async def get_ess_planning_page(
                     and "Longitude" in df_telemetry.columns
                 )
                 if telemetry_has_required:
-                    latest = df_telemetry.sort_values("Timestamp", ascending=False).iloc[0]
-                    lat = latest.get("Latitude")
-                    lon = latest.get("Longitude")
-                    ts = latest.get("Timestamp")
-                    if lat is not None and lon is not None and pd.notna(lat) and pd.notna(lon):
+                    lat, lon, ts = latest_valid_lat_lon(df_telemetry)
+                    if lat is not None and lon is not None:
                         ts_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC") if hasattr(ts, "strftime") else str(ts)
                         initial_position = {"lat": float(lat), "lon": float(lon), "timestamp_str": ts_str}
         else:
@@ -2987,19 +2985,24 @@ async def get_weather_forecast(
                     subset=["lastLocationFix"]
                 )  # Remove rows where conversion failed
                 if not df_telemetry.empty:
-                    latest_telemetry = df_telemetry.sort_values(
-                        "lastLocationFix", ascending=False
-                    ).iloc[0]
-                    # Try to get lat/lon, allowing for different capitalizations
-                    inferred_lat = latest_telemetry.get(
+                    lat_col = (
                         "latitude"
-                    ) or latest_telemetry.get("Latitude")
-                    inferred_lon = latest_telemetry.get(
+                        if "latitude" in df_telemetry.columns
+                        else "Latitude"
+                    )
+                    lon_col = (
                         "longitude"
-                    ) or latest_telemetry.get("Longitude")
-
-                    if not pd.isna(inferred_lat) and not pd.isna(inferred_lon):
-                        final_lat, final_lon = float(inferred_lat), float(inferred_lon)
+                        if "longitude" in df_telemetry.columns
+                        else "Longitude"
+                    )
+                    inferred_lat, inferred_lon, _ = latest_valid_lat_lon(
+                        df_telemetry,
+                        lat_col=lat_col,
+                        lon_col=lon_col,
+                        time_col="lastLocationFix",
+                    )
+                    if inferred_lat is not None and inferred_lon is not None:
+                        final_lat, final_lon = inferred_lat, inferred_lon
                         logger.info(
                             f"Inferred location for mission {mission_id}: "
                             f"Lat={final_lat}, Lon={final_lon}"
@@ -3074,18 +3077,24 @@ async def get_marine_weather_data(
                 )
                 df_telemetry = df_telemetry.dropna(subset=["lastLocationFix"])
                 if not df_telemetry.empty:
-                    latest_telemetry = df_telemetry.sort_values(
-                        "lastLocationFix", ascending=False
-                    ).iloc[0]
-                    inferred_lat = latest_telemetry.get(
+                    lat_col = (
                         "latitude"
-                    ) or latest_telemetry.get("Latitude")
-                    inferred_lon = latest_telemetry.get(
+                        if "latitude" in df_telemetry.columns
+                        else "Latitude"
+                    )
+                    lon_col = (
                         "longitude"
-                    ) or latest_telemetry.get("Longitude")
-
-                    if not pd.isna(inferred_lat) and not pd.isna(inferred_lon):
-                        final_lat, final_lon = float(inferred_lat), float(inferred_lon)
+                        if "longitude" in df_telemetry.columns
+                        else "Longitude"
+                    )
+                    inferred_lat, inferred_lon, _ = latest_valid_lat_lon(
+                        df_telemetry,
+                        lat_col=lat_col,
+                        lon_col=lon_col,
+                        time_col="lastLocationFix",
+                    )
+                    if inferred_lat is not None and inferred_lon is not None:
+                        final_lat, final_lon = inferred_lat, inferred_lon
                         logger.info(
                             f"Inferred location for marine forecast "
                             f"(mission {mission_id}): Lat={final_lat}, Lon={final_lon}"

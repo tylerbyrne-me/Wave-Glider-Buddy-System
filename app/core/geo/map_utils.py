@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from .coordinates import mask_null_island_coordinates
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,11 +48,12 @@ def prepare_track_points(df: pd.DataFrame, max_points: int = 1000) -> List[Dict[
         logger.debug(f"Available columns: {df.columns.tolist()}")
         return []
     
-    # Drop rows with missing coordinates
-    df_clean = df.dropna(subset=['Latitude', 'Longitude', 'Timestamp'])
+    # Ignore exact (0,0) GPS-unlock sentinels, then drop missing coordinates
+    df_clean = mask_null_island_coordinates(df, lat_col="Latitude", lon_col="Longitude")
+    df_clean = df_clean.dropna(subset=['Latitude', 'Longitude', 'Timestamp'])
     
     if df_clean.empty:
-        logger.warning("No valid coordinates found after dropping NaN values")
+        logger.warning("No valid coordinates found after dropping NaN / null-island values")
         return []
     
     # Sort by timestamp to ensure chronological order

@@ -39,6 +39,7 @@ from .styling import WeeklyReportDocTemplate, build_paragraph_styles
 from . import sections
 from .week_windows import compute_iso_week_windows, resolve_mission_time_bounds
 from ..data.summaries import get_ais_summary_stats, theoretical_max_wh
+from ..geo.coordinates import drop_null_island_rows
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def _calculate_telemetry_summary(df: pd.DataFrame) -> dict:
     df_clean = df_working.dropna(subset=["latitude", "longitude", "lastLocationFix"]).sort_values(
         by="lastLocationFix"
     ).copy()
+    df_clean = drop_null_island_rows(df_clean, lat_col="latitude", lon_col="longitude")
     if len(df_clean) < 2:
         return summary
     R = 6371
@@ -363,6 +365,9 @@ def _build_mission_note_annotations(
     if "lastLocationFix" not in telemetry_df_filtered.columns:
         return []
     telemetry_points = telemetry_df_filtered.dropna(subset=["lastLocationFix", "latitude", "longitude"]).copy()
+    telemetry_points = drop_null_island_rows(
+        telemetry_points, lat_col="latitude", lon_col="longitude"
+    )
     if telemetry_points.empty:
         return []
     telemetry_points["lastLocationFix"] = utils.parse_timestamp_column(

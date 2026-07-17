@@ -25,6 +25,7 @@ from ..core.slocum_bundle_registry import (
     preprocess_bundle_df,
 )
 from ..core.slocum_erddap_client import fetch_dataset_time_extent, fetch_slocum_data
+from .geo.coordinates import mask_null_island_coordinates
 
 logger = logging.getLogger(__name__)
 
@@ -554,4 +555,6 @@ def dashboard_df_to_track_df(dashboard_df: pd.DataFrame) -> pd.DataFrame:
         track = track.rename(columns={depth_col: "Depth"})
     elif "Depth" not in track.columns:
         track["Depth"] = pd.NA
+    if "Latitude" in track.columns and "Longitude" in track.columns:
+        track = mask_null_island_coordinates(track)
     return track.dropna(subset=["Latitude", "Longitude"], how="any")
