@@ -943,6 +943,166 @@ def build_checklist_autofill_snapshot(
     }
 
 
+# Checklist form item id → raw series for Plot-it popups.
+# Optional commanded_column / commanded_label add a second scatter series.
+# resolve_buoyancy=true picks oil vs ballast via resolve_buoyancy_columns(+ depth_class).
+CHECKLIST_PLOTTABLE_ITEMS: dict[str, dict[str, str]] = {
+    "depth_rate_val": {
+        "column": "MDepthRateAvgFinal",
+        "label": "m_depth_rate_avg_final",
+        "unit": "m/s",
+    },
+    "vacuum_val": {
+        "column": "MVacuum",
+        "label": "m_vacuum",
+        "unit": "mmHg",
+    },
+    "roll_val": {
+        "column": "MRoll",
+        "label": "m_roll",
+        "unit": "°",
+    },
+    "pitch_val": {
+        "column": "MPitch",
+        "label": "m_pitch",
+        "unit": "°",
+        "commanded_column": "CPitch",
+        "commanded_label": "c_pitch",
+    },
+    "fin_val": {
+        "column": "MFin",
+        "label": "m_fin",
+        "unit": "rad",
+        "commanded_column": "CFin",
+        "commanded_label": "c_fin",
+    },
+    "battpos_val": {
+        "column": "MBattpos",
+        "label": "m_battpos",
+        "unit": "in",
+        "commanded_column": "CBattpos",
+        "commanded_label": "c_battpos",
+    },
+    "oil_vol_val": {
+        "column": "MDeOilVol",
+        "label": "m_de_oil_vol",
+        "unit": "cc",
+        "commanded_column": "CDeOilVol",
+        "commanded_label": "c_de_oil_vol",
+        "resolve_buoyancy": "true",
+    },
+}
+
+CHECKLIST_SERIES_MAX_HOURS_BACK = 168
+CHECKLIST_SERIES_DEPTH_COLUMN = "MDepth"
+
+
+def get_plottable_spec(item_id: str) -> Optional[dict[str, str]]:
+    """Return plottable spec for a checklist item id, or None if not plottable."""
+    if not item_id:
+        return None
+    return CHECKLIST_PLOTTABLE_ITEMS.get(str(item_id).strip())
+
+
+def _iso_z_timestamp(ts: Any) -> Optional[str]:
+    try:
+        stamp = pd.Timestamp(ts)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(stamp):
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.tz_localize("UTC")
+    else:
+        stamp = stamp.tz_convert("UTC")
+    return stamp.isoformat().replace("+00:00", "Z")
+
+
+def _series_points_non_null(df: pd.DataFrame, value_col: str) -> list[dict[str, Any]]:
+    """
+    Emit ``[{t, v}, ...]`` for valid samples only (no null placeholders).
+
+    Checklist ERDDAP rows interleave many sensors: aligning every timestamp and
+    inserting null depth breaks Chart.js lines into dozens of segments
+    (``spanGaps: false``). Each series is therefore densified independently;
+    tooltips look up nearest depth by time.
+    """
+    if df is None or df.empty or "Timestamp" not in df.columns or value_col not in df.columns:
+        return []
+    work = df[["Timestamp", value_col]].copy()
+    work[value_col] = pd.to_numeric(work[value_col], errors="coerce")
+    work = work.dropna(subset=["Timestamp", value_col]).sort_values("Timestamp")
+    if work.empty:
+        return []
+    points: list[dict[str, Any]] = []
+    for _, row in work.iterrows():
+        t_iso = _iso_z_timestamp(row["Timestamp"])
+        if t_iso is None:
+            continue
+        points.append({"t": t_iso, "v": float(row[value_col])})
+    return points
+
+
+def build_checklist_series_payload(
+    checklist_df: Optional[pd.DataFrame],
+    item_id: str,
+    *,
+    cache_metadata: Optional[dict[str, Any]] = None,
+    depth_class: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Build Plot-it JSON: depth + measured value (+ optional commanded) over time.
+    Raises ``KeyError`` when ``item_id`` is not in the plottable registry.
+    """
+    spec = get_plottable_spec(item_id)
+    if spec is None:
+        raise KeyError(item_id)
+
+    df = checklist_df if checklist_df is not None else pd.DataFrame()
+
+    measured_col = spec["column"]
+    measured_label = spec["label"]
+    commanded_col = spec.get("commanded_column")
+    commanded_label = spec.get("commanded_label")
+    unit = spec["unit"]
+
+    if spec.get("resolve_buoyancy") == "true":
+        meas, cmd, buoy_label = resolve_buoyancy_columns(df, depth_class)
+        if meas and cmd:
+            measured_col = meas
+            commanded_col = cmd
+            measured_label = buoy_label
+            commanded_label = (
+                "c_ballast_pumped" if meas == "MBallastPumped" else "c_de_oil_vol"
+            )
+            unit = "cc"
+        else:
+            measured_col = ""
+            commanded_col = None
+            commanded_label = None
+
+    commanded_points: list[dict[str, Any]] = []
+    if commanded_col:
+        commanded_points = _series_points_non_null(df, commanded_col)
+
+    values = (
+        _series_points_non_null(df, measured_col) if measured_col else []
+    )
+
+    return {
+        "item_id": item_id,
+        "label": measured_label,
+        "unit": unit,
+        "column": measured_col or spec["column"],
+        "commanded_label": commanded_label,
+        "commanded_column": commanded_col,
+        "depth": _series_points_non_null(df, CHECKLIST_SERIES_DEPTH_COLUMN),
+        "values": values,
+        "commanded": commanded_points,
+        "cache_metadata": cache_metadata or {},
+    }
+
+
 async def load_checklist_autofill_values(
     dataset_id: str,
     references: Optional[dict[str, Any]] = None,

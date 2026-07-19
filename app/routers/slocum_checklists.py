@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import select
@@ -23,11 +24,16 @@ from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.slocum_checklist_autofill import (
     CHECKLIST_FORM_TITLE,
     CHECKLIST_FORM_TYPE,
+    CHECKLIST_HOURS_BACK,
+    CHECKLIST_SERIES_MAX_HOURS_BACK,
+    build_checklist_series_payload,
+    get_plottable_spec,
     load_checklist_autofill_values,
     parse_checklist_reference_values,
 )
 from ..core.slocum_deployment_service import resolve_deployment_for_dataset
 from ..core.slocum_mirror_service import is_historical_dataset
+from ..core.slocum_overage_cache import OverageResult
 from ..core.template_context import get_template_context
 from ..core.templates import templates
 from ..forms.slocum_checklist_definitions import get_slocum_daily_checklist_schema
@@ -146,6 +152,81 @@ async def get_checklist_template(
             "endurance_ref_val": f"{references.get('endurance_amphr_total') or '—'} Ah",
         }
     return _apply_autofill_to_schema(schema, autofill)
+
+
+@router.get(
+    "/api/slocum/checklists/{dataset_id}/series",
+    dependencies=[_slocum_access],
+)
+async def get_checklist_series(
+    dataset_id: str,
+    item_id: str = Query(..., description="Checklist form item id (e.g. depth_rate_val)"),
+    hours_back: int = Query(
+        CHECKLIST_HOURS_BACK,
+        ge=1,
+        le=CHECKLIST_SERIES_MAX_HOURS_BACK,
+        description="Hours of checklist bundle data to plot",
+    ),
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """
+    Dual time-series for Plot-it: depth (m) + the selected checklist variable.
+
+    Temporary client-side charts only — no disk artifacts.
+    """
+    _require_slocum_platform()
+    if get_plottable_spec(item_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Checklist item '{item_id}' is not plottable",
+        )
+
+    from ..core.slocum_cache_service import get_cached_or_fetch_bundle_df
+
+    deployment = resolve_deployment_for_dataset(session, dataset_id)
+    references = parse_checklist_reference_values(
+        deployment.checklist_reference_values if deployment else None
+    )
+    depth_class = str(references.get("glider_depth_class") or "").strip() or None
+
+    is_historical = is_historical_dataset(dataset_id)
+    try:
+        result = await get_cached_or_fetch_bundle_df(
+            dataset_id,
+            "checklist",
+            None,
+            None,
+            hours_back=hours_back,
+            is_historical=is_historical,
+            context="interactive",
+            return_metadata=True,
+        )
+    except Exception as err:
+        logger.exception("Checklist series fetch failed for %s: %s", dataset_id, err)
+        raise HTTPException(status_code=502, detail=f"Failed to load checklist data: {err}") from err
+
+    cache_metadata: dict = {}
+    if isinstance(result, OverageResult):
+        df = result.df if result.df is not None else pd.DataFrame()
+        cache_metadata = dict(result.metadata or {})
+    elif result is None:
+        df = pd.DataFrame()
+    else:
+        df = result
+
+    try:
+        return build_checklist_series_payload(
+            df,
+            item_id,
+            cache_metadata=cache_metadata,
+            depth_class=depth_class,
+        )
+    except KeyError as err:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Checklist item '{item_id}' is not plottable",
+        ) from err
 
 
 @router.get(

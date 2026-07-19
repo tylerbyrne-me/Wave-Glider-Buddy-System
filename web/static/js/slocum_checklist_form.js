@@ -1,8 +1,20 @@
 /**
- * Slocum daily pilot checklist form: render schema, refresh autofill, submit/edit.
+ * Slocum daily pilot checklist form: render schema, refresh autofill, submit/edit,
+ * and Plot-it popups for selected autofilled series.
  */
 import { apiRequest, showToast } from '/static/js/api.js';
 import { checkAuth } from '/static/js/auth.js';
+
+/** Mirror of backend CHECKLIST_PLOTTABLE_ITEMS keys — add entries there first. */
+const PLOTTABLE_ITEM_IDS = new Set([
+    'depth_rate_val',
+    'vacuum_val',
+    'roll_val',
+    'pitch_val',
+    'fin_val',
+    'battpos_val',
+    'oil_vol_val',
+]);
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!(await checkAuth())) return;
@@ -24,9 +36,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let currentSchema = null;
     let unverifiedModal = null;
+    let plotModal = null;
+    let plotChart = null;
+    let activePlotItemId = null;
+
     const modalEl = document.getElementById('unverifiedConfirmModal');
     if (modalEl && window.bootstrap) {
         unverifiedModal = new bootstrap.Modal(modalEl);
+    }
+
+    const plotModalEl = document.getElementById('checklistPlotModal');
+    if (plotModalEl && window.bootstrap) {
+        plotModal = new bootstrap.Modal(plotModalEl);
+        plotModalEl.addEventListener('hidden.bs.modal', () => {
+            applyPlotReviewToForm();
+            destroyPlotChart();
+            setPlotStatus('');
+            activePlotItemId = null;
+            const commentEl = document.getElementById('checklistPlotComment');
+            const verifiedEl = document.getElementById('checklistPlotVerified');
+            if (commentEl) commentEl.value = '';
+            if (verifiedEl) verifiedEl.checked = false;
+        });
+        // Keep chart sized when the fullscreen modal finishes opening / window resizes
+        plotModalEl.addEventListener('shown.bs.modal', () => {
+            if (plotChart) plotChart.resize();
+        });
+        window.addEventListener('resize', () => {
+            if (plotChart && plotModalEl.classList.contains('show')) plotChart.resize();
+        });
     }
 
     if (!datasetId) {
@@ -52,6 +90,82 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+
+    function chartThemeColors() {
+        // Plot modal is always dark; prefer readable light labels over page CSS vars
+        // which can resolve too dark for legend/axis text on bg-dark.
+        const styles = getComputedStyle(document.documentElement);
+        const pageText = styles.getPropertyValue('--text-color').trim();
+        const pageBorder = styles.getPropertyValue('--card-border').trim();
+        return {
+            text: '#e9ecef',
+            muted: '#adb5bd',
+            border: pageBorder || 'rgba(255, 255, 255, 0.15)',
+            depth: '#4dabf7',
+            value: '#ffc078',
+            commanded: '#69db7c',
+            pageText: pageText || '#e9ecef',
+        };
+    }
+
+    function nearestWholeDepthMeters(depthPts, dataIndex, timestamp) {
+        if (Array.isArray(depthPts) && dataIndex >= 0 && dataIndex < depthPts.length) {
+            const aligned = depthPts[dataIndex]?.y;
+            if (aligned != null && !Number.isNaN(Number(aligned))) {
+                return Math.round(Number(aligned));
+            }
+        }
+        if (!timestamp || !Array.isArray(depthPts) || !depthPts.length) return null;
+        const target = new Date(timestamp).getTime();
+        if (Number.isNaN(target)) return null;
+        let best = null;
+        let bestDelta = Infinity;
+        for (const pt of depthPts) {
+            if (pt?.y == null || Number.isNaN(Number(pt.y))) continue;
+            const t = new Date(pt.x).getTime();
+            if (Number.isNaN(t)) continue;
+            const delta = Math.abs(t - target);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                best = Math.round(Number(pt.y));
+            }
+        }
+        return best;
+    }
+
+    function destroyPlotChart() {
+        if (plotChart) {
+            plotChart.destroy();
+            plotChart = null;
+        }
+    }
+
+    function setPlotStatus(message, isError = false) {
+        const el = document.getElementById('checklistPlotStatus');
+        if (!el) return;
+        el.textContent = message || '';
+        el.classList.toggle('text-danger', !!isError);
+        el.classList.toggle('text-muted', !isError);
+    }
+
+    function loadPlotReviewFromForm(itemId) {
+        const commentEl = document.getElementById('checklistPlotComment');
+        const verifiedEl = document.getElementById('checklistPlotVerified');
+        const formComment = document.querySelector(`[name="${itemId}_comment"]`);
+        const formVerified = document.getElementById(`${itemId}_verified`);
+        if (commentEl) commentEl.value = formComment ? formComment.value : '';
+        if (verifiedEl) verifiedEl.checked = formVerified ? !!formVerified.checked : false;
+    }
+
+    function applyPlotReviewToForm() {
+        if (!activePlotItemId) return;
+        const commentEl = document.getElementById('checklistPlotComment');
+        const verifiedEl = document.getElementById('checklistPlotVerified');
+        const formComment = document.querySelector(`[name="${activePlotItemId}_comment"]`);
+        const formVerified = document.getElementById(`${activePlotItemId}_verified`);
+        if (formComment && commentEl) formComment.value = commentEl.value;
+        if (formVerified && verifiedEl) formVerified.checked = !!verifiedEl.checked;
     }
 
     function buildSavedItemsById(sectionsData) {
@@ -89,6 +203,336 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    function wirePlotButtons(root) {
+        (root || document).querySelectorAll('[data-checklist-plot-item]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const itemId = btn.getAttribute('data-checklist-plot-item');
+                if (itemId) openChecklistPlot(itemId);
+            });
+        });
+    }
+
+    function parseGliderNameFromDatasetId(id) {
+        const match = String(id || '').trim().match(/^([A-Za-z0-9]+)_(\d{8})_(\d+)(?:_(realtime|delayed))?$/i);
+        if (match) return match[1];
+        const fallback = String(id || '').trim().match(/^([A-Za-z0-9]+)_/);
+        return fallback ? fallback[1] : (id || 'unknown');
+    }
+
+    function formatYYYYMMDD(isoOrDate) {
+        if (isoOrDate == null || isoOrDate === '') return null;
+        const d = new Date(isoOrDate);
+        if (Number.isNaN(d.getTime())) return null;
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}${m}${day}`;
+    }
+
+    function dataWindowYYYYMMDD(...seriesList) {
+        const times = [];
+        for (const series of seriesList) {
+            for (const pt of series || []) {
+                if (pt?.x == null) continue;
+                const t = new Date(pt.x).getTime();
+                if (!Number.isNaN(t)) times.push(t);
+            }
+        }
+        if (!times.length) return null;
+        times.sort((a, b) => a - b);
+        const start = formatYYYYMMDD(times[0]);
+        const end = formatYYYYMMDD(times[times.length - 1]);
+        if (!start || !end) return null;
+        return start === end ? start : `${start}–${end}`;
+    }
+
+    function buildPlotHeading({ vehicleName, variableLabel, unit, windowLabel, commandedLabel }) {
+        const varBit = unit ? `${variableLabel} (${unit})` : variableLabel;
+        const cmdBit = commandedLabel
+            ? (unit ? ` / ${commandedLabel} (${unit})` : ` / ${commandedLabel}`)
+            : '';
+        const dateBit = windowLabel ? ` · ${windowLabel}` : '';
+        return {
+            modalTitle: `${vehicleName} · ${varBit}${cmdBit}${dateBit}`,
+            chartTitle: [
+                `${vehicleName} · ${varBit}${cmdBit}`,
+                windowLabel ? `Data window (UTC): ${windowLabel}` : 'Data window (UTC): N/A',
+            ],
+        };
+    }
+
+    async function openChecklistPlot(itemId) {
+        if (!plotModal || typeof Chart === 'undefined') {
+            showToast('Charting is unavailable in this browser session.', 'danger');
+            return;
+        }
+        activePlotItemId = itemId;
+        loadPlotReviewFromForm(itemId);
+        const vehicleName = parseGliderNameFromDatasetId(datasetId);
+        const titleEl = document.getElementById('checklistPlotModalLabel');
+        if (titleEl) titleEl.textContent = `${vehicleName} · Loading plot…`;
+        destroyPlotChart();
+        setPlotStatus('Loading series…');
+        plotModal.show();
+
+        try {
+            const payload = await apiRequest(
+                `/api/slocum/checklists/${encodeURIComponent(datasetId)}/series?item_id=${encodeURIComponent(itemId)}`,
+                'GET',
+            );
+            const label = payload.label || itemId;
+            const unit = payload.unit || '';
+            const commandedLabel = payload.commanded_label || null;
+            const depthPts = (payload.depth || []).map((p) => ({ x: p.t, y: p.v }));
+            const valuePts = (payload.values || []).map((p) => ({ x: p.t, y: p.v }));
+            const commandedPts = (payload.commanded || []).map((p) => ({ x: p.t, y: p.v }));
+            const windowLabel = dataWindowYYYYMMDD(depthPts, valuePts, commandedPts);
+            const heading = buildPlotHeading({
+                vehicleName,
+                variableLabel: label,
+                unit,
+                windowLabel,
+                commandedLabel,
+            });
+            if (titleEl) titleEl.textContent = heading.modalTitle;
+
+            const depthValid = depthPts.filter((p) => p.y != null && !Number.isNaN(p.y)).length;
+            const valueValid = valuePts.filter((p) => p.y != null && !Number.isNaN(p.y)).length;
+            const commandedValid = commandedPts.filter((p) => p.y != null && !Number.isNaN(p.y)).length;
+            if (!depthValid && !valueValid && !commandedValid) {
+                setPlotStatus('No samples in the checklist window.', true);
+                return;
+            }
+            const cmdStatus = commandedLabel
+                ? ` / ${commandedValid} commanded`
+                : '';
+            setPlotStatus(
+                `${vehicleName} · ${windowLabel || 'no dates'} · `
+                + `${valueValid} measured${cmdStatus} / ${depthValid} depth sample(s) (full resolution)`,
+            );
+            renderPlotChart(label, unit, depthPts, valuePts, heading.chartTitle, {
+                commandedPts,
+                commandedLabel,
+            });
+        } catch (error) {
+            setPlotStatus(`Failed to load plot: ${error.message}`, true);
+            showToast(`Plot failed: ${error.message}`, 'danger');
+        }
+    }
+
+    function renderPlotChart(label, unit, depthPts, valuePts, chartTitleLines = null, extras = {}) {
+        destroyPlotChart();
+        const canvas = document.getElementById('checklistPlotCanvas');
+        if (!canvas) return;
+        const colors = chartThemeColors();
+        const commandedPts = extras.commandedPts || [];
+        const commandedLabel = extras.commandedLabel || null;
+        const measuredAxisTitle = unit ? `${label} (${unit})` : label;
+        const commandedAxisTitle = commandedLabel
+            ? (unit ? `${commandedLabel} (${unit})` : commandedLabel)
+            : null;
+        const valueAxisTitle = commandedAxisTitle
+            ? `${measuredAxisTitle} / ${commandedAxisTitle}`
+            : measuredAxisTitle;
+        const depthAxisTitle = 'Depth (m)';
+        const titleText = Array.isArray(chartTitleLines) && chartTitleLines.length
+            ? chartTitleLines
+            : [`${valueAxisTitle}  ·  ${depthAxisTitle}`];
+
+        const datasets = [
+            {
+                type: 'line',
+                label: depthAxisTitle,
+                data: depthPts,
+                borderColor: colors.depth,
+                backgroundColor: colors.depth,
+                yAxisID: 'y',
+                showLine: true,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                borderWidth: 1.75,
+                tension: 0.05,
+                spanGaps: false,
+                order: 3,
+            },
+            {
+                type: 'scatter',
+                label: measuredAxisTitle,
+                data: valuePts,
+                borderColor: colors.value,
+                backgroundColor: colors.value,
+                pointBackgroundColor: colors.value,
+                pointBorderColor: colors.value,
+                yAxisID: 'y2',
+                pointRadius: 3.5,
+                pointHoverRadius: 6,
+                order: 1,
+            },
+        ];
+        if (commandedAxisTitle && commandedPts.length) {
+            datasets.push({
+                type: 'scatter',
+                label: commandedAxisTitle,
+                data: commandedPts,
+                borderColor: colors.commanded,
+                backgroundColor: colors.commanded,
+                pointBackgroundColor: colors.commanded,
+                pointBorderColor: colors.commanded,
+                yAxisID: 'y2',
+                pointRadius: 3.5,
+                pointHoverRadius: 6,
+                pointStyle: 'triangle',
+                order: 2,
+            });
+        }
+
+        plotChart = new Chart(canvas.getContext('2d'), {
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: {
+                    padding: { top: 8, right: 12, bottom: 4, left: 8 },
+                },
+                interaction: { mode: 'nearest', intersect: true, axis: 'xy' },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: titleText,
+                        color: colors.text,
+                        font: { size: 15, weight: '600' },
+                        padding: { bottom: 10 },
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: colors.text,
+                            usePointStyle: true,
+                            pointStyle: 'rectRounded',
+                            padding: 16,
+                            font: { size: 13 },
+                            generateLabels(chart) {
+                                const dsList = chart.data.datasets || [];
+                                return dsList.map((ds, i) => ({
+                                    text: ds.label || `Series ${i + 1}`,
+                                    fillStyle: ds.borderColor || ds.backgroundColor,
+                                    strokeStyle: ds.borderColor || ds.backgroundColor,
+                                    fontColor: colors.text,
+                                    hidden: !chart.isDatasetVisible(i),
+                                    datasetIndex: i,
+                                    pointStyle: ds.type === 'scatter'
+                                        ? (ds.pointStyle || 'circle')
+                                        : 'line',
+                                }));
+                            },
+                        },
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(33, 37, 41, 0.95)',
+                        titleColor: colors.text,
+                        bodyColor: colors.text,
+                        borderColor: colors.border,
+                        borderWidth: 1,
+                        callbacks: {
+                            title(items) {
+                                const ts = items?.[0]?.parsed?.x;
+                                if (ts == null) return '';
+                                try {
+                                    return new Date(ts).toISOString().replace('.000Z', 'Z');
+                                } catch {
+                                    return String(items[0].label || '');
+                                }
+                            },
+                            label(ctx) {
+                                const v = ctx.parsed?.y;
+                                const name = ctx.dataset.label || 'Value';
+                                if (v == null || Number.isNaN(v)) return `${name}: N/A`;
+
+                                if (ctx.dataset.type === 'scatter' || ctx.dataset.yAxisID === 'y2') {
+                                    const depthM = nearestWholeDepthMeters(
+                                        depthPts,
+                                        -1,
+                                        ctx.parsed?.x ?? ctx.raw?.x,
+                                    );
+                                    const depthBit = depthM == null ? 'Depth: N/A' : `Depth: ${depthM} m`;
+                                    return [
+                                        `${name}: ${Number(v).toFixed(3)}`,
+                                        depthBit,
+                                    ];
+                                }
+
+                                return `${name}: ${Math.round(Number(v))} m`;
+                            },
+                        },
+                    },
+                    zoom: {
+                        limits: {
+                            x: { min: 'original', max: 'original' },
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                        },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        title: {
+                            display: true,
+                            text: 'Time (UTC)',
+                            color: colors.text,
+                            font: { size: 13, weight: '600' },
+                            padding: { top: 8 },
+                        },
+                        ticks: { color: colors.muted, maxRotation: 0 },
+                        grid: { color: colors.border },
+                    },
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        reverse: true,
+                        title: {
+                            display: true,
+                            text: depthAxisTitle,
+                            color: colors.depth,
+                            font: { size: 13, weight: '600' },
+                        },
+                        ticks: { color: colors.depth },
+                        grid: { color: colors.border },
+                    },
+                    y2: {
+                        type: 'linear',
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: valueAxisTitle,
+                            color: colors.value,
+                            font: { size: 13, weight: '600' },
+                        },
+                        ticks: { color: colors.value },
+                        grid: { drawOnChartArea: false },
+                    },
+                },
+            },
+        });
+    }
+
+    const resetZoomBtn = document.getElementById('checklistPlotResetZoomBtn');
+    if (resetZoomBtn) {
+        resetZoomBtn.addEventListener('click', () => {
+            if (plotChart && typeof plotChart.resetZoom === 'function') {
+                plotChart.resetZoom();
+            }
+        });
+    }
+
     function renderSchema(schema, savedSubmission = null) {
         currentSchema = schema;
         if (formTitle) formTitle.textContent = schema.title || 'Slocum Daily Checklist';
@@ -111,10 +555,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const value = item.value != null && item.value !== '' ? item.value : '';
                 const valueEsc = escapeHtml(value);
                 const placeholderEsc = escapeHtml(item.placeholder || '');
+                const isPlottable = item.item_type === 'autofilled_value' && PLOTTABLE_ITEM_IDS.has(item.id);
 
                 switch (item.item_type) {
                     case 'autofilled_value':
-                        inputHtml = `<div class="autofilled-value" id="${item.id}">${valueEsc || 'N/A'}</div>`;
+                        inputHtml = isPlottable
+                            ? `<div class="checklist-plot-wrap">
+                                <div class="autofilled-value" id="${item.id}">${valueEsc || 'N/A'}</div>
+                                <button type="button" class="btn btn-outline-secondary btn-sm checklist-plot-btn"
+                                    data-checklist-plot-item="${escapeHtml(item.id)}" title="Plot over time with depth">
+                                    Plot
+                                </button>
+                               </div>`
+                            : `<div class="autofilled-value" id="${item.id}">${valueEsc || 'N/A'}</div>`;
                         break;
                     case 'static_text':
                         inputHtml = `<div class="static-text" id="${item.id}">${valueEsc || '—'}</div>`;
@@ -184,6 +637,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             formSectionsContainer.appendChild(sectionDiv);
         });
+
+        wirePlotButtons(formSectionsContainer);
 
         checklistForm.style.display = 'block';
         if (formSpinner) formSpinner.style.display = 'none';

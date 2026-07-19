@@ -289,6 +289,23 @@ async def sync_dataset_mirror(
         cleared = clear_mirror_bundle(dataset_id, "ctd")
         sync_summary["ctd_cleared"] = cleared
 
+    # Rebuild any mirrored bundle whose schema version changed (e.g. checklist
+    # switched off ERDDAP decimation so Plot-it can show every sample).
+    stored_versions = meta.get("bundle_schema_versions") or {}
+    if not isinstance(stored_versions, dict):
+        stored_versions = {}
+    rebuilt_for_schema: list[str] = []
+    for bundle in DEFAULT_MIRROR_BUNDLES:
+        if do_rebuild_ctd and bundle == "ctd":
+            continue
+        spec = get_bundle_spec(bundle)
+        if stored_versions.get(bundle) == spec.schema_version:
+            continue
+        if clear_mirror_bundle(dataset_id, bundle):
+            rebuilt_for_schema.append(bundle)
+    if rebuilt_for_schema:
+        sync_summary["schema_rebuild_cleared"] = rebuilt_for_schema
+
     for bundle in DEFAULT_MIRROR_BUNDLES:
         spec = get_bundle_spec(bundle)
         existing = load_mirror_df(dataset_id, bundle)
@@ -345,6 +362,9 @@ async def sync_dataset_mirror(
             "is_historical": is_historical,
             "last_sync_timestamp": sync_summary["sync_timestamp"],
             "archived": is_historical,
+            "bundle_schema_versions": {
+                name: get_bundle_spec(name).schema_version for name in DEFAULT_MIRROR_BUNDLES
+            },
         }
     )
     latest_ts: Optional[datetime] = None

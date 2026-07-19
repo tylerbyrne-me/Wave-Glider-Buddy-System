@@ -33,6 +33,48 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
+        .checklist-plot-wrap {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .checklist-plot-wrap .autofilled-value {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .checklist-plot-btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
+            margin-top: 0.2rem;
+        }
+        #checklistPlotModal .modal-dialog {
+            margin: 0;
+            max-width: 100%;
+            height: 100%;
+        }
+        #checklistPlotModal .modal-content {
+            height: 100%;
+            border-radius: 0;
+        }
+        #checklistPlotModal .modal-body {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        #checklistPlotCanvasWrap {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 280px;
+            width: 100%;
+        }
+        #checklistPlotVerifyPanel {
+            flex: 0 0 auto;
+            border-top: 1px solid #444;
+            padding-top: 0.75rem;
+            margin-top: 0.75rem;
+        }
     </style>
 {% endblock %}
 
@@ -88,8 +130,49 @@
             </div>
         </div>
     </div>
+
+    <div class="modal fade" id="checklistPlotModal" tabindex="-1" aria-labelledby="checklistPlotModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title text-light" id="checklistPlotModalLabel">Plot</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-light d-flex flex-column">
+                    <div id="checklistPlotStatus" class="small text-muted mb-2" role="status"></div>
+                    <div id="checklistPlotCanvasWrap">
+                        <canvas id="checklistPlotCanvas" aria-label="Checklist time-series plot"></canvas>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0">Scroll to zoom · drag to pan · Reset zoom restores the full window.</p>
+                    <div id="checklistPlotVerifyPanel">
+                        <div class="row g-3 align-items-start">
+                            <div class="col-lg-9">
+                                <label for="checklistPlotComment" class="form-label mb-1">Checklist comment</label>
+                                <textarea class="form-control" id="checklistPlotComment" rows="2"
+                                    placeholder="Notes from reviewing this plot…"></textarea>
+                            </div>
+                            <div class="col-lg-3">
+                                <label class="form-label mb-1 d-block">Verification</label>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="checklistPlotVerified" value="true">
+                                    <label class="form-check-label" for="checklistPlotVerified">Verified</label>
+                                </div>
+                                <p class="small text-muted mt-2 mb-0">Saved to this checklist item when you close the plot.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-outline-secondary" id="checklistPlotResetZoomBtn">Reset zoom</button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="checklistPlotDoneBtn">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block body_extra_js %}
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
     <script type="module" src="/static/js/slocum_checklist_form.js?v={{ app_version }}"></script>
 {% endblock %}

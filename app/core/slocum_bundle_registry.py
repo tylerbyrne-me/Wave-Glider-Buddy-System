@@ -21,7 +21,7 @@ from ..core.slocum_erddap_client import (
 )
 
 # Bump when parquet schema / preprocess semantics change so overage keys invalidate.
-BUNDLE_SCHEMA_VERSION = "2"
+BUNDLE_SCHEMA_VERSION = "3"
 
 
 @dataclass(frozen=True)
@@ -53,8 +53,8 @@ SLOCUM_BUNDLES: dict[str, SlocumBundleSpec] = {
         name="checklist",
         erddap_variables=tuple(SLOCUM_CHECKLIST_VARIABLES),
         preprocess=processors.preprocess_slocum_checklist_df,
-        allow_decimation=True,
-        description="Flight and science variables for daily pilot checklist autofill.",
+        allow_decimation=False,
+        description="Flight and science variables for daily pilot checklist autofill (full resolution for Plot-it).",
     ),
 }
 
