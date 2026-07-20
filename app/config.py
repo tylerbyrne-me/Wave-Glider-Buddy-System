@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     sfmc_client_id: Optional[str] = None
     sfmc_client_secret: Optional[str] = None
     sfmc_verify_tls: bool = True  # Set false for self-signed SFMC certs (SFMC_VERIFY_TLS=false)
+    # Leader-only job: refresh slocum_sfmc_snapshots for active deployments.
+    sfmc_cache_refresh_interval_minutes: int = 20
+    # SFMC hosts typically allow ~25 requests/minute; stay under that.
+    sfmc_max_requests_per_minute: int = 20
     
     # --- Knowledge Base Settings ---
     knowledge_base_max_upload_size_mb: int = 50  # Maximum file upload size in MB

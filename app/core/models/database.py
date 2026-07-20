@@ -1061,6 +1061,7 @@ class SlocumDeployment(SQLModel, table=True):
     goals: List["SlocumDeploymentGoal"] = Relationship(back_populates="deployment")
     deployment_notes: List["SlocumDeploymentNote"] = Relationship(back_populates="deployment")
     media: List["SlocumDeploymentMedia"] = Relationship(back_populates="deployment")
+    sfmc_snapshot: Optional["SlocumSfmcSnapshot"] = Relationship(back_populates="deployment")
 
 
 # Slocum deployment metadata (goals/notes/media) — keyed on SlocumDeployment.id
@@ -1117,3 +1118,49 @@ class SlocumDeploymentMedia(SQLModel, table=True):
     is_featured: bool = SQLModelField(default=False)
 
     deployment: "SlocumDeployment" = Relationship(back_populates="media")
+
+
+class SlocumSfmcSnapshot(SQLModel, table=True):
+    """
+    Cached SFMC-derived checklist autofill for a Slocum deployment.
+
+    One row per deployment; replaced (not appended) on each refresh so mission
+    file, script, goto, aborts, etc. stay current without live SFMC on every
+    checklist page load.
+    """
+    __tablename__ = "slocum_sfmc_snapshots"
+
+    id: Optional[int] = SQLModelField(default=None, primary_key=True)
+    deployment_id: int = SQLModelField(
+        foreign_key="slocum_deployments.id",
+        index=True,
+        unique=True,
+        description="Owning SlocumDeployment (one snapshot per deployment).",
+    )
+    glider_name: str = SQLModelField(
+        index=True,
+        description="Denormalized SFMC glider name used for the last fetch.",
+    )
+    values_json: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description=(
+            "JSON object of checklist field id → display string "
+            "(mission_file_running_val, script_running_val, ...)."
+        ),
+    )
+    fetched_at_utc: Optional[datetime] = SQLModelField(
+        default=None,
+        description="UTC time of last successful SFMC fetch.",
+    )
+    fetch_error: Optional[str] = SQLModelField(
+        default=None,
+        sa_column=Column(Text),
+        description="Last fetch error message (previous values_json retained).",
+    )
+    updated_at_utc: datetime = SQLModelField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
+    )
+
+    deployment: "SlocumDeployment" = Relationship(back_populates="sfmc_snapshot")

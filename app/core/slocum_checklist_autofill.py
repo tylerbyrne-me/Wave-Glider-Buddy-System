@@ -1115,13 +1115,14 @@ async def load_checklist_autofill_values(
     include_forecast: bool = True,
     hours_back: int = CHECKLIST_HOURS_BACK,
     is_historical: bool = False,
-    sfmc_glider_name: Optional[str] = None,
+    sfmc_values: Optional[dict[str, str]] = None,
 ) -> dict[str, str]:
     """
-    Fetch checklist/CTD data (+ optional forecast / SFMC) and return autofill display map.
+    Fetch checklist/CTD data (+ optional forecast / pre-resolved SFMC) and return autofill map.
 
-    ``sfmc_glider_name`` is typically ``SlocumDeployment.glider_name`` (e.g. peggy).
-    SFMC fields are best-effort and omitted when unconfigured or unauthorized.
+    ``sfmc_values`` is typically the cached snapshot from ``sfmc_cache_service``
+    (or a freshly refreshed dict from the force-refresh endpoint). Live SFMC HTTP
+    is not performed here — callers own fetch timing.
     ``u_alt_min_depth_val`` is never filled from SFMC (pilot / prior submission).
     """
     from ..core.geo.forecast import get_general_meteo_forecast, get_marine_meteo_forecast
@@ -1177,16 +1178,11 @@ async def load_checklist_autofill_values(
         dataset_id=dataset_id,
     )
 
-    glider = (sfmc_glider_name or "").strip()
-    if glider and not is_historical:
-        try:
-            from ..core.sfmc_client import load_sfmc_checklist_values
-
-            sfmc_vals = await load_sfmc_checklist_values(glider)
-            for key, val in sfmc_vals.items():
-                if val:
-                    values[key] = val
-        except Exception as err:
-            logger.warning("SFMC checklist merge failed for %s (%s): %s", dataset_id, glider, err)
+    if sfmc_values and not is_historical:
+        for key, val in sfmc_values.items():
+            if key == "u_alt_min_depth_val":
+                continue
+            if val:
+                values[key] = str(val)
 
     return values

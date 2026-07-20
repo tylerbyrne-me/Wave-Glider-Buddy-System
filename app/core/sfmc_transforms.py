@@ -28,12 +28,76 @@ _OFFLOAD_CMD_RE = re.compile(
     r"(?:!dockzr|\bs\s+\*\.(?:scd|tcd|asc)\b)",
     re.IGNORECASE,
 )
+_NETWORK_LOG_RE = re.compile(
+    r"^(?P<stamp>\d{8}T\d{6})_?.*_network_net_\d+\.log$",
+    re.IGNORECASE,
+)
+# Also: peggy_20260720T162013_network_net_0.log
+_NETWORK_LOG_NAMED_RE = re.compile(
+    r"^(?P<glider>[A-Za-z0-9_-]+)_(?P<stamp>\d{8}T\d{6})_network_net_\d+\.log$",
+    re.IGNORECASE,
+)
+_DEVICES_TMS_RE = re.compile(
+    r"devices:\(t/m/s\)\s*"
+    r"errs:\s*(?P<te>\d+)\s*/\s*(?P<me>\d+)\s*/\s*(?P<se>\d+)\s*"
+    r"warn:\s*(?P<tw>\d+)\s*/\s*(?P<mw>\d+)\s*/\s*(?P<sw>\d+)\s*"
+    r"odd:\s*(?P<to>\d+)\s*/\s*(?P<mo>\d+)\s*/\s*(?P<so>\d+)",
+    re.IGNORECASE,
+)
+_ABORT_HISTORY_RE = re.compile(
+    r"ABORT HISTORY:\s*total since reset:\s*(?P<count>\d+)",
+    re.IGNORECASE,
+)
+_MISSION_NAME_RE = re.compile(
+    r"MissionName:\s*(?P<name>\S+\.mi)",
+    re.IGNORECASE,
+)
+_BECAUSE_RE = re.compile(
+    r"Because:\s*(?P<reason>.+?)(?:\r?\n)",
+    re.IGNORECASE,
+)
+_SENSOR_LINE_RE = re.compile(
+    r"sensor:(?P<name>[A-Za-z0-9_]+)\([^)]*\)=(?P<value>\S+)",
+    re.IGNORECASE,
+)
 
 _INITIAL_WPT_LABELS = {
     -2: "closest",
     -1: "after last achieved",
     0: "first waypoint (index 0)",
 }
+
+
+def pick_typical_hours_since(hours_map: Any) -> Optional[float]:
+    """
+    Choose the common / most frequent \"Time Since Prior\" from ``hoursSinceMap``.
+
+    Skips near-zero double-surface values (< 0.1 h). Prefers the modal value
+    rounded to 0.1 h; if every value is unique, uses the median.
+    """
+    if not isinstance(hours_map, dict) or not hours_map:
+        return None
+    vals: list[float] = []
+    for value in hours_map.values():
+        try:
+            hours = float(value)
+        except (TypeError, ValueError):
+            continue
+        if hours >= 0.1:
+            vals.append(hours)
+    if not vals:
+        return None
+
+    from collections import Counter
+
+    rounded = [round(v, 1) for v in vals]
+    counts = Counter(rounded)
+    best = max(counts.values())
+    if best == 1:
+        ordered = sorted(vals)
+        return ordered[len(ordered) // 2]
+    modes = sorted(h for h, c in counts.items() if c == best)
+    return modes[len(modes) // 2]
 
 
 def _parse_sfmc_dt(value: Any) -> Optional[datetime]:
@@ -126,6 +190,96 @@ def pick_latest_goto_archive_filename(names: list[str]) -> Optional[str]:
     return None
 
 
+def pick_latest_network_log_filename(names: list[str]) -> Optional[str]:
+    """Newest ``{glider}_YYYYMMDDTHHMMSS_network_net_N.log`` by stamp."""
+    best_name: Optional[str] = None
+    best_stamp: Optional[str] = None
+    for name in names:
+        base = PurePosixPath(str(name).replace("\\", "/")).name
+        match = _NETWORK_LOG_NAMED_RE.match(base) or _NETWORK_LOG_RE.match(base)
+        if not match:
+            continue
+        stamp = match.group("stamp")
+        if best_stamp is None or stamp > best_stamp:
+            best_stamp = stamp
+            best_name = base
+    return best_name
+
+
+def parse_surface_dialog_log(text: str) -> dict[str, str]:
+    """
+    Parse glider surface dialog / network log tail → checklist fields.
+
+    Expects the ``Glider … at surface.`` block including Device Status (t/m/s):
+
+    ``devices:(t/m/s) errs: t/m/s warn: t/m/s odd: t/m/s``
+    """
+    out: dict[str, str] = {}
+    if not text or not str(text).strip():
+        return out
+
+    # Prefer the last (most recent) surface status block in the tail.
+    blocks = re.split(r"(?=Glider\s+\S+\s+at surface\.)", text, flags=re.IGNORECASE)
+    block = ""
+    for candidate in reversed(blocks):
+        if re.search(r"Glider\s+\S+\s+at surface\.", candidate, re.IGNORECASE):
+            block = candidate
+            break
+    if not block:
+        block = text
+
+    mission = _MISSION_NAME_RE.search(block) or _MISSION_NAME_RE.search(text)
+    if mission:
+        out["mission_file_running_val"] = mission.group("name").strip()
+
+    devices = _DEVICES_TMS_RE.search(block) or _DEVICES_TMS_RE.search(text)
+    abort_hist = _ABORT_HISTORY_RE.search(block) or _ABORT_HISTORY_RE.search(text)
+    because = _BECAUSE_RE.search(block) or _BECAUSE_RE.search(text)
+
+    if devices or abort_hist or because:
+        bits: list[str] = []
+        abort_count = int(abort_hist.group("count")) if abort_hist else None
+        if abort_count is None:
+            bits.append("Abort history N/A")
+        elif abort_count == 0:
+            bits.append("No abort (history 0)")
+        else:
+            bits.append(f"ABORT HISTORY since reset: {abort_count}")
+
+        if devices:
+            bits.append(
+                "Device Status (t/m/s): "
+                f"errs {devices.group('te')}/{devices.group('me')}/{devices.group('se')}; "
+                f"warn {devices.group('tw')}/{devices.group('mw')}/{devices.group('sw')}; "
+                f"odd {devices.group('to')}/{devices.group('mo')}/{devices.group('so')}"
+            )
+        if because:
+            reason = because.group("reason").strip()
+            if reason:
+                bits.append(f"last surface: {reason}")
+        out["aborts_oddities_val"] = "; ".join(bits)
+
+    # Sensor dump from full tail (last block may omit older lines).
+    sensors: dict[str, str] = {}
+    for match in _SENSOR_LINE_RE.finditer(text):
+        sensors[match.group("name")] = match.group("value")
+    if sensors.get("m_battery"):
+        out["_dialog_m_battery"] = sensors["m_battery"]
+    if sensors.get("u_alt_min_depth"):
+        out["_dialog_u_alt_min_depth"] = sensors["u_alt_min_depth"]
+
+    return out
+
+
+def dialog_values_for_checklist(parsed: dict[str, str]) -> dict[str, str]:
+    """Public checklist keys only (drops ``_dialog_*`` internals)."""
+    return {
+        key: value
+        for key, value in (parsed or {}).items()
+        if not key.startswith("_") and value
+    }
+
+
 def extract_from_surface_events_payload(payload: dict[str, Any]) -> dict[str, str]:
     """Map SFMC surface-events / deployment page JSON → checklist fields."""
     out: dict[str, str] = {}
@@ -154,33 +308,13 @@ def extract_from_surface_events_payload(payload: dict[str, Any]) -> dict[str, st
     latest = content[0] if isinstance(content, list) and content else None
     hours_map = payload.get("hoursSinceMap") or {}
 
-    if isinstance(latest, dict):
-        event_id = latest.get("id")
-        hours_val = None
-        if isinstance(hours_map, dict) and event_id is not None:
-            hours_val = hours_map.get(event_id)
-            if hours_val is None:
-                hours_val = hours_map.get(str(event_id))
-        if hours_val is not None:
-            try:
-                hours = float(hours_val)
-                out["surfacing_hours_val"] = f"{hours:.1f}".rstrip("0").rstrip(".")
-            except (TypeError, ValueError):
-                pass
-        elif isinstance(hours_map, dict) and hours_map:
-            try:
-                # Prefer typical leg interval (~> 0.1 h), skip near-zero double-surface
-                candidates = [
-                    float(v)
-                    for v in hours_map.values()
-                    if isinstance(v, (int, float)) and float(v) >= 0.1
-                ]
-                if candidates:
-                    hours = candidates[0]
-                    out["surfacing_hours_val"] = f"{hours:.1f}".rstrip("0").rstrip(".")
-            except (TypeError, ValueError):
-                pass
+    # Prefer the typical / modal dive-cycle interval, not the latest (often a
+    # near-zero double-surface) and not GPS age.
+    typical_hours = pick_typical_hours_since(hours_map)
+    if typical_hours is not None:
+        out["surfacing_hours_val"] = f"{typical_hours:.1f}".rstrip("0").rstrip(".")
 
+    if isinstance(latest, dict):
         abort = bool(latest.get("abort"))
         warnings = latest.get("totalWarnings")
         oddities = latest.get("totalOddities")
@@ -207,6 +341,29 @@ def extract_from_surface_events_payload(payload: dict[str, Any]) -> dict[str, st
                 "goto_state_val",
                 f"next wpt {float(range_m):.0f} m @ {float(bearing):.0f}°",
             )
+
+    # Live v1 active-deployment is flat: bearing/range live at top level.
+    if "goto_state_val" not in out:
+        bearing = payload.get("nextWaypointBearingInDeg")
+        range_m = payload.get("nextWaypointRangeInM")
+        if bearing is not None and range_m is not None:
+            try:
+                out["goto_state_val"] = (
+                    f"next wpt {float(range_m):.0f} m @ {float(bearing):.0f}°"
+                )
+            except (TypeError, ValueError):
+                pass
+
+    # Do NOT use GPS age as surfacing hours — that is \"time since last fix\",
+    # not SFMC \"Time Since Prior\" (dive-cycle interval).
+
+    # Live script assignment on flat active-deployment.
+    script_name = payload.get("currentScriptName")
+    if isinstance(script_name, str) and script_name.strip():
+        display = script_basename(script_name)
+        if payload.get("isCurrentScriptRunning") is False:
+            display = f"{display} (not running)"
+        out.setdefault("script_running_val", display)
 
     connections = payload.get("connectionsMap") or {}
     if isinstance(connections, dict):
@@ -278,6 +435,8 @@ def merge_sfmc_checklist_values(*parts: dict[str, str]) -> dict[str, str]:
     merged: dict[str, str] = {}
     for part in parts:
         for key, value in (part or {}).items():
+            if key.startswith("_"):
+                continue
             if value is None:
                 continue
             text = str(value).strip()

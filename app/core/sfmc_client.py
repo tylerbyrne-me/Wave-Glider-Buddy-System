@@ -14,27 +14,91 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import PurePosixPath
 from typing import Any, Optional
 from urllib.parse import quote
 
+import asyncio
 import httpx
 
 from ..config import settings
 from .sfmc_transforms import (
+    dialog_values_for_checklist,
     extract_from_dockserver_commands,
     extract_from_surface_events_payload,
     merge_sfmc_checklist_values,
     parse_goto_ma,
+    parse_surface_dialog_log,
     pick_latest_goto_archive_filename,
+    pick_latest_network_log_filename,
     script_basename,
 )
+
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(45.0, connect=15.0)
 
 # In-process token cache (per worker).
-_token_cache: dict[str, Any] = {"token": None, "expires_at": 0.0}
+_token_cache: dict[str, Any] = {
+    "token": None,
+    "expires_at": 0.0,
+    # After a failed signin, skip retries briefly to avoid log spam on multi-call refresh.
+    "fail_until": 0.0,
+    "fail_reason": None,
+}
+_SIGNIN_FAIL_COOLDOWN_SEC = 60.0
+
+# Global request pacing (SFMC ~25 req/min). Shared across all SFMC calls in this worker.
+_rate_lock: Optional[asyncio.Lock] = None
+_last_request_mono: float = 0.0
+_rate_limited_until_mono: float = 0.0
+
+
+def _get_rate_lock() -> asyncio.Lock:
+    global _rate_lock
+    if _rate_lock is None:
+        _rate_lock = asyncio.Lock()
+    return _rate_lock
+
+
+def _max_requests_per_minute() -> int:
+    return max(1, int(getattr(settings, "sfmc_max_requests_per_minute", 20) or 20))
+
+
+async def _await_rate_slot() -> None:
+    """Space SFMC HTTP calls to stay under ``sfmc_max_requests_per_minute``."""
+    global _last_request_mono, _rate_limited_until_mono
+    min_interval = 60.0 / float(_max_requests_per_minute())
+    async with _get_rate_lock():
+        now = time.monotonic()
+        if now < _rate_limited_until_mono:
+            await asyncio.sleep(_rate_limited_until_mono - now)
+            now = time.monotonic()
+        wait = (_last_request_mono + min_interval) - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_request_mono = time.monotonic()
+
+
+def _note_rate_limit(*, retry_after_sec: Optional[float] = None) -> None:
+    """Extend the global cooldown after a 429."""
+    global _rate_limited_until_mono
+    backoff = 60.0 if retry_after_sec is None else max(5.0, float(retry_after_sec))
+    until = time.monotonic() + backoff
+    if until > _rate_limited_until_mono:
+        _rate_limited_until_mono = until
+    logger.warning("SFMC rate limit: backing off %.0fs", backoff)
+
+
+def _retry_after_seconds(response: httpx.Response) -> Optional[float]:
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def sfmc_is_configured() -> bool:
@@ -68,12 +132,22 @@ def _extract_token(payload: Any) -> Optional[str]:
     return None
 
 
+def _mark_signin_failed(reason: str) -> None:
+    _token_cache["token"] = None
+    _token_cache["expires_at"] = 0.0
+    _token_cache["fail_until"] = time.monotonic() + _SIGNIN_FAIL_COOLDOWN_SEC
+    _token_cache["fail_reason"] = reason
+
+
 async def get_access_token(*, force_refresh: bool = False) -> Optional[str]:
     """POST /sfmc/api/signin with Teledyne ``clientId`` / ``secret`` body."""
     if not sfmc_is_configured():
         return None
 
     now = time.monotonic()
+    if not force_refresh and now < float(_token_cache.get("fail_until") or 0.0):
+        return None
+
     cached = _token_cache.get("token")
     expires_at = float(_token_cache.get("expires_at") or 0.0)
     if not force_refresh and cached and now < expires_at:
@@ -85,26 +159,45 @@ async def get_access_token(*, force_refresh: bool = False) -> Optional[str]:
         "secret": settings.sfmc_client_secret,
     }
     try:
+        await _await_rate_slot()
         async with httpx.AsyncClient(
             verify=_verify_tls(), timeout=_TIMEOUT, follow_redirects=True
         ) as client:
             response = await client.post(url, json=body)
     except httpx.HTTPError as err:
-        logger.warning("SFMC signin request failed: %s", err)
+        reason = str(err)
+        _mark_signin_failed(reason)
+        if "CERTIFICATE_VERIFY_FAILED" in reason or "SSL" in reason.upper():
+            logger.warning(
+                "SFMC signin TLS failed (set SFMC_VERIFY_TLS=false for self-signed "
+                "institutional certs): %s",
+                err,
+            )
+        else:
+            logger.warning("SFMC signin request failed: %s", err)
+        return None
+
+    if response.status_code == 429:
+        _note_rate_limit(retry_after_sec=_retry_after_seconds(response))
+        _mark_signin_failed("HTTP 429")
+        logger.warning("SFMC signin rate-limited")
         return None
 
     if response.status_code != 200:
+        _mark_signin_failed(f"HTTP {response.status_code}")
         logger.warning("SFMC signin → HTTP %s: %s", response.status_code, response.text[:200])
         return None
 
     try:
         payload = response.json()
     except ValueError:
+        _mark_signin_failed("non-JSON body")
         logger.warning("SFMC signin returned non-JSON body")
         return None
 
     token = _extract_token(payload)
     if not token:
+        _mark_signin_failed("missing token field")
         logger.warning("SFMC signin JSON missing token field (keys=%s)", list(payload)[:12])
         return None
 
@@ -115,6 +208,8 @@ async def get_access_token(*, force_refresh: bool = False) -> Optional[str]:
         ttl = float(expires_in) - 60.0
     _token_cache["token"] = token
     _token_cache["expires_at"] = now + ttl
+    _token_cache["fail_until"] = 0.0
+    _token_cache["fail_reason"] = None
     return token
 
 
@@ -124,6 +219,7 @@ async def _request(
     *,
     params: Optional[dict[str, Any]] = None,
     expect_json: bool = True,
+    _retry_on_429: bool = True,
 ) -> Optional[Any]:
     token = await get_access_token()
     if not token:
@@ -132,6 +228,7 @@ async def _request(
     url = f"{_base_url()}{path}"
 
     async def _once(auth_token: str) -> httpx.Response:
+        await _await_rate_slot()
         async with httpx.AsyncClient(
             verify=_verify_tls(), timeout=_TIMEOUT, follow_redirects=True
         ) as client:
@@ -159,7 +256,18 @@ async def _request(
             return None
 
     if response.status_code == 429:
+        retry_after = _retry_after_seconds(response)
+        _note_rate_limit(retry_after_sec=retry_after)
         logger.warning("SFMC rate-limited on %s %s", method, path)
+        if _retry_on_429:
+            # One retry after the global cooldown (still paced by the rate slot).
+            return await _request(
+                method,
+                path,
+                params=params,
+                expect_json=expect_json,
+                _retry_on_429=False,
+            )
         return None
     if response.status_code != 200:
         logger.debug("SFMC %s %s → %s", method, path, response.status_code)
@@ -413,6 +521,156 @@ async def fetch_offload_hint(glider_name: str) -> Optional[str]:
     return None
 
 
+def _collect_log_filenames(obj: Any, found: Optional[list[str]] = None) -> list[str]:
+    """Walk nested JSON for network log paths (``logFilePath`` / basename)."""
+    if found is None:
+        found = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            key_l = str(key).lower()
+            if key_l in ("logfilepath", "logfile", "logfilename", "logfile_name") and value:
+                base = PurePosixPath(str(value).replace("\\", "/")).name
+                if base and base not in found:
+                    found.append(base)
+            else:
+                _collect_log_filenames(value, found)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_log_filenames(item, found)
+    elif isinstance(obj, str) and "_network_net_" in obj.lower() and obj.lower().endswith(".log"):
+        base = PurePosixPath(obj.replace("\\", "/")).name
+        if base and base not in found:
+            found.append(base)
+    return found
+
+
+async def fetch_glider_details(glider_name: str) -> Optional[dict[str, Any]]:
+    payload = await _get_json(f"/sfmc/api/v1/gliders/{quote(glider_name, safe='')}")
+    return payload if isinstance(payload, dict) else None
+
+
+def _glider_id_from_details(payload: Optional[dict[str, Any]]) -> Optional[int]:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("id", "gliderId", "glider_id"):
+        value = payload.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    return None
+
+
+async def fetch_glider_log_tail(
+    glider_id: int,
+    log_file_name: str,
+    *,
+    byte_count: int = 8000,
+) -> Optional[str]:
+    """
+    Tail a dockserver network log via UI/API path:
+
+    ``GET /sfmc/glider-requests/get-last-x-bytes-of-glider-log-file/{id}/{log}/{bytes}``
+
+    Response shape: ``{success, data, startPosition, endPosition}``.
+    Works with Bearer when the host permits API tokens on ``glider-requests``.
+    """
+    if glider_id <= 0 or not (log_file_name or "").strip() or byte_count <= 0:
+        return None
+    path = (
+        "/sfmc/glider-requests/get-last-x-bytes-of-glider-log-file/"
+        f"{int(glider_id)}/"
+        f"{quote(log_file_name.strip(), safe='')}/"
+        f"{int(byte_count)}"
+    )
+    payload = await _request("GET", path, expect_json=True)
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("success") is False:
+        return None
+    data = payload.get("data")
+    if isinstance(data, str) and data.strip():
+        return data
+    return None
+
+
+async def fetch_dialog_checklist_values(
+    glider_name: str,
+    *,
+    details: Optional[dict[str, Any]] = None,
+    deployment: Optional[dict[str, Any]] = None,
+) -> dict[str, str]:
+    """
+    Resolve glider id + newest network log, read dialog text, map to checklist fields.
+
+    Primary use: ``aborts_oddities_val`` from Device Status (t/m/s) + ABORT HISTORY.
+
+    Live v1 active-deployment / gliders payloads often omit ``logFilePath``; when
+    that happens we list the dockserver ``logs`` folder for ``*_network_net_*.log``.
+
+    Prefer ``GET /sfmc/api/v1/download-glider-file/.../logs/...`` (Bearer works).
+    The UI ``glider-requests`` log-tail path often returns the login HTML page.
+    """
+    if details is None:
+        details = await fetch_glider_details(glider_name)
+
+    candidates: list[str] = []
+    if details:
+        candidates.extend(_collect_log_filenames(details))
+
+    if deployment is None:
+        deployment = await fetch_active_deployment(glider_name)
+    if deployment:
+        candidates.extend(_collect_log_filenames(deployment))
+
+    if not candidates:
+        # Live REST shapes lack connectionsMap.logFilePath — list dockserver logs.
+        try:
+            listing = await fetch_folder_listing(
+                glider_name,
+                "logs",
+                page=0,
+                filter_glob="*_network_net_*.log",
+            )
+            candidates.extend(_folder_names_from_listing(listing))
+        except Exception as err:
+            logger.debug("SFMC logs folder listing failed for %s: %s", glider_name, err)
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in candidates:
+        if name not in seen:
+            seen.add(name)
+            unique.append(name)
+
+    latest = pick_latest_network_log_filename(unique)
+    if not latest:
+        logger.warning(
+            "SFMC dialog: no network log found for %s; Device Status skipped",
+            glider_name,
+        )
+        return {}
+
+    text = await download_glider_file_text(glider_name, "logs", latest)
+    if not text:
+        # Fallback: UI tail endpoint (may require session cookie on some hosts).
+        glider_id = _glider_id_from_details(details)
+        if glider_id is not None:
+            text = await fetch_glider_log_tail(glider_id, latest, byte_count=24000)
+
+    if not text or text.lstrip().startswith("<!DOCTYPE") or text.lstrip().startswith("<html"):
+        logger.warning(
+            "SFMC dialog: could not read network log for %s / %s",
+            glider_name,
+            latest,
+        )
+        return {}
+
+    # Device Status / ABORT HISTORY sit at the end of the surface dialog.
+    return dialog_values_for_checklist(parse_surface_dialog_log(text[-24000:]))
+
+
 def _normalize_active_deployment_for_transforms(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Ensure transform helpers see missionExecutionsMap-style keys when the API
@@ -442,12 +700,17 @@ async def load_sfmc_checklist_values(glider_name: str) -> dict[str, str]:
     Pull SFMC-derived checklist autofill for ``glider_name`` (e.g. ``peggy``).
 
     Returns empty dict when SFMC is unconfigured or unreachable/unauthorized.
+    Requests are paced by ``sfmc_max_requests_per_minute`` and reuse payloads
+    where possible to stay under SFMC's ~25 req/min limit.
     """
     name = (glider_name or "").strip()
     if not name or not sfmc_is_configured():
         return {}
 
     parts: list[dict[str, str]] = []
+    # Prefer active-deployment script name over scripts catalog (catalog has no assignment).
+    active_script: Optional[str] = None
+    surface: Optional[dict[str, Any]] = None
 
     try:
         mission = await fetch_newest_mission_details(name)
@@ -460,24 +723,49 @@ async def load_sfmc_checklist_values(glider_name: str) -> dict[str, str]:
     try:
         surface = await fetch_surface_events_payload(name)
         if surface:
-            parts.append(
-                extract_from_surface_events_payload(
-                    _normalize_active_deployment_for_transforms(surface)
-                )
+            transformed = extract_from_surface_events_payload(
+                _normalize_active_deployment_for_transforms(surface)
             )
+            parts.append(transformed)
+            script_from_active = transformed.get("script_running_val")
+            if script_from_active:
+                active_script = script_from_active
+            elif isinstance(surface.get("currentScriptName"), str):
+                display = script_basename(surface["currentScriptName"])
+                if surface.get("isCurrentScriptRunning") is False:
+                    display = f"{display} (not running)"
+                active_script = display
+                parts.append({"script_running_val": display})
     except Exception as err:
         logger.warning("SFMC active-deployment fetch failed for %s: %s", name, err)
 
     try:
-        scripts_payload = await fetch_scripts_for_glider(name)
-        script_name = _extract_script_from_scripts_payload(scripts_payload)
-        if script_name:
-            parts.append({"script_running_val": script_name})
-        commands = await fetch_dockserver_commands(name)
-        if commands:
-            parts.append(extract_from_dockserver_commands(commands))
+        # Reuse active-deployment payload; only fetch /gliders/{name} for id/log paths.
+        dialog = await fetch_dialog_checklist_values(
+            name,
+            deployment=surface,
+        )
+        if dialog:
+            parts.append(dialog)
     except Exception as err:
-        logger.warning("SFMC scripts fetch failed for %s: %s", name, err)
+        logger.warning("SFMC dialog log-tail failed for %s: %s", name, err)
+
+    # Scripts catalog / dockserver command log only when active-deployment
+    # did not already provide the running script.
+    if not active_script:
+        try:
+            scripts_payload = await fetch_scripts_for_glider(name)
+            script_name = _extract_script_from_scripts_payload(scripts_payload)
+            if script_name:
+                parts.append({"script_running_val": script_name})
+            # Reuse same payload when it is a command list; avoid a second GET.
+            if isinstance(scripts_payload, list) and scripts_payload and isinstance(
+                scripts_payload[0], dict
+            ):
+                if "dockServerScriptName" in scripts_payload[0] or "command" in scripts_payload[0]:
+                    parts.append(extract_from_dockserver_commands(scripts_payload))
+        except Exception as err:
+            logger.warning("SFMC scripts fetch failed for %s: %s", name, err)
 
     try:
         offload = await fetch_offload_hint(name)

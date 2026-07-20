@@ -61,6 +61,7 @@ from .database import (
     SlocumDeploymentGoal,
     SlocumDeploymentNote,
     SlocumDeploymentMedia,
+    SlocumSfmcSnapshot,
 )
 
 # Import Pydantic schemas
@@ -221,6 +222,7 @@ __all__ = [
     "SlocumDeploymentGoal",
     "SlocumDeploymentNote",
     "SlocumDeploymentMedia",
+    "SlocumSfmcSnapshot",
     
     # Pydantic schemas (add all schema names here)
     "ReportDataParams",

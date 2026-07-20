@@ -34,6 +34,8 @@ from ..core.slocum_checklist_autofill import (
 from ..core.slocum_deployment_service import resolve_deployment_for_dataset
 from ..core.slocum_mirror_service import is_historical_dataset
 from ..core.slocum_overage_cache import OverageResult
+from ..core.sfmc_cache_service import get_cached_sfmc_values, refresh_sfmc_snapshot
+from ..core.sfmc_client import sfmc_is_configured
 from ..core.template_context import get_template_context
 from ..core.templates import templates
 from ..forms.slocum_checklist_definitions import get_slocum_daily_checklist_schema
@@ -67,6 +69,137 @@ def _apply_autofill_to_schema(
             if item.id in autofill and autofill[item.id] is not None:
                 item.value = autofill[item.id]
     return schema
+
+
+def _format_sfmc_freshness_note(
+    *,
+    fetched_at_utc: Optional[datetime],
+    fetch_error: Optional[str],
+    has_values: bool,
+) -> str:
+    if fetched_at_utc is not None:
+        stamp = fetched_at_utc.astimezone(timezone.utc).strftime("%H:%M UTC")
+        note = f"SFMC data as of {stamp}"
+        if fetch_error:
+            note = f"{note} (last refresh error: {fetch_error[:120]})"
+        return note
+    if fetch_error:
+        return f"SFMC unavailable: {fetch_error[:160]}"
+    if has_values:
+        return "SFMC data cached (fetch time unknown)"
+    return "SFMC not yet fetched"
+
+
+def _apply_sfmc_freshness_to_schema(
+    schema: models.MissionFormSchema,
+    *,
+    fetched_at_utc: Optional[datetime],
+    fetch_error: Optional[str],
+    has_values: bool,
+    configured: bool,
+) -> models.MissionFormSchema:
+    if not configured:
+        return schema
+    note = _format_sfmc_freshness_note(
+        fetched_at_utc=fetched_at_utc,
+        fetch_error=fetch_error,
+        has_values=has_values,
+    )
+    for section in schema.sections:
+        if section.id != "mission_status":
+            continue
+        base = (section.section_comment or "").rstrip()
+        section.section_comment = f"{base} {note}".strip() if base else note
+        break
+    return schema
+
+
+async def _resolve_sfmc_values_for_template(
+    session: SQLModelSession,
+    deployment: Optional[models.SlocumDeployment],
+    *,
+    force_refresh: bool = False,
+) -> tuple[dict[str, str], Optional[datetime], Optional[str]]:
+    """
+    Return cached SFMC values for the checklist template.
+
+    On first load (no snapshot row) or force_refresh, pulls live SFMC once.
+    """
+    if deployment is None or not deployment.id:
+        return {}, None, None
+
+    values, fetched_at, fetch_error = get_cached_sfmc_values(session, deployment.id)
+    needs_bootstrap = force_refresh or (fetched_at is None and not values and not fetch_error)
+    if needs_bootstrap and sfmc_is_configured() and (deployment.glider_name or "").strip():
+        try:
+            row = await refresh_sfmc_snapshot(session, deployment)
+            values = get_cached_sfmc_values(session, deployment.id)[0]
+            return values, row.fetched_at_utc, row.fetch_error
+        except Exception as err:
+            logger.warning(
+                "SFMC bootstrap/refresh failed for deployment %s: %s",
+                deployment.id,
+                err,
+            )
+            return values, fetched_at, str(err)[:2000]
+    return values, fetched_at, fetch_error
+
+
+async def _build_checklist_template_schema(
+    *,
+    dataset_id: str,
+    current_user: models.User,
+    session: SQLModelSession,
+    force_sfmc_refresh: bool = False,
+) -> models.MissionFormSchema:
+    deployment = resolve_deployment_for_dataset(session, dataset_id)
+    references = parse_checklist_reference_values(
+        deployment.checklist_reference_values if deployment else None
+    )
+    is_hist = is_historical_dataset(dataset_id)
+    sfmc_values: dict[str, str] = {}
+    fetched_at: Optional[datetime] = None
+    fetch_error: Optional[str] = None
+    if not is_hist:
+        sfmc_values, fetched_at, fetch_error = await _resolve_sfmc_values_for_template(
+            session,
+            deployment,
+            force_refresh=force_sfmc_refresh,
+        )
+
+    schema = get_slocum_daily_checklist_schema()
+    try:
+        autofill = await load_checklist_autofill_values(
+            dataset_id,
+            references,
+            pilot_username=current_user.username,
+            include_forecast=not is_hist,
+            is_historical=is_hist,
+            sfmc_values=sfmc_values,
+        )
+    except Exception as err:
+        logger.exception("Checklist autofill failed for %s: %s", dataset_id, err)
+        autofill = {
+            "pilot_val": current_user.username,
+            "dataset_id_val": dataset_id,
+            "expected_mission_file_ref_val": str(references.get("expected_mission_file") or "—"),
+            "expected_script_ref_val": str(references.get("expected_script") or "—"),
+            "argos_id_ref_val": str(references.get("argos_id") or "—"),
+            "u_alt_min_depth_ref_val": str(references.get("u_alt_min_depth") or "—"),
+            "endurance_ref_val": f"{references.get('endurance_amphr_total') or '—'} Ah",
+        }
+        for key, val in (sfmc_values or {}).items():
+            if val and key != "u_alt_min_depth_val":
+                autofill[key] = val
+
+    schema = _apply_autofill_to_schema(schema, autofill)
+    return _apply_sfmc_freshness_to_schema(
+        schema,
+        fetched_at_utc=fetched_at,
+        fetch_error=fetch_error,
+        has_values=bool(sfmc_values),
+        configured=sfmc_is_configured() and not is_hist,
+    )
 
 
 @router.get(
@@ -127,32 +260,32 @@ async def get_checklist_template(
 ):
     """Return checklist schema with live autofill and admin reference displays."""
     _require_slocum_platform()
-    deployment = resolve_deployment_for_dataset(session, dataset_id)
-    references = parse_checklist_reference_values(
-        deployment.checklist_reference_values if deployment else None
+    return await _build_checklist_template_schema(
+        dataset_id=dataset_id,
+        current_user=current_user,
+        session=session,
+        force_sfmc_refresh=False,
     )
-    schema = get_slocum_daily_checklist_schema()
-    try:
-        autofill = await load_checklist_autofill_values(
-            dataset_id,
-            references,
-            pilot_username=current_user.username,
-            include_forecast=not is_historical_dataset(dataset_id),
-            is_historical=is_historical_dataset(dataset_id),
-            sfmc_glider_name=(deployment.glider_name if deployment else None),
-        )
-    except Exception as err:
-        logger.exception("Checklist autofill failed for %s: %s", dataset_id, err)
-        autofill = {
-            "pilot_val": current_user.username,
-            "dataset_id_val": dataset_id,
-            "expected_mission_file_ref_val": str(references.get("expected_mission_file") or "—"),
-            "expected_script_ref_val": str(references.get("expected_script") or "—"),
-            "argos_id_ref_val": str(references.get("argos_id") or "—"),
-            "u_alt_min_depth_ref_val": str(references.get("u_alt_min_depth") or "—"),
-            "endurance_ref_val": f"{references.get('endurance_amphr_total') or '—'} Ah",
-        }
-    return _apply_autofill_to_schema(schema, autofill)
+
+
+@router.post(
+    "/api/slocum/checklists/{dataset_id}/sfmc-refresh",
+    response_model=models.MissionFormSchema,
+    dependencies=[_slocum_access],
+)
+async def refresh_checklist_sfmc(
+    dataset_id: str,
+    current_user: models.User = Depends(get_current_active_user),
+    session: SQLModelSession = Depends(get_db_session),
+):
+    """Force a live SFMC pull for this deployment, then return the refreshed template."""
+    _require_slocum_platform()
+    return await _build_checklist_template_schema(
+        dataset_id=dataset_id,
+        current_user=current_user,
+        session=session,
+        force_sfmc_refresh=True,
+    )
 
 
 @router.get(

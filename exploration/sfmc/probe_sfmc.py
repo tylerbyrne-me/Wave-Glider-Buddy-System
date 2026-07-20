@@ -699,6 +699,99 @@ def v1_smoke(config: SfmcConfig, *, glider_name: str) -> None:
                 slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", path.strip("/"))
                 _save_sample(slug, payload)
 
+        # Glider id + optional network log tail (glider-requests; may need Bearer or session).
+        details_url = f"{base}/sfmc/api/v1/gliders/{glider_name}"
+        details_resp = client.get(details_url, headers=headers)
+        print(f"[{details_resp.status_code:>4}] GET  {details_url} | {_preview_body(details_resp.text or '')}")
+        glider_id = None
+        log_name = None
+        if details_resp.status_code == 200:
+            try:
+                details = details_resp.json()
+            except json.JSONDecodeError:
+                details = None
+            if isinstance(details, dict):
+                _save_sample(f"v1_gliders_{glider_name}", details)
+                data = details.get("data") if isinstance(details.get("data"), dict) else details
+                if isinstance(data, dict) and data.get("id") is not None:
+                    try:
+                        glider_id = int(data["id"])
+                    except (TypeError, ValueError):
+                        glider_id = None
+
+        deploy_url = f"{base}/sfmc/api/v1/active-deployment/{glider_name}"
+        deploy_resp = client.get(deploy_url, headers=headers)
+        if deploy_resp.status_code == 200:
+            try:
+                deploy = deploy_resp.json()
+            except json.JSONDecodeError:
+                deploy = None
+            if isinstance(deploy, dict):
+                # Prefer newest logFilePath under connections
+                stamps: list[tuple[str, str]] = []
+                stack = [deploy]
+                while stack:
+                    cur = stack.pop()
+                    if isinstance(cur, dict):
+                        for k, v in cur.items():
+                            if str(k).lower() in ("logfilepath", "logfile", "logfilename") and v:
+                                name = str(v).replace("\\", "/").rsplit("/", 1)[-1]
+                                m = re.search(r"(\d{8}T\d{6})", name)
+                                if m and "_network_net_" in name.lower():
+                                    stamps.append((m.group(1), name))
+                            else:
+                                stack.append(v)
+                    elif isinstance(cur, list):
+                        stack.extend(cur)
+                if stamps:
+                    stamps.sort(key=lambda item: item[0], reverse=True)
+                    log_name = stamps[0][1]
+
+        if glider_id is not None and log_name:
+            log_url = (
+                f"{base}/sfmc/glider-requests/get-last-x-bytes-of-glider-log-file/"
+                f"{glider_id}/{log_name}/8000"
+            )
+            log_resp = client.get(log_url, headers=headers)
+            preview = _preview_body(log_resp.text or "")
+            print(f"[{log_resp.status_code:>4}] GET  {log_url} | {preview}")
+            _append_discovery_log(
+                {
+                    "phase": "v1_smoke_log_tail",
+                    "method": "GET",
+                    "url": log_url,
+                    "status_code": log_resp.status_code,
+                    "auth_label": "bearer",
+                    "body_preview": preview,
+                }
+            )
+            if log_resp.status_code == 200:
+                try:
+                    log_payload = log_resp.json()
+                except json.JSONDecodeError:
+                    log_payload = None
+                if isinstance(log_payload, dict):
+                    # Redact bulky dialog; store metadata + length only
+                    data = log_payload.get("data")
+                    _save_sample(
+                        f"log_tail_{glider_name}",
+                        {
+                            "success": log_payload.get("success"),
+                            "startPosition": log_payload.get("startPosition"),
+                            "endPosition": log_payload.get("endPosition"),
+                            "logFileName": log_name,
+                            "gliderId": glider_id,
+                            "data_chars": len(data) if isinstance(data, str) else None,
+                            "data_has_devices_tms": (
+                                isinstance(data, str) and "devices:(t/m/s)" in data
+                            ),
+                        },
+                    )
+        elif glider_id is not None:
+            print(f"Log tail skipped: gliderId={glider_id} but no network logFilePath found")
+        else:
+            print("Log tail skipped: could not resolve glider id")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Probe Teledyne SFMC REST API (read-only).")

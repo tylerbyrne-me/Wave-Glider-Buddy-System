@@ -1525,6 +1525,30 @@ async def run_slocum_overage_cleanup_job():
         logger.error("AUTOMATED: Slocum overage cleanup failed: %s", exc, exc_info=True)
 
 
+async def run_sfmc_cache_refresh_job():
+    """Leader job: refresh SFMC checklist snapshots for active Slocum deployments."""
+    if not feature_toggles.is_feature_enabled("slocum_platform"):
+        return
+    try:
+        from .core.sfmc_cache_service import refresh_all_active_sfmc_snapshots
+        from .core.sfmc_client import sfmc_is_configured
+
+        if not sfmc_is_configured():
+            logger.debug("AUTOMATED: SFMC cache refresh skipped (not configured)")
+            return
+
+        with SQLModelSession(sqlite_engine) as session:
+            summary = await refresh_all_active_sfmc_snapshots(session)
+        logger.info(
+            "AUTOMATED: SFMC cache refresh finished (attempted=%s, succeeded=%s, failed=%s)",
+            summary.get("attempted"),
+            summary.get("succeeded"),
+            summary.get("failed"),
+        )
+    except Exception as exc:
+        logger.error("AUTOMATED: SFMC cache refresh failed: %s", exc, exc_info=True)
+
+
 # --- FastAPI Lifecycle Events for Scheduler ---
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
@@ -1677,6 +1701,19 @@ async def startup_event():
             "Slocum overage cleanup scheduled every %s hours",
             overage_cleanup_hours,
         )
+        sfmc_refresh_minutes = max(
+            5, int(getattr(settings, "sfmc_cache_refresh_interval_minutes", 20))
+        )
+        scheduler.add_job(
+            run_sfmc_cache_refresh_job,
+            "interval",
+            minutes=sfmc_refresh_minutes,
+            id="sfmc_cache_refresh_job",
+        )
+        logger.info(
+            "SFMC checklist cache refresh scheduled every %s minutes",
+            sfmc_refresh_minutes,
+        )
         try:
             await run_weather_map_cleanup_job()
         except Exception as exc:
@@ -1689,6 +1726,9 @@ async def startup_event():
             await run_slocum_overage_cleanup_job()
         except Exception as exc:
             logger.warning("STARTUP: Initial Slocum overage cleanup failed: %s", exc)
+        # SFMC refresh is paced (~20 req/min); run in background so startup is not blocked.
+        asyncio.create_task(run_sfmc_cache_refresh_job())
+        logger.info("STARTUP: SFMC checklist cache refresh scheduled in background")
 
         global _scheduler_started_by_this_worker
         scheduler.start()

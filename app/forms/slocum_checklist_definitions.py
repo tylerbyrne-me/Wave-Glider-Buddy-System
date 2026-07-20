@@ -11,14 +11,14 @@ def get_slocum_daily_checklist_schema() -> models.MissionFormSchema:
     Return the static structure of the Slocum daily checklist (no live autofill).
 
     Autofill values and reference displays are injected by the checklist router.
-    SFMC-dependent items remain manual until a later phase.
+    SFMC-dependent items are autofilled from the cached SFMC snapshot when configured.
     """
     return models.MissionFormSchema(
         form_type=CHECKLIST_FORM_TYPE,
         title=CHECKLIST_FORM_TITLE,
         description=(
             "Daily pilot checklist for Slocum gliders. Review autofilled values, "
-            "complete manual items (SFMC until integrated), verify, and submit."
+            "complete remaining manual items, verify, and submit."
         ),
         sections=[
             models.FormSection(

@@ -765,24 +765,51 @@ document.addEventListener('DOMContentLoaded', async () => {
             refreshBtn.textContent = 'Refreshing…';
             try {
                 const schema = await apiRequest(
-                    `/api/slocum/checklists/${encodeURIComponent(datasetId)}/template`,
-                    'GET',
+                    `/api/slocum/checklists/${encodeURIComponent(datasetId)}/sfmc-refresh`,
+                    'POST',
                 );
                 currentSchema = schema;
                 let updated = 0;
                 for (const section of schema.sections || []) {
                     for (const item of section.items || []) {
                         if (!item.id) continue;
-                        if (item.item_type === 'autofilled_value' || item.item_type === 'static_text') {
-                            const el = document.getElementById(item.id);
-                            if (el && (el.classList.contains('autofilled-value') || el.classList.contains('static-text'))) {
-                                el.textContent = item.value != null && item.value !== '' ? item.value : 'N/A';
+                        const el = document.getElementById(item.id);
+                        if (!el) continue;
+                        const value = item.value != null && item.value !== '' ? String(item.value) : '';
+                        if (
+                            item.item_type === 'autofilled_value'
+                            || item.item_type === 'static_text'
+                        ) {
+                            if (
+                                el.classList.contains('autofilled-value')
+                                || el.classList.contains('static-text')
+                            ) {
+                                el.textContent = value || 'N/A';
+                                updated += 1;
+                            }
+                            continue;
+                        }
+                        if (
+                            item.item_type === 'text_input'
+                            || item.item_type === 'text_area'
+                            || item.item_type === 'dropdown'
+                        ) {
+                            if ('value' in el) {
+                                el.value = value;
                                 updated += 1;
                             }
                         }
                     }
                 }
-                showToast(`Refreshed ${updated} autofilled field(s).`, 'success');
+                // Refresh mission_status section comment (SFMC freshness note).
+                for (const section of schema.sections || []) {
+                    if (section.id !== 'mission_status' || !section.section_comment) continue;
+                    const commentEl = document.querySelector(
+                        `[data-section-id="mission_status"] .section-comment, #mission_status .section-comment`,
+                    );
+                    if (commentEl) commentEl.textContent = section.section_comment;
+                }
+                showToast(`Refreshed ${updated} field(s) (including SFMC).`, 'success');
             } catch (error) {
                 showToast(`Refresh failed: ${error.message}`, 'danger');
             } finally {
