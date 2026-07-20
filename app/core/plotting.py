@@ -790,6 +790,8 @@ _NOTE_MARKER_SEPARATION_BUFFER_PX = 2.0
 _NOTE_MARKER_RELAX_MAX_ITERATIONS = 40
 _NOTE_MARKER_RELAX_DAMPING = 0.8
 _NOTE_MARKER_RELAX_MIN_MOVEMENT_PX = 0.5
+_NOTE_MARKER_SETTLE_MAX_ITERATIONS = 25
+_NOTE_MARKER_SETTLE_STEP = 0.5
 
 
 @dataclass
@@ -802,6 +804,12 @@ class PlacedLabel:
     offset_y: float
     bbox: Any
     annotation: Any = None
+    # Greedy "home" offset (preferred direction at the smallest non-overlapping
+    # standoff the first-fit search found). The settle pass pulls each label
+    # back toward this so relaxation doesn't leave callouts stranded at the
+    # map perimeter with long crossing leader lines.
+    rest_offset_x: float = 0.0
+    rest_offset_y: float = 0.0
 
 
 def _bboxes_overlap(a, b, pad: float = _NOTE_MARKER_OVERLAP_PAD_PX) -> bool:
@@ -1031,6 +1039,88 @@ def _relax_placed_labels(
             break
 
 
+def _settle_labels_toward_anchors(
+    placed: List[PlacedLabel],
+    renderer=None,
+    *,
+    axes_bbox=None,
+    max_iterations: int = _NOTE_MARKER_SETTLE_MAX_ITERATIONS,
+    step: float = _NOTE_MARKER_SETTLE_STEP,
+    pad: float = _NOTE_MARKER_OVERLAP_PAD_PX,
+    max_standoff: float = _NOTE_MARKER_MAX_STANDOFF_PTS,
+    dpi: float = 72.0,
+) -> None:
+    """Pull each callout back toward its greedy home offset when room exists.
+
+    Relaxation only repels, so overlapping labels drift outward and stay at the
+    map perimeter even after the conflict that pushed them there has cleared.
+    This pass walks each label back toward `rest_offset` (the compact greedy
+    position) by `step` per iteration, accepting a move only if it introduces
+    no new label-vs-label overlap. Labels whose home still overlaps a neighbour
+    simply remain pushed out, so separation is preserved.
+    """
+    if not placed:
+        return
+
+    if len(placed) < 2:
+        for label in placed:
+            if abs(label.rest_offset_x - label.offset_x) < 1e-6 and abs(
+                label.rest_offset_y - label.offset_y) < 1e-6:
+                continue
+            _apply_offset(
+                label,
+                label.rest_offset_x,
+                label.rest_offset_y,
+                renderer,
+                dpi=dpi,
+            )
+            if axes_bbox is not None:
+                _clamp_placed_to_axes(
+                    label,
+                    axes_bbox,
+                    max_standoff=max_standoff,
+                    renderer=renderer,
+                    dpi=dpi,
+                )
+        return
+
+    for _ in range(max_iterations):
+        any_move = False
+        for idx, label in enumerate(placed):
+            home_x = label.rest_offset_x
+            home_y = label.rest_offset_y
+            if abs(home_x - label.offset_x) < 1e-6 and abs(home_y - label.offset_y) < 1e-6:
+                continue
+            new_ox = label.offset_x + step * (home_x - label.offset_x)
+            new_oy = label.offset_y + step * (home_y - label.offset_y)
+            new_ox, new_oy = _cap_standoff(new_ox, new_oy, max_standoff)
+
+            old_ox, old_oy = label.offset_x, label.offset_y
+            _apply_offset(label, new_ox, new_oy, renderer, dpi=dpi)
+            conflict = any(
+                _bboxes_overlap(label.bbox, other.bbox, pad=pad)
+                for k, other in enumerate(placed)
+                if k != idx
+            )
+            if conflict:
+                _apply_offset(label, old_ox, old_oy, renderer, dpi=dpi)
+            else:
+                any_move = True
+
+        if axes_bbox is not None:
+            for label in placed:
+                _clamp_placed_to_axes(
+                    label,
+                    axes_bbox,
+                    max_standoff=max_standoff,
+                    renderer=renderer,
+                    dpi=dpi,
+                )
+
+        if not any_move:
+            break
+
+
 def _create_marker_annotation(
     ax,
     label: str,
@@ -1231,10 +1321,18 @@ def _annotate_note_markers(
                 offset_y=chosen_offset_y,
                 bbox=chosen_bbox,
                 annotation=chosen_annotation,
+                rest_offset_x=chosen_offset_x,
+                rest_offset_y=chosen_offset_y,
             )
         )
 
     _relax_placed_labels(
+        placed,
+        renderer,
+        axes_bbox=axes_bbox,
+        dpi=dpi,
+    )
+    _settle_labels_toward_anchors(
         placed,
         renderer,
         axes_bbox=axes_bbox,
