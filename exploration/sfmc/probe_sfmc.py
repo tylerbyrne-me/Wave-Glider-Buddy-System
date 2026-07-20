@@ -52,6 +52,7 @@ _WRAPPER_PROGRAMS = (
 )
 
 _TOKEN_PATHS = (
+    "/sfmc/api/signin",
     "/sfmc/api/auth/token",
     "/sfmc/api/token",
     "/api/auth/token",
@@ -170,6 +171,18 @@ def _normalize_base_url(base_url: str) -> str:
 
 def _preview_body(text: str, limit: int = 240) -> str:
     compact = re.sub(r"\s+", " ", text).strip()
+    # Never echo JWTs / access tokens in console or discovery logs.
+    compact = re.sub(
+        r'("(?:token|access_token|accessToken)"\s*:\s*")[^"]+(")',
+        r"\1<redacted>\2",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    compact = re.sub(
+        r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
+        "<redacted-jwt>",
+        compact,
+    )
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
@@ -202,6 +215,11 @@ def _build_auth_variants(client_id: str, client_secret: str) -> list[tuple[str, 
 def _token_post_bodies(client_id: str, client_secret: str) -> list[tuple[str, dict[str, Any], str]]:
     """Return (label, body, content_kind) where content_kind is json or form."""
     return [
+        (
+            "teledyne_signin",
+            {"clientId": client_id, "secret": client_secret},
+            "json",
+        ),
         (
             "oauth_client_credentials",
             {
@@ -602,6 +620,86 @@ def fetch_samples(
     print(f"Fetch summary: {summary_path}")
 
 
+def v1_smoke(config: SfmcConfig, *, glider_name: str) -> None:
+    """
+    Teledyne-documented auth + read endpoints (from sfmc Node package).
+
+    POST /sfmc/api/signin {clientId, secret} → Bearer token
+    GET  /sfmc/api/v1/active-deployment/{glider}
+    GET  /sfmc/api/v1/scripts-for-glider/{glider}
+    GET  /sfmc/api/v1/glider-folder-file-listing/{glider}/archive?filter=*_goto_*.ma
+    """
+    base = _normalize_base_url(config.base_url)
+    print(f"SFMC v1 smoke against {base} glider={glider_name}")
+    print(f"TLS verify={config.verify_tls}\n")
+
+    with httpx.Client(verify=config.verify_tls, timeout=config.timeout_seconds, follow_redirects=True) as client:
+        signin_url = f"{base}/sfmc/api/signin"
+        body = {"clientId": config.client_id, "secret": config.client_secret}
+        result = _request_once(
+            client,
+            method="POST",
+            url=signin_url,
+            auth_label="teledyne_signin",
+            json_body=body,
+        )
+        _print_result(result)
+        _append_discovery_log({"phase": "v1_smoke_signin", **result.__dict__})
+        if result.status_code not in (200, 201):
+            print("Signin failed — check SFMC_CLIENT_ID / SFMC_CLIENT_SECRET and host.")
+            return
+
+        full = client.post(signin_url, json=body)
+        try:
+            token_payload = full.json()
+        except json.JSONDecodeError:
+            print("Signin returned non-JSON")
+            return
+        # Never dump full token to console; only confirm presence.
+        token = token_payload.get("token") or token_payload.get("access_token")
+        if not token:
+            print(f"Signin OK but no token field; keys={sorted(token_payload.keys())}")
+            _save_sample("signin_keys_only", {"keys": sorted(token_payload.keys())})
+            return
+        print(f"Signin OK (token length={len(str(token))})")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        paths = [
+            f"/sfmc/api/v1/active-deployment/{glider_name}",
+            f"/sfmc/api/v1/scripts-for-glider/{glider_name}",
+            f"/sfmc/api/v1/newest-mission-details/{glider_name}",
+            f"/sfmc/api/v1/glider-folder-file-listing/{glider_name}/archive",
+            f"/sfmc/api/v1/glider-folder-file-listing/{glider_name}/from-glider",
+        ]
+        for path in paths:
+            url = f"{base}{path}"
+            params = None
+            if "folder-file-listing" in path and path.endswith("/archive"):
+                params = {"page": 0, "filter": "*_goto_*.ma"}
+            elif "folder-file-listing" in path:
+                params = {"page": 0, "filter": "*"}
+            response = client.get(url, headers=headers, params=params)
+            preview = _preview_body(response.text or "")
+            print(f"[{response.status_code:>4}] GET  {url} | {preview}")
+            _append_discovery_log(
+                {
+                    "phase": "v1_smoke_get",
+                    "method": "GET",
+                    "url": url,
+                    "status_code": response.status_code,
+                    "auth_label": "bearer",
+                    "body_preview": preview,
+                }
+            )
+            if response.status_code == 200:
+                try:
+                    payload = response.json()
+                except json.JSONDecodeError:
+                    continue
+                slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", path.strip("/"))
+                _save_sample(slug, payload)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Probe Teledyne SFMC REST API (read-only).")
     parser.add_argument(
@@ -615,9 +713,14 @@ def main() -> None:
         help="Fetch JSON samples from best-known endpoints into exploration/sfmc/samples/",
     )
     parser.add_argument(
+        "--v1-smoke",
+        action="store_true",
+        help="Teledyne signin + /sfmc/api/v1 read endpoints (requires --glider)",
+    )
+    parser.add_argument(
         "--glider",
         default=None,
-        help="Optional SFMC glider host name for per-glider folder/script probes",
+        help="SFMC glider name (e.g. peggy) for --v1-smoke / --fetch",
     )
     parser.add_argument(
         "--insecure",
@@ -637,11 +740,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.discover and not args.fetch:
-        args.discover = True
+    if not args.discover and not args.fetch and not args.v1_smoke:
+        args.v1_smoke = True
 
     config = load_sfmc_config()
     config.verify_tls = not args.insecure
+
+    if args.v1_smoke:
+        v1_smoke(config, glider_name=args.glider or "peggy")
 
     discovery_results: list[ProbeResult] = []
     if args.discover:
