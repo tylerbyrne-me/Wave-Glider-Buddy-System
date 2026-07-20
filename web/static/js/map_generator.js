@@ -301,11 +301,30 @@ function clearTracks() {
 function clearSlocumTracks() {
     if (slocumTracks.length > 0) {
         slocumTracks.forEach(track => {
-            missionMap.removeLayer(track.layer);
+            if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+            if (missionMap && track.waypointLayer) missionMap.removeLayer(track.waypointLayer);
         });
         slocumTracks = [];
     }
     notifyWindOverlayTracksChanged();
+}
+
+/**
+ * Fit map to all Wave Glider and Slocum layers (including waypoints).
+ */
+function fitMapToAllTracks() {
+    if (!missionMap) return;
+    const layers = [];
+    missionTracks.forEach((t) => {
+        if (t.layer) layers.push(t.layer);
+    });
+    slocumTracks.forEach((t) => {
+        if (t.layer) layers.push(t.layer);
+        if (t.waypointLayer) layers.push(t.waypointLayer);
+    });
+    if (layers.length === 0) return;
+    const group = new L.featureGroup(layers);
+    missionMap.fitBounds(group.getBounds(), { padding: [50, 50] });
 }
 
 /**
@@ -345,21 +364,34 @@ async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0)
             {
                 color: color,
                 weight: 3,
-                opacity: 0.8,
-                dashArray: '10, 10'
+                opacity: 0.8
             }
         ).addTo(missionMap);
+
+        let waypointLayer = null;
+        const wpt = data.current_waypoint;
+        if (wpt && Number.isFinite(wpt.lat) && Number.isFinite(wpt.lon)) {
+            waypointLayer = L.circleMarker([wpt.lat, wpt.lon], {
+                radius: 7,
+                color: '#1a1a1a',
+                weight: 2,
+                fillColor: color,
+                fillOpacity: 0.95
+            }).addTo(missionMap);
+            waypointLayer.bindPopup(
+                `<strong>Commanded waypoint</strong><br>${datasetId}<br>` +
+                `${Number(wpt.lat).toFixed(4)}, ${Number(wpt.lon).toFixed(4)}`
+            );
+        }
+
         slocumTracks.push({
             datasetId: datasetId,
             layer: trackLayer,
+            waypointLayer: waypointLayer,
             pointCount: data.point_count,
             bounds: data.bounds
         });
-        if (data.bounds) {
-            const allLayers = [...missionTracks, ...slocumTracks].map(t => t.layer);
-            const group = new L.featureGroup(allLayers);
-            missionMap.fitBounds(group.getBounds(), { padding: [50, 50] });
-        }
+        fitMapToAllTracks();
         updateSlocumTrackInfo();
         notifyWindOverlayTracksChanged();
     } catch (error) {
@@ -409,8 +441,13 @@ function updateSlocumTrackInfo() {
         return;
     }
     const totalPoints = slocumTracks.reduce((sum, t) => sum + t.pointCount, 0);
-    let html = '<div class="alert alert-secondary mb-2"><strong>Slocum gliders</strong> (dashed) – ';
-    html += `${slocumTracks.length} dataset(s), ${totalPoints.toLocaleString()} points</div>`;
+    const wptCount = slocumTracks.filter((t) => t.waypointLayer).length;
+    let html = '<div class="alert alert-secondary mb-2"><strong>Slocum gliders</strong> – ';
+    html += `${slocumTracks.length} dataset(s), ${totalPoints.toLocaleString()} points`;
+    if (wptCount > 0) {
+        html += ` · ${wptCount} waypoint(s)`;
+    }
+    html += '</div>';
     infoElement.innerHTML = html;
 }
 
@@ -423,17 +460,19 @@ function removeSlocumTrack(datasetId) {
     if (idx === -1) return;
     const track = slocumTracks[idx];
     if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+    if (missionMap && track.waypointLayer) missionMap.removeLayer(track.waypointLayer);
     slocumTracks.splice(idx, 1);
     updateSlocumTrackInfo();
     notifyWindOverlayTracksChanged();
 }
 
 /**
- * Initialize Slocum dataset picker and wire events (when section exists and feature enabled)
+ * Initialize Slocum dataset picker and wire events.
+ * Works with the WG-home overlay section and/or Slocum-home toolbar (browse/clear/select).
  */
 function initSlocumUI() {
+    if (!missionMap) return;
     const section = document.getElementById('slocumDatasetsSection');
-    if (!section || !missionMap) return;
     const activeList = document.getElementById('slocumActiveList');
     const clearBtn = document.getElementById('slocumClearTracksBtn');
     const browseBtn = document.getElementById('slocumBrowseBtn');
@@ -444,6 +483,8 @@ function initSlocumUI() {
     const datasetSelect = document.getElementById('mapDatasetSelect');
     const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
     const isSlocumHome = mapCard?.getAttribute('data-platform') === 'slocum';
+
+    if (!section && !browseBtn && !datasetSelect && !clearBtn) return;
 
     function getTimeRangeForSlocumLoad() {
         return resolve_slocum_time_range_params();
@@ -602,6 +643,110 @@ function initSlocumUI() {
                 searchResults.innerHTML = `<p class="text-danger">${msg}</p>`;
             } finally {
                 searchBtn.disabled = false;
+            }
+        });
+    }
+}
+
+const WG_OVERLAY_COLORS = ['#3388ff', '#dc143c', '#32cd32', '#ff8c00', '#9370db', '#ff69b4', '#00ced1', '#ffa500'];
+
+/**
+ * Add a Wave Glider track without clearing existing mission tracks (overlay mode).
+ */
+async function loadWgOverlayTrack(missionId, queryParams = { hours_back: '72' }, colorIndex = 0) {
+    if (!missionMap) {
+        showToast('Map not initialized', 'danger');
+        return;
+    }
+    if (missionTracks.some((t) => t.missionId === missionId)) return;
+    try {
+        const queryString = to_query_string(queryParams);
+        const data = await apiRequest(`/api/map/telemetry/${missionId}?${queryString}`, 'GET');
+        if (!data.track_points || data.track_points.length === 0) {
+            showToast(`No track data for mission ${missionId}`, 'warning');
+            return;
+        }
+        const color = WG_OVERLAY_COLORS[colorIndex % WG_OVERLAY_COLORS.length];
+        const trackLayer = L.polyline(
+            data.track_points.map((point) => [point.lat, point.lon]),
+            { color, weight: 3, opacity: 0.8 }
+        ).addTo(missionMap);
+        missionTracks.push({
+            missionId,
+            layer: trackLayer,
+            pointCount: data.point_count,
+            bounds: data.bounds
+        });
+        fitMapToAllTracks();
+        updateWgTrackInfo();
+        notifyWindOverlayTracksChanged();
+    } catch (error) {
+        showToast(`Error loading Wave Glider track ${missionId}: ${error.message}`, 'danger');
+    }
+}
+
+function removeMissionTrack(missionId) {
+    const idx = missionTracks.findIndex((t) => t.missionId === missionId);
+    if (idx === -1) return;
+    const track = missionTracks[idx];
+    if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+    missionTracks.splice(idx, 1);
+    updateWgTrackInfo();
+    notifyWindOverlayTracksChanged();
+}
+
+function updateWgTrackInfo() {
+    const infoElement = document.getElementById('wgTrackInfo');
+    if (!infoElement) return;
+    if (missionTracks.length === 0) {
+        infoElement.innerHTML = '';
+        return;
+    }
+    const totalPoints = missionTracks.reduce((sum, t) => sum + (t.pointCount || 0), 0);
+    infoElement.innerHTML =
+        `<div class="alert alert-secondary mb-2"><strong>Wave Gliders</strong> – ` +
+        `${missionTracks.length} mission(s), ${totalPoints.toLocaleString()} points</div>`;
+}
+
+/**
+ * Initialize Wave Glider overlay checkboxes on Slocum home.
+ */
+function initWgOverlayUI() {
+    const section = document.getElementById('wgMissionsSection');
+    if (!section || !missionMap) return;
+    const activeList = document.getElementById('wgActiveList');
+    const clearBtn = document.getElementById('wgClearTracksBtn');
+
+    function getTimeRangeForWgLoad() {
+        return get_map_time_range_params();
+    }
+
+    if (activeList) {
+        activeList.querySelectorAll('.wg-mission-cb').forEach((cb) => {
+            cb.addEventListener('change', async function () {
+                const missionId = this.getAttribute('data-mission-id') || this.value;
+                if (this.checked) {
+                    try {
+                        const timeRangeParams = getTimeRangeForWgLoad();
+                        const colorIndex = missionTracks.length;
+                        await loadWgOverlayTrack(missionId, timeRangeParams, colorIndex);
+                    } catch (error) {
+                        this.checked = false;
+                        showToast(error.message || 'Invalid time range', 'danger');
+                    }
+                } else {
+                    removeMissionTrack(missionId);
+                }
+            });
+        });
+    }
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            clearTracks();
+            updateWgTrackInfo();
+            if (activeList) {
+                activeList.querySelectorAll('.wg-mission-cb').forEach((cb) => { cb.checked = false; });
             }
         });
     }
@@ -836,8 +981,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (mapContainer) {
         // Initialize map when container is present
         initializeMissionMap();
-        // Slocum dataset picker (when feature enabled and section present)
+        // Slocum dataset picker (when feature enabled and section/controls present)
         initSlocumUI();
+        // Wave Glider overlay on Slocum home
+        initWgOverlayUI();
 
         // Set up event listeners for controls
         const generateBtn = document.getElementById('generateMapBtn');
@@ -982,6 +1129,10 @@ export {
     removeSlocumTrack,
     updateSlocumTrackInfo,
     initSlocumUI,
+    initWgOverlayUI,
+    loadWgOverlayTrack,
+    removeMissionTrack,
+    updateWgTrackInfo,
     generateLiveKML,
     downloadMissionKML,
     downloadSlocumKML

@@ -8,6 +8,7 @@ from ..core.auth import (
     get_optional_current_user,
     redirect_if_platform_denied,
     get_allowed_platforms_for_user,
+    user_has_platform_access,
 )
 from ..core.infra.db import get_db_session, SQLModelSession
 from ..core.templates import templates
@@ -324,7 +325,7 @@ async def get_slocum_home(
     request: Request,
     current_user: Optional[models.User] = Depends(get_optional_current_user),
 ):
-    """Slocum Glider home: dataset list and map. No WG mission data."""
+    """Slocum Glider home: dataset list, map, and optional Wave Glider track overlay."""
     if not current_user:
         return RedirectResponse(url="/login.html")
     if not is_feature_enabled("slocum_platform"):
@@ -332,14 +333,21 @@ async def get_slocum_home(
     denied = redirect_if_platform_denied(current_user, "slocum")
     if denied:
         return denied
+    show_wg_map_overlay = user_has_platform_access(current_user, "wave_glider")
+    active_missions = (
+        list(settings.active_realtime_missions or [])
+        if show_wg_map_overlay
+        else []
+    )
     template_context = get_template_context(
         request=request,
         current_user=current_user,
-        active_missions=[],  # Do not show WG missions on Slocum home
+        active_missions=active_missions,
     )
     template_context["show_banner_nav"] = True
     template_context["platform"] = "slocum"
     template_context["platform_home_url"] = "/slocum/home"
+    template_context["show_wg_map_overlay"] = show_wg_map_overlay
     return templates.TemplateResponse("slocum_home.html", template_context)
 
 

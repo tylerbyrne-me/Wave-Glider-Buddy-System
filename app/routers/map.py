@@ -24,10 +24,12 @@ from ..core.data.processors import preprocess_telemetry_df
 from ..core.data.data_service import get_data_service
 from ..core.slocum_cache_service import (
     get_cached_or_fetch_dashboard_df,
+    get_cached_or_fetch_bundle_df,
     parse_slocum_time_window,
     slice_processed_df,
 )
 from ..core.slocum_mirror_service import dashboard_df_to_track_df
+from ..core.slocum_checklist_autofill import latest_valid_waypoint
 from ..core.slocum_overage_cache import OverageRangeError
 from ..core.infra.feature_toggles import is_feature_enabled
 from ..core.infra.error_handlers import handle_processing_error, handle_data_not_found, ErrorContext
@@ -192,6 +194,7 @@ async def _prepare_slocum_track_data(
                 "point_count": 0,
                 "bounds": None,
                 "source": source_label,
+                "current_waypoint": None,
                 "error": str(err),
             }
         if dashboard_df is None or dashboard_df.empty:
@@ -201,6 +204,7 @@ async def _prepare_slocum_track_data(
                 "point_count": 0,
                 "bounds": None,
                 "source": source_label,
+                "current_waypoint": None,
                 "error": "No data available",
             }
 
@@ -219,15 +223,49 @@ async def _prepare_slocum_track_data(
                 "point_count": 0,
                 "bounds": None,
                 "source": source_label,
+                "current_waypoint": None,
                 "error": "No valid track points",
             }
         track_points = prepare_track_points(processed_df, max_points=max_points)
         bounds = get_track_bounds(track_points)
+        current_waypoint = None
+        try:
+            checklist_df = await asyncio.wait_for(
+                get_cached_or_fetch_bundle_df(
+                    dataset_id,
+                    "checklist",
+                    time_start_str,
+                    time_end_str,
+                    hours_back=hours_back,
+                    is_historical=is_historical,
+                    context="interactive",
+                ),
+                timeout=SLOCUM_MAP_REQUEST_TIMEOUT,
+            )
+            if checklist_df is not None and not checklist_df.empty:
+                sliced_checklist = slice_processed_df(
+                    checklist_df,
+                    hours_back=hours_back,
+                    use_date_range=use_date_range,
+                    time_start_str=time_start_str,
+                    time_end_str=time_end_str,
+                )
+                wpt_src = sliced_checklist if not sliced_checklist.empty else checklist_df
+                wpt_lat, wpt_lon = latest_valid_waypoint(wpt_src)
+                if wpt_lat is not None and wpt_lon is not None:
+                    current_waypoint = {"lat": wpt_lat, "lon": wpt_lon}
+        except Exception as wpt_err:
+            logger.debug(
+                "Slocum waypoint lookup skipped for %s: %s",
+                dataset_id,
+                wpt_err,
+            )
         return {
             "track_points": track_points,
             "point_count": len(track_points),
             "bounds": bounds,
             "source": source_label,
+            "current_waypoint": current_waypoint,
             "error": None,
         }
     except asyncio.TimeoutError:
@@ -237,6 +275,7 @@ async def _prepare_slocum_track_data(
             "point_count": 0,
             "bounds": None,
             "source": source_label,
+            "current_waypoint": None,
             "error": "Slocum data did not load in time. Try again later.",
         }
     except Exception as e:
@@ -246,6 +285,7 @@ async def _prepare_slocum_track_data(
             "point_count": 0,
             "bounds": None,
             "source": source_label,
+            "current_waypoint": None,
             "error": str(e),
         }
 
@@ -382,6 +422,7 @@ async def get_slocum_mission_track(
             "point_count": track_data["point_count"],
             "bounds": track_data["bounds"],
             "source": track_data["source"],
+            "current_waypoint": track_data.get("current_waypoint"),
             "time_start": t_start,
             "time_end": t_end,
         }

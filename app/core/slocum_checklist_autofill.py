@@ -496,6 +496,10 @@ def _latest_valid_waypoint(df: pd.DataFrame) -> tuple[Optional[float], Optional[
     return float(row["CWptLat"]), float(row["CWptLon"])
 
 
+def latest_valid_waypoint(df: pd.DataFrame) -> tuple[Optional[float], Optional[float]]:
+    """Public alias: latest non-null commanded waypoint (CWptLat/CWptLon)."""
+    return _latest_valid_waypoint(df)
+
 def compute_course_progress_vmg(df: pd.DataFrame) -> dict[str, Any]:
     """
     Prefer VMG toward commanded waypoint (closing rate). Else net GPS progress rate.

@@ -24,11 +24,11 @@
                     <h2 class="mb-0 home-map-hero-title"><i class="fas fa-map-marked-alt me-2"></i>Slocum Track Map</h2>
                 </div>
                 <div class="card-body home-map-hero-body"
-                     data-active-missions="[]"
+                     data-active-missions='{{ active_missions | tojson }}'
                      data-default-hours="72"
                      data-platform="slocum">
                     <div class="row g-2 mb-3 home-map-toolbar align-items-end">
-                        <div class="col-12 col-md-6 mb-2">
+                        <div class="col-12 col-md-5 mb-2">
                             <label for="mapDatasetSelect" class="form-label small">Select Dataset</label>
                             <select id="mapDatasetSelect" class="form-select form-select-sm">
                                 <option value="all" selected>All Active Datasets</option>
@@ -53,37 +53,53 @@
                                 <small class="text-muted d-block mt-1" title="All telemetry timestamps are handled in UTC.">All times are reported and expected in UTC ISO 8601 format (with `Z`).</small>
                             </div>
                         </div>
-                        <div class="col-12 col-md-2 mb-2 d-flex align-items-end">
-                            <button id="generateMapBtn" class="btn btn-primary btn-sm w-100">Generate Map</button>
+                        <div class="col-12 col-md-3 mb-2">
+                            <div class="d-flex flex-wrap gap-1 align-items-end">
+                                <button id="generateMapBtn" class="btn btn-primary btn-sm flex-grow-1">Generate Map</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="slocumBrowseBtn" title="Browse more datasets">Browse</button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" id="slocumClearTracksBtn" title="Clear Slocum tracks">Clear</button>
+                            </div>
                         </div>
                     </div>
 
                     <div id="mapTrackInfo" class="mb-3"></div>
+                    <div id="slocumTrackInfo" class="mb-3"></div>
 
-                    <!-- Slocum dataset picker (secondary; checkbox + browse) -->
-                    <div id="slocumDatasetsSection" class="mb-3">
+                    {% if show_wg_map_overlay %}
+                    <!-- Wave Gliders (collapsible cross-platform overlay) -->
+                    <div id="wgMissionsSection" class="mb-3">
                         <div class="d-flex align-items-center mb-2">
-                            <span class="fw-medium"><i class="fas fa-water"></i> Slocum Gliders</span>
-                            <span class="ms-2 small text-muted">(dashed tracks)</span>
+                            <button class="btn btn-outline-secondary btn-sm collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#wgCollapse" aria-expanded="false" aria-controls="wgCollapse">
+                                <i class="fas fa-ship"></i> Wave Gliders
+                            </button>
                         </div>
-                        <div class="collapse show" id="slocumCollapse">
+                        <div class="collapse" id="wgCollapse">
                             <div class="card card-body py-2">
                                 <div class="mb-2">
-                                    <label class="form-label small mb-1">Active datasets</label>
-                                    <div id="slocumActiveList" class="small">
-                                        <div class="text-muted">Loading…</div>
+                                    <label class="form-label small mb-1">Active missions</label>
+                                    <div id="wgActiveList" class="small">
+                                        {% if active_missions %}
+                                        {% for mission_id in active_missions %}
+                                        <div class="form-check">
+                                            <input class="form-check-input wg-mission-cb" type="checkbox" value="{{ mission_id }}" id="wgMission_{{ mission_id }}" data-mission-id="{{ mission_id }}">
+                                            <label class="form-check-label" for="wgMission_{{ mission_id }}">Mission {{ mission_id }}</label>
+                                        </div>
+                                        {% endfor %}
+                                        {% else %}
+                                        <div class="text-muted">No active Wave Glider missions.</div>
+                                        {% endif %}
                                     </div>
-                                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="slocumBrowseBtn">Browse more datasets</button>
                                 </div>
                                 <div class="row g-2 align-items-end">
                                     <div class="col-auto">
-                                        <button type="button" class="btn btn-outline-danger btn-sm" id="slocumClearTracksBtn">Clear Slocum tracks</button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" id="wgClearTracksBtn">Clear Wave Glider tracks</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div id="slocumTrackInfo" class="mt-2"></div>
+                        <div id="wgTrackInfo" class="mt-2"></div>
                     </div>
+                    {% endif %}
 
                     <!-- Browse Slocum Datasets Modal -->
                     <div class="modal fade" id="slocumBrowseModal" tabindex="-1" aria-labelledby="slocumBrowseModalLabel" aria-hidden="true">
