@@ -437,14 +437,15 @@ class LiveKMLTokenAdmin(ModelView, model=LiveKMLToken):
     """Admin view for Live KML Tokens."""
     column_list = [
         LiveKMLToken.token,
+        LiveKMLToken.platform,
         LiveKMLToken.mission_ids,
         LiveKMLToken.user_id,
         LiveKMLToken.is_active,
         LiveKMLToken.expires_at,
         LiveKMLToken.access_count,
     ]
-    column_searchable_list = [LiveKMLToken.token, LiveKMLToken.mission_ids]
-    column_sortable_list = [LiveKMLToken.expires_at, LiveKMLToken.is_active]
+    column_searchable_list = [LiveKMLToken.token, LiveKMLToken.mission_ids, LiveKMLToken.platform]
+    column_sortable_list = [LiveKMLToken.expires_at, LiveKMLToken.is_active, LiveKMLToken.platform]
     name = "Live KML Token"
     name_plural = "Live KML Tokens"
     icon = "fa fa-key"

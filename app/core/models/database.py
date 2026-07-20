@@ -762,7 +762,16 @@ class LiveKMLToken(SQLModel, table=True):
     __tablename__ = "live_kml_tokens"
     
     token: str = SQLModelField(primary_key=True, max_length=64, description="Unique token for live KML access")
-    mission_ids: str = SQLModelField(sa_column=Column(Text), description="Comma-separated list of mission IDs")
+    mission_ids: str = SQLModelField(
+        sa_column=Column(Text),
+        description="Comma-separated resource IDs (WG mission IDs or Slocum dataset IDs)",
+    )
+    platform: str = SQLModelField(
+        default="wave_glider",
+        index=True,
+        max_length=32,
+        description="Platform for this token: wave_glider or slocum",
+    )
     user_id: int = SQLModelField(foreign_key="users.id", index=True)
     
     hours_back: int = SQLModelField(default=72, description="Hours of history to include")

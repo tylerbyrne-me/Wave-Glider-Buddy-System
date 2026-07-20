@@ -29,6 +29,38 @@ let slocumTracks = [];
 /** Slocum track color palette (teal/green for visual distinction from Wave Glider blue/red) */
 const SLOCUM_COLORS = ['#008b8b', '#20b2aa', '#2e8b57', '#3cb371', '#48d1cc', '#5f9ea0', '#66cdaa', '#7fffd4'];
 
+/**
+ * Marker at the latest GPS sample on a track (current glider position).
+ * @param {Array<{lat:number, lon:number, timestamp?: string}>} trackPoints
+ * @param {string} color - track color
+ * @param {string} label - id shown in popup (mission or dataset)
+ * @returns {L.CircleMarker|null}
+ */
+function createCurrentPositionMarker(trackPoints, color, label) {
+    if (!missionMap || !trackPoints || trackPoints.length === 0) return null;
+    const last = trackPoints[trackPoints.length - 1];
+    if (!Number.isFinite(last.lat) || !Number.isFinite(last.lon)) return null;
+    const marker = L.circleMarker([last.lat, last.lon], {
+        radius: 8,
+        color: '#ffffff',
+        weight: 3,
+        fillColor: color,
+        fillOpacity: 1,
+        opacity: 1
+    }).addTo(missionMap);
+    const ts = last.timestamp ? `<br><small>${last.timestamp}</small>` : '';
+    marker.bindPopup(
+        `<strong>Current position</strong><br>${label}<br>` +
+        `${Number(last.lat).toFixed(4)}, ${Number(last.lon).toFixed(4)}${ts}`
+    );
+    return marker;
+}
+
+function removeTrackExtraLayers(track) {
+    if (!missionMap || !track) return;
+    if (track.positionLayer) missionMap.removeLayer(track.positionLayer);
+    if (track.waypointLayer) missionMap.removeLayer(track.waypointLayer);
+}
 function to_iso_utc_from_input(value) {
     if (!value) return null;
     const trimmedValue = value.trim();
@@ -128,18 +160,19 @@ function initializeMissionMap() {
         maxZoom: 18
     }).addTo(missionMap);
 
-    // Auto-load active missions from data attributes
+    // Auto-load primary-platform tracks from data attributes.
+    // Cross-platform overlays (e.g. WG missions on Slocum home) stay opt-in via checkboxes.
     const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
     if (mapCard) {
+        const platform = mapCard.getAttribute('data-platform') || 'wave_glider';
         const activeMissionsData = mapCard.getAttribute('data-active-missions');
         const defaultHours = mapCard.getAttribute('data-default-hours') || '24';
-        
-        if (activeMissionsData) {
+
+        if (platform !== 'slocum' && activeMissionsData) {
             try {
                 const activeMissions = JSON.parse(activeMissionsData);
-                
+
                 if (activeMissions && activeMissions.length > 0) {
-                    // Load all active missions automatically
                     loadMultipleMissionTracks(activeMissions, { hours_back: String(parseInt(defaultHours, 10) || 24) });
                 }
             } catch (error) {
@@ -175,20 +208,24 @@ async function loadMissionTrack(missionId, queryParams = { hours_back: '72' }) {
         // Clear existing tracks
         clearTracks();
 
+        const color = '#3388ff';
         // Add track to map
         const trackLayer = L.polyline(
             data.track_points.map(point => [point.lat, point.lon]),
             {
-                color: '#3388ff',
+                color,
                 weight: 3,
                 opacity: 0.8
             }
         ).addTo(missionMap);
 
+        const positionLayer = createCurrentPositionMarker(data.track_points, color, `Mission ${missionId}`);
+
         // Store track info
         missionTracks.push({
             missionId: missionId,
             layer: trackLayer,
+            positionLayer,
             pointCount: data.point_count,
             bounds: data.bounds
         });
@@ -253,10 +290,17 @@ async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back:
                 }
             ).addTo(missionMap);
 
+            const positionLayer = createCurrentPositionMarker(
+                trackData.track_points,
+                color,
+                `Mission ${missionId}`
+            );
+
             // Store track info
             missionTracks.push({
                 missionId: missionId,
                 layer: trackLayer,
+                positionLayer,
                 pointCount: trackData.point_count,
                 bounds: trackData.bounds
             });
@@ -266,10 +310,7 @@ async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back:
 
         // Fit map to show all tracks
         if (missionTracks.length > 0) {
-            const group = new L.featureGroup(missionTracks.map(t => t.layer));
-            missionMap.fitBounds(group.getBounds(), {
-                padding: [50, 50]
-            });
+            fitMapToAllTracks();
         }
 
         // Update track info
@@ -288,7 +329,8 @@ async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back:
 function clearTracks() {
     if (missionTracks.length > 0) {
         missionTracks.forEach(track => {
-            missionMap.removeLayer(track.layer);
+            if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+            removeTrackExtraLayers(track);
         });
         missionTracks = [];
     }
@@ -302,7 +344,7 @@ function clearSlocumTracks() {
     if (slocumTracks.length > 0) {
         slocumTracks.forEach(track => {
             if (missionMap && track.layer) missionMap.removeLayer(track.layer);
-            if (missionMap && track.waypointLayer) missionMap.removeLayer(track.waypointLayer);
+            removeTrackExtraLayers(track);
         });
         slocumTracks = [];
     }
@@ -310,16 +352,18 @@ function clearSlocumTracks() {
 }
 
 /**
- * Fit map to all Wave Glider and Slocum layers (including waypoints).
+ * Fit map to all Wave Glider and Slocum layers (including position/waypoint markers).
  */
 function fitMapToAllTracks() {
     if (!missionMap) return;
     const layers = [];
     missionTracks.forEach((t) => {
         if (t.layer) layers.push(t.layer);
+        if (t.positionLayer) layers.push(t.positionLayer);
     });
     slocumTracks.forEach((t) => {
         if (t.layer) layers.push(t.layer);
+        if (t.positionLayer) layers.push(t.positionLayer);
         if (t.waypointLayer) layers.push(t.waypointLayer);
     });
     if (layers.length === 0) return;
@@ -368,6 +412,8 @@ async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0)
             }
         ).addTo(missionMap);
 
+        const positionLayer = createCurrentPositionMarker(data.track_points, color, datasetId);
+
         let waypointLayer = null;
         const wpt = data.current_waypoint;
         if (wpt && Number.isFinite(wpt.lat) && Number.isFinite(wpt.lon)) {
@@ -375,7 +421,7 @@ async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0)
                 radius: 7,
                 color: '#1a1a1a',
                 weight: 2,
-                fillColor: color,
+                fillColor: '#f8f9fa',
                 fillOpacity: 0.95
             }).addTo(missionMap);
             waypointLayer.bindPopup(
@@ -387,6 +433,7 @@ async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0)
         slocumTracks.push({
             datasetId: datasetId,
             layer: trackLayer,
+            positionLayer,
             waypointLayer: waypointLayer,
             pointCount: data.point_count,
             bounds: data.bounds
@@ -460,7 +507,7 @@ function removeSlocumTrack(datasetId) {
     if (idx === -1) return;
     const track = slocumTracks[idx];
     if (missionMap && track.layer) missionMap.removeLayer(track.layer);
-    if (missionMap && track.waypointLayer) missionMap.removeLayer(track.waypointLayer);
+    removeTrackExtraLayers(track);
     slocumTracks.splice(idx, 1);
     updateSlocumTrackInfo();
     notifyWindOverlayTracksChanged();
@@ -671,9 +718,15 @@ async function loadWgOverlayTrack(missionId, queryParams = { hours_back: '72' },
             data.track_points.map((point) => [point.lat, point.lon]),
             { color, weight: 3, opacity: 0.8 }
         ).addTo(missionMap);
+        const positionLayer = createCurrentPositionMarker(
+            data.track_points,
+            color,
+            `Mission ${missionId}`
+        );
         missionTracks.push({
             missionId,
             layer: trackLayer,
+            positionLayer,
             pointCount: data.point_count,
             bounds: data.bounds
         });
@@ -690,6 +743,7 @@ function removeMissionTrack(missionId) {
     if (idx === -1) return;
     const track = missionTracks[idx];
     if (missionMap && track.layer) missionMap.removeLayer(track.layer);
+    removeTrackExtraLayers(track);
     missionTracks.splice(idx, 1);
     updateWgTrackInfo();
     notifyWindOverlayTracksChanged();
@@ -830,11 +884,18 @@ function displayErrorMessage(message) {
 }
 
 /**
- * Generate and download Live KML network link
+ * Generate and download Live KML network link (Wave Glider or Slocum home).
  */
 async function generateLiveKML() {
+    const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
+    const platform = mapCard?.getAttribute('data-platform') || 'wave_glider';
+    const isSlocum = platform === 'slocum';
     const missionSelect = document.getElementById('mapMissionSelect');
-    const selectedMission = missionSelect ? missionSelect.value : null;
+    const datasetSelect = document.getElementById('mapDatasetSelect');
+    const resourceSelect = isSlocum ? datasetSelect : missionSelect;
+    const selectedValue = resourceSelect ? resourceSelect.value : null;
+    const resourceNoun = isSlocum ? 'dataset' : 'mission';
+
     let hoursBack = 72;
     try {
         const timeRangeParams = get_map_time_range_params();
@@ -847,63 +908,70 @@ async function generateLiveKML() {
         displayLiveKMLStatus(error.message, 'danger');
         return;
     }
-    
-    if (!selectedMission || selectedMission === '') {
-        displayLiveKMLStatus('Please select a mission', 'danger');
+
+    if (!selectedValue || selectedValue === '') {
+        displayLiveKMLStatus(`Please select a ${resourceNoun}`, 'danger');
         return;
     }
-    
-    // Determine mission IDs
-    let missionIds = [];
-    if (selectedMission === 'all') {
-        const mapCard = document.getElementById('missionMapContainer')?.closest('.card-body');
-        const activeMissionsData = mapCard?.getAttribute('data-active-missions');
-        if (activeMissionsData) {
-            missionIds = JSON.parse(activeMissionsData);
-            
-            // Show recommendation for multi-mission
-            if (missionIds.length > 1) {
-                displayLiveKMLStatus(
-                    `ℹ️ Multi-mission tokens work best for 72 hours or less. For longer periods, generate separate tokens per mission for better performance.`,
-                    'info'
-                );
-            }
+
+    let resourceIds = [];
+    if (selectedValue === 'all') {
+        if (isSlocum && datasetSelect) {
+            resourceIds = [...datasetSelect.options]
+                .map((o) => o.value)
+                .filter((v) => v && v !== 'all');
         } else {
-            displayLiveKMLStatus('No active missions available', 'danger');
+            const activeMissionsData = mapCard?.getAttribute('data-active-missions');
+            if (activeMissionsData) {
+                try {
+                    resourceIds = JSON.parse(activeMissionsData);
+                } catch (_err) {
+                    resourceIds = [];
+                }
+            }
+        }
+        if (!resourceIds.length) {
+            displayLiveKMLStatus(`No active ${resourceNoun}s available`, 'danger');
             return;
         }
+        if (resourceIds.length > 1) {
+            displayLiveKMLStatus(
+                `Multi-${resourceNoun} tokens work best for 72 hours or less. For longer periods, generate separate tokens for better performance.`,
+                'info'
+            );
+        }
     } else {
-        missionIds = [selectedMission];
+        resourceIds = [selectedValue];
     }
-    
+
     try {
-        // Check if multi-mission with long time range
-        if (selectedMission === 'all' && hoursBack > 72) {
+        if (selectedValue === 'all' && hoursBack > 72) {
             const proceed = confirm(
-                '⚠️ Multi-mission Live KML tokens are only recommended for time periods of 72 hours or less.\n\n' +
-                'For longer time periods, generate separate tokens for each mission for better performance.\n\n' +
+                `Multi-${resourceNoun} Live KML tokens are only recommended for time periods of 72 hours or less.\n\n` +
+                `For longer time periods, generate separate tokens for each ${resourceNoun} for better performance.\n\n` +
                 'Continue anyway?'
             );
             if (!proceed) {
-                displayLiveKMLStatus('Operation cancelled. Please generate tokens for individual missions for better performance.', 'info');
+                displayLiveKMLStatus(
+                    `Operation cancelled. Please generate tokens for individual ${resourceNoun}s for better performance.`,
+                    'info'
+                );
                 return;
             }
         }
-        
+
         displayLiveKMLStatus('Generating live KML link...', 'info');
-        
-        // Create live KML token
+
         const data = await apiRequest('/api/kml/create_live', 'POST', {
-            mission_ids: missionIds,
+            mission_ids: resourceIds,
             hours_back: hoursBack,
-            description: `Live track for ${missionIds.join(', ')}`
+            platform,
+            description: `Live ${isSlocum ? 'Slocum' : 'Wave Glider'} track for ${resourceIds.join(', ')}`
         });
-        
-        // Download the network link file (this endpoint is public, no auth required)
+
         const downloadResponse = await fetch(`/api/kml/network_link/${data.token}`);
         const blob = await downloadResponse.blob();
-        
-        // Create download link and trigger download
+
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -912,15 +980,14 @@ async function generateLiveKML() {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        
-        // Display success message
+
         const expiresAtUtc = formatUtcDate(data.expires_at);
         displayLiveKMLStatus(
             `✓ Live KML generated! Token expires ${expiresAtUtc}<br>` +
             `<small>Save this file and open in Google Earth for auto-updating tracks</small>`,
             'success'
         );
-        
+
     } catch (error) {
         showToast(`Error generating live KML: ${error.message}`, 'danger');
         displayLiveKMLStatus(
@@ -1069,8 +1136,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (datasetSelect && !missionSelect) {
                         const selectedDataset = datasetSelect.value;
-                        if (!selectedDataset || selectedDataset === '' || selectedDataset === 'all') {
-                            displayErrorMessage('Select a single dataset to download KML (not All Active Datasets).');
+                        if (!selectedDataset || selectedDataset === '') {
+                            displayErrorMessage('Please select a dataset');
+                            return;
+                        }
+                        if (selectedDataset === 'all') {
+                            displayErrorMessage('Multi-dataset KML export is not available as a static download. Use "Live KML" to export all active datasets.');
                             return;
                         }
                         downloadSlocumKML(selectedDataset, timeRangeParams);

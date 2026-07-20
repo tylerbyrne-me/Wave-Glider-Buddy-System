@@ -19,7 +19,7 @@ FEATURE_APPLICABILITY = {
     "sensor_tracker_sync": True,
     "wg_style_error_analysis": False,  # pending suitable ERDDAP error/event variables
     "unified_chart_api_shim": True,  # implemented at GET /api/slocum/data/{variable}/{dataset_id}
-    "live_kml": False,  # static KML export only for now
+    "live_kml": True,  # Live NetworkLink tokens + static KML (parity with Wave Glider)
     "weekly_pdf_reports": True,
     "forecast_marine": True,
 }

@@ -221,14 +221,17 @@ def hex_to_kml_color(hex_color: str, opacity: int = 255) -> str:
 
 def generate_live_kml_with_track(
     mission_tracks: List[tuple],
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    *,
+    resource_label: str = "Mission",
 ) -> str:
     """
     Generate KML with timed track data for Google Earth animation.
     
     Args:
-        mission_tracks: List of tuples (mission_id, track_points)
+        mission_tracks: List of tuples (resource_id, track_points)
         description: Optional description for the KML
+        resource_label: Label used in placemark names (e.g. "Mission" or "Dataset")
     
     Returns:
         KML XML string
@@ -250,8 +253,8 @@ def generate_live_kml_with_track(
         '<Document>',
         '<open>1</open>',
         '<visibility>1</visibility>',
-        f'<name>Live Mission Tracks</name>',
-        f'<description>{description or "Automatically updating mission tracks"}</description>'
+        f'<name>Live {resource_label} Tracks</name>',
+        f'<description>{description or f"Automatically updating {resource_label.lower()} tracks"}</description>'
     ]
     
     # Add styles for each mission
@@ -303,7 +306,7 @@ def generate_live_kml_with_track(
         # Group each mission in its own visible/open Folder
         kml_parts.extend([
             f'<Folder>',
-            f'  <name>Mission {mission_id}</name>',
+            f'  <name>{resource_label} {mission_id}</name>',
             f'  <open>1</open>',
             f'  <visibility>1</visibility>'
         ])
@@ -313,7 +316,7 @@ def generate_live_kml_with_track(
         kml_parts.extend([
             f'<Placemark>',
             f'  <visibility>1</visibility>',
-            f'  <name>Mission {mission_id} - Start</name>',
+            f'  <name>{resource_label} {mission_id} - Start</name>',
             f'  <description>Start: {first_point.get("timestamp", "N/A")}</description>',
             f'  <styleUrl>#startStyle{style_id}</styleUrl>',
             f'  <Point>',
@@ -327,7 +330,7 @@ def generate_live_kml_with_track(
         kml_parts.extend([
             f'<Placemark>',
             f'  <visibility>1</visibility>',
-            f'  <name>Mission {mission_id} - End</name>',
+            f'  <name>{resource_label} {mission_id} - End</name>',
             f'  <description>End: {last_point.get("timestamp", "N/A")}</description>',
             f'  <styleUrl>#endStyle{style_id}</styleUrl>',
             f'  <Point>',
@@ -344,8 +347,8 @@ def generate_live_kml_with_track(
         kml_parts.extend([
             f'<Placemark>',
             f'  <visibility>1</visibility>',
-            f'  <name>Mission {mission_id} Track</name>',
-            f'  <description>Mission {mission_id} track with {len(track_points)} points</description>',
+            f'  <name>{resource_label} {mission_id} Track</name>',
+            f'  <description>{resource_label} {mission_id} track with {len(track_points)} points</description>',
             f'  <styleUrl>#mission{style_id}Style</styleUrl>',
             f'  <LineString>',
             f'    <tessellate>1</tessellate>',
