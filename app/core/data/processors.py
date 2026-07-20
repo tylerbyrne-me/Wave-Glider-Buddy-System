@@ -830,6 +830,8 @@ _SLOCUM_ATTITUDE_RAD_TO_DEG = ("CPitch", "MPitch", "MRoll", "CHeading", "MHeadin
 
 # Slocum / ERDDAP sentinel fill magnitudes (~2.147e9 and huge _FillValue).
 _SLOCUM_SENTINEL_ABS = 1.0e8
+# Classic Seabird / glider fills (±9999, -9999.9). Far above real CTD/vehicle ranges.
+_SLOCUM_CLASSIC_FILL_ABS = 9000.0
 
 
 def _column_stem(name: str) -> str:
@@ -874,8 +876,12 @@ def _build_checklist_rename_map(columns: list) -> dict[str, str]:
 
 
 def _nan_slocum_sentinels(series: pd.Series) -> pd.Series:
+    """Coerce to float and replace ERDDAP / Seabird fill values with NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
-    return numeric.mask(numeric.abs() >= _SLOCUM_SENTINEL_ABS)
+    return numeric.mask(
+        (numeric.abs() >= _SLOCUM_SENTINEL_ABS)
+        | (numeric.abs() >= _SLOCUM_CLASSIC_FILL_ABS)
+    )
 
 # ERDDAP column names for CTD (with or without units) -> standard names
 _SLOCUM_CTD_RENAME = {
@@ -907,6 +913,7 @@ def preprocess_slocum_ctd_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocess Slocum CTD ERDDAP DataFrame for chart API.
     Standardizes time, depth, conductivity, temperature, pressure, salinity, density columns.
+    Classic ±9999 / huge ERDDAP fill values become NaN so profile charts omit null samples.
     """
     std_cols = ["Depth", "Conductivity", "Temperature", "Pressure", "Salinity", "Density"]
     df_processed = _initial_dataframe_setup(df, "Timestamp")
@@ -933,7 +940,8 @@ def preprocess_slocum_ctd_df(df: pd.DataFrame) -> pd.DataFrame:
     for std_name in std_cols:
         if std_name not in df_processed.columns:
             df_processed[std_name] = np.nan
-        df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
+        # Mask ±9999 / huge _FillValue so profile charts and cards omit null samples.
+        df_processed[std_name] = _nan_slocum_sentinels(df_processed[std_name])
     # Keep a stable column order for parquet/chart consumers
     keep = ["Timestamp"] + [c for c in std_cols if c in df_processed.columns]
     return df_processed.loc[:, keep]
@@ -978,7 +986,7 @@ def preprocess_slocum_dashboard_df(df: pd.DataFrame) -> pd.DataFrame:
     for std_name in std_cols:
         if std_name not in df_processed.columns:
             df_processed[std_name] = np.nan
-        df_processed[std_name] = pd.to_numeric(df_processed[std_name], errors="coerce")
+        df_processed[std_name] = _nan_slocum_sentinels(df_processed[std_name])
 
     # Mask GPS-unlock (0,0) without dropping rows (other sensors may still be valid).
     df_processed = mask_null_island_coordinates(df_processed)
