@@ -25,8 +25,8 @@ def get_slocum_daily_checklist_schema() -> models.MissionFormSchema:
                 id="mission_status",
                 title="Mission Status",
                 section_comment=(
-                    "SFMC fields (mission file, aborts, surfacing hours, offload) "
-                    "are manual until SFMC API integration."
+                    "SFMC autofills mission file, aborts/oddities, surfacing hours, and "
+                    "offload when the SFMC client is configured; otherwise enter manually."
                 ),
                 items=[
                     models.FormItem(
@@ -202,7 +202,7 @@ def get_slocum_daily_checklist_schema() -> models.MissionFormSchema:
                         id="u_alt_min_depth_val",
                         label="u_alt_min_depth (current / observed)",
                         item_type=models.FormItemTypeEnum.TEXT_INPUT,
-                        placeholder="Current value from vehicle",
+                        placeholder="Current value from vehicle (pilot entry; persisted with checklist)",
                     ),
                     models.FormItem(
                         id="bms_currents_val",
@@ -227,7 +227,10 @@ def get_slocum_daily_checklist_schema() -> models.MissionFormSchema:
             models.FormSection(
                 id="mission_config",
                 title="Mission Configuration",
-                section_comment="Script / goto list require SFMC; reference values shown from admin config.",
+                section_comment=(
+                    "Script and goto (Initial_wpt from latest archive *_goto_*.ma) "
+                    "autofill from SFMC when available; expected script ref from admin."
+                ),
                 items=[
                     models.FormItem(
                         id="expected_script_ref_val",

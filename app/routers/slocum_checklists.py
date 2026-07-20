@@ -139,6 +139,7 @@ async def get_checklist_template(
             pilot_username=current_user.username,
             include_forecast=not is_historical_dataset(dataset_id),
             is_historical=is_historical_dataset(dataset_id),
+            sfmc_glider_name=(deployment.glider_name if deployment else None),
         )
     except Exception as err:
         logger.exception("Checklist autofill failed for %s: %s", dataset_id, err)

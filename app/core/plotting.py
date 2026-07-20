@@ -1,7 +1,8 @@
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 import math
 import re
@@ -18,6 +19,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 from matplotlib.patches import FancyArrowPatch, Rectangle
+from matplotlib.transforms import Bbox
 import numpy as np  # type: ignore
 import logging
 
@@ -775,7 +777,34 @@ def assign_note_letters(note_annotations: List[Dict[str, Any]]) -> List[Dict[str
     return note_annotations
 
 
-def _bboxes_overlap(a, b, pad: float = 6.0) -> bool:
+# Base standoff between marker dot and label (display points).
+_NOTE_MARKER_BASE_STANDOFF_PTS = 22.0
+_NOTE_MARKER_DISTANCE_MULTIPLIERS = (1.0, 1.5, 2.2)
+# Cap after relaxation: 3× the greedy max standoff (~145 pts).
+_NOTE_MARKER_MAX_STANDOFF_PTS = (
+    _NOTE_MARKER_BASE_STANDOFF_PTS * _NOTE_MARKER_DISTANCE_MULTIPLIERS[-1] * 3.0
+)
+_NOTE_MARKER_BOUNDS_MARGIN_PX = 8.0
+_NOTE_MARKER_OVERLAP_PAD_PX = 6.0
+_NOTE_MARKER_SEPARATION_BUFFER_PX = 2.0
+_NOTE_MARKER_RELAX_MAX_ITERATIONS = 40
+_NOTE_MARKER_RELAX_DAMPING = 0.8
+_NOTE_MARKER_RELAX_MIN_MOVEMENT_PX = 0.5
+
+
+@dataclass
+class PlacedLabel:
+    """One callout after greedy placement; mutated by the relaxation pass."""
+
+    lon: float
+    lat: float
+    offset_x: float
+    offset_y: float
+    bbox: Any
+    annotation: Any = None
+
+
+def _bboxes_overlap(a, b, pad: float = _NOTE_MARKER_OVERLAP_PAD_PX) -> bool:
     """Return True if two display-coord bboxes overlap, allowing `pad` px of
     visual separation. The padding accounts for the rounded bbox decoration
     that `Text.get_window_extent` does not include in its returned extent.
@@ -788,26 +817,238 @@ def _bboxes_overlap(a, b, pad: float = 6.0) -> bool:
     )
 
 
+def _bbox_overlap_amount(
+    a,
+    b,
+    pad: float = _NOTE_MARKER_OVERLAP_PAD_PX,
+) -> Tuple[float, float]:
+    """Return padded AABB overlap `(overlap_x, overlap_y)` in display pixels.
+
+    Returns `(0.0, 0.0)` when the boxes are separated on either axis (same
+    semantics as `_bboxes_overlap`). Positive values include the `pad`
+    separation deficit so a near-miss still produces a non-zero nudge.
+    """
+    overlap_x = min(a.x1, b.x1) - max(a.x0, b.x0) + pad
+    overlap_y = min(a.y1, b.y1) - max(a.y0, b.y0) + pad
+    if overlap_x <= 0.0 or overlap_y <= 0.0:
+        return (0.0, 0.0)
+    return (overlap_x, overlap_y)
+
+
+def _separation_nudge(
+    bbox_a,
+    bbox_b,
+    pad: float = _NOTE_MARKER_OVERLAP_PAD_PX,
+    buffer: float = _NOTE_MARKER_SEPARATION_BUFFER_PX,
+) -> Tuple[float, float, float, float]:
+    """Return opposing display-pixel nudges that push two overlapping labels apart.
+
+    Each label moves half of `(max(overlap_x, overlap_y) + buffer)` along the
+    center-to-center unit vector. Returns zeros when the boxes do not overlap.
+    """
+    overlap_x, overlap_y = _bbox_overlap_amount(bbox_a, bbox_b, pad=pad)
+    if overlap_x <= 0.0 or overlap_y <= 0.0:
+        return (0.0, 0.0, 0.0, 0.0)
+
+    cx_a = (bbox_a.x0 + bbox_a.x1) / 2.0
+    cy_a = (bbox_a.y0 + bbox_a.y1) / 2.0
+    cx_b = (bbox_b.x0 + bbox_b.x1) / 2.0
+    cy_b = (bbox_b.y0 + bbox_b.y1) / 2.0
+    dx = cx_b - cx_a
+    dy = cy_b - cy_a
+    dist = math.hypot(dx, dy)
+    if dist < 1e-6:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / dist, dy / dist
+
+    half = (max(overlap_x, overlap_y) + buffer) / 2.0
+    return (-ux * half, -uy * half, ux * half, uy * half)
+
+
+def _cap_standoff(offset_x: float, offset_y: float, max_standoff: float) -> Tuple[float, float]:
+    """Scale `(offset_x, offset_y)` down if its magnitude exceeds `max_standoff`."""
+    magnitude = math.hypot(offset_x, offset_y)
+    if magnitude <= max_standoff or magnitude < 1e-9:
+        return (offset_x, offset_y)
+    scale = max_standoff / magnitude
+    return (offset_x * scale, offset_y * scale)
+
+
+def _apply_offset(
+    placed: PlacedLabel,
+    offset_x: float,
+    offset_y: float,
+    renderer=None,
+    *,
+    dpi: float = 72.0,
+) -> None:
+    """Set callout offset and refresh `placed.bbox`.
+
+    When a live matplotlib annotation + renderer are available, `xyann` is
+    updated and the window extent is recomputed. Otherwise the bbox is
+    translated by the offset delta (scaled by `dpi`) so unit tests can drive
+    relaxation with synthetic boxes.
+    """
+    delta_x_pts = offset_x - placed.offset_x
+    delta_y_pts = offset_y - placed.offset_y
+    placed.offset_x = offset_x
+    placed.offset_y = offset_y
+
+    if placed.annotation is not None:
+        placed.annotation.xyann = (offset_x, offset_y)
+        if renderer is not None:
+            placed.bbox = placed.annotation.get_window_extent(renderer)
+            return
+
+    # Synthetic path: offset points → display pixels at the given dpi.
+    px_per_pt = float(dpi) / 72.0
+    dx_px = delta_x_pts * px_per_pt
+    dy_px = delta_y_pts * px_per_pt
+    placed.bbox = Bbox.from_extents(
+        placed.bbox.x0 + dx_px,
+        placed.bbox.y0 + dy_px,
+        placed.bbox.x1 + dx_px,
+        placed.bbox.y1 + dy_px,
+    )
+
+
+def _clamp_placed_to_axes(
+    placed: PlacedLabel,
+    axes_bbox,
+    *,
+    margin: float = _NOTE_MARKER_BOUNDS_MARGIN_PX,
+    max_standoff: float = _NOTE_MARKER_MAX_STANDOFF_PTS,
+    renderer=None,
+    dpi: float = 72.0,
+) -> float:
+    """Shift a label so its bbox stays inside `axes_bbox`; return movement in px."""
+    if axes_bbox is None:
+        return 0.0
+
+    shift_x_px = 0.0
+    shift_y_px = 0.0
+    bbox = placed.bbox
+    if bbox.x0 < axes_bbox.x0 + margin:
+        shift_x_px = (axes_bbox.x0 + margin) - bbox.x0
+    elif bbox.x1 > axes_bbox.x1 - margin:
+        shift_x_px = (axes_bbox.x1 - margin) - bbox.x1
+    if bbox.y0 < axes_bbox.y0 + margin:
+        shift_y_px = (axes_bbox.y0 + margin) - bbox.y0
+    elif bbox.y1 > axes_bbox.y1 - margin:
+        shift_y_px = (axes_bbox.y1 - margin) - bbox.y1
+
+    pts_per_px = 72.0 / float(dpi)
+    if abs(shift_x_px) < 1e-9 and abs(shift_y_px) < 1e-9:
+        capped_x, capped_y = _cap_standoff(placed.offset_x, placed.offset_y, max_standoff)
+        if capped_x == placed.offset_x and capped_y == placed.offset_y:
+            return 0.0
+        old_x, old_y = placed.offset_x, placed.offset_y
+        _apply_offset(placed, capped_x, capped_y, renderer, dpi=dpi)
+        return math.hypot(
+            (capped_x - old_x) * float(dpi) / 72.0,
+            (capped_y - old_y) * float(dpi) / 72.0,
+        )
+
+    new_ox = placed.offset_x + shift_x_px * pts_per_px
+    new_oy = placed.offset_y + shift_y_px * pts_per_px
+    new_ox, new_oy = _cap_standoff(new_ox, new_oy, max_standoff)
+    _apply_offset(placed, new_ox, new_oy, renderer, dpi=dpi)
+    return math.hypot(shift_x_px, shift_y_px)
+
+
+def _relax_placed_labels(
+    placed: List[PlacedLabel],
+    renderer=None,
+    *,
+    axes_bbox=None,
+    max_iterations: int = _NOTE_MARKER_RELAX_MAX_ITERATIONS,
+    pad: float = _NOTE_MARKER_OVERLAP_PAD_PX,
+    damping: float = _NOTE_MARKER_RELAX_DAMPING,
+    min_movement_px: float = _NOTE_MARKER_RELAX_MIN_MOVEMENT_PX,
+    max_standoff: float = _NOTE_MARKER_MAX_STANDOFF_PTS,
+    dpi: float = 72.0,
+) -> None:
+    """Iteratively repel overlapping callouts; clamp to axes bounds each pass.
+
+    Nudges are accumulated per iteration so chain overlaps (A–B–C) do not
+    oscillate. Stops early when no pair overlaps or total movement is tiny.
+    """
+    if len(placed) < 2:
+        if placed and axes_bbox is not None:
+            _clamp_placed_to_axes(
+                placed[0],
+                axes_bbox,
+                max_standoff=max_standoff,
+                renderer=renderer,
+                dpi=dpi,
+            )
+        return
+
+    pts_per_px = 72.0 / float(dpi)
+    for iteration in range(max_iterations):
+        nudges = [(0.0, 0.0) for _ in placed]
+        any_overlap = False
+        for i in range(len(placed)):
+            for j in range(i + 1, len(placed)):
+                nax, nay, nbx, nby = _separation_nudge(
+                    placed[i].bbox,
+                    placed[j].bbox,
+                    pad=pad,
+                )
+                if nax == 0.0 and nay == 0.0 and nbx == 0.0 and nby == 0.0:
+                    continue
+                any_overlap = True
+                damp = 1.0 if iteration == 0 else damping
+                nudges[i] = (nudges[i][0] + nax * damp, nudges[i][1] + nay * damp)
+                nudges[j] = (nudges[j][0] + nbx * damp, nudges[j][1] + nby * damp)
+
+        total_movement = 0.0
+        if any_overlap:
+            for idx, label in enumerate(placed):
+                nx_px, ny_px = nudges[idx]
+                if abs(nx_px) < 1e-9 and abs(ny_px) < 1e-9:
+                    continue
+                new_ox = label.offset_x + nx_px * pts_per_px
+                new_oy = label.offset_y + ny_px * pts_per_px
+                new_ox, new_oy = _cap_standoff(new_ox, new_oy, max_standoff)
+                _apply_offset(label, new_ox, new_oy, renderer, dpi=dpi)
+                total_movement += math.hypot(nx_px, ny_px)
+
+        if axes_bbox is not None:
+            for label in placed:
+                total_movement += _clamp_placed_to_axes(
+                    label,
+                    axes_bbox,
+                    max_standoff=max_standoff,
+                    renderer=renderer,
+                    dpi=dpi,
+                )
+
+        if not any_overlap:
+            break
+        if total_movement < min_movement_px:
+            break
+
+
 def _create_marker_annotation(
     ax,
     label: str,
     lon: float,
     lat: float,
-    dx_unit: int,
-    dy_unit: int,
-    standoff_pts: float,
+    offset_x: float,
+    offset_y: float,
 ):
     """Render a labelled marker callout offset from `(lon, lat)` with a
-    leader line back to the point. Direction is given by the (dx, dy) unit
-    vector in display space; magnitude by `standoff_pts`.
+    leader line back to the point. Offset is in display points.
     """
-    ha = "left" if dx_unit > 0 else ("right" if dx_unit < 0 else "center")
-    va = "bottom" if dy_unit > 0 else ("top" if dy_unit < 0 else "center")
+    ha = "left" if offset_x > 0 else ("right" if offset_x < 0 else "center")
+    va = "bottom" if offset_y > 0 else ("top" if offset_y < 0 else "center")
     return ax.annotate(
         label,
         xy=(lon, lat),
         xycoords=ax.transData,
-        xytext=(dx_unit * standoff_pts, dy_unit * standoff_pts),
+        xytext=(offset_x, offset_y),
         textcoords="offset points",
         fontsize=7.5,
         fontweight="bold",
@@ -846,9 +1087,8 @@ def _annotate_note_markers(
     Each label is drawn off-set from its telemetry point with a leader line
     back to a small marker dot, so the text doesn't sit on top of the
     speed-coloured scatter. A short placement search picks the first
-    candidate offset that doesn't overlap any previously-placed label —
-    enough to keep nearby clusters (e.g. several notes at adjacent
-    telemetry fixes) from stacking on top of each other.
+    candidate offset that doesn't overlap any previously-placed label, then
+    an iterative relaxation pass repels any remaining overlaps.
     """
     if not note_annotations:
         return
@@ -879,6 +1119,7 @@ def _annotate_note_markers(
     # collision detection.
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
+    dpi = float(fig.dpi)
 
     try:
         west, east, south, north = ax.get_extent(crs=ccrs.PlateCarree())
@@ -887,10 +1128,12 @@ def _annotate_note_markers(
     except Exception:
         mid_lon = mid_lat = None
 
-    base_standoff_pts = 22  # display-point standoff between marker dot and label
-    distance_multipliers = (1.0, 1.5, 2.2)
+    try:
+        axes_bbox = ax.get_window_extent(renderer)
+    except Exception:
+        axes_bbox = None
 
-    placed_bboxes: List[Any] = []
+    placed: List[PlacedLabel] = []
 
     for key in cluster_order:
         cluster = clusters[key]
@@ -934,23 +1177,27 @@ def _annotate_note_markers(
         ]
 
         chosen_annotation = None
+        chosen_offset_x = 0.0
+        chosen_offset_y = 0.0
         chosen_bbox = None
-        for distance_mult in distance_multipliers:
+        for distance_mult in _NOTE_MARKER_DISTANCE_MULTIPLIERS:
+            standoff = _NOTE_MARKER_BASE_STANDOFF_PTS * distance_mult
             for dx_unit, dy_unit in sorted_directions:
+                offset_x = dx_unit * standoff
+                offset_y = dy_unit * standoff
                 annotation = _create_marker_annotation(
                     ax,
                     label,
                     lon,
                     lat,
-                    dx_unit,
-                    dy_unit,
-                    base_standoff_pts * distance_mult,
+                    offset_x,
+                    offset_y,
                 )
                 bbox = annotation.get_window_extent(renderer)
-                if not any(
-                    _bboxes_overlap(bbox, existing) for existing in placed_bboxes
-                ):
+                if not any(_bboxes_overlap(bbox, item.bbox) for item in placed):
                     chosen_annotation = annotation
+                    chosen_offset_x = offset_x
+                    chosen_offset_y = offset_y
                     chosen_bbox = bbox
                     break
                 annotation.remove()
@@ -959,20 +1206,40 @@ def _annotate_note_markers(
 
         if chosen_annotation is None:
             # Every candidate overlapped — keep the highest-priority direction
-            # at maximum distance to at least minimise the visual mess.
+            # at maximum distance; relaxation will try to untangle afterward.
             dx_unit, dy_unit = sorted_directions[0]
+            standoff = (
+                _NOTE_MARKER_BASE_STANDOFF_PTS * _NOTE_MARKER_DISTANCE_MULTIPLIERS[-1]
+            )
+            chosen_offset_x = dx_unit * standoff
+            chosen_offset_y = dy_unit * standoff
             chosen_annotation = _create_marker_annotation(
                 ax,
                 label,
                 lon,
                 lat,
-                dx_unit,
-                dy_unit,
-                base_standoff_pts * distance_multipliers[-1],
+                chosen_offset_x,
+                chosen_offset_y,
             )
             chosen_bbox = chosen_annotation.get_window_extent(renderer)
 
-        placed_bboxes.append(chosen_bbox)
+        placed.append(
+            PlacedLabel(
+                lon=lon,
+                lat=lat,
+                offset_x=chosen_offset_x,
+                offset_y=chosen_offset_y,
+                bbox=chosen_bbox,
+                annotation=chosen_annotation,
+            )
+        )
+
+    _relax_placed_labels(
+        placed,
+        renderer,
+        axes_bbox=axes_bbox,
+        dpi=dpi,
+    )
 
 
 def _pad_extent_to_aspect(

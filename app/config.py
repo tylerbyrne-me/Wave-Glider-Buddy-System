@@ -135,6 +135,13 @@ class Settings(BaseSettings):
     sensor_tracker_password: Optional[str] = None  # Must be set in .env
     sensor_tracker_debug: bool = False
     sensor_tracker_debug_host: str = "http://127.0.0.1:8000/"
+
+    # --- Teledyne SFMC (Slocum Fleet Mission Control) ---
+    # Optional; checklist SFMC autofill is skipped when unset. Client ID/Secret from SFMC API Access page.
+    sfmc_base_url: Optional[str] = None
+    sfmc_client_id: Optional[str] = None
+    sfmc_client_secret: Optional[str] = None
+    sfmc_verify_tls: bool = True  # Set false for self-signed SFMC certs (SFMC_VERIFY_TLS=false)
     
     # --- Knowledge Base Settings ---
     knowledge_base_max_upload_size_mb: int = 50  # Maximum file upload size in MB
