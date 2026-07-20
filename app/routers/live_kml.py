@@ -194,7 +194,9 @@ async def _load_slocum_tracks(resource_ids: List[str], hours_back: int) -> List[
             )
             track_points = track_data.get("track_points") or []
             if track_points:
-                all_track_points.append((dataset_id, track_points))
+                all_track_points.append(
+                    (dataset_id, track_points, track_data.get("current_waypoint"))
+                )
             elif track_data.get("error"):
                 logger.warning(
                     "Slocum live KML skip %s: %s",
@@ -259,7 +261,7 @@ async def get_live_kml(
             resource_label=resource_label,
         )
 
-        total_points = sum(len(tp) for _, tp in all_track_points)
+        total_points = sum(len(entry[1]) for entry in all_track_points)
         refresh_secs = token_record.refresh_interval_minutes * 60
 
         now_utc = datetime.now(timezone.utc)

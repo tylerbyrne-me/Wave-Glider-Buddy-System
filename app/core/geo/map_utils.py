@@ -7,6 +7,7 @@ and generate KML files for export to Google Maps/Earth.
 
 from typing import List, Dict, Any, Optional
 import logging
+import math
 import re
 from datetime import datetime, timezone
 
@@ -113,7 +114,10 @@ def prepare_track_points(df: pd.DataFrame, max_points: int = 1000) -> List[Dict[
 def generate_kml_from_track_points(
     track_points: List[Dict[str, Any]], 
     mission_id: str,
-    color: str = "#3388ff"
+    color: str = "#3388ff",
+    *,
+    waypoint: Optional[Dict[str, Any]] = None,
+    resource_label: str = "Mission",
 ) -> str:
     """
     Generate a KML file string from track points.
@@ -122,8 +126,10 @@ def generate_kml_from_track_points(
     
     Args:
         track_points: List of points with 'lat', 'lon', 'timestamp'
-        mission_id: Mission identifier for the track name
+        mission_id: Mission/dataset identifier for the track name
         color: Line color in hex format (default: blue)
+        waypoint: Optional commanded waypoint ``{lat, lon}`` placemark
+        resource_label: Label prefix (e.g. ``Mission`` or ``Dataset``)
     
     Returns:
         KML formatted string
@@ -138,16 +144,25 @@ def generate_kml_from_track_points(
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         '<Document>',
-        f'<name>Mission {mission_id} Track</name>',
-        '<description>Wave Glider telemetry track</description>',
+        f'<name>{resource_label} {mission_id} Track</name>',
+        f'<description>{resource_label} telemetry track</description>',
         f'<Style id="trackStyle">',
         f'<LineStyle>',
         f'<color>{kml_color}</color>',
         f'<width>3</width>',
         f'</LineStyle>',
         f'</Style>',
+        '<Style id="waypointStyle">',
+        '  <IconStyle>',
+        '    <color>ff00ffff</color>',
+        '    <scale>1.1</scale>',
+        '    <Icon>',
+        '      <href>http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png</href>',
+        '    </Icon>',
+        '  </IconStyle>',
+        '</Style>',
         '<Placemark>',
-        f'<name>Mission {mission_id} Path</name>',
+        f'<name>{resource_label} {mission_id} Path</name>',
         '<styleUrl>#trackStyle</styleUrl>',
         '<LineString>',
         '<tessellate>1</tessellate>',
@@ -162,11 +177,57 @@ def generate_kml_from_track_points(
         '</coordinates>',
         '</LineString>',
         '</Placemark>',
+    ])
+    kml_parts.extend(_waypoint_placemark_parts(mission_id, waypoint, resource_label=resource_label))
+    kml_parts.extend([
         '</Document>',
         '</kml>'
     ])
     
     return '\n'.join(kml_parts)
+
+
+def _normalize_waypoint(waypoint: Optional[Dict[str, Any]]) -> Optional[Dict[str, float]]:
+    """Return ``{lat, lon}`` when waypoint coords are finite; otherwise None."""
+    if not waypoint:
+        return None
+    try:
+        lat = float(waypoint.get("lat"))
+        lon = float(waypoint.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None
+    if abs(lat) > 90 or abs(lon) > 180:
+        return None
+    if abs(lat) < 0.01 and abs(lon) < 0.01:
+        return None
+    return {"lat": lat, "lon": lon}
+
+
+def _waypoint_placemark_parts(
+    resource_id: str,
+    waypoint: Optional[Dict[str, Any]],
+    *,
+    resource_label: str = "Mission",
+    style_url: str = "#waypointStyle",
+    indent: str = "",
+) -> List[str]:
+    """KML placemark lines for a commanded waypoint, or empty list."""
+    wpt = _normalize_waypoint(waypoint)
+    if not wpt:
+        return []
+    return [
+        f'{indent}<Placemark>',
+        f'{indent}  <visibility>1</visibility>',
+        f'{indent}  <name>{resource_label} {resource_id} - Commanded waypoint</name>',
+        f'{indent}  <description>Commanded waypoint: {wpt["lat"]:.5f}, {wpt["lon"]:.5f}</description>',
+        f'{indent}  <styleUrl>{style_url}</styleUrl>',
+        f'{indent}  <Point>',
+        f'{indent}    <coordinates>{wpt["lon"]},{wpt["lat"]},0</coordinates>',
+        f'{indent}  </Point>',
+        f'{indent}</Placemark>',
+    ]
 
 
 def get_track_bounds(track_points: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
@@ -229,7 +290,9 @@ def generate_live_kml_with_track(
     Generate KML with timed track data for Google Earth animation.
     
     Args:
-        mission_tracks: List of tuples (resource_id, track_points)
+        mission_tracks: List of tuples ``(resource_id, track_points)`` or
+            ``(resource_id, track_points, waypoint)`` where waypoint is
+            ``{lat, lon}`` or None.
         description: Optional description for the KML
         resource_label: Label used in placemark names (e.g. "Mission" or "Dataset")
     
@@ -246,6 +309,11 @@ def generate_live_kml_with_track(
         '#00ced1',  # Dark Turquoise
         '#ffa500'   # Orange
     ]
+
+    def _unpack_track(entry: tuple):
+        if len(entry) >= 3:
+            return entry[0], entry[1], entry[2]
+        return entry[0], entry[1], None
     
     kml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -254,11 +322,21 @@ def generate_live_kml_with_track(
         '<open>1</open>',
         '<visibility>1</visibility>',
         f'<name>Live {resource_label} Tracks</name>',
-        f'<description>{description or f"Automatically updating {resource_label.lower()} tracks"}</description>'
+        f'<description>{description or f"Automatically updating {resource_label.lower()} tracks"}</description>',
+        '<Style id="waypointStyle">',
+        '  <IconStyle>',
+        '    <color>ff00ffff</color>',
+        '    <scale>1.1</scale>',
+        '    <Icon>',
+        '      <href>http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png</href>',
+        '    </Icon>',
+        '  </IconStyle>',
+        '</Style>',
     ]
     
     # Add styles for each mission
-    for i, (mission_id, _) in enumerate(mission_tracks):
+    for i, entry in enumerate(mission_tracks):
+        mission_id, _, _ = _unpack_track(entry)
         color = color_palette[i % len(color_palette)]
         style_id = _safe_style_id(mission_id)
         # Use 100% opacity for better visibility
@@ -297,7 +375,8 @@ def generate_live_kml_with_track(
         ])
     
     # Add mission tracks with timestamps
-    for mission_id, track_points in mission_tracks:
+    for entry in mission_tracks:
+        mission_id, track_points, waypoint = _unpack_track(entry)
         if not track_points:
             continue
         
@@ -338,6 +417,15 @@ def generate_live_kml_with_track(
             f'  </Point>',
             f'</Placemark>'
         ])
+
+        kml_parts.extend(
+            _waypoint_placemark_parts(
+                mission_id,
+                waypoint,
+                resource_label=resource_label,
+                indent="  ",
+            )
+        )
         
         # Track line (using LineString for better compatibility)
         coords_list = []

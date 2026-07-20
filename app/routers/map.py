@@ -475,7 +475,12 @@ async def get_slocum_mission_kml(
                 mission_id=dataset_id,
                 context=ErrorContext(operation="generating Slocum KML", resource=dataset_id),
             )
-        kml_content = generate_kml_from_track_points(track_data["track_points"], dataset_id)
+        kml_content = generate_kml_from_track_points(
+            track_data["track_points"],
+            dataset_id,
+            waypoint=track_data.get("current_waypoint"),
+            resource_label="Dataset",
+        )
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"slocum_{dataset_id}_track_{timestamp}.kml"
         return Response(
