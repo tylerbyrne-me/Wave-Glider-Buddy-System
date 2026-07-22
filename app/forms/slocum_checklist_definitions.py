@@ -193,6 +193,12 @@ def get_slocum_daily_checklist_schema() -> models.MissionFormSchema:
                         value="N/A",
                     ),
                     models.FormItem(
+                        id="approx_water_depth_val",
+                        label="Approx. Water Depth based on: ETOPO 2022",
+                        item_type=models.FormItemTypeEnum.AUTOFILLED_VALUE,
+                        value="N/A",
+                    ),
+                    models.FormItem(
                         id="u_alt_min_depth_ref_val",
                         label="u_alt_min_depth (reference)",
                         item_type=models.FormItemTypeEnum.STATIC_TEXT,

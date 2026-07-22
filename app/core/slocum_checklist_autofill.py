@@ -7,6 +7,7 @@ optional Open-Meteo forecasts. Reference values come from SlocumDeployment JSON.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -24,6 +25,11 @@ STORM_FORECAST_HOURS = 72
 DENSITY_RANGE_THRESHOLD_KG_M3 = 6.0
 LEAK_RANGE_SPIKE_THRESHOLD_V = 0.5
 VMG_GOOD_THRESHOLD_M_S = 0.15
+# Altimeter (~100 m range) cannot see bottom in waters deeper than ~1100 m for a
+# typical deep dive; ETOPO estimates shallower than this with no m_water_depth
+# samples may indicate a real shoaling / sensor issue.
+ALTIMETER_VISIBLE_DEPTH_M = 1100.0
+ETOPO_DEPTH_SOURCE_LABEL = "ETOPO 2022"
 
 # Canonical admin-managed reference keys on SlocumDeployment.checklist_reference_values
 CHECKLIST_REFERENCE_KEYS: tuple[str, ...] = (
@@ -168,6 +174,32 @@ def _fmt_num(value: Any, digits: int = 2) -> str:
     except (TypeError, ValueError):
         return "N/A"
     return f"{num:.{digits}f}"
+
+
+def format_approx_water_depth_display(
+    *,
+    depth_m: Optional[float],
+    lat: Optional[float],
+    lon: Optional[float],
+    has_altimeter_water_depth: bool,
+) -> str:
+    """Format the ETOPO approximate water-depth checklist value (with shoaling cue)."""
+    if lat is None or lon is None or (isinstance(lat, float) and math.isnan(lat)) or (
+        isinstance(lon, float) and math.isnan(lon)
+    ):
+        return "N/A (no position in window)"
+    if depth_m is None or (isinstance(depth_m, float) and (math.isnan(depth_m) or math.isinf(depth_m))):
+        return "N/A (bathymetry unavailable)"
+
+    display = (
+        f"~{_fmt_num(depth_m, 0)} m "
+        f"({ETOPO_DEPTH_SOURCE_LABEL} @ {_fmt_num(lat, 4)}, {_fmt_num(lon, 4)})"
+    )
+    if not has_altimeter_water_depth and depth_m < ALTIMETER_VISIBLE_DEPTH_M:
+        display += (
+            " — WARNING: within altimeter range but no m_water_depth reported"
+        )
+    return display
 
 
 def _latest_valid(series: pd.Series) -> Optional[float]:
@@ -655,6 +687,9 @@ def build_checklist_autofill_snapshot(
     storm_summary: Optional[str] = None,
     pilot_username: Optional[str] = None,
     dataset_id: Optional[str] = None,
+    approx_water_depth_m: Optional[float] = None,
+    approx_water_depth_lat: Optional[float] = None,
+    approx_water_depth_lon: Optional[float] = None,
 ) -> dict[str, str]:
     """
     Return a flat map of form item id → display string for checklist autofill.
@@ -912,6 +947,18 @@ def build_checklist_autofill_snapshot(
         if water_depth is not None
         else "N/A (no samples in window)"
     )
+    approx_depth_lat = approx_water_depth_lat
+    approx_depth_lon = approx_water_depth_lon
+    if approx_depth_lat is None and "Latitude" in df.columns:
+        approx_depth_lat = _latest_valid(df["Latitude"])
+    if approx_depth_lon is None and "Longitude" in df.columns:
+        approx_depth_lon = _latest_valid(df["Longitude"])
+    approx_water_depth_display = format_approx_water_depth_display(
+        depth_m=approx_water_depth_m,
+        lat=approx_depth_lat,
+        lon=approx_depth_lon,
+        has_altimeter_water_depth=water_depth is not None,
+    )
 
     return {
         "pilot_val": pilot_username or "N/A",
@@ -937,6 +984,7 @@ def build_checklist_autofill_snapshot(
         "battpos_val": battpos["display"],
         "depth_rate_val": depth_rate_display,
         "water_depth_val": water_depth_display,
+        "approx_water_depth_val": approx_water_depth_display,
         "bms_currents_val": bms_display,
         "leakdetect_val": leak_display,
         "density_range_val": density["display"],
@@ -1157,17 +1205,39 @@ async def load_checklist_autofill_values(
         ctd_df = pd.DataFrame()
 
     storm_summary = None
-    if include_forecast and not is_historical and not checklist_df.empty:
-        lat = _latest_valid(checklist_df["Latitude"]) if "Latitude" in checklist_df.columns else None
-        lon = _latest_valid(checklist_df["Longitude"]) if "Longitude" in checklist_df.columns else None
-        if lat is not None and lon is not None and not (math.isnan(lat) or math.isnan(lon)):
+    approx_water_depth_m: Optional[float] = None
+    approx_lat: Optional[float] = None
+    approx_lon: Optional[float] = None
+    if not checklist_df.empty:
+        approx_lat = (
+            _latest_valid(checklist_df["Latitude"]) if "Latitude" in checklist_df.columns else None
+        )
+        approx_lon = (
+            _latest_valid(checklist_df["Longitude"]) if "Longitude" in checklist_df.columns else None
+        )
+
+    if include_forecast and not is_historical and approx_lat is not None and approx_lon is not None:
+        if not (math.isnan(approx_lat) or math.isnan(approx_lon)):
             try:
-                general = await get_general_meteo_forecast(lat, lon)
-                marine = await get_marine_meteo_forecast(lat, lon)
+                general = await get_general_meteo_forecast(approx_lat, approx_lon)
+                marine = await get_marine_meteo_forecast(approx_lat, approx_lon)
                 storm_summary = summarize_storm_outlook(general, marine)
             except Exception as err:
                 logger.warning("Checklist storm outlook failed for %s: %s", dataset_id, err)
                 storm_summary = "Forecast unavailable"
+
+    if approx_lat is not None and approx_lon is not None and not (
+        math.isnan(approx_lat) or math.isnan(approx_lon)
+    ):
+        try:
+            from ..core.geo.bathymetry import fetch_etopo_depth_at
+
+            approx_water_depth_m = await asyncio.to_thread(
+                fetch_etopo_depth_at, approx_lat, approx_lon
+            )
+        except Exception as err:
+            logger.warning("Checklist ETOPO depth lookup failed for %s: %s", dataset_id, err)
+            approx_water_depth_m = None
 
     values = build_checklist_autofill_snapshot(
         checklist_df,
@@ -1176,6 +1246,9 @@ async def load_checklist_autofill_values(
         storm_summary=storm_summary,
         pilot_username=pilot_username,
         dataset_id=dataset_id,
+        approx_water_depth_m=approx_water_depth_m,
+        approx_water_depth_lat=approx_lat,
+        approx_water_depth_lon=approx_lon,
     )
 
     if sfmc_values and not is_historical:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 ETOPO_DEG_STEP = 0.004166667
 BATHY_BBOX_PAD_DEG = 0.02
+# Half-width of the tiny fallback bbox used by point depth sampling (°).
+POINT_DEPTH_HALF_WIDTH_DEG = 0.01
+_CACHE_FILENAME_RE = re.compile(
+    r"^bathy_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(\d+)\.npz$"
+)
 OCEAN_DEPTH_LEVELS_M = (
     -10,
     -20,
@@ -246,6 +252,112 @@ def fetch_etopo_bathymetry(extent: List[float]) -> Optional[BathyGrid]:
     stride = choose_stride(extent)
     cache_key = _cache_key(extent, stride)
     return _fetch_cached(cache_key)
+
+
+def sample_depth_m_from_grid(grid: BathyGrid, lat: float, lon: float) -> Optional[float]:
+    """Nearest-cell water depth (positive meters) from a BathyGrid; None on land/NaN."""
+    if grid is None or grid.longitude.size == 0 or grid.latitude.size == 0:
+        return None
+    if not math.isfinite(lat) or not math.isfinite(lon):
+        return None
+
+    lon_idx = int(np.argmin(np.abs(grid.longitude - lon)))
+    lat_idx = int(np.argmin(np.abs(grid.latitude - lat)))
+    try:
+        z = float(grid.z[lat_idx, lon_idx])
+    except (IndexError, TypeError, ValueError):
+        return None
+    if not math.isfinite(z) or z >= 0:
+        return None
+    return -z
+
+
+def _parse_bathy_cache_filename(path: Path) -> Optional[tuple[float, float, float, float, int]]:
+    """Parse west/east/south/north/stride from a cache filename; None if malformed."""
+    match = _CACHE_FILENAME_RE.match(path.name)
+    if not match:
+        return None
+    west, east, south, north, stride = match.groups()
+    try:
+        return float(west), float(east), float(south), float(north), int(stride)
+    except (TypeError, ValueError):
+        return None
+
+
+def _point_in_bbox(lat: float, lon: float, west: float, east: float, south: float, north: float) -> bool:
+    return south <= lat <= north and west <= lon <= east
+
+
+def _load_covering_cached_grid(lat: float, lon: float) -> Optional[BathyGrid]:
+    """Return the tightest cached report/point grid whose bbox contains (lat, lon)."""
+    root = get_bathy_cache_dir()
+    if not root.is_dir():
+        return None
+
+    candidates: list[tuple[float, float, Path]] = []
+    for path in root.glob("bathy_*.npz"):
+        parsed = _parse_bathy_cache_filename(path)
+        if parsed is None:
+            continue
+        west, east, south, north, _stride = parsed
+        if not _point_in_bbox(lat, lon, west, east, south, north):
+            continue
+        area = max(east - west, 1e-9) * max(north - south, 1e-9)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((area, -mtime, path))
+
+    if not candidates:
+        return None
+
+    candidates.sort()  # smallest area first; then newest mtime
+    for _area, _neg_mtime, path in candidates:
+        try:
+            data = np.load(path)
+            grid = BathyGrid(
+                longitude=data["longitude"],
+                latitude=data["latitude"],
+                z=data["z"],
+            )
+        except Exception as exc:
+            logger.warning("Failed to load covering bathymetry cache %s: %s", path, exc)
+            continue
+        depth = sample_depth_m_from_grid(grid, lat, lon)
+        if depth is not None:
+            return grid
+    return None
+
+
+def fetch_etopo_depth_at(lat: float, lon: float) -> Optional[float]:
+    """Approximate water depth (positive meters) at a point from ETOPO 2022.
+
+    Prefers an existing cached report/point grid covering the location (zero
+    network). Falls back to a tiny bbox fetch via ``fetch_etopo_bathymetry``.
+    Returns None on failure or when the nearest cell is land (z >= 0).
+    """
+    if not math.isfinite(lat) or not math.isfinite(lon):
+        return None
+    if abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+
+    cached_grid = _load_covering_cached_grid(lat, lon)
+    if cached_grid is not None:
+        depth = sample_depth_m_from_grid(cached_grid, lat, lon)
+        if depth is not None:
+            return depth
+
+    half = POINT_DEPTH_HALF_WIDTH_DEG
+    extent = [lon - half, lon + half, lat - half, lat + half]
+    try:
+        grid = fetch_etopo_bathymetry(extent)
+    except Exception as exc:
+        logger.warning("ETOPO point depth fetch failed at (%s, %s): %s", lat, lon, exc)
+        return None
+    if grid is None:
+        return None
+    return sample_depth_m_from_grid(grid, lat, lon)
 
 
 def _iter_npz_entries() -> list[tuple[Path, float, int]]:
