@@ -34,9 +34,10 @@ const SLOCUM_COLORS = ['#008b8b', '#20b2aa', '#2e8b57', '#3cb371', '#48d1cc', '#
  * @param {Array<{lat:number, lon:number, timestamp?: string}>} trackPoints
  * @param {string} color - track color
  * @param {string} label - id shown in popup (mission or dataset)
+ * @param {string|null} [dashboardUrl=null] - optional link to mission/dataset dashboard
  * @returns {L.CircleMarker|null}
  */
-function createCurrentPositionMarker(trackPoints, color, label) {
+function createCurrentPositionMarker(trackPoints, color, label, dashboardUrl = null) {
     if (!missionMap || !trackPoints || trackPoints.length === 0) return null;
     const last = trackPoints[trackPoints.length - 1];
     if (!Number.isFinite(last.lat) || !Number.isFinite(last.lon)) return null;
@@ -49,9 +50,12 @@ function createCurrentPositionMarker(trackPoints, color, label) {
         opacity: 1
     }).addTo(missionMap);
     const ts = last.timestamp ? `<br><small>${last.timestamp}</small>` : '';
+    const dashboardLink = dashboardUrl
+        ? `<br><a href="${dashboardUrl}" class="btn btn-link btn-sm p-0">Dashboard</a>`
+        : '';
     marker.bindPopup(
         `<strong>Current position</strong><br>${label}<br>` +
-        `${Number(last.lat).toFixed(4)}, ${Number(last.lon).toFixed(4)}${ts}`
+        `${Number(last.lat).toFixed(4)}, ${Number(last.lon).toFixed(4)}${ts}${dashboardLink}`
     );
     return marker;
 }
@@ -219,7 +223,12 @@ async function loadMissionTrack(missionId, queryParams = { hours_back: '72' }) {
             }
         ).addTo(missionMap);
 
-        const positionLayer = createCurrentPositionMarker(data.track_points, color, `Mission ${missionId}`);
+        const positionLayer = createCurrentPositionMarker(
+            data.track_points,
+            color,
+            `Mission ${missionId}`,
+            `/wave-glider?mission=${encodeURIComponent(missionId)}`
+        );
 
         // Store track info
         missionTracks.push({
@@ -293,7 +302,8 @@ async function loadMultipleMissionTracks(missionIds, queryParams = { hours_back:
             const positionLayer = createCurrentPositionMarker(
                 trackData.track_points,
                 color,
-                `Mission ${missionId}`
+                `Mission ${missionId}`,
+                `/wave-glider?mission=${encodeURIComponent(missionId)}`
             );
 
             // Store track info
@@ -412,7 +422,12 @@ async function loadSlocumTrack(datasetId, timeRangeOrHours = 72, colorIndex = 0)
             }
         ).addTo(missionMap);
 
-        const positionLayer = createCurrentPositionMarker(data.track_points, color, datasetId);
+        const positionLayer = createCurrentPositionMarker(
+            data.track_points,
+            color,
+            datasetId,
+            `/slocum?dataset=${encodeURIComponent(datasetId)}`
+        );
 
         let waypointLayer = null;
         const wpt = data.current_waypoint;
@@ -721,7 +736,8 @@ async function loadWgOverlayTrack(missionId, queryParams = { hours_back: '72' },
         const positionLayer = createCurrentPositionMarker(
             data.track_points,
             color,
-            `Mission ${missionId}`
+            `Mission ${missionId}`,
+            `/wave-glider?mission=${encodeURIComponent(missionId)}`
         );
         missionTracks.push({
             missionId,
