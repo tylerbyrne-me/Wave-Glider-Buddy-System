@@ -6,7 +6,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const platformFilter = document.getElementById('platformFilter');
     let allJobs = [];
 
-    const deriveJobPlatform = (jobId) => (String(jobId || '').startsWith('slocum_') ? 'slocum' : 'wave_glider');
+    const PLATFORM_LABELS = {
+        wave_glider: 'Wave Glider',
+        slocum: 'Slocum',
+        system: 'System',
+    };
+
+    const deriveJobPlatform = (job) => {
+        if (job && job.platform && PLATFORM_LABELS[job.platform]) {
+            return job.platform;
+        }
+        const jobId = String((job && job.id) || '');
+        if (jobId.startsWith('system_')) return 'system';
+        if (jobId.startsWith('slocum_')) return 'slocum';
+        if (jobId.startsWith('wave_glider_')) return 'wave_glider';
+        return 'system';
+    };
 
     const renderJobs = (jobs) => {
         if (jobs.length === 0) {
@@ -17,8 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
         jobsTableBody.innerHTML = jobs.map(job => {
             const statusClass = job.status === 'ok' ? 'bg-success' : 'bg-danger';
             const statusTitle = job.status === 'ok' ? 'Job is running as scheduled.' : 'Job is overdue. It may have failed to run at its last scheduled time.';
-            const platform = deriveJobPlatform(job.id);
-            const platformLabel = platform === 'slocum' ? 'Slocum' : 'Wave Glider';
+            const platform = deriveJobPlatform(job);
+            const platformLabel = PLATFORM_LABELS[platform] || 'System';
 
             return `
                 <tr>
@@ -43,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderJobs(allJobs);
             return;
         }
-        renderJobs(allJobs.filter(job => deriveJobPlatform(job.id) === selected));
+        renderJobs(allJobs.filter(job => deriveJobPlatform(job) === selected));
     };
 
     const loadJobs = async () => {
@@ -63,6 +78,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     if (platformFilter) {
+        const urlPlatform = new URLSearchParams(window.location.search).get('platform');
+        if (urlPlatform && PLATFORM_LABELS[urlPlatform]) {
+            platformFilter.value = urlPlatform;
+        }
         platformFilter.addEventListener('change', applyFilter);
     }
 

@@ -25,7 +25,12 @@ from ..core.slocum_bundle_registry import (
     preprocess_bundle_df,
 )
 from ..core.slocum_erddap_client import fetch_dataset_time_extent, fetch_slocum_data
-from ..core.utils import promote_orphan_tmp_file, resolve_data_path, write_parquet_file_atomic
+from ..core.utils import (
+    promote_orphan_tmp_file,
+    resolve_data_path,
+    slocum_mission_key,
+    write_parquet_file_atomic,
+)
 from .geo.coordinates import mask_null_island_coordinates
 
 logger = logging.getLogger(__name__)
@@ -66,8 +71,21 @@ def _meta_path(dataset_id: str) -> Path:
 
 
 def is_historical_dataset(dataset_id: str) -> bool:
+    """
+    True when ``dataset_id`` is listed in config ``historical_slocum_datasets``,
+    or shares a ``mission_key`` with any listed historical id (realtime/delayed siblings).
+    """
+    if not dataset_id or not str(dataset_id).strip():
+        return False
+    trimmed = str(dataset_id).strip()
     historical_ids = {s.strip() for s in settings.historical_slocum_datasets if s and s.strip()}
-    return dataset_id in historical_ids
+    if trimmed in historical_ids:
+        return True
+    key = slocum_mission_key(trimmed)
+    if not key:
+        return False
+    historical_keys = {slocum_mission_key(hid) for hid in historical_ids if slocum_mission_key(hid)}
+    return key in historical_keys
 
 
 def _read_meta(dataset_id: str) -> dict[str, Any]:

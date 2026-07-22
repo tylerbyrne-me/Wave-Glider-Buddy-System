@@ -1623,7 +1623,7 @@ async def startup_event():
             refresh_active_mission_cache,
             "interval",
             minutes=settings.background_cache_refresh_interval_minutes,
-            id="active_mission_refresh_job",
+            id="wave_glider_active_mission_refresh_job",
         )
         logger.info(
             f"Background cache refresh scheduled every "
@@ -1636,7 +1636,7 @@ async def startup_event():
             hour=12,
             minute=0,
             timezone='UTC',
-            id='weekly_report_job'
+            id='wave_glider_weekly_report_job'
         )
         scheduler.add_job(
             run_slocum_warm_cache_job,
@@ -1659,7 +1659,7 @@ async def startup_event():
             hour=settings.weather_map_prefetch_cron_hour,
             minute=0,
             timezone="UTC",
-            id="weather_map_prefetch_job",
+            id="system_weather_map_prefetch_job",
         )
         logger.info(
             "Weather map prefetch scheduled daily at %02d:00 UTC",
@@ -1672,7 +1672,7 @@ async def startup_event():
             hour=cleanup_hour,
             minute=15,
             timezone="UTC",
-            id="weather_map_cleanup_job",
+            id="system_weather_map_cleanup_job",
         )
         logger.info(
             "Weather map cache cleanup scheduled daily at %02d:15 UTC",
@@ -1684,7 +1684,7 @@ async def startup_event():
             hour=cleanup_hour,
             minute=20,
             timezone="UTC",
-            id="bathy_cache_cleanup_job",
+            id="system_bathy_cache_cleanup_job",
         )
         logger.info(
             "Bathymetry cache cleanup scheduled daily at %02d:20 UTC",
@@ -1708,7 +1708,7 @@ async def startup_event():
             run_sfmc_cache_refresh_job,
             "interval",
             minutes=sfmc_refresh_minutes,
-            id="sfmc_cache_refresh_job",
+            id="slocum_sfmc_cache_refresh_job",
         )
         logger.info(
             "SFMC checklist cache refresh scheduled every %s minutes",

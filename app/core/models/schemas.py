@@ -13,6 +13,7 @@ from .enums import (
     UserRoleEnum,
     FormItemTypeEnum,
     JobStatusEnum,
+    JobPlatformEnum,
 )
 from .database import (
     OffloadLog,
@@ -769,6 +770,9 @@ class ScheduledJob(BaseModel):
     trigger: JobTriggerInfo
     next_run_time: Optional[datetime] = None
     status: JobStatusEnum = Field(description="The current health status of the job.")
+    platform: JobPlatformEnum = Field(
+        description="Platform/category: wave_glider, slocum, or system."
+    )
 
 
 # ============================================================================
@@ -1053,7 +1057,7 @@ class SlocumDeploymentCreate(BaseModel):
     glider_name: str = Field(..., description="Glider name")
     deployment_date: Optional[datetime] = None
     notes: Optional[str] = None
-    erddap_dataset_id: Optional[str] = Field(None, description="ERDDAP dataset ID for active realtime; omit for testing deployment")
+    erddap_dataset_id: Optional[str] = Field(None, description="ERDDAP dataset ID for the active mission")
 
 
 class SlocumDeploymentUpdate(BaseModel):

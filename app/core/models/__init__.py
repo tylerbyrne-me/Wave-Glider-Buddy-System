@@ -23,6 +23,7 @@ from .enums import (
     UserRoleEnum,
     FormItemTypeEnum,
     JobStatusEnum,
+    JobPlatformEnum,
 )
 
 # Import database models
@@ -186,6 +187,7 @@ __all__ = [
     "UserRoleEnum",
     "FormItemTypeEnum",
     "JobStatusEnum",
+    "JobPlatformEnum",
     
     # Database models
     "UserInDB",

@@ -392,6 +392,10 @@ def _mission_name_from_payload(payload: Any) -> Optional[str]:
 
 
 async def fetch_active_deployment(glider_name: str) -> Optional[dict[str, Any]]:
+    # Live SFMC only exposes the *active* deployment for a glider. Archived SFMC
+    # missions / historical logs may use separate API paths that are not explored
+    # or implemented here — do not poll archived Buddy deployments on the active
+    # refresh loop. On-demand historical SFMC autofill would be a later path.
     payload = await _get_json(f"/sfmc/api/v1/active-deployment/{quote(glider_name, safe='')}")
     return payload if isinstance(payload, dict) else None
 
@@ -702,6 +706,10 @@ async def load_sfmc_checklist_values(glider_name: str) -> dict[str, str]:
     Returns empty dict when SFMC is unconfigured or unreachable/unauthorized.
     Requests are paced by ``sfmc_max_requests_per_minute`` and reuse payloads
     where possible to stay under SFMC's ~25 req/min limit.
+
+    Scope: **active** SFMC deployments only (``active-deployment``, newest mission,
+    live folder listings). Archived SFMC missions are not covered — callers must
+    skip archived Buddy ``SlocumDeployment`` rows on the background refresh loop.
     """
     name = (glider_name or "").strip()
     if not name or not sfmc_is_configured():

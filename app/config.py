@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     sfmc_client_secret: Optional[str] = None
     sfmc_verify_tls: bool = True  # Set false for self-signed SFMC certs (SFMC_VERIFY_TLS=false)
     # Leader-only job: refresh slocum_sfmc_snapshots for active deployments.
-    sfmc_cache_refresh_interval_minutes: int = 20
+    sfmc_cache_refresh_interval_minutes: int = 60
     # SFMC hosts typically allow ~25 requests/minute; stay under that.
     sfmc_max_requests_per_minute: int = 20
     

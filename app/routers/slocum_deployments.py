@@ -174,7 +174,7 @@ def list_deployments(
     status_filter: Optional[str] = Query(None),
     include_all: bool = Query(
         False,
-        description="If true, return all active deployments; otherwise only active realtime + testing",
+        description="If true, return all active deployments; otherwise only those linked to active realtime ERDDAP datasets",
     ),
     current_user: models.User = Depends(get_current_active_user),
     session: SQLModelSession = Depends(get_db_session),
@@ -189,8 +189,7 @@ def list_deployments(
         active_ids = set(settings.active_slocum_datasets or [])
         deployments = [
             d for d in deployments
-            if (d.erddap_dataset_id and d.erddap_dataset_id in active_ids)
-            or (d.name and d.name.strip().lower() == "testing")
+            if d.erddap_dataset_id and d.erddap_dataset_id in active_ids
         ]
     return list(deployments)
 

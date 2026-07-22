@@ -17,9 +17,18 @@ from sqlmodel import Session, select
 
 from . import models
 from .sfmc_client import load_sfmc_checklist_values, sfmc_is_configured
+from .slocum_mirror_service import is_historical_dataset
 
 logger = logging.getLogger(__name__)
 
+
+def _deployment_linked_to_historical(deployment: models.SlocumDeployment) -> bool:
+    """True when this briefing points at a config-listed historical ERDDAP mission."""
+    if deployment.erddap_dataset_id and is_historical_dataset(deployment.erddap_dataset_id):
+        return True
+    if deployment.mission_key and is_historical_dataset(deployment.mission_key):
+        return True
+    return False
 
 def _parse_values_json(raw: Optional[str]) -> dict[str, str]:
     if not raw or not str(raw).strip():
@@ -116,6 +125,21 @@ async def refresh_sfmc_snapshot(
         session.refresh(row)
         return row
 
+    # Placeholder / sandbox briefings are not SFMC vehicles (legacy local "Testing" row).
+    if glider.lower() in {"testing", "test", "dummy"}:
+        row.fetch_error = f"Skipping SFMC for placeholder glider_name={glider!r}"
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+    if not (deployment.erddap_dataset_id or "").strip():
+        row.fetch_error = "Skipping SFMC: deployment has no erddap_dataset_id"
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
     if not sfmc_is_configured():
         row.fetch_error = "SFMC is not configured"
         session.add(row)
@@ -147,8 +171,9 @@ async def refresh_sfmc_snapshot(
 
 async def refresh_all_active_sfmc_snapshots(session: Session) -> dict[str, Any]:
     """
-    Refresh SFMC snapshots for every active deployment with a glider name.
+    Refresh SFMC snapshots for every non-soft-deleted deployment with a glider name.
 
+    Skips deployments linked to config historical datasets.
     Per-deployment failures are isolated. Returns summary counts.
     """
     if not sfmc_is_configured():
@@ -170,8 +195,12 @@ async def refresh_all_active_sfmc_snapshots(session: Session) -> dict[str, Any]:
     succeeded = 0
     failed = 0
     for deployment in deployments:
+        if _deployment_linked_to_historical(deployment):
+            continue
         glider = (deployment.glider_name or "").strip()
-        if not glider:
+        if not glider or glider.lower() in {"testing", "test", "dummy"}:
+            continue
+        if not (deployment.erddap_dataset_id or "").strip():
             continue
         attempted += 1
         try:

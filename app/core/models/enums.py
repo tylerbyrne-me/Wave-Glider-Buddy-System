@@ -47,3 +47,11 @@ class JobStatusEnum(str, Enum):
     OK = "ok"
     OVERDUE = "overdue"
 
+
+class JobPlatformEnum(str, Enum):
+    """Platform/category for scheduled background jobs shown in admin UI."""
+
+    WAVE_GLIDER = "wave_glider"
+    SLOCUM = "slocum"
+    SYSTEM = "system"
+
