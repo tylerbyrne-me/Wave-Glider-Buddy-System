@@ -74,7 +74,8 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
-    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false}'
+    # iridium_map_layer: home Leaflet Iridium constellation overlay (CelesTrak Iridium-E TLEs).
+    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false, "iridium_map_layer": false}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -123,9 +124,22 @@ class Settings(BaseSettings):
     weather_map_prefetch_horizon_days: int = 7
     weather_map_prefetch_step_hours: int = 3
     weather_map_prefetch_cron_hour: int = 7  # UTC
+    # Buddy manifest TTL: API rebuilds latest.json when older than this (ICON runs update often).
+    weather_map_manifest_ttl_seconds: int = 6 * 3600
     # Daily disk cleanup runs even when weather_map_layers is disabled (stranded cache).
     weather_map_cleanup_cron_hour: int = 7  # UTC
     weather_map_cache_max_bytes: int = 5 * 1024 * 1024 * 1024  # 5 GB
+
+    # --- Iridium constellation TLE cache (home-page satellite overlay) ---
+    # CelesTrak updates ~every 2 hours; disk gate enforces ≤1 upstream contact per TTL.
+    iridium_tle_cache_dir: Path = Path("data_store/iridium_cache")
+    iridium_tle_cache_ttl_seconds: int = 7200
+    iridium_tle_prefetch_enabled: bool = True
+    # Leader interval job; should be >= ttl (CelesTrak policy).
+    iridium_tle_prefetch_interval_hours: int = 2
+    # Daily cleanup reclaim when feature off or files older than this.
+    iridium_tle_cleanup_max_age_days: int = 7
+    iridium_tle_cleanup_cron_hour: int = 7  # UTC
 
     # --- Sensor Tracker Settings ---
     # SECURITY: Credentials MUST be configured in .env file

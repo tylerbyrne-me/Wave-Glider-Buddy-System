@@ -25,6 +25,8 @@ JOB_PLATFORM_BY_ID: dict[str, JobPlatformEnum] = {
     "system_weather_map_prefetch_job": JobPlatformEnum.SYSTEM,
     "system_weather_map_cleanup_job": JobPlatformEnum.SYSTEM,
     "system_bathy_cache_cleanup_job": JobPlatformEnum.SYSTEM,
+    "system_iridium_tle_prefetch_job": JobPlatformEnum.SYSTEM,
+    "system_iridium_tle_cleanup_job": JobPlatformEnum.SYSTEM,
 }
 
 

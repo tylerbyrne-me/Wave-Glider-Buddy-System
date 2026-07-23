@@ -1481,6 +1481,34 @@ async def run_weather_map_cleanup_job():
         logger.error("AUTOMATED: Weather map cleanup failed: %s", exc, exc_info=True)
 
 
+async def run_iridium_tle_prefetch_job():
+    """Leader job: refresh CelesTrak Iridium-E TLEs when stale (disk TTL / rate gate)."""
+    logger.info("AUTOMATED: Prefetching Iridium TLE cache...")
+    try:
+        from .core.geo.iridium_tle_cache import prefetch_iridium_tles
+
+        summary = await prefetch_iridium_tles()
+        logger.info("AUTOMATED: Iridium TLE prefetch finished: %s", summary)
+    except Exception as exc:
+        logger.error("AUTOMATED: Iridium TLE prefetch failed: %s", exc, exc_info=True)
+
+
+async def run_iridium_tle_cleanup_job():
+    """Leader job: purge stranded/old Iridium TLE cache (runs even if feature disabled)."""
+    logger.info("AUTOMATED: Cleaning Iridium TLE cache...")
+    try:
+        from .core.geo.iridium_tle_cache import run_iridium_tle_cleanup
+
+        summary = await run_iridium_tle_cleanup()
+        logger.info(
+            "AUTOMATED: Iridium TLE cleanup finished (removed=%s, freed_bytes=%s)",
+            summary.get("removed_files"),
+            summary.get("freed_bytes"),
+        )
+    except Exception as exc:
+        logger.error("AUTOMATED: Iridium TLE cleanup failed: %s", exc, exc_info=True)
+
+
 async def run_bathy_cache_cleanup_job():
     """Leader job: purge stale ETOPO bathymetry .npz cache entries and enforce size quota.
 
@@ -1690,6 +1718,34 @@ async def startup_event():
             "Bathymetry cache cleanup scheduled daily at %02d:20 UTC",
             cleanup_hour,
         )
+        iridium_prefetch_hours = max(
+            1, int(getattr(settings, "iridium_tle_prefetch_interval_hours", 2) or 2)
+        )
+        scheduler.add_job(
+            run_iridium_tle_prefetch_job,
+            "interval",
+            hours=iridium_prefetch_hours,
+            id="system_iridium_tle_prefetch_job",
+        )
+        logger.info(
+            "Iridium TLE prefetch scheduled every %s hours",
+            iridium_prefetch_hours,
+        )
+        iridium_cleanup_hour = int(
+            getattr(settings, "iridium_tle_cleanup_cron_hour", cleanup_hour)
+        )
+        scheduler.add_job(
+            run_iridium_tle_cleanup_job,
+            "cron",
+            hour=iridium_cleanup_hour,
+            minute=25,
+            timezone="UTC",
+            id="system_iridium_tle_cleanup_job",
+        )
+        logger.info(
+            "Iridium TLE cache cleanup scheduled daily at %02d:25 UTC",
+            iridium_cleanup_hour,
+        )
         overage_cleanup_hours = max(1, int(getattr(settings, "slocum_overage_cleanup_interval_hours", 6)))
         scheduler.add_job(
             run_slocum_overage_cleanup_job,
@@ -1722,6 +1778,13 @@ async def startup_event():
             await run_bathy_cache_cleanup_job()
         except Exception as exc:
             logger.warning("STARTUP: Initial bathymetry cache cleanup failed: %s", exc)
+        try:
+            await run_iridium_tle_cleanup_job()
+        except Exception as exc:
+            logger.warning("STARTUP: Initial Iridium TLE cache cleanup failed: %s", exc)
+        # Warm Iridium TLEs in background if stale (respects disk TTL / rate gate).
+        asyncio.create_task(run_iridium_tle_prefetch_job())
+        logger.info("STARTUP: Iridium TLE prefetch scheduled in background")
         try:
             await run_slocum_overage_cleanup_job()
         except Exception as exc:

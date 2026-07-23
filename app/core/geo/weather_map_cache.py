@@ -32,6 +32,9 @@ WIND_VARIABLE = "wind_u_component_10m"
 FALLBACK_BOUNDS = [-78.0, 36.0, -70.0, 44.0]  # west, south, east, north
 
 _IN_FLIGHT: dict[str, asyncio.Task] = {}
+# Short-lived negative cache so Leaflet tile HEAD storms do not re-hit Open-Meteo on known 404s.
+_NEGATIVE_UPSTREAM: dict[str, float] = {}
+_NEGATIVE_UPSTREAM_TTL_SECONDS = 120.0
 _stats = {
     "cache_hits": 0,
     "cache_misses": 0,
@@ -283,19 +286,66 @@ async def fetch_model_manifest_upstream() -> dict[str, Any]:
         return response.json()
 
 
-def get_cached_manifest() -> Optional[dict[str, Any]]:
+def _manifest_ttl_seconds() -> int:
+    return max(60, int(getattr(settings, "weather_map_manifest_ttl_seconds", 6 * 3600) or 6 * 3600))
+
+
+def manifest_age_seconds(manifest: Optional[dict[str, Any]]) -> Optional[float]:
+    """Return age of a buddy manifest from cached_at, or None if unknown."""
+    if not manifest:
+        return None
+    cached_at = manifest.get("cached_at")
+    if not cached_at:
+        return None
+    try:
+        parsed = _parse_iso_utc(str(cached_at))
+    except ValueError:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+
+
+def is_manifest_fresh(manifest: Optional[dict[str, Any]]) -> bool:
+    """True when disk buddy manifest exists and is within weather_map_manifest_ttl_seconds."""
+    age = manifest_age_seconds(manifest)
+    if age is None:
+        return False
+    return age < _manifest_ttl_seconds()
+
+
+def get_cached_manifest(*, require_fresh: bool = False) -> Optional[dict[str, Any]]:
     path = _manifest_path()
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    if require_fresh and not is_manifest_fresh(payload):
+        return None
+    return payload
 
 
 def write_buddy_manifest(payload: dict[str, Any]) -> None:
     _ensure_cache_dirs()
     _manifest_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def clear_stale_manifest() -> bool:
+    """Remove on-disk buddy manifest when older than TTL. Returns True if removed."""
+    path = _manifest_path()
+    if not path.is_file():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = None
+    if is_manifest_fresh(payload):
+        return False
+    try:
+        path.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def build_buddy_manifest(
@@ -389,6 +439,20 @@ def _response_headers_from_upstream(response: httpx.Response) -> dict[str, str]:
     return out_headers
 
 
+def _negative_cache_get(upstream_url: str) -> bool:
+    expires_at = _NEGATIVE_UPSTREAM.get(upstream_url)
+    if expires_at is None:
+        return False
+    if time.monotonic() >= expires_at:
+        _NEGATIVE_UPSTREAM.pop(upstream_url, None)
+        return False
+    return True
+
+
+def _negative_cache_set(upstream_url: str) -> None:
+    _NEGATIVE_UPSTREAM[upstream_url] = time.monotonic() + _NEGATIVE_UPSTREAM_TTL_SECONDS
+
+
 async def _fetch_upstream(
     upstream_url: str,
     range_header: Optional[str],
@@ -399,11 +463,18 @@ async def _fetch_upstream(
     if range_header:
         headers["Range"] = range_header
 
+    if _negative_cache_get(upstream_url):
+        request = httpx.Request("HEAD" if head_only else "GET", upstream_url)
+        response = httpx.Response(404, request=request)
+        raise httpx.HTTPStatusError("Cached upstream 404", request=request, response=response)
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         if head_only:
             response = await client.head(upstream_url, headers=headers)
         else:
             response = await client.get(upstream_url, headers=headers)
+        if response.status_code == 404:
+            _negative_cache_set(upstream_url)
         response.raise_for_status()
         out_headers = _response_headers_from_upstream(response)
         body = b"" if head_only else response.content
@@ -717,6 +788,10 @@ def get_cache_status() -> dict[str, Any]:
         "last_cleanup_at": _stats.get("last_cleanup_at"),
         "last_cleanup_summary": _stats.get("last_cleanup_summary"),
         "manifest_reference_time": manifest.get("reference_time") if manifest else None,
+        "manifest_cached_at": manifest.get("cached_at") if manifest else None,
+        "manifest_age_seconds": manifest_age_seconds(manifest),
+        "manifest_ttl_seconds": _manifest_ttl_seconds(),
+        "manifest_is_fresh": is_manifest_fresh(manifest),
         "union_bbox": manifest.get("union_bbox") if manifest else None,
     }
 
@@ -724,6 +799,8 @@ def get_cache_status() -> dict[str, Any]:
 async def run_weather_map_cleanup() -> dict[str, Any]:
     """Always-on disk cleanup: TTL purge + quota (independent of feature toggle)."""
     summary = purge_weather_cache(force_all=False, enforce_quota=True)
+    removed_stale_manifest = clear_stale_manifest()
+    summary["stale_manifest_removed"] = removed_stale_manifest
     _stats["last_cleanup_at"] = datetime.now(timezone.utc).isoformat()
     _stats["last_cleanup_summary"] = {
         k: summary[k]
@@ -734,6 +811,7 @@ async def run_weather_map_cleanup() -> dict[str, Any]:
             "orphan_bodies_removed",
             "quota_evicted_files",
             "quota_freed_bytes",
+            "stale_manifest_removed",
         )
         if k in summary
     }

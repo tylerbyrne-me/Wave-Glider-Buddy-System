@@ -484,6 +484,43 @@
                         </div>
                     </div>
                     {% endif %}
+                    {% if feature_enabled('iridium_map_layer') %}
+                    <!-- Iridium constellation overlay (CelesTrak Iridium-E + satellite.js) -->
+                    <div id="iridiumOverlaySection" class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label small mb-0">Iridium Overlay</label>
+                            <a href="https://celestrak.org/NORAD/elements/supplemental/" target="_blank" rel="noopener" class="text-decoration-none small">
+                                <i class="fas fa-external-link-alt"></i> CelesTrak
+                            </a>
+                        </div>
+                        <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Iridium overlay toggle">
+                            <input type="checkbox" class="btn-check" id="iridiumLayerToggle" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="iridiumLayerToggle">
+                                <i class="fas fa-satellite"></i> Iridium (in view)
+                            </label>
+                        </div>
+                        <small class="text-muted d-block mb-2">
+                            Shows satellites with elevation ≥ 8.2° over loaded gliders, plus coverage footprints.
+                            Glider positions are the last track sample (not live modem GPS); elevations are predicted from CelesTrak Iridium-E.
+                            <span id="iridiumInViewCount" class="fw-semibold"></span>
+                        </small>
+                        <div class="row g-2 align-items-start mb-2">
+                            <div class="col-md-5">
+                                <label for="iridiumObserverSelect" class="form-label small mb-1">Pass timeline for</label>
+                                <select id="iridiumObserverSelect" class="form-select form-select-sm" disabled>
+                                    <option value="">No glider positions loaded</option>
+                                </select>
+                                <small id="iridiumTleMeta" class="text-muted"></small>
+                            </div>
+                            <div class="col-md-7">
+                                <label class="form-label small mb-1">Next pass / gap (2 h)</label>
+                                <div id="iridiumPassPanel" class="border rounded p-2 bg-light small">
+                                    <span class="text-muted">Enable Iridium overlay to see next-pass timing.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                     <!-- Map Container -->
                     <div id="missionMapContainer" class="home-map-container"></div>
                     
@@ -539,6 +576,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
     {% if feature_enabled('weather_map_layers') %}
     <script src="https://unpkg.com/@openmeteo/weather-map-layer@0.0.19/dist/index.js"></script>
+    {% endif %}
+    {% if feature_enabled('iridium_map_layer') %}
+    <script src="https://unpkg.com/satellite.js@5.0.0/dist/satellite.min.js" integrity="sha384-e6V1JVpc+kVNTxT0gEOla7yL4c92Romsw7itPoipfzHbEjzUwPhTv6oeVDMHHzqT" crossorigin="anonymous"></script>
     {% endif %}
     <script src="/static/js/home.js" type="module"></script>
     <script src="/static/js/map_generator.js" type="module"></script>

@@ -19,7 +19,7 @@ import httpx
 from ..core.auth import get_current_active_user, get_current_admin_user, require_platform_access
 from ..core import models
 from ..core.geo.map_utils import prepare_track_points, generate_kml_from_track_points, get_track_bounds
-from ..core.geo import weather_map_cache
+from ..core.geo import weather_map_cache, iridium_tle_cache
 from ..core.data.processors import preprocess_telemetry_df
 from ..core.data.data_service import get_data_service
 from ..core.slocum_cache_service import (
@@ -735,7 +735,8 @@ async def get_weather_map_manifest(
 ):
     """Return cached Open-Meteo manifest with union bbox and proxied om URLs."""
     _require_weather_map_layers()
-    manifest = weather_map_cache.get_cached_manifest()
+    disk_manifest = weather_map_cache.get_cached_manifest()
+    manifest = disk_manifest if weather_map_cache.is_manifest_fresh(disk_manifest) else None
     if manifest is None:
         try:
             union_bbox = await weather_map_cache.compute_union_mission_bbox()
@@ -820,6 +821,81 @@ async def purge_weather_map_cache(
     summary = weather_map_cache.purge_weather_cache(force_all=force_all, enforce_quota=True)
     logger.info(
         "Admin '%s' purged weather map cache (force_all=%s, removed=%s, freed_bytes=%s)",
+        current_admin.username,
+        force_all,
+        summary.get("removed_files"),
+        summary.get("freed_bytes"),
+    )
+    return summary
+
+
+def _require_iridium_map_layer() -> None:
+    if not is_feature_enabled("iridium_map_layer"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Iridium map layer is disabled (feature_toggles.iridium_map_layer).",
+        )
+
+
+@router.get("/api/map/iridium/tles")
+async def get_iridium_tles(
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Return cached CelesTrak Iridium-E TLEs for browser-side SGP4 propagation."""
+    _require_iridium_map_layer()
+    try:
+        payload = await iridium_tle_cache.get_iridium_tles()
+    except RuntimeError as exc:
+        message = str(exc)
+        logger.warning("Iridium TLE unavailable: %s", message)
+        if "rate-limited" in message.lower() or "empty" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Iridium TLE cache is empty and CelesTrak is rate-limited for this "
+                    "2-hour window. Retry later, or ask an admin to check "
+                    "GET /api/map/iridium/cache/status (do not purge+refetch repeatedly)."
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=message or "Unable to load Iridium TLE data.",
+        ) from exc
+    except Exception as exc:
+        logger.error("Failed to load Iridium TLEs: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Unable to load Iridium TLE data from cache or CelesTrak. "
+                "Check host egress to celestrak.org and /api/map/iridium/cache/status."
+            ),
+        ) from exc
+    return JSONResponse(content=payload)
+
+
+@router.get("/api/map/iridium/cache/status")
+async def get_iridium_tle_cache_status(
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """Return Iridium TLE disk cache statistics for debugging."""
+    if not is_feature_enabled("iridium_map_layer"):
+        if current_user.role != models.UserRoleEnum.admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Iridium map layer is disabled (feature_toggles.iridium_map_layer).",
+            )
+    return JSONResponse(content=iridium_tle_cache.get_cache_status())
+
+
+@router.post("/api/map/iridium/cache/purge")
+async def purge_iridium_tle_cache(
+    force_all: bool = Query(False, description="Remove all Iridium cache files, not only stranded/old ones."),
+    current_admin: models.User = Depends(get_current_admin_user),
+):
+    """Admin: purge Iridium TLE disk cache (does not contact CelesTrak)."""
+    summary = iridium_tle_cache.purge_iridium_cache(force_all=force_all)
+    logger.info(
+        "Admin '%s' purged Iridium TLE cache (force_all=%s, removed=%s, freed_bytes=%s)",
         current_admin.username,
         force_all,
         summary.get("removed_files"),

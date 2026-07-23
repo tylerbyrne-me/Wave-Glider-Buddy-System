@@ -12,14 +12,51 @@ import {
     initWindOverlay,
     refreshWindLayerIfActive,
 } from '/static/js/weather_map_layer.js';
+import {
+    bindIridiumOverlayContext,
+    initIridiumOverlay,
+    refreshIridiumLayerIfActive,
+} from '/static/js/iridium_map_layer.js';
 
 /** All track polyline layers (Wave Glider + Slocum) for bbox / z-order helpers. */
 function getAllTrackLayers() {
     return [...missionTracks, ...slocumTracks].map((track) => track.layer).filter(Boolean);
 }
 
+/** Current glider positions for Iridium look-angle / next-pass calculations. */
+function getIridiumObservers() {
+    const observers = [];
+    for (const track of missionTracks) {
+        const latlng = track.positionLayer?.getLatLng?.();
+        if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) {
+            continue;
+        }
+        observers.push({
+            id: `wg:${track.missionId}`,
+            label: track.missionId,
+            lat: latlng.lat,
+            lon: latlng.lng,
+        });
+    }
+    for (const track of slocumTracks) {
+        const latlng = track.positionLayer?.getLatLng?.();
+        if (!latlng || !Number.isFinite(latlng.lat) || !Number.isFinite(latlng.lng)) {
+            continue;
+        }
+        const datasetId = track.datasetId || track.missionId;
+        observers.push({
+            id: `slocum:${datasetId}`,
+            label: datasetId,
+            lat: latlng.lat,
+            lon: latlng.lng,
+        });
+    }
+    return observers;
+}
+
 function notifyWindOverlayTracksChanged() {
     refreshWindLayerIfActive();
+    refreshIridiumLayerIfActive();
 }
 
 let missionMap = null;
@@ -187,6 +224,8 @@ function initializeMissionMap() {
 
     bindWindOverlayContext(missionMap, getAllTrackLayers);
     initWindOverlay();
+    bindIridiumOverlayContext(missionMap, getIridiumObservers);
+    initIridiumOverlay();
 }
 
 /**
