@@ -168,7 +168,7 @@ def update_user_password_in_db(
     user_in_db.hashed_password = pwd_context.hash(new_password)
     session.add(user_in_db)
     session.commit()
-    logger.info(f"Password updated in DB for user '{username}'.")
+    logger.debug(f"Password updated in DB for user '{username}'.")
     return True
 
 

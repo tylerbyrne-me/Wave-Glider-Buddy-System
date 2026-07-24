@@ -815,7 +815,7 @@ async def run_weather_map_cleanup() -> dict[str, Any]:
         )
         if k in summary
     }
-    logger.info("Weather map cache cleanup complete: %s", _stats["last_cleanup_summary"])
+    logger.debug("Weather map cache cleanup complete: %s", _stats["last_cleanup_summary"])
     return summary
 
 
@@ -860,5 +860,5 @@ async def prefetch_union_bbox_cache() -> dict[str, Any]:
     }
     _stats["last_prefetch_at"] = datetime.now(timezone.utc).isoformat()
     _stats["last_prefetch_summary"] = summary
-    logger.info("Weather map prefetch complete: %s", summary)
+    logger.debug("Weather map prefetch complete: %s", summary)
     return summary

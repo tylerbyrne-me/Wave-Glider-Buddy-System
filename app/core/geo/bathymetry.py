@@ -480,5 +480,5 @@ def run_bathy_cache_cleanup() -> dict[str, Any]:
         if k in summary
     }
     summary["status"] = get_bathy_cache_status()
-    logger.info("Bathymetry cache cleanup complete: %s", _cleanup_stats["last_cleanup_summary"])
+    logger.debug("Bathymetry cache cleanup complete: %s", _cleanup_stats["last_cleanup_summary"])
     return summary

@@ -22,6 +22,7 @@ JOB_PLATFORM_BY_ID: dict[str, JobPlatformEnum] = {
     "slocum_weekly_report_job": JobPlatformEnum.SLOCUM,
     "slocum_overage_cleanup_job": JobPlatformEnum.SLOCUM,
     "slocum_sfmc_cache_refresh_job": JobPlatformEnum.SLOCUM,
+    "slocum_auto_checklist_submit_job": JobPlatformEnum.SLOCUM,
     "system_weather_map_prefetch_job": JobPlatformEnum.SYSTEM,
     "system_weather_map_cleanup_job": JobPlatformEnum.SYSTEM,
     "system_bathy_cache_cleanup_job": JobPlatformEnum.SYSTEM,

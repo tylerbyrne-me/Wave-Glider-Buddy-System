@@ -141,7 +141,7 @@ async def sync_mission_file(
                 except OSError:
                     pass  # Not critical if we can't set mtime
             
-            logger.info(
+            logger.debug(
                 f"Synced {report_type} for {mission_id}: {len(response.text)} bytes "
                 f"(remote mtime: {remote_mtime})"
             )

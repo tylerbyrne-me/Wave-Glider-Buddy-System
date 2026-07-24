@@ -576,11 +576,15 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         if not filtered_df.empty:
             actual_start = filtered_df[timestamp_col].min()
             actual_end = filtered_df[timestamp_col].max()
-            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
-                       f"({actual_start.isoformat()} to {actual_end.isoformat()})")
+            logger.debug(
+                f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                f"({actual_start.isoformat()} to {actual_end.isoformat()})"
+            )
         else:
-            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
-                       f"(requested: {start_date.isoformat()} to {end_date.isoformat()}, no matching data)")
+            logger.debug(
+                f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                f"(requested: {start_date.isoformat()} to {end_date.isoformat()}, no matching data)"
+            )
         
         return filtered_df
         
@@ -779,8 +783,14 @@ async def _load_from_remote_sources(
                     last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}"
                     logger.debug(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next.")
             except httpx.HTTPStatusError as e_http:
-                if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
-                    logger.debug(f"File not found in realtime path: {constructed_base_url}/{remote_mission_folder}. Will try next.")
+                if e_http.response.status_code == 404:
+                    logger.debug(
+                        "Optional/absent remote file for %s (%s) at %s/%s",
+                        report_type,
+                        mission_id,
+                        constructed_base_url,
+                        remote_mission_folder,
+                    )
                 else:
                     logger.warning(f"Remote load attempt from {constructed_base_url} failed: {e_http}")
             except (httpx.RequestError, pd.errors.ParserError, pd.errors.EmptyDataError) as e_req_parse:

@@ -8,8 +8,19 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
-# --- Configure Logging ---
-logging.basicConfig(level=logging.INFO, format='%(levelname)-5.5s [%(name)s] %(message)s')
+# --- Configure Logging (before other imports that may log) ---
+import os
+
+from .config import settings
+from .core.infra.logging_config import (
+    REQUEST_ID_HEADER,
+    bind_request_id,
+    configure_logging,
+    normalize_request_id,
+    reset_request_id,
+)
+
+configure_logging(level=settings.log_level, log_file_path=settings.log_file_path)
 
 # Configure dedicated loggers for different data types
 def setup_dedicated_loggers():
@@ -42,7 +53,6 @@ def setup_dedicated_loggers():
     return user_activity_logger, cache_stats_logger, mission_usage_logger
 
 # Create logs directory if it doesn't exist
-import os
 os.makedirs('logs', exist_ok=True)
 
 # Initialize dedicated loggers
@@ -86,7 +96,6 @@ from .core import auth  # Import the auth module itself for its functions
 from .core.auth import (get_current_active_user, get_current_admin_user,
                         get_optional_current_user, require_platform_access,
                         redirect_if_platform_denied)
-from .config import settings
 from .core import models  # type: ignore
 from .core import utils, template_context, reporting  # type: ignore
 from .core.geo import forecast
@@ -202,6 +211,22 @@ async def log_app_5xx(request, call_next):
             response.status_code, request.method, request.url.path,
         )
     return response
+
+
+@app.middleware("http")
+async def bind_request_id_middleware(request, call_next):
+    """Propagate or generate X-Request-ID and bind it for the request logging context.
+
+    Registered last so it wraps other HTTP middleware (SLOWREQ / APP5XX see the id).
+    """
+    request_id = normalize_request_id(request.headers.get(REQUEST_ID_HEADER))
+    token = bind_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response
+    finally:
+        reset_request_id(token)
 
 
 @app.get("/healthz", include_in_schema=False)
@@ -713,19 +738,55 @@ def _initialize_database_and_users():
                     user_create_model = models.UserCreate(**user_data_dict)
                     auth.add_user_to_db(session, user_create_model)
                 else:
-                    logger.info(f"Default user '{username}' already exists.")
+                    logger.debug(f"Default user '{username}' already exists.")
                     # Update password if it's set in .env (allows syncing .env passwords to existing users)
                     if password:
-                        logger.info(f"Updating password for existing default user '{username}' from .env configuration.")
+                        logger.debug(
+                            f"Updating password for existing default user '{username}' from .env configuration."
+                        )
                         auth.update_user_password_in_db(session, username, password)
                     else:
-                        logger.info(f"Skipping password update for '{username}' - no password set in .env.")
+                        logger.debug(f"Skipping password update for '{username}' - no password set in .env.")
+
+            # Disabled System account for automated checklist attribution (no interactive login).
+            from .core.slocum_checklist_submit_service import SYSTEM_USERNAME
+            import secrets
+
+            existing_system = auth.get_user_from_db(session, SYSTEM_USERNAME)
+            if not existing_system:
+                logger.info("Default user '%s' not found. Creating disabled System account...", SYSTEM_USERNAME)
+                system_user = models.UserInDB(
+                    username=SYSTEM_USERNAME,
+                    full_name="System (automated)",
+                    email=None,
+                    hashed_password=auth.get_password_hash(secrets.token_urlsafe(48)),
+                    role=models.UserRoleEnum.pilot,
+                    color=auth.USER_COLORS[(default_user_color_idx + 3) % len(auth.USER_COLORS)],
+                    disabled=True,
+                    is_pic=False,
+                    is_mos=False,
+                    can_access_wave_glider=True,
+                    can_access_slocum=True,
+                )
+                session.add(system_user)
+                session.commit()
+                logger.info("Created disabled System user for automated submissions.")
+            else:
+                logger.debug("Default user '%s' already exists.", SYSTEM_USERNAME)
+                if not existing_system.disabled:
+                    existing_system.disabled = True
+                    session.add(existing_system)
+                    session.commit()
+                    logger.info("Ensured System user remains disabled for login.")
 
             # Reset the color index based on all users, to avoid re-assigning colors on restart
             all_users_statement = select(models.UserInDB)
             all_users_in_db = session.exec(all_users_statement).all()
             auth.next_color_index = len(all_users_in_db)
-            logger.info(f"Color index reset to {auth.next_color_index} based on {len(all_users_in_db)} total users.")
+            logger.debug(
+                f"Color index reset to {auth.next_color_index} based on {len(all_users_in_db)} total users."
+            )
+            logger.info("Default users ensured.")
         else:
             logger.error(
                 f"'{models.UserInDB.__tablename__}' table still does not exist "
@@ -848,8 +909,14 @@ async def _load_from_remote_sources(
                     last_accessed_remote_path_if_empty = f"Remote: {constructed_base_url}/{remote_mission_folder}"
                     logger.debug(f"Remote file found but empty for {report_type} ({mission_id}) from {last_accessed_remote_path_if_empty}. Will try next.")
             except httpx.HTTPStatusError as e_http:
-                if e_http.response.status_code == 404 and "output_realtime_missions" in constructed_base_url:
-                    logger.debug(f"File not found in realtime path: {constructed_base_url}/{remote_mission_folder}. Will try next.")
+                if e_http.response.status_code == 404:
+                    logger.debug(
+                        "Optional/absent remote file for %s (%s) at %s/%s",
+                        report_type,
+                        mission_id,
+                        constructed_base_url,
+                        remote_mission_folder,
+                    )
                 else:
                     logger.warning(f"Remote load attempt from {constructed_base_url} failed: {e_http}")
             except (httpx.RequestError, pd.errors.ParserError, pd.errors.EmptyDataError) as e_req_parse:
@@ -948,11 +1015,15 @@ def _apply_date_filtering(df: pd.DataFrame, report_type: str, start_date: dateti
         if not filtered_df.empty:
             actual_start = filtered_df[timestamp_col].min()
             actual_end = filtered_df[timestamp_col].max()
-            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
-                       f"({actual_start.isoformat()} to {actual_end.isoformat()})")
+            logger.debug(
+                f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                f"({actual_start.isoformat()} to {actual_end.isoformat()})"
+            )
         else:
-            logger.info(f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
-                       f"(requested: {start_date.isoformat()} to {end_date.isoformat()}, no matching data)")
+            logger.debug(
+                f"Date filtering applied to {report_type}: {len(df)} -> {len(filtered_df)} records "
+                f"(requested: {start_date.isoformat()} to {end_date.isoformat()}, no matching data)"
+            )
         
         return filtered_df
         
@@ -1577,6 +1648,72 @@ async def run_sfmc_cache_refresh_job():
         logger.error("AUTOMATED: SFMC cache refresh failed: %s", exc, exc_info=True)
 
 
+async def run_slocum_auto_checklist_submit_job():
+    """
+    Leader job: at the UTC deadline, auto-submit missing daily checklists as System.
+
+    Uses ERDDAP autofill + cached SFMC only. Staggers missions to avoid stalling
+    the leader worker when multiple active datasets need submissions.
+    """
+    if not feature_toggles.is_feature_enabled("slocum_platform"):
+        return
+    if not feature_toggles.is_feature_enabled("slocum_auto_checklist_submit"):
+        return
+
+    from .core.slocum_checklist_submit_service import auto_submit_checklist_for_dataset
+    from .core.slocum_mirror_service import is_historical_dataset
+
+    dataset_ids = [
+        d.strip()
+        for d in settings.active_slocum_datasets
+        if d and d.strip() and not is_historical_dataset(d.strip())
+    ]
+    if not dataset_ids:
+        logger.info("AUTOMATED: No active Slocum datasets for auto checklist submit.")
+        return
+
+    stagger_seconds = max(
+        0, int(getattr(settings, "slocum_auto_checklist_stagger_seconds", 150) or 0)
+    )
+    logger.info(
+        "AUTOMATED: Slocum auto checklist queue (%s datasets, stagger=%ss): %s",
+        len(dataset_ids),
+        stagger_seconds,
+        dataset_ids,
+    )
+    submitted = 0
+    skipped = 0
+    failed = 0
+    with SQLModelSession(sqlite_engine) as session:
+        remaining_after = len(dataset_ids)
+        for dataset_id in dataset_ids:
+            remaining_after -= 1
+            did_submit = False
+            try:
+                form = await auto_submit_checklist_for_dataset(session, dataset_id)
+                if form is None:
+                    skipped += 1
+                else:
+                    submitted += 1
+                    did_submit = True
+            except Exception as exc:
+                failed += 1
+                logger.error(
+                    "AUTOMATED: Auto checklist failed for %s: %s",
+                    dataset_id,
+                    exc,
+                    exc_info=True,
+                )
+            if did_submit and remaining_after > 0 and stagger_seconds > 0:
+                await asyncio.sleep(stagger_seconds)
+    logger.info(
+        "AUTOMATED: Slocum auto checklist finished (submitted=%s, skipped=%s, failed=%s)",
+        submitted,
+        skipped,
+        failed,
+    )
+
+
 # --- FastAPI Lifecycle Events for Scheduler ---
 @app.on_event("startup")  # Uncomment the startup event
 async def startup_event():
@@ -1769,6 +1906,24 @@ async def startup_event():
         logger.info(
             "SFMC checklist cache refresh scheduled every %s minutes",
             sfmc_refresh_minutes,
+        )
+        auto_checklist_hour = int(getattr(settings, "slocum_auto_checklist_cron_hour", 23))
+        auto_checklist_minute = int(getattr(settings, "slocum_auto_checklist_cron_minute", 30))
+        scheduler.add_job(
+            run_slocum_auto_checklist_submit_job,
+            "cron",
+            hour=auto_checklist_hour,
+            minute=auto_checklist_minute,
+            timezone="UTC",
+            id="slocum_auto_checklist_submit_job",
+            max_instances=1,
+            misfire_grace_time=3600,
+            replace_existing=True,
+        )
+        logger.info(
+            "Slocum auto checklist submit scheduled daily at %02d:%02d UTC",
+            auto_checklist_hour,
+            auto_checklist_minute,
         )
         try:
             await run_weather_map_cleanup_job()

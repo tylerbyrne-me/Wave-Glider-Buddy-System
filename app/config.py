@@ -27,9 +27,10 @@ class Settings(BaseSettings):
     # proactively cached.
     background_cache_refresh_interval_minutes: int = 60
     # Default if not in .env
-    log_file_path: Path = Path(
-        "C:/Users/ty225269/Documents/Python Playground/Wave Glider Buddy System/logs/app.log"
-    )
+    # Root log verbosity (DEBUG restores per-file sync / ERDDAP / date-filter detail).
+    log_level: str = "INFO"
+    # When set, also write rotating app logs here; primary stream remains stderr (journalctl).
+    log_file_path: Optional[Path] = None
 
     week_starts_sunday: bool = True 
 
@@ -75,7 +76,7 @@ class Settings(BaseSettings):
 
     # Feature Toggles - JSON string in .env, parsed at startup. wave_glider_specific_nav: show Station Offloads/PIC/Admin only on Wave Glider. wave_glider_knowledge_base / slocum_knowledge_base: independent KB toggles per platform.
     # iridium_map_layer: home Leaflet Iridium constellation overlay (CelesTrak Iridium-E TLEs).
-    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false, "iridium_map_layer": false}'
+    feature_toggles_json: str = '{"pic_management": true, "admin_management": true, "station_offloads": true, "vm4_offload_parser": false, "local_data_loading": false, "slocum_platform": true, "wave_glider_specific_nav": true, "wave_glider_knowledge_base": true, "slocum_knowledge_base": true, "report_bathymetry_contours": true, "weather_map_layers": false, "iridium_map_layer": false, "slocum_auto_checklist_submit": false}'
 
     # --- Slocum ERDDAP Settings ---
     # Ocean Track Slocum glider ERDDAP server; override in .env if needed
@@ -160,6 +161,12 @@ class Settings(BaseSettings):
     sfmc_cache_refresh_interval_minutes: int = 60
     # SFMC hosts typically allow ~25 requests/minute; stay under that.
     sfmc_max_requests_per_minute: int = 20
+
+    # --- Automated Slocum daily checklist (leader cron; UTC only) ---
+    # Fires at deadline; submits missing checklists as System using cached SFMC.
+    slocum_auto_checklist_cron_hour: int = 23
+    slocum_auto_checklist_cron_minute: int = 30
+    slocum_auto_checklist_stagger_seconds: int = 150  # pause between missions
     
     # --- Knowledge Base Settings ---
     knowledge_base_max_upload_size_mb: int = 50  # Maximum file upload size in MB

@@ -618,7 +618,7 @@ async def prefetch_iridium_tles() -> dict[str, Any]:
     }
     _stats["last_prefetch_at"] = _utc_now_iso()
     _stats["last_prefetch_summary"] = summary
-    logger.info("Iridium TLE prefetch finished: %s", summary)
+    logger.debug("Iridium TLE prefetch finished: %s", summary)
     return summary
 
 
@@ -675,7 +675,7 @@ async def run_iridium_tle_cleanup() -> dict[str, Any]:
     summary = purge_iridium_cache(force_all=False)
     _stats["last_cleanup_at"] = _utc_now_iso()
     _stats["last_cleanup_summary"] = summary
-    logger.info("Iridium TLE cache cleanup complete: %s", summary)
+    logger.debug("Iridium TLE cache cleanup complete: %s", summary)
     return summary
 
 

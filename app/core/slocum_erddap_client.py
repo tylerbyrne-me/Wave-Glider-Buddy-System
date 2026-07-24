@@ -209,7 +209,7 @@ def filter_available_variables(
             missing.append(name)
 
     if missing:
-        logger.info(
+        logger.debug(
             "Slocum dataset %s missing variables (dropped from request): %s",
             dataset_id,
             ", ".join(missing),
@@ -299,7 +299,7 @@ def _fetch_variables_best_effort(
             if part is not None and not part.empty:
                 frames.append(part)
         except Exception as err:
-            logger.info(
+            logger.debug(
                 "Slocum dataset %s skipped unavailable/failed variable %s: %s",
                 dataset_id,
                 sensor,
@@ -522,7 +522,7 @@ def fetch_slocum_data(
 
             # Empty match (common with narrow windows) — return empty rather than fail sync.
             if _is_http_client_error(err, 404) and not order_by_max_time:
-                logger.info(
+                logger.debug(
                     "ERDDAP returned 404 for %s (no matching rows for window/vars); returning empty frame",
                     dataset_id,
                 )
@@ -541,7 +541,7 @@ def fetch_slocum_data(
             logger.warning(f"ERDDAP fetch failed for {dataset_id}: {err}")
             raise
     if df is not None and not df.empty:
-        logger.info(f"Fetched {len(df)} rows for dataset {dataset_id}")
+        logger.debug(f"Fetched {len(df)} rows for dataset {dataset_id}")
     return df if df is not None else pd.DataFrame()
 
 
