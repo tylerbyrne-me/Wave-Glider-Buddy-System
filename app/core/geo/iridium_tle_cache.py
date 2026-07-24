@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +27,12 @@ import httpx
 
 from ...config import settings
 from ..infra.feature_toggles import is_feature_enabled
+from ..utils import (
+    promote_orphan_tmp_file,
+    replace_path_with_retries,
+    resolve_data_path,
+    unique_sibling_tmp_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +68,7 @@ _fetch_lock = asyncio.Lock()
 
 
 def _cache_dir() -> Path:
-    return Path(settings.iridium_tle_cache_dir)
+    return resolve_data_path(settings.iridium_tle_cache_dir)
 
 
 def _tles_path() -> Path:
@@ -287,22 +294,40 @@ def _read_json_file(path: Path) -> Optional[dict[str, Any]]:
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON via unique sibling temp + replace (copy fallback on NFS/SELinux)."""
     _ensure_cache_dir()
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-    tmp_path.replace(path)
+    path = Path(path)
+    tmp_path = unique_sibling_tmp_path(path)
+    try:
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        replace_path_with_retries(tmp_path, path)
+    except Exception:
+        try:
+            if tmp_path.is_file():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _read_cached_payload() -> Optional[dict[str, Any]]:
-    payload = _read_json_file(_tles_path())
+    path = _tles_path()
+    if not path.is_file():
+        promote_orphan_tmp_file(path)
+    payload = _read_json_file(path)
     if payload is None or "satellites" not in payload:
         return None
     return payload
 
 
 def _read_rate_limit() -> dict[str, Any]:
-    return _read_json_file(_rate_limit_path()) or {}
+    path = _rate_limit_path()
+    if not path.is_file():
+        promote_orphan_tmp_file(path)
+    return _read_json_file(path) or {}
 
 
 def _cache_age_seconds(payload: Optional[dict[str, Any]] = None) -> Optional[float]:
@@ -367,16 +392,25 @@ def _claim_upstream_slot() -> bool:
     age = _age_seconds_from_iso(existing.get("last_attempt_at"))
     if age is not None and age < _ttl_seconds():
         return False
-    _atomic_write_json(
-        _rate_limit_path(),
-        {
-            **existing,
-            "last_attempt_at": now_iso,
-            "claim_id": claim_id,
-            "ttl_seconds": _ttl_seconds(),
-            "claimed": True,
-        },
-    )
+    try:
+        _atomic_write_json(
+            _rate_limit_path(),
+            {
+                **existing,
+                "last_attempt_at": now_iso,
+                "claim_id": claim_id,
+                "ttl_seconds": _ttl_seconds(),
+                "claimed": True,
+            },
+        )
+    except OSError as exc:
+        # Disk/SELinux/NFS write failure must not 502 the overlay; allow one fetch
+        # without a durable gate and log for ops.
+        logger.warning(
+            "Iridium upstream rate-limit gate write failed (%s); allowing fetch without durable claim",
+            exc,
+        )
+        return True
     # If another worker overwrote our claim in the same instant, back off.
     gate = _read_rate_limit()
     if gate.get("claim_id") != claim_id:
@@ -398,7 +432,10 @@ def _record_upstream_result(*, ok: bool, error: Optional[str] = None, source_url
     }
     if ok:
         payload["last_success_at"] = now_iso
-    _atomic_write_json(_rate_limit_path(), payload)
+    try:
+        _atomic_write_json(_rate_limit_path(), payload)
+    except OSError as exc:
+        logger.warning("Iridium rate-limit result write failed: %s", exc)
 
 
 def _write_payload(payload: dict[str, Any]) -> None:
@@ -449,7 +486,13 @@ async def _fetch_upstream_tles() -> dict[str, Any]:
         "attribution": "CelesTrak / Iridium ephemeris (SupGP Iridium-E)",
         "satellites": satellites,
     }
-    _write_payload(payload)
+    try:
+        _write_payload(payload)
+    except OSError as exc:
+        logger.warning(
+            "Iridium TLE disk write failed after upstream fetch (%s); serving in-memory payload",
+            exc,
+        )
     _record_upstream_result(ok=True, source_url=source_url)
     _stats["last_fetch_at"] = payload["fetched_at"]
     _stats["last_fetch_ok"] = True
